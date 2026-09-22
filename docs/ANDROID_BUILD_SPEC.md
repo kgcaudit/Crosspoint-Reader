@@ -1,397 +1,326 @@
-# 안드로이드 EPUB 뷰어 — 세부 시행계획 (빌드 사양서)
+# 안드로이드 전자책 뷰어 — 세부 시행계획 (빌드 사양서)
 
-**확정 방향**: 네이티브 Canvas 조판 + 디스크 페이지 캐시. WebView 미사용. `ANDROID_ARCHITECTURE_DECISION.md` §8 한계 수용.
-**이 문서의 성격**: 착수부터 1차 배포까지 **작업 단위로 실행 가능한** 사양서. 설계 논의는 끝났고, 여기서는 "무엇을 어떤 순서로 만들고 무엇으로 끝났다고 판정하는가"만 다룬다.
-**작성일**: 2026-09-22
+**rev.2 (2026-09-22)** — 제품 정의 정정 반영. rev.1을 대체한다.
 
 ---
 
-## 1. 확정 사항 (변경하려면 이 문서를 고쳐야 함)
+## 0. rev.1에서 무엇이 틀렸나
+
+사용자 정의: **"EPUB · TXT · PDF를 간편하게 읽고, 책갈피를 넣는 등 CrossPoint 주요기능 중심."**
+
+rev.1은 여기서 두 군데가 어긋났다.
+
+| # | 어긋남 | 원인 | 정정 |
+|---|---|---|---|
+| **1** | **PDF를 범위에서 제외했다** | CrossPoint `SCOPE.md`의 "PDF out-of-scope"를 그대로 승계했다. 그러나 **그 근거는 e-ink 전용이다** — *"고정 레이아웃이라 페이지를 이미지로 띄워야 하고, e-ink에서 끊임없는 패닝·줌은 나쁜 경험"*. **휴대폰·태블릿에서는 핀치 줌이 자연스러워 이 근거가 성립하지 않는다.** 원본의 제약을 제품 요구로 오인했다 | **PDF를 1급 지원으로 편입** |
+| **2** | **조판 엔진을 먼저, 읽기 기능을 나중에 배치했다** | "가볍게"를 성능 문제로만 읽고 "간편하게"를 놓쳤다. 책갈피가 S5(13주차), 쓸 수 있는 앱이 S4(10주차) | **순서를 뒤집는다. 2주차에 설치해서 쓸 수 있는 앱, 책갈피는 첫 스프린트** |
+
+**유지되는 것**: 아키텍처 결정(네이티브 조판 · WebView 미사용 · 디스크 페이지 캐시 · 성능 예산 · 모듈 규칙 · 수동 DI). PDF가 들어와도 이 결정은 흔들리지 않는다 — **PDF도 WebView를 쓰지 않는다.**
+
+---
+
+## 1. 제품 정의
+
+> **EPUB · TXT · PDF를 폴더에서 바로 열어 읽고, 책갈피와 이어읽기가 확실한 가벼운 뷰어.**
+> 화면 구성은 CrossPoint를 따른다.
+
+### 1.1 핵심 기능 (v1 필수)
+
+| 분류 | 기능 |
+|---|---|
+| 읽기 | EPUB · TXT · PDF 열기 / 페이지 넘김 / 화면 회전 |
+| **책갈피** | 추가 · 목록 · 이동 · 삭제 — **3개 포맷 전부** |
+| 이어읽기 | 진도 자동 저장 / 최근 읽은 책 |
+| 탐색 | 폴더 라이브러리 / 목차 이동 / 진도 퍼센트 이동 |
+| 설정 | 글꼴 · 크기 · 줄 간격 · 여백 · 정렬 (EPUB·TXT) / 테마 |
+| 표시 | 상태바 (제목 · 페이지 · 퍼센트 · 배터리 · 진행바) |
+
+### 1.2 v2 이후
+
+각주 이동 · 읽기 시간 · 자동 페이지 넘김 · 한국어 글자 단위 줄바꿈 · 텍스트 선택/사전 · 하이픈 · 스크린샷 · 태블릿 2단 · 접근성 · KOSync · OPDS
+
+### 1.3 비범위
+
+고정 레이아웃 EPUB(만화) · 미디어 오버레이 · 쓰기/주석 편집 · 클라우드 동기화(v1)
+
+---
+
+## 2. 두 개의 파이프라인, 하나의 셸
+
+PDF 편입이 만드는 유일한 구조 변화다. **PDF는 텍스트 조판을 전혀 거치지 않는다.**
+
+```
+        ┌──────────── 공통 셸 (전체의 60%) ─────────────┐
+        │ 라이브러리 · 책갈피 · 진도 · 최근 책 · 설정      │
+        │ 리더 크롬 (상태바 · 메뉴 · 제스처 · 목차 · 테마)  │
+        └──────────────────┬───────────────────────────┘
+                           │
+          ┌────────────────┴─────────────────┐
+          │                                   │
+   ReflowDocument                      FixedPageDocument
+   EPUB · TXT                          PDF
+   ─────────────────                   ─────────────────
+   파싱 → 블록 → 조판                   PdfRenderer → Bitmap
+   → 페이지 캐시 → Canvas               (뷰포트 해상도 · 줌은 타일)
+   진도 = 글자 오프셋                    진도 = 페이지 번호 + 화면 위치
+```
+
+**핵심 설계**: 위치를 가리키는 타입을 sealed로 통일하면, 책갈피·진도·목차 이동이 **두 파이프라인에서 같은 코드로** 동작한다.
+
+```kotlin
+sealed interface Locator {
+    data class Reflow(val spine: Int, val charOffset: Int) : Locator
+    data class FixedPage(val page: Int, val xNorm: Float, val yNorm: Float) : Locator
+}
+
+data class Bookmark(val bookId: BookId, val locator: Locator,
+                    val snippet: String?, val createdAt: Long)
+```
+
+이 하나로 책갈피 화면·진도 저장·"이어읽기"가 포맷과 무관해진다.
+
+```kotlin
+sealed interface Document {
+    val meta: BookMeta
+    suspend fun outline(): List<TocEntry>
+}
+interface ReflowDocument : Document {          // EPUB · TXT
+    suspend fun spine(): List<SpineItem>
+    suspend fun openChapter(i: Int): java.io.Reader
+    suspend fun openResource(href: String): java.io.InputStream?
+}
+interface FixedPageDocument : Document {       // PDF
+    val pageCount: Int
+    suspend fun pageSize(i: Int): Size
+    suspend fun render(i: Int, target: Rect, scale: Float): Bitmap
+}
+```
+
+---
+
+## 3. PDF 구현 방침
+
+| 항목 | 선택 |
+|---|---|
+| 렌더러 | **`android.graphics.pdf.PdfRenderer`** (플랫폼 내장, **APK 0 바이트**) |
+| 열기 | SAF `Uri` → `openFileDescriptor` → `PdfRenderer` |
+| 렌더 해상도 | **뷰포트 크기에 맞춰서만 렌더.** 원본 해상도 비트맵 금지 |
+| 줌 | **타일 렌더링** — 확대 시 보이는 영역만 고해상도로 다시 렌더. 전체 페이지를 고해상도로 올리지 않는다 |
+| 책갈피 | 페이지 번호 + 화면 내 정규화 좌표 |
+| 진도 | 〃 |
+
+**`PdfRenderer`의 한계 (v1에서 수용)**: PDF 내장 목차(outline)·텍스트 추출·검색·암호 PDF를 지원하지 않는다. → **PDF 목차·검색은 v1에 없다.**
+
+→ 필요해지면 `FixedPageDocument` 구현만 **Pdfium 계열로 교체**하면 된다(+3~6MB/ABI). 인터페이스가 이미 그 자리에 있으므로 위층은 무수정. **결정 P1** 참조.
+
+---
+
+## 4. 확정 사항
 
 | 항목 | 확정값 |
 |---|---|
-| 본문 렌더링 | **Canvas + Paint 직접 그리기.** WebView·Compose Text 미사용 |
-| 페이지네이션 | **챕터 단위 사전 조판 → 디스크 캐시.** 페이지 넘김 경로에 계산 없음 |
-| 줄바꿈 | `LineBreaker` 전략 인터페이스. **v1 = `PlatformLineBreaker`(StaticLayout)**, v2 = `KoreanLineBreaker`(S6) |
-| UI | Compose + Material 3. 리더 본문만 Canvas |
-| DI | **수동 (생성자 주입 + `AppContainer`).** Hilt 미사용 |
-| 저장 | Room(라이브러리·진도·북마크) + DataStore(설정) + 자체 바이너리(페이지 캐시) |
-| EPUB 파싱 | **자체 구현.** Readium·epub4j 미사용 (`BookSource` 뒤에 두어 교체 가능) |
-| 파일 접근 | SAF 폴더 등록(`ACTION_OPEN_DOCUMENT_TREE`) |
-| minSdk / target / compile | **26 / 35 / 36** |
-| 라이선스 | **MIT** (원본 CrossPoint MIT 계승, 출처 표기) |
-| v1 포맷 | EPUB 2/3 리플로우 전용 |
+| 지원 포맷 | **EPUB 2/3 · TXT · PDF** |
+| 본문 렌더링 | Canvas + Paint 직접 그리기. **WebView 미사용** |
+| PDF 렌더링 | `PdfRenderer` (플랫폼) |
+| 페이지네이션(리플로우) | 챕터 단위 사전 조판 → 디스크 캐시 |
+| 줄바꿈 | `LineBreaker` 전략. v1 = `PlatformLineBreaker`(StaticLayout), v2 = `KoreanLineBreaker` |
+| UI | Compose + Material 3 |
+| DI | 수동 (`AppContainer`) |
+| 저장 | Room + DataStore + 자체 바이너리 페이지 캐시 |
+| 파일 접근 | SAF 폴더 등록 |
+| minSdk / target / compile | 26 / 35 / 36 |
+| 라이선스 | MIT |
 
 ### 성능 예산 (CI 게이트)
 
 | 지표 | 예산 |
 |---|---:|
-| 페이지 넘김 p95 | **≤ 16 ms** |
+| 페이지 넘김 p95 (EPUB·TXT) | ≤ 16 ms |
+| 페이지 넘김 p95 (PDF) | ≤ 100 ms (렌더 필요) |
 | 책 열기 (캐시 적중) | ≤ 300 ms |
-| 첫 페이지 표시 (300KB 챕터, 최초) | ≤ 1,500 ms |
 | 콜드 스타트 → 라이브러리 | ≤ 500 ms |
 | 리더 RSS | ≤ 120 MB |
 | APK (폰트 제외) | ≤ 12 MB |
 
 ---
 
-## 2. 저장소 구조
+## 5. 모듈 구조
 
 ```
-Crosspoint-Reader/                 ← 현재 저장소를 그대로 사용
-├─ docs/                           ← 기존 계획 문서 4종
-├─ android/                        ← 신규. Gradle 루트
-│  ├─ settings.gradle.kts
-│  ├─ gradle/libs.versions.toml    ← version catalog (의존성 단일 출처)
-│  ├─ app/                         :app          Application, AppContainer, Navigation
-│  ├─ ui/                          :ui           화면 20개
-│  ├─ ui-design/                   :ui-design    CpTheme 토큰 + 컴포넌트 10종
-│  ├─ reader-render/               :reader-render Canvas 그리기 · 제스처 · 애니메이션
-│  ├─ text-platform/               :text-platform TextMeasurer/LineBreaker 안드로이드 구현
-│  ├─ core-layout/                 :core-layout  ★ 순수 Kotlin (JVM)
-│  ├─ epub/                        :epub         ★ 순수 Kotlin (JVM) + XmlPullParser
-│  ├─ data/                        :data         Room · DataStore · SAF · 페이지 캐시 I/O
-│  └─ benchmark/                   :benchmark    Macrobenchmark
-└─ corpus/                         ← 테스트용 EPUB (저장소에 넣지 않고 경로만 기록)
+android/
+├─ app/              :app            Application · AppContainer · Navigation
+├─ ui/               :ui             화면
+├─ ui-design/        :ui-design      CpTheme 토큰 + 컴포넌트
+├─ reader-reflow/    :reader-reflow  EPUB·TXT 리더 화면 · Canvas 그리기 · 제스처
+├─ reader-pdf/       :reader-pdf     PDF 리더 화면 · PdfRenderer · 타일 줌
+├─ text-platform/    :text-platform  TextMeasurer · PlatformLineBreaker
+├─ core-layout/      :core-layout    ★ 순수 Kotlin — 블록 · 조판 · 페이지 캐시 포맷
+├─ document/         :document       ★ 순수 Kotlin — Document/Locator 모델 · EPUB·TXT 파서
+├─ data/             :data           Room · DataStore · SAF · 캐시 I/O
+└─ benchmark/        :benchmark      Macrobenchmark
 ```
 
-### 2.1 모듈 의존 규칙 (강제)
+**의존 규칙 (빌드 시 강제)**
 
-```
-:app → :ui → :ui-design
-        ↓
-   :reader-render → :text-platform → :core-layout ← :epub
-        ↓                                 ↑
-      :data ─────────────────────────────┘
-```
-
-| 모듈 | 허용 | **금지** |
+| 모듈 | 허용 | 금지 |
 |---|---|---|
-| `:core-layout` | kotlin-stdlib **만** | `android.*` 일체. `kotlinx-coroutines` 도 금지(순수 함수) |
-| `:epub` | kotlin-stdlib, `org.xmlpull` | `android.*` (단, `XmlPullParser` 인터페이스는 허용 — 구현은 주입) |
-| `:text-platform` | `android.graphics.*` | Compose, Room |
-| `:reader-render` | Compose, `:text-platform` | Room, 네트워크 |
-| `:ui-design` | Compose, Material3 | 도메인 모델, Room |
+| `:core-layout` | kotlin-stdlib **만** | `android.*` 일체 |
+| `:document` | kotlin-stdlib, `XmlPullParser` 인터페이스 | `android.*` 구현체 |
+| `:reader-pdf` | `android.graphics.pdf.*` | `:core-layout` (PDF는 조판하지 않는다) |
 
-> **`:core-layout`과 `:epub`에 Android 의존이 들어가는 순간 이 프로젝트의 핵심 이점이 사라진다.** Gradle에서 `android.*` 임포트를 검출해 빌드 실패시키는 검사를 S1에 넣는다.
+> `:core-layout` / `:document`에 `android.*` 임포트가 들어가면 빌드를 실패시킨다. **R1의 첫 작업.**
 
 ---
 
-## 3. 데이터 파이프라인
+## 6. 스프린트 — "2주차에 쓸 수 있는 앱"
 
-```
-SAF Uri
-  └→ ZipReader            랜덤 액세스 ZIP (중앙 디렉터리 파싱, 엔트리 지연 팽창)
-      └→ ContainerParser  META-INF/container.xml → rootfile 경로
-          └→ OpfParser    content.opf → BookMeta · Manifest · Spine
-              └→ TocParser  toc.ncx (EPUB2) | nav.xhtml (EPUB3) → Toc
-                  ↓ [Room에 1회 저장]
-  [챕터 열람 시]
-  ZipReader.open(spine[i].href)
-      └→ ChapterParser    XmlPullParser SAX → InlineRun 스트림 + 정규화 텍스트
-          └→ StyleResolver  태그 기본값 + CSS 서브셋 + 사용자 설정 → BlockStyle
-              └→ Block 스트림   Text(runs) | Image | Rule
-                  └→ Paginator   LineBreaker + TextMeasurer + RenderSpec
-                      └→ Page 스트림
-                          └→ PageStore  s<i>.txt / s<i>.run / s<i>.idx 기록
-                              ↓ [이후 열람은 여기서 시작]
-                          PageStore.load(page) → PageRenderer → Canvas
-```
+각 스프린트가 **설치해서 쓸 수 있는 상태**로 끝난다.
 
-**핵심**: 두 번째 열람부터는 파이프라인 상단이 전부 생략되고 `PageStore.load` → `draw`만 남는다. 이것이 페이지 넘김 16ms의 근거다.
+### R1 — 공통 셸 + PDF (2주) → **설치 가능**
 
----
+| # | 작업 |
+|---|---|
+| 1.1 | Gradle 멀티모듈 + version catalog + **의존 규칙 검사 태스크** |
+| 1.2 | SAF 폴더 등록 · 영속 권한 · 재귀 스캔 (`.epub/.txt/.pdf`) |
+| 1.3 | Room: `books` `progress` `bookmarks` `recent` + DAO |
+| 1.4 | `Document` / `Locator` 모델 · `AppContainer` |
+| 1.5 | GUI 기본 4종: `CpHeader` `CpList` `CpStatusBar` `CpPopup` |
+| 1.6 | 라이브러리 화면 (폴더 탐색 · 파일 아이콘 · 최근 책) |
+| 1.7 | **PDF 리더**: `PdfRenderer` · 뷰포트 렌더 · 페이지 이동 · 핀치 줌(타일) |
+| 1.8 | **책갈피 추가/목록/이동/삭제** · 진도 저장 · 이어읽기 |
+| 1.9 | 리더 크롬: 상태바 · 메뉴 시트 · 탭/스와이프 제스처 |
 
-## 4. 핵심 인터페이스 (확정)
+**완료 판정**: 실기기에 설치해 **PDF를 폴더에서 열고, 읽고, 책갈피를 찍고, 앱을 껐다 켜도 같은 자리로 돌아온다.**
 
-### 4.1 `:core-layout` — 순수 Kotlin
+### R2 — TXT 리더 + 조판 엔진 (2주) → **설치 가능**
 
-```kotlin
-/** 글자 폭 측정. 유일한 플랫폼 의존 지점이며, 테스트에서는 FakeMeasurer로 대체한다. */
-interface TextMeasurer {
-    fun advance(text: CharSequence, start: Int, end: Int, style: TextStyle): Float
-    fun lineHeight(style: TextStyle): Float
-    fun ascent(style: TextStyle): Float
-    fun spaceWidth(style: TextStyle): Float
-}
+| # | 작업 |
+|---|---|
+| 2.1 | `TxtDocument` — **인코딩 감지 (UTF-8 / UTF-16 / EUC-KR·CP949)**. 한국어 TXT는 EUC-KR이 흔하다 |
+| 2.2 | `:core-layout` 블록 모델 (문단 · 빈 줄) |
+| 2.3 | `TextMeasurer` 인터페이스 + **`FakeMeasurer`** (모든 글자 10f → 결정적 테스트) |
+| 2.4 | `PlatformLineBreaker` (`StaticLayout` 위임) |
+| 2.5 | `Paginator` — 줄 → 페이지 패킹 |
+| 2.6 | `PageStore` — 페이지 캐시 포맷 (§7) |
+| 2.7 | 리플로우 리더 화면 · Canvas 그리기 |
+| 2.8 | 리더 설정: 글꼴 · 크기 · 줄 간격 · 여백 · 정렬 |
+| 2.9 | 골든 테스트 하네스 |
 
-/** 줄바꿈 정책. 교체 가능한 전략. */
-interface LineBreaker {
-    fun breakLines(
-        paragraph: Paragraph,        // 인라인 런 + 블록 스타일
-        widthPx: Float,
-        firstLineIndentPx: Float,
-        measurer: TextMeasurer,
-    ): List<LaidLine>                // 각 줄의 런 배치(x 좌표 포함)
-}
+**완료 판정**: TXT를 읽고 책갈피·이어읽기가 동작. **조판 파이프라인이 CSS·ZIP 없이 검증됨.**
 
-/** 줄 → 페이지 패킹. 항상 순수 함수. */
-class Paginator(
-    private val lineBreaker: LineBreaker,
-    private val measurer: TextMeasurer,
-) {
-    fun paginate(blocks: Sequence<Block>, spec: RenderSpec): Sequence<Page>
-}
+> TXT를 EPUB보다 먼저 하는 이유: 조판 엔진을 **ZIP·XML·CSS 없이** 단독 검증할 수 있다. 여기서 버그를 다 잡고 EPUB에 들어간다.
 
-/** 조판에 영향을 주는 모든 값. 이 해시가 캐시 키다. */
-data class RenderSpec(
-    val fontFamilyId: String, val fontSizePx: Float, val lineHeightMul: Float,
-    val marginPx: Insets, val alignment: Alignment,
-    val paragraphIndent: Boolean, val extraParagraphSpacing: Boolean,
-    val embeddedStyle: Boolean, val hyphenation: Boolean,
-    val characterWrap: Boolean, val imagesEnabled: Boolean,
-    val viewportW: Int, val viewportH: Int,
-) { val hash: String get() = /* 안정적 해시 */ }
-```
+### R3 — EPUB (3주) → **설치 가능**
 
-### 4.2 `:epub`
+| # | 작업 |
+|---|---|
+| 3.1 | `ZipReader` — SAF `Uri` 랜덤 액세스 |
+| 3.2 | `ContainerParser` · `OpfParser` · `TocParser`(ncx/nav) |
+| 3.3 | `ChapterParser` — XmlPullParser SAX → 인라인 런 + 정규화 텍스트 |
+| 3.4 | CSS **최소** 서브셋 (§8) + `StyleResolver` |
+| 3.5 | 점진적 조판 (`Flow`) · 부분 캐시 · 중단/재개 |
+| 3.6 | 목차 화면 · 이미지 블록 (`inSampleSize`) |
+| 3.7 | 진도 = **글자 오프셋** — 회전·설정 변경 후에도 같은 글자 복귀 |
 
-```kotlin
-interface BookSource {                       // EPUB / TXT / MD … 확장점
-    suspend fun metadata(): BookMeta
-    suspend fun spine(): List<SpineItem>
-    suspend fun toc(): List<TocEntry>
-    suspend fun openChapter(index: Int): java.io.Reader
-    suspend fun openResource(href: String): java.io.InputStream?
-}
-```
+**완료 판정**: 코퍼스 EPUB 20권을 크래시·레이아웃 붕괴 없이 완독.
 
-### 4.3 `:data` — 점진적 조판
+### R4 — 완성도 + 배포 (2주)
 
-```kotlin
-sealed interface PaginateEvent {
-    data class PageReady(val index: Int) : PaginateEvent
-    data class Progress(val built: Int, val estimatedTotal: Int) : PaginateEvent
-    data object Complete : PaginateEvent
-}
+| # | 작업 |
+|---|---|
+| 4.1 | GUI 나머지 컴포넌트 (`CpButtonMenu` `CpCoverTile` `CpTabBar` `CpProgressBar` `CpOptionPopup` `CpTextField`) |
+| 4.2 | 홈 화면 (최근 책 커버 타일) · 커버 썸네일 |
+| 4.3 | 진도 퍼센트 이동 · 화면 회전 · 페이지 전환 애니메이션 |
+| 4.4 | 테마 Light / Dark / Sepia |
+| 4.5 | 설정 화면 (선언적 스키마 자동 생성) |
+| 4.6 | Macrobenchmark + 예산 검증 · APK 크기 확인 |
+| 4.7 | 실기기 통합 테스트 (3개 포맷) |
 
-interface ChapterPager {
-    fun build(spine: Int, spec: RenderSpec): Flow<PaginateEvent>
-    suspend fun page(spine: Int, page: Int): Page
-    suspend fun pageForOffset(spine: Int, charOffset: Int): Int
-    suspend fun offsetForPage(spine: Int, page: Int): Int
-    suspend fun suspendBuild()               // 앱 백그라운드 진입 시 부분 결과 보존
-}
-```
+**완료 판정**: **1차 배포.** §4 성능 예산 전 항목 통과.
+
+### 이후
+
+| R | 기간 | 내용 |
+|---|---|---|
+| R5 | 2주 | 각주 이동 · 읽기 시간 · 자동 페이지 넘김 · 텍스트 선택→복사 |
+| R6 | 2주 | **`KoreanLineBreaker`** (글자 단위 줄바꿈 · 어절 간격 1.0–1.5x · U+3000 들여쓰기) |
+| R7 | 2주 | 태블릿 2단 · TalkBack · i18n · 하이픈 · 스크린샷 |
+| R8+ | — | Pdfium 전환(PDF 목차·검색) · 사전 · KOSync · OPDS |
+
+**누적: R1 2주(쓸 수 있는 앱) → R4 9주(1차 배포) → R7 15주(기능 완성)**
+
+rev.1 대비: 쓸 수 있는 앱이 **10주 → 2주**, 1차 배포 **10주 → 9주**(PDF·TXT 포함).
 
 ---
 
-## 5. 페이지 캐시 포맷 (v1 초안 — S2에서 확정)
+## 7. 페이지 캐시 포맷 (리플로우 전용)
 
 ```
 <filesDir>/pages/<bookId>/<specHash>/
-   s<N>.txt    챕터 정규화 텍스트 (UTF-8, 연속 공백 축약 후)
-   s<N>.run    고정 길이 Run 레코드 배열
-   s<N>.idx    헤더 + 고정 길이 PageEntry 배열
+   s<N>.txt   챕터 정규화 텍스트 (UTF-8)
+   s<N>.run   고정 16B 런 레코드
+   s<N>.idx   헤더(32B) + 고정 16B 페이지 엔트리
 ```
 
-| 파일 | 레코드 | 필드 |
-|---|---|---|
-| `.idx` 헤더 (32B) | — | magic `CPP1` · version u16 · pageCount u16 · complete u8 · runCount u32 · bytesConsumed u32 · totalBytes u32 |
-| `.idx` PageEntry (16B) | 페이지당 1개 | runStart u32 · runCount u16 · imgStart u16 · imgCount u8 · flags u8 · charOffset u32 |
-| `.run` Run (16B) | 런당 1개 | charStart u32 · charEnd u32 · x i16(고정소수) · y i16 · styleId u8 · flags u8 |
-
-**설계 의도 3가지**
-1. **텍스트를 한 번만 저장하고 런은 인덱스만 갖는다.** `.txt` 하나가 조판·**텍스트 선택**·**검색**·**TTS**·진도 오프셋의 공통 원천이 된다.
-2. **고정 길이 레코드** → 페이지 N 읽기 = `.idx`에서 16B 읽고 `.run`에서 슬라이스 읽기. 파싱 0.
-3. `complete=0`이면 **부분 캐시**(중단된 빌드). 그 지점까지는 즉시 읽고 뒤는 백그라운드로 이어 만든다.
-
-**무효화**: `specHash` 디렉터리 단위. 설정이 바뀌면 새 디렉터리가 생기고, 오래된 것은 LRU로 정리(기본 상한 200MB).
-
----
-
-## 6. CSS 서브셋 (v1 확정 범위)
-
-### 지원
-| 분류 | 속성 |
+| 레코드 | 필드 |
 |---|---|
-| 텍스트 | `text-align`, `text-indent`, `text-decoration`(underline/line-through), `direction` |
-| 폰트 | `font-style`(italic), `font-weight`(bold), `font-size`(em/rem/%/pt/px) |
-| 박스 | `margin`(4방향), `padding`(4방향), `display:none`, `page-break-before/after` |
-| 인라인 | `vertical-align`(super/sub) |
-| 이미지 | `width`, `height` |
+| `.idx` 헤더 | magic `CPP1` · version u16 · pageCount u16 · complete u8 · runCount u32 · bytesConsumed u32 · totalBytes u32 |
+| `.idx` PageEntry (16B) | runStart u32 · runCount u16 · imgStart u16 · imgCount u8 · flags u8 · charOffset u32 |
+| `.run` Run (16B) | charStart u32 · charEnd u32 · x i16 · y i16 · styleId u8 · flags u8 |
 
-### 셀렉터
-타입(`p`) · 클래스(`.x`) · ID(`#x`) · 후손(`div p`) · 그룹(`,`) — **이것만**. 특이도는 표준 규칙.
+**설계 의도**
+1. **텍스트는 한 번만 저장하고 런은 인덱스만 갖는다.** `.txt` 하나가 조판 · 책갈피 스니펫 · 진도 오프셋 · (향후) 검색 · 텍스트 선택 · TTS의 공통 원천
+2. **고정 길이** → 페이지 N 읽기 = 16B 읽고 슬라이스. 파싱 0
+3. `complete=0` = 부분 캐시. 그 지점까지 즉시 읽고 뒤는 백그라운드
 
-### 무시 (경고 없이 통과)
-`float`, `position`, `color`/`background`(테마가 결정), `border`, `line-height`(사용자 설정이 결정), `@media`, 의사 클래스/요소, 속성 셀렉터, `table` 고급 속성
-
-> 무시 목록을 **명시적으로** 둔다. "지원 안 하는 게 뭔지 모르는 상태"가 가장 비싸다.
+**무효화**: `specHash`(조판 영향 설정 전부의 해시) 디렉터리 단위. LRU 상한 200MB.
+**PDF는 이 캐시를 쓰지 않는다.**
 
 ---
 
-## 7. 설정 스키마 (v1 전체 항목)
+## 8. CSS 서브셋 (v1 — rev.1보다 축소)
 
-설정은 **데이터로 선언**하고 UI·DataStore·`RenderSpec` 해시가 자동 파생된다.
+"간편하게 읽기"가 목표이므로 최소로 시작하고 실책 코퍼스가 요구할 때만 늘린다.
 
-```kotlin
-sealed interface Setting {
-    data class Bool (val key:String, val cat:Cat, val title:Int, val default:Boolean): Setting
-    data class Enum (val key:String, val cat:Cat, val title:Int, val values:List<Int>, val default:Int): Setting
-    data class Range(val key:String, val cat:Cat, val title:Int, val min:Int, val max:Int, val step:Int, val default:Int): Setting
-}
-```
-
-| 카테고리 | 항목 |
-|---|---|
-| **Reader** (→ `RenderSpec`) | 글꼴, 글자 크기(12–28sp), 줄 간격(1.0/1.2/1.4), 여백(5–40dp), 문단 정렬(양쪽/왼쪽/가운데/책 스타일), 문단 들여쓰기, 문단 간격, 내장 스타일 사용, 하이픈, 이미지 표시, **글자 단위 줄바꿈**(S6) |
-| **Display** | 테마(시스템/라이트/다크/세피아), 테마 변형(Lyra/Classic), 상태바 구성(제목·페이지·퍼센트·배터리·진행바 개별 토글), 화면 항상 켬, 전체화면 |
-| **Controls** | 탭 영역(좌우/중앙), 스와이프 넘김, 볼륨키 넘김, 페이지 전환(슬라이드/페이드/없음) |
-| **System** | 라이브러리 폴더, 캐시 정리, 언어, 백업/복원 |
-
-**설정 1개 추가 = 위 리스트에 1줄.** 화면·저장·캐시 무효화가 자동 반영된다.
+**지원**: `text-align` · `text-indent` · `font-style`(italic) · `font-weight`(bold) · `font-size`(em/rem/%) · `margin`(4) · `padding`(4) · `display:none` · `text-decoration`(underline/line-through)
+**셀렉터**: 타입 · 클래스 · ID · 후손 · 그룹. 표준 특이도
+**무시(경고 없이)**: `float` · `position` · `color`/`background` · `border` · `line-height` · `@media` · 의사 클래스/요소 · 속성 셀렉터 · `direction`(v2) · `vertical-align`(v2) · 표 고급 속성
 
 ---
 
-## 8. GUI 컴포넌트 명세 (CrossPoint 이식)
+## 9. 테스트 전략
 
-| # | 컴포넌트 | 구성 | 주요 토큰 |
-|---|---|---|---|
-| 1 | `CpHeader` | 제목 + 선택적 부제 | `headerHeight`, `topPadding` |
-| 2 | `CpList` | 아이콘·제목·부제·우측값·비활성 행 + 스크롤바 | `listRowHeight` 30, `listWithSubtitleRowHeight` 50, `scrollBarWidth` 4 |
-| 3 | `CpButtonMenu` | 홈의 아이콘+라벨 세로 메뉴 | `menuRowHeight` 45, `menuSpacing` 8 |
-| 4 | `CpCoverTile` | 최근 책 커버 타일 | `homeCoverHeight` 400, `homeTopPadding` 40 |
-| 5 | `CpTabBar` | 목차/북마크 전환 | `tabBarHeight` 50, `tabSpacing` 10 |
-| 6 | `CpStatusBar` | 제목·페이지·퍼센트·배터리·진행바 | `statusBarHorizontalMargin` 5, `progressBarHeight` 16 |
-| 7 | `CpProgressBar` | 굵기 3단계 | `progressBarHeight` |
-| 8 | `CpPopup` | 중앙 프레임 + 진행 | `popupMarginX/Y` 15, `popupFrameThickness` 2 |
-| 9 | `CpOptionPopup` | 제목 + 구분선 + 선택 목록 | `optionPopupInnerPadding` 16 |
-| 10 | `CpTextField` | 검색·입력 | `textFieldHorizontalPadding` 6 |
-
-**각색 규칙 (전부 적용)**
-1. 원본 수치는 480×800 e-ink 기준 → **비율 재해석**, 단 **터치 타깃 48dp 하한 강제**
-2. 5단계 흑백 디더 → Light / Dark / Sepia 팔레트
-3. 1bit 아이콘 16종 → 벡터 재작성
-4. `drawButtonHints` / `drawSideButtonHints` **제외** (물리 버튼 없음)
-5. **화면 구성(무엇이 어디 있는가)은 원본 그대로 유지** ← 이것이 계승 대상
-
----
-
-## 9. 스프린트별 세부 작업
-
-### S1 — 기반 (2주)
-
-| # | 작업 | 산출물 |
+| 층 | 방식 | 실행 |
 |---|---|---|
-| 1.1 | Gradle 멀티모듈 + version catalog + **모듈 의존 규칙 검사 태스크** | `./gradlew check` 에서 `:core-layout`의 `android.*` 임포트 시 실패 |
-| 1.2 | `ZipReader` — SAF `Uri` 랜덤 액세스, 중앙 디렉터리 파싱, 엔트리 지연 팽창 | 단위 테스트 |
-| 1.3 | `ContainerParser` + `OpfParser` — 메타데이터·manifest·spine | 〃 |
-| 1.4 | `TocParser` — ncx / nav 양쪽 | 〃 |
-| 1.5 | `EpubSource : BookSource` 통합 | 〃 |
-| 1.6 | Room 스키마 (`books` `spine` `toc` `progress` `bookmarks` `stats`) + DAO + 마이그레이션 테스트 | |
-| 1.7 | DataStore(Proto) 설정 + §7 스키마 | |
-| 1.8 | SAF 폴더 등록 · 재귀 스캔 · 영속 권한 | |
-| 1.9 | `CpTheme` 토큰 골격 (`CpMetrics`, 팔레트 3종) | |
-| 1.10 | **테스트 코퍼스 20권 선정** + 파서 골든 테스트 | 코퍼스 목록 문서 |
+| 파서 (EPUB·TXT) | 코퍼스 골든 (메타·spine·TOC·인코딩) | 매 PR · JVM |
+| **조판** | **`FakeMeasurer` 골든** — 페이지 경계 char offset 스냅샷 | 매 PR · JVM · <30초 |
+| 캐시 포맷 | 왕복 + 부분 캐시 재개 | 매 PR · JVM |
+| 책갈피·진도 | `Locator` 왕복 (두 파이프라인) | 매 PR |
+| PDF | 샘플 PDF 10종 렌더 · 메모리 상한 | 실기기 |
+| GUI | 스크린샷 (Roborazzi — 테스트 전용) | 매 PR |
+| 성능 | Macrobenchmark (고정 실기기) | 주간 |
 
-**완료 판정**: 기기 없이 `./gradlew :epub:test` 로 코퍼스 20권의 제목·저자·spine 수·TOC 항목 수가 **골든과 100% 일치**.
-
-### S2 — 조판 코어 (3주)
-
-| # | 작업 | 산출물 |
-|---|---|---|
-| 2.1 | `ChapterParser` — XmlPullParser SAX → `InlineRun` 스트림 + 정규화 텍스트(`.txt`) | |
-| 2.2 | CSS 파서 (§6 서브셋) + 셀렉터 매칭 + 특이도 | 단위 테스트 |
-| 2.3 | `StyleResolver` — 태그 기본값 + CSS + 사용자 설정 → `BlockStyle`(마진 병합 포함) | 〃 |
-| 2.4 | `Block` sealed 모델 (`Text`/`Image`/`Rule`) | |
-| 2.5 | `TextMeasurer` 인터페이스 + **`FakeMeasurer`**(모든 글자 10f, 공백 5f → 완전 결정적) | |
-| 2.6 | `PlatformLineBreaker` (`StaticLayout` 위임, `:text-platform`) | |
-| 2.7 | `Paginator` — 줄→페이지 패킹, 이미지 배치, 페이지 브레이크, 마진 상쇄 | |
-| 2.8 | `PageStore` — §5 포맷 읽기/쓰기 + 부분 캐시 | |
-| 2.9 | **골든 테스트 하네스** — "챕터 → 페이지별 시작 char offset 목록" 스냅샷 | |
-
-**완료 판정**: `FakeMeasurer`로 코퍼스 20권 전체를 헤드리스 조판하고, 페이지 경계 스냅샷이 골든과 일치. 실행 시간 **전체 < 30초**.
-
-### S3 — 렌더링·성능 (3주)
-
-| # | 작업 |
-|---|---|
-| 3.1 | `PageRenderer` — `.run` 레코드 → `Canvas.drawText`. 밑줄·취소선·첨자 |
-| 3.2 | `ReaderSurface` — Compose `Canvas` + 탭 영역/스와이프/볼륨키 제스처 |
-| 3.3 | 페이지 전환 — 오프스크린 비트맵 기반 슬라이드/페이드/없음 |
-| 3.4 | `ChapterPager` — 점진적 빌드 `Flow`, 백그라운드 진행, 중단·재개(부분 캐시) |
-| 3.5 | 진도 — **char offset 기준** 저장/복원. 회전·설정 변경 후 같은 글자 복귀 |
-| 3.6 | 이미지 블록 — `inSampleSize` 뷰포트 맞춤 디코드 + 디스크 캐시 |
-| 3.7 | `:benchmark` Macrobenchmark + 예산 검사 |
-
-**완료 판정**: 실기기에서 **페이지 넘김 p95 ≤ 16ms**, 책 열기(캐시) ≤ 300ms, 리더 RSS ≤ 120MB. 화면 회전 후 진도 오차 0자.
-
-> 3.7을 **마지막이 아니라 S3 시작에** 붙인다. 성능 계측을 나중에 붙이면 원인 추적이 불가능하다.
-
-### S4 — 화면 완성 (2주)
-
-| # | 작업 |
-|---|---|
-| 4.1 | GUI 컴포넌트 10종 (§8) |
-| 4.2 | 홈 / 라이브러리 / 파일 브라우저 |
-| 4.3 | 리더 화면 + 상태바 + 메뉴 시트 |
-| 4.4 | 목차 (탭바) |
-| 4.5 | 설정 화면 — §7 스키마에서 자동 생성 |
-| 4.6 | 테마 Light / Dark / Sepia |
-| 4.7 | 실기기 완독 테스트 (한국어 EPUB 20권) |
-
-**완료 판정**: **1차 배포 가능.** 코퍼스 20권을 처음부터 끝까지 읽어 크래시·레이아웃 붕괴·진도 유실 0.
-
-### S5~S8 (요약)
-
-| S | 기간 | 내용 |
-|---|---|---|
-| S5 | 3주 | 북마크 · 텍스트 선택→복사/공유 · 각주 · 퍼센트 이동 · 읽기 시간 · 자동 넘김 · 책 끝 화면 |
-| S6 | 2주 | **`KoreanLineBreaker`** — 글자 단위 줄바꿈, 어절 간격 1.0–1.5x, U+3000 들여쓰기 |
-| S7 | 2주 | 테마 변형 · 태블릿 2단 · TalkBack · i18n(ko/en) · 예산 CI 편입 |
-| S8+ | — | (선택) TTS · 하이라이트 · KOSync · OPDS · TXT/MD |
-
-**1차 배포 = S4 종료 시점, 누적 10주.**
+**코퍼스**: EPUB 20권 · TXT 10개(UTF-8/EUC-KR 혼합) · PDF 10개(텍스트·스캔·대용량 혼합)
 
 ---
 
-## 10. 테스트 전략
+## 10. 착수 전 결정 (4건)
 
-| 층 | 방식 | 실행 시점 |
+| # | 항목 | 권장 |
 |---|---|---|
-| 파서 | 코퍼스 20권 골든 (메타·spine·TOC) | 매 PR, JVM |
-| CSS·스타일 | 단위 테스트 (셀렉터·특이도·마진 병합) | 매 PR, JVM |
-| **조판** | **`FakeMeasurer` 골든** — 페이지 경계 char offset 스냅샷 | 매 PR, JVM, <30초 |
-| 캐시 포맷 | 왕복 테스트 + 부분 캐시 재개 | 매 PR, JVM |
-| GUI 컴포넌트 | 스크린샷 테스트 (Roborazzi — **테스트 전용, APK 미포함**) | 매 PR |
-| 성능 | Macrobenchmark | 실기기 수동 + 주간 |
-| 통합 | 실기기 완독 | 스프린트 종료 |
-
-**`FakeMeasurer`가 이 전략의 핵심.** 모든 글자 폭을 10f로 고정하면 조판이 완전히 결정적이 되어, 줄바꿈 로직 변경의 영향을 **골든 diff로 눈으로 확인**할 수 있다. 기기도 폰트도 필요 없다.
+| **P1** | **PDF 렌더러** — ① `PdfRenderer`(0바이트, 목차·검색 없음) ② Pdfium(+3~6MB/ABI, 목차·텍스트·검색·암호 PDF) | **①로 시작.** `FixedPageDocument` 뒤에 있어 나중에 교체 가능. PDF 목차·검색이 처음부터 필수면 ② |
+| **B1** | 앱 이름 / 패키지명 | Play 등록 후 변경 불가 |
+| **B2** | 폰트 번들 — ① 미번들 ② KoPub 바탕 + Pretendard(+6~10MB) ③ 최초 실행 시 다운로드 | **②** (배포 전 각 서체 임베딩·재배포 조항 확인 필요) |
+| **B3** | 테스트 코퍼스 확보 경로 (EPUB 20 · TXT 10 · PDF 10) | 보유 파일 + 공공 도메인 |
 
 ---
 
-## 11. CI
+## 11. 착수 체크리스트
 
-| 트리거 | 실행 | 게이트 |
-|---|---|---|
-| PR | ktlint · detekt · **모듈 의존 규칙 검사** · JVM 단위 테스트 · 골든 · 스크린샷 | 전부 통과 필수 |
-| main 머지 | 위 + 디버그 APK 빌드 + **APK 크기 보고** | 크기 회귀 시 경고 |
-| 주간 | Macrobenchmark (고정 실기기) | 예산 초과 시 이슈 자동 생성 |
-
-> 에뮬레이터 성능 수치는 **상대 비교용**으로만 쓴다. §1의 절대 예산은 고정 실기기에서만 판정한다.
-
----
-
-## 12. 착수 전 결정 필요 (3건, 전부 가벼움)
-
-| # | 항목 | 비고 |
-|---|---|---|
-| **B1** | **앱 이름 / 패키지명** | 예: `kr.kgcaudit.reader`. Play 등록 후 변경 불가 |
-| **B2** | **폰트 번들 여부** | ① 번들 안 함(시스템 폰트, APK 최소) ② KoPub 바탕 + Pretendard 번들(+6–10MB, 원본 조판 재현) ③ 최초 실행 시 다운로드. **권장 ②** — 다만 배포 전 각 서체의 임베딩·재배포 조항 확인 필요 |
-| **B3** | **테스트 코퍼스 20권 확보 경로** | 보유 EPUB / 공공 도메인(한국어 위키문헌·구텐베르크) 혼합. S1.10의 전제 |
-
-그 외는 §1에서 전부 확정됐다.
-
----
-
-## 13. 착수 체크리스트
-
-- [ ] B1·B2·B3 결정
-- [ ] `android/` Gradle 골격 생성 (S1.1)
-- [ ] 모듈 의존 규칙 검사 태스크 작성 — **가장 먼저**. 나중에 넣으면 이미 오염돼 있다
-- [ ] 코퍼스 20권 배치 + 골든 생성
-- [ ] CI 워크플로 (PR 게이트)
-- [ ] S1 착수
+- [ ] P1 · B1 · B2 · B3 결정
+- [ ] `android/` Gradle 골격 (R1.1)
+- [ ] **의존 규칙 검사 태스크 — 가장 먼저.** 나중에 넣으면 이미 오염돼 있다
+- [ ] 코퍼스 배치
+- [ ] CI PR 게이트
+- [ ] R1 착수
 
