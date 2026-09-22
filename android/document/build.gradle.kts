@@ -7,6 +7,9 @@ dependencies {
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)
     testImplementation(libs.kotlin.test)
+    // 테스트 전용. main 은 stdlib 만 쓴다 — suspend 선언 자체는 언어 기능이라
+    // 코루틴 라이브러리가 필요 없고, 그걸 호출하는 테스트에만 필요하다.
+    testImplementation(libs.coroutines.test)
 }
 
 kotlin { jvmToolchain(21) }
