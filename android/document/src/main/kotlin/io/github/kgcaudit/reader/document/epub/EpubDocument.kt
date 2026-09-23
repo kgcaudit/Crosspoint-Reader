@@ -52,6 +52,11 @@ class EpubDocument private constructor(
 
     override suspend fun openResource(href: String): InputStream? = zip.openStream(href)
 
+    override suspend fun openChapterResource(index: Int, href: String): InputStream? {
+        val chapter = readingOrder.getOrNull(index) ?: return null
+        return zip.openStream(Hrefs.resolve(Hrefs.dirOf(chapter.href), href))
+    }
+
     /** 표지 이미지. 없으면 null. */
     fun openCoverImage(): InputStream? = opf.coverImageItem?.href?.let(zip::openStream)
 

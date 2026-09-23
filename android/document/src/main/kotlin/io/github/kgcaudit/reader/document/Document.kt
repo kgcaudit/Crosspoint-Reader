@@ -24,8 +24,17 @@ interface ReflowDocument : Document {
     /** 챕터 본문을 연다. 호출부가 닫는다. EPUB은 XHTML, TXT는 평문. */
     suspend fun openChapter(index: Int): Reader
 
-    /** 챕터가 참조하는 리소스(이미지·CSS)를 연다. 없으면 null. TXT는 항상 null. */
+    /** 컨테이너 안의 리소스를 경로로 직접 연다. 없으면 null. TXT는 항상 null. */
     suspend fun openResource(href: String): InputStream?
+
+    /**
+     * 챕터 [index] 가 참조하는 상대 href 를 풀어 리소스를 연다. 없으면 null.
+     *
+     * 경로 해석을 호출부가 아니라 문서가 하는 이유: `../images/a.png` 가 어디를
+     * 가리키는지는 컨테이너 구조를 아는 쪽만 안다. 조판·렌더 쪽이 이걸 흉내 내면
+     * 책마다 조금씩 다른 경로 관례에 걸려 "이 책만 그림이 안 나온다" 가 된다.
+     */
+    suspend fun openChapterResource(index: Int, href: String): InputStream?
 }
 
 /**

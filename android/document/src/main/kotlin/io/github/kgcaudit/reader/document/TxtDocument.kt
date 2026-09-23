@@ -36,6 +36,8 @@ class TxtDocument private constructor(
     /** TXT는 외부 리소스를 참조하지 않는다. */
     override suspend fun openResource(href: String): InputStream? = null
 
+    override suspend fun openChapterResource(index: Int, href: String): InputStream? = null
+
     companion object {
         const val SINGLE_HREF: String = "content.txt"
 
