@@ -50,17 +50,46 @@ function Get-JavaVersionInfo([string]$JavaExe) {
     return @{ Version = $version; Major = $major }
 }
 
-# Android Studio 가 함께 설치하는 JDK 를 먼저 본다 — Android 개발에서 쓰는 바로 그
-# 버전이고, 시스템에 최신 Java 가 따로 깔려 있어도 영향을 받지 않는다.
+# 후보를 넓게 모은다.
+#
+# PATH 의 첫 java 만 보면 안 된다 — 시스템에 Java 25 가 앞에 있으면, JDK 21 을 새로
+# 설치해도 그것만 보고 "쓸 수 있는 JDK 없음" 이 된다. 그래서 흔한 설치 위치를 전부
+# 훑고, PATH 도 첫 항목이 아니라 전부 본다.
+#
+# Android Studio 의 JDK 를 맨 앞에 두는 이유: Android 개발에서 쓰는 바로 그 버전이고,
+# 시스템에 최신 Java 가 따로 깔려 있어도 영향을 받지 않는다.
+$searchPaths = @(
+    @{ Pattern = (Join-Path $env:LOCALAPPDATA 'Programs\Android Studio\jbr'); From = 'Android Studio' }
+    @{ Pattern = (Join-Path $env:ProgramFiles 'Android\Android Studio\jbr'); From = 'Android Studio' }
+    @{ Pattern = (Join-Path $env:ProgramFiles 'Eclipse Adoptium\jdk-*'); From = 'Temurin' }
+    @{ Pattern = (Join-Path $env:LOCALAPPDATA 'Programs\Eclipse Adoptium\jdk-*'); From = 'Temurin' }
+    @{ Pattern = (Join-Path $env:ProgramFiles 'Java\jdk-*'); From = 'Java' }
+    @{ Pattern = (Join-Path $env:ProgramFiles 'Microsoft\jdk-*'); From = 'Microsoft OpenJDK' }
+    @{ Pattern = (Join-Path $env:ProgramFiles 'Amazon Corretto\jdk*'); From = 'Corretto' }
+    @{ Pattern = (Join-Path $env:ProgramFiles 'Zulu\zulu-*'); From = 'Zulu' }
+    @{ Pattern = (Join-Path $env:ProgramFiles 'JetBrains\*\jbr'); From = 'JetBrains' }
+)
+
 $candidates = @()
-$candidates += @{ Home = (Join-Path $env:LOCALAPPDATA 'Programs\Android Studio\jbr'); From = 'Android Studio' }
-$candidates += @{ Home = (Join-Path $env:ProgramFiles 'Android\Android Studio\jbr'); From = 'Android Studio' }
+$searched = @()
+
+foreach ($entry in $searchPaths) {
+    $searched += $entry.Pattern
+    # Resolve-Path 는 와일드카드와 정확한 경로를 모두 처리한다.
+    $resolved = Resolve-Path -Path $entry.Pattern -ErrorAction SilentlyContinue
+    foreach ($item in $resolved) {
+        $candidates += @{ Home = $item.Path; From = $entry.From }
+    }
+}
+
 if ($env:JAVA_HOME) {
     $candidates += @{ Home = $env:JAVA_HOME; From = 'JAVA_HOME' }
+    $searched += $env:JAVA_HOME
 }
-$pathJava = Get-Command java -ErrorAction SilentlyContinue
-if ($pathJava) {
-    $binDir = Split-Path -Parent $pathJava.Source
+
+# PATH 의 java 를 전부 본다(-All). 첫 항목만 보면 앞에 있는 Java 25 에 가려진다.
+foreach ($command in (Get-Command java -All -ErrorAction SilentlyContinue)) {
+    $binDir = Split-Path -Parent $command.Source
     $candidates += @{ Home = (Split-Path -Parent $binDir); From = 'PATH' }
 }
 
@@ -91,6 +120,11 @@ if (-not $picked) {
     Write-Host '     JDK 21         : https://adoptium.net  (Temurin 21 LTS, Windows x64 .msi)'
     Write-Host ''
     Write-Host '   이미 설치했다면 이 창을 닫고 새로 연 뒤 다시 실행해 주세요.'
+    Write-Host ''
+    Write-Host '   찾아본 위치:'
+    foreach ($location in $searched) {
+        Write-Host ('     ' + $location)
+    }
     exit 1
 }
 

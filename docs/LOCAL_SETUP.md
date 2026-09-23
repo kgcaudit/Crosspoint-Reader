@@ -18,18 +18,36 @@
 
 ---
 
-## 1. Android Studio 설치 (약 10분)
+## 1. JDK 설치 (약 3분)
 
-앞으로 Android 앱을 만들 것이므로 이걸 깔면 **필요한 것이 다 들어온다**(JDK 21 + Android SDK).
-JDK만 따로 깔 수도 있지만, 어차피 다음 단계에서 Android Studio가 필요하다.
+**시스템에 Java 가 이미 있어도 그것으로는 안 될 수 있다.** 이 프로젝트는 JDK **17~21**
+이 필요하다(Gradle 8.14 가 Java 22 이상을 모른다). 최신 Java 25 가 깔려 있으면
+`run-tests.bat` 이 그걸 건너뛰고 "쓸 수 있는 JDK 없음" 이라고 알려 준다.
 
-1. https://developer.android.com/studio 에서 **Download Android Studio** 클릭
-2. 내려받은 `.exe` 실행 → 전부 **Next / 기본값**으로 설치
-3. 설치 후 처음 실행하면 설정 마법사가 뜬다 → **Standard** 선택 → Next → Finish
-   - SDK를 몇 GB 내려받는다. 커피 한 잔.
-4. 마법사가 끝나고 시작 화면이 나오면 성공
+### 지금 확인만 하려면 — **Temurin JDK 21** (권장, 설치 3분)
 
-> 회사 PC라 설치 권한이 없으면 §6 를 보라.
+1. https://adoptium.net 접속
+2. **Temurin 21 (LTS)** → **Windows** → **x64** → `.msi` 내려받기
+3. 실행 → Next → **`Set JAVA_HOME variable` 항목을 켠다**
+   (목록에서 그 항목을 클릭해 `Will be installed on local hard drive` 선택)
+4. Next → Install → Finish
+5. **PowerShell 을 닫고 새로 연다** (환경변수가 반영되려면 필요하다)
+
+기존 Java 25 는 지워도 되고 그대로 둬도 된다. `run-tests.bat` 이 둘 다 보고
+17~21 인 것을 골라 쓴다.
+
+### 나중에 Android 앱을 만들 때 — **Android Studio**
+
+JDK 21 과 Android SDK 가 함께 들어오므로, 그때는 이것만 설치하면 된다.
+지금 단계(코어 테스트 확인)에는 필요 없고 다운로드가 몇 GB 라 오래 걸린다.
+
+1. https://developer.android.com/studio → **Download Android Studio**
+2. `.exe` 실행 → 전부 **Next / 기본값**
+3. 첫 실행 마법사 → **Standard** → Next → Finish
+
+> `run-tests.bat` 은 Android Studio 의 JDK, Temurin, Microsoft OpenJDK, Corretto,
+> Zulu, JetBrains, `JAVA_HOME`, `PATH` 를 전부 훑어 쓸 수 있는 것을 고른다.
+> 어디에 설치하든 대개 알아서 찾는다.
 
 ---
 
