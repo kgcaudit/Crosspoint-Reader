@@ -23,12 +23,10 @@ android {
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
 
 dependencies {
-    // UI 글꼴(Pretendard)이 거기 있다. 본문을 재는 글꼴과 같은 파일을 쓴다.
+    // 화면 모듈들이 이 모듈 하나로 Compose 를 받는다. BOM 을 api 로 내보내 버전이 한 곳에서 정해진다.
     api(platform(libs.compose.bom))
     api(libs.compose.foundation)
     api(libs.compose.ui)
-    implementation(libs.compose.ui.tooling.preview)
-    debugImplementation(libs.compose.ui.tooling)
 
     testImplementation(libs.junit4)
     testImplementation(libs.kotlin.test)

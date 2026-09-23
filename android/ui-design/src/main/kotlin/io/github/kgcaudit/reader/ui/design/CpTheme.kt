@@ -125,9 +125,6 @@ val DarkColors = CpColors(
     ),
 )
 
-/** 브랜드색. 앱 아이콘 바탕과 같은 계열이다. */
-val OloClay: Color = Clay
-
 /**
  * 치수. 원본은 480×800 e-ink 픽셀이라 비율로 옮기고, 터치 타깃은 48dp 아래로 내리지 않는다.
  *

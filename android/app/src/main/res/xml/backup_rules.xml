@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 안드로이드 11 이하의 자동 백업. 책갈피·진도(DB)와 보기 설정만 올린다.
+     조판 캐시(pages/)는 기기마다 다시 만들 수 있고, 사용자 글꼴(fonts/)은 수십 MB 가 될 수 있다.
+     둘을 넣으면 백업 한도(25MB)를 넘어 **백업 전체가 건너뛰어진다** — 책갈피까지 잃는다. -->
+<full-backup-content>
+    <exclude domain="file" path="pages/" />
+    <exclude domain="file" path="fonts/" />
+</full-backup-content>

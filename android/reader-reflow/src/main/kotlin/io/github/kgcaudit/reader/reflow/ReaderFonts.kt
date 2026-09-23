@@ -3,26 +3,19 @@ package io.github.kgcaudit.reader.reflow
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -31,6 +24,7 @@ import io.github.kgcaudit.reader.text.FontCatalog
 import io.github.kgcaudit.reader.text.FontOption
 import io.github.kgcaudit.reader.text.UserFonts.ImportResult
 import io.github.kgcaudit.reader.ui.design.CpButton
+import io.github.kgcaudit.reader.ui.design.CpFullScreen
 import io.github.kgcaudit.reader.ui.design.CpHeader
 import io.github.kgcaudit.reader.ui.design.CpIconButton
 import io.github.kgcaudit.reader.ui.design.CpIcons
@@ -42,6 +36,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/** 이 책에 든 글꼴. [preview] 는 이름을 그릴 서체(아직 꺼내기 전이면 null). */
+internal class PublisherFonts(val preview: android.graphics.Typeface?)
+
+internal const val PUBLISHER_LABEL = "출판사 글꼴"
+
+internal const val USER_LABEL = "사용자 글꼴"
+
 /**
  * 글꼴 고르기 · 넣기 · 빼기. 보기 판의 "글꼴 ›" 에서 전체 화면으로 연다.
  *
@@ -51,13 +52,6 @@ import kotlinx.coroutines.withContext
  * @param onFontsChanged 글꼴을 넣거나 뺐을 때. 같은 가족에 굵은 파일이 더해지면 설정 값은 그대로인데
  *   조판이 달라지므로(글꼴 ID 가 바뀐다) 화면이 글꼴 ID 를 다시 재게 해야 한다.
  */
-/** 이 책에 든 글꼴. [preview] 는 이름을 그릴 서체(아직 꺼내기 전이면 null). */
-internal class PublisherFonts(val preview: android.graphics.Typeface?)
-
-internal const val PUBLISHER_LABEL = "출판사 글꼴"
-
-internal const val USER_LABEL = "사용자 글꼴"
-
 @Composable
 internal fun FontsPanel(
     catalog: FontCatalog,
@@ -68,7 +62,6 @@ internal fun FontsPanel(
     onFontsChanged: () -> Unit,
     onBack: () -> Unit,
 ) {
-    val colors = CpTheme.colors
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var revision by remember { mutableStateOf(0) }
@@ -77,7 +70,7 @@ internal fun FontsPanel(
     // 는 사실(책이 정하지 않은 곳은 본문 글꼴)이 오히려 "무엇을 골랐나" 를 흐린다.
     val publisherOn = publisher != null && prefs.publisherFonts
     val current = if (publisherOn) null else catalog.effectiveKey(prefs.font)
-    // 진행 중인 일의 이름(글꼴 넣기·받기). null 이면 한가하다.
+    // 진행 중인 일의 이름(글꼴 넣기). null 이면 한가하다.
     var busy by remember { mutableStateOf<String?>(null) }
     var notice by remember { mutableStateOf<Pair<String, String>?>(null) }
     var removing by remember { mutableStateOf<FontOption?>(null) }
@@ -119,13 +112,7 @@ internal fun FontsPanel(
         }
     }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(colors.background)
-            .windowInsetsPadding(WindowInsets.systemBars)
-            .clickable(indication = null, interactionSource = null) {},
-    ) {
+    CpFullScreen {
         CpHeader(title = "글꼴", onBack = onBack)
         LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
             val system = options.filter { it.kind == FontOption.Kind.System }

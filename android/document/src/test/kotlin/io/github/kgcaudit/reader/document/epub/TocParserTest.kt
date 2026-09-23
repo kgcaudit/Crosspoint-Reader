@@ -200,6 +200,17 @@ class NavParserTest {
     }
 
     @Test
+    fun `a span inside a link is part of the label, not a new entry`() {
+        // Sigil·InDesign 이 흔히 만드는 모양. <span> 을 새 항목으로 보면 아직 빈 <a> 가 먼저 버려져
+        // 목차 줄이 통째로 사라진다.
+        val entries = parse(
+            """<nav epub:type="toc"><ol><li><a href="c1.xhtml"><span class="n">1</span><span>장 시작</span></a></li>
+               <li><a href="c2.xhtml">2장</a></li></ol></nav>""",
+        )
+        assertEquals(listOf("1장 시작" to "c1.xhtml", "2장" to "c2.xhtml"), entries.map { it.label to it.href.substringAfterLast('/') })
+    }
+
+    @Test
     fun `a span heading without an href is dropped, its children are kept`() {
         // 링크 없는 상위 제목은 이동할 곳이 없으므로 목록에 넣지 않는다.
         val entries = parse(

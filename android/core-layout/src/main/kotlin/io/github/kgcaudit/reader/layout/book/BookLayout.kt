@@ -50,8 +50,6 @@ class BookLayout(
 
     suspend fun spine(): List<SpineItem> = spineCache ?: document.spine().also { spineCache = it }
 
-    val chapterCount: Int get() = spineCache?.size ?: 0
-
     // ── 페이지 ──────────────────────────────────────────────────────
 
     /**

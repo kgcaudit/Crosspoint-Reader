@@ -73,12 +73,14 @@ open class FontCatalog(
     /** [layoutFontId] 가 가리키는 글꼴. 지문은 무시한다(지금 기기의 폰트가 곧 답이다). */
     fun resolve(layoutFontId: String): FontPair = pair(effectiveKey(layoutFontId.substringBefore('@')))
 
-    protected open fun pair(key: String): FontPair = when (key) {
-        in userKeys() -> user!!.let { it.pair(it.family(key)!!) }
-        else -> FontPair(Typeface.SANS_SERIF, Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD))
-    }
-
-    private fun userKeys(): Set<String> = user?.families()?.mapTo(HashSet()) { it.key }.orEmpty()
+    /**
+     * 사용자 글꼴이면 그 파일, 아니면 휴대폰 글꼴.
+     *
+     * 목록을 한 번만 읽는다. "있나?" 와 "가져오기" 를 따로 하면 그 사이에 글꼴이 빠질 수 있다(빼기는 입출력
+     * 스레드, 조판은 조판 스레드) — 그러면 여기서 죽고 다시 조판이 조용히 실패한다.
+     */
+    protected open fun pair(key: String): FontPair =
+        user?.family(key)?.let(user::pair) ?: FontPair(Typeface.SANS_SERIF, Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD))
 
     companion object {
         const val SANS = "system-sans"

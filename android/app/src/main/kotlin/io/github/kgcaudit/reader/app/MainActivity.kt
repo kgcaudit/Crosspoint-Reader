@@ -7,17 +7,15 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -26,12 +24,15 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import io.github.kgcaudit.reader.document.BookFormat
+import io.github.kgcaudit.reader.document.BookId
 import io.github.kgcaudit.reader.reflow.BookReader
 import io.github.kgcaudit.reader.reflow.ReaderScreen
 import io.github.kgcaudit.reader.ui.design.CpButton
 import io.github.kgcaudit.reader.ui.design.CpPopup
 import io.github.kgcaudit.reader.ui.design.CpTheme
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     /** 다른 앱이 "연결 프로그램" 으로 보낸 인텐트. 화면이 처리하면 null 로 되돌린다. */
@@ -86,25 +87,37 @@ class MainActivity : ComponentActivity() {
 private fun OloApp(incoming: MutableState<Intent?>, hideSystemBars: (Boolean) -> Unit, leave: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val container = context.container
-    val scope = rememberCoroutineScope()
     var openId by rememberSaveable { mutableStateOf<String?>(null) }
     var reader by remember { mutableStateOf<BookReader?>(null) }
     var failure by remember { mutableStateOf<String?>(null) }
     var prefs by remember { mutableStateOf(container.prefs.load()) }
+    // 이번 실행에서 폴더를 훑었는가. 화면(액티비티)이 새로 만들어지면 다시 훑는다.
+    var scanned by remember { mutableStateOf(false) }
     // 다른 앱이 넘긴 파일의 URI. 라이브러리 id 와 따로 두는 이유: 라이브러리에 없는 파일이라
     // library.find 로 되찾을 수 없다.
     var incomingUri by rememberSaveable { mutableStateOf<String?>(null) }
     // 받을 때 알아낸 형식. URI 만으로는 다시 알 수 없다 — 확장자 없는 파일은 보낸 앱이 준
     // MIME 으로만 알 수 있는데, 그건 인텐트에만 있다.
     var incomingFormat by rememberSaveable { mutableStateOf<String?>(null) }
+    // 받을 때 읽은 이름·크기. 다시 열 때(되살아남) 제공자에게 또 묻지 않는다 — 묻는 것 자체가 느릴 수 있다.
+    var incomingName by rememberSaveable { mutableStateOf<String?>(null) }
+    var incomingSize by rememberSaveable { mutableStateOf(-1L) }
+    // 받은 횟수. 같은 파일을 두 번 받으면 URI 가 같아 여는 효과가 다시 돌지 않는다 — 읽던 책은 닫혔는데
+    // 새로 열지 않아 "책을 여는 중…" 에 멈춘다. 받을 때마다 올려 효과를 다시 돌린다.
+    var incomingRequest by rememberSaveable { mutableStateOf(0) }
     // 다른 앱에서 열었으면 닫을 때 그 앱으로 돌아간다. 라이브러리가 나오면 "파일을 봤을 뿐인데
     // 왜 다른 앱이 떠 있나" 가 된다.
     var fromOutside by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(incoming.value) {
         val intent = incoming.value ?: return@LaunchedEffect
+        // 제공자에게 묻는 일(이름·크기)은 입출력이다. 클라우드·메일 첨부는 여기서 파일을 받기도 한다 —
+        // 메인 스레드에서 하면 앱이 멈춘다.
+        val request = withContext(Dispatchers.IO) { Incoming.from(intent, context.contentResolver) }
+        // 다 읽은 **뒤에** 비운다. 먼저 비우면 이 효과의 열쇠가 바뀌어 효과 자신이 취소된다 — 묻는 동안
+        // 기다리던 파일이 열리지 않는다. 그사이 새 파일이 오면 이 효과는 취소되고 새 파일을 연다(맞다).
         incoming.value = null
-        when (val request = Incoming.from(intent, context.contentResolver)) {
+        when (request) {
             null -> Unit
             is Incoming.Refused -> failure = request.message
             is Incoming.Book -> {
@@ -115,20 +128,23 @@ private fun OloApp(incoming: MutableState<Intent?>, hideSystemBars: (Boolean) ->
                 failure = null
                 fromOutside = true
                 incomingFormat = request.file.format.name
+                incomingName = request.file.displayName
+                incomingSize = request.file.sizeBytes ?: -1L
                 incomingUri = request.file.uri.toString()
+                incomingRequest++
             }
         }
     }
 
-    LaunchedEffect(incomingUri) {
+    LaunchedEffect(incomingUri, incomingRequest) {
         val uri = incomingUri ?: return@LaunchedEffect
         if (reader != null) return@LaunchedEffect
         val format = BookFormat.entries.firstOrNull { it.name == incomingFormat }
         if (format == null) { incomingUri = null; return@LaunchedEffect }
         val parsed = android.net.Uri.parse(uri)
-        val (name, size) = Incoming.describe(parsed, context.contentResolver)
-        val file = IncomingFile(parsed, name, size, format)
-        runCatching { container.openIncoming(file) }
+        val name = incomingName ?: withContext(Dispatchers.IO) { Incoming.describe(parsed, context.contentResolver).first }
+        val file = IncomingFile(parsed, name, incomingSize.takeIf { it >= 0 }, format)
+        runCatching { openKeepingResult { container.openIncoming(file) } }
             .onSuccess { reader = it }
             .onFailure {
                 // 화면이 다시 만들어지며 취소된 것은 실패가 아니다. 실패로 다루면 incomingUri 를 지워
@@ -144,9 +160,9 @@ private fun OloApp(incoming: MutableState<Intent?>, hideSystemBars: (Boolean) ->
     LaunchedEffect(openId) {
         val id = openId ?: return@LaunchedEffect
         if (reader != null) return@LaunchedEffect
-        val book = container.data.library.find(id)
+        val book = container.data.library.get(BookId(id))
         if (book == null) { openId = null; return@LaunchedEffect }
-        runCatching { container.open(book) }
+        runCatching { openKeepingResult { container.open(book) } }
             .onSuccess { reader = it }
             .onFailure {
                 if (it is kotlinx.coroutines.CancellationException) throw it
@@ -170,12 +186,13 @@ private fun OloApp(incoming: MutableState<Intent?>, hideSystemBars: (Boolean) ->
 
     val current = reader
     if (current == null) {
-        LibraryScreen(onOpen = { book -> fromOutside = false; openId = book.id.value })
+        LibraryScreen(
+            onOpen = { book -> fromOutside = false; openId = book.id.value },
+            scanOnStart = !scanned,
+            onStartScan = { scanned = true },
+        )
     } else {
-        DisposableEffect(current) {
-            hideSystemBars(true)
-            onDispose { }
-        }
+        LaunchedEffect(current) { hideSystemBars(true) }
         ReaderScreen(
             reader = current,
             prefs = prefs,
@@ -194,4 +211,19 @@ private fun OloApp(incoming: MutableState<Intent?>, hideSystemBars: (Boolean) ->
     if ((openId != null || incomingUri != null) && reader == null && failure == null) {
         Box(Modifier.fillMaxSize().background(CpTheme.colors.background)) { CpPopup(title = "책을 여는 중…") }
     }
+}
+
+/**
+ * 책을 열되, 여는 도중 화면이 떠나(취소) 결과를 받을 사람이 없으면 **연 것을 닫는다.**
+ *
+ * `withContext` 는 끝난 뒤 돌아오는 순간 취소돼 있으면 결과를 버린다. 그러면 열어 둔 파일 디스크립터와
+ * 캐시 사본이 아무도 닫지 않은 채 남는다(책을 여는 중에 다른 앱이 파일을 또 보낸 경우).
+ */
+private suspend fun openKeepingResult(open: suspend () -> BookReader): BookReader {
+    val opened = withContext(kotlinx.coroutines.NonCancellable) { open() }
+    if (!kotlin.coroutines.coroutineContext.isActive) {
+        opened.close()
+        throw kotlinx.coroutines.CancellationException("screen left while opening")
+    }
+    return opened
 }

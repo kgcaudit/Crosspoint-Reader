@@ -179,6 +179,29 @@ class ChapterLoaderTest {
     }
 
     @Test
+    fun `the same relative stylesheet name from two folders means two files`() = runTest {
+        // Text/a.xhtml 과 Text/sub/b.xhtml 이 둘 다 "../style.css" 를 가리키지만 다른 파일이다. 적힌
+        // 글자로 캐시하면 두 번째 챕터가 첫 챕터의 CSS 를 받는다.
+        val bytes = epubBytes(
+            "META-INF/container.xml" to
+                """<container><rootfiles><rootfile full-path="OEBPS/content.opf"/></rootfiles></container>""",
+            "OEBPS/content.opf" to """<package version="3.0"><metadata><dc:title>t</dc:title></metadata><manifest>
+                <item id="a" href="Text/a.xhtml" media-type="application/xhtml+xml"/>
+                <item id="b" href="Text/sub/b.xhtml" media-type="application/xhtml+xml"/></manifest>
+                <spine><itemref idref="a"/><itemref idref="b"/></spine></package>""",
+            "OEBPS/style.css" to "p { text-align: center }",
+            "OEBPS/Text/style.css" to "p { text-align: right }",
+            "OEBPS/Text/a.xhtml" to """<html><head><link rel="stylesheet" href="../style.css"/></head><body><p>가</p></body></html>""",
+            "OEBPS/Text/sub/b.xhtml" to """<html><head><link rel="stylesheet" href="../style.css"/></head><body><p>나</p></body></html>""",
+        )
+        openEpub(bytes).use { doc ->
+            val loader = ChapterLoader(doc, spec)
+            assertEquals(TextAlign.Center, loader.load(0).blocks.single().style.align)
+            assertEquals(TextAlign.End, loader.load(1).blocks.single().style.align)
+        }
+    }
+
+    @Test
     fun `the head scan finds the stylesheet links and the title`() = runTest {
         openEpub().use { doc ->
             val loader = ChapterLoader(doc, spec)

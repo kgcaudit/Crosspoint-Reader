@@ -78,6 +78,7 @@ dependencies {
     implementation(project(":data"))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.annotation)
     implementation(libs.coroutines.android)
 
     testImplementation(libs.junit4)

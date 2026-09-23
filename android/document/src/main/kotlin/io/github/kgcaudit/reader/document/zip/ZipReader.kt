@@ -2,6 +2,7 @@ package io.github.kgcaudit.reader.document.zip
 
 import io.github.kgcaudit.reader.document.SeekableSource
 import io.github.kgcaudit.reader.document.readFully
+import io.github.kgcaudit.reader.document.readUpTo
 import java.io.Closeable
 import java.io.IOException
 import java.io.InputStream
@@ -14,7 +15,6 @@ data class ZipEntry(
     val method: Int,
     val compressedSize: Long,
     val size: Long,
-    val crc32: Long,
     val localHeaderOffset: Long,
     val encrypted: Boolean,
 ) {
@@ -69,7 +69,20 @@ class ZipReader private constructor(
         val raw = RangeInputStream(source, dataOffsetOf(entry), entry.compressedSize)
         return when (entry.method) {
             ZipEntry.METHOD_STORED -> raw
-            ZipEntry.METHOD_DEFLATE -> InflaterInputStream(raw, Inflater(true), INFLATE_BUFFER)
+            ZipEntry.METHOD_DEFLATE -> {
+                // Inflater 를 넘겨 만든 InflaterInputStream 은 close() 에서 end() 를 부르지 않는다. 부르지
+                // 않으면 네이티브 zlib 메모리가 GC 까지 남고, 안드로이드는 챕터·그림을 열 때마다 누수 경고를 낸다.
+                val inflater = Inflater(true)
+                object : InflaterInputStream(raw, inflater, INFLATE_BUFFER) {
+                    override fun close() {
+                        try {
+                            super.close()
+                        } finally {
+                            inflater.end()
+                        }
+                    }
+                }
+            }
             else -> throw IOException("unsupported compression method ${entry.method} for $name")
         }
     }
@@ -82,12 +95,7 @@ class ZipReader private constructor(
             if (entry.size in 1..MAX_EAGER_READ) {
                 // 크기를 아는 경우 한 번에 담는다(재할당 없음).
                 val out = ByteArray(entry.size.toInt())
-                var read = 0
-                while (read < out.size) {
-                    val n = stream.read(out, read, out.size - read)
-                    if (n < 0) break
-                    read += n
-                }
+                val read = stream.readUpTo(out)
                 if (read == out.size) out else out.copyOf(read)
             } else {
                 stream.readBytes()
@@ -195,7 +203,6 @@ class ZipReader private constructor(
                         method = header.u16(10),
                         compressedSize = compressed,
                         size = uncompressed,
-                        crc32 = header.u32(16),
                         localHeaderOffset = localOffset,
                         encrypted = flags and FLAG_ENCRYPTED != 0,
                     )

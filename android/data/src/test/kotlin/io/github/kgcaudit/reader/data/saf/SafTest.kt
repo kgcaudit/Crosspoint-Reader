@@ -195,6 +195,27 @@ class SafTest {
     }
 
     @Test
+    fun `a pdf from a pipe is read from a copy that leaves no file behind`() = runTest {
+        // PdfRenderer 는 되감을 수 있는 디스크립터만 받는다. 사본 디스크립터는 처음부터 끝까지 같은
+        // 바이트를 읽어야 하고, 캐시에 파일을 남기지 않아야 한다(닫을 쪽은 사본을 모른다).
+        val bytes = ByteArray(10_000) { (it * 31).toByte() }
+        put("문서.pdf", bytes)
+        data.rescan(tree)
+        val book = data.library.books().first().single()
+
+        val spool = File(context.cacheDir, "spool")
+        data.sources.spooledDescriptor(Uri.parse(book.id.value)).use { pfd ->
+            assertEquals(0, spool.listFiles().orEmpty().size, "열자마자 사본 파일은 지워져야 한다")
+            assertEquals(bytes.size.toLong(), pfd.statSize)
+            val read = java.io.FileInputStream(pfd.fileDescriptor).use { it.readBytes() }
+            assertTrue(read.contentEquals(bytes))
+        }
+        // 파이프가 아닌 제공자는 복사 없이 그 자리의 디스크립터를 준다.
+        data.sources.seekableDescriptor(Uri.parse(book.id.value)).use { assertEquals(bytes.size.toLong(), it.statSize) }
+        assertEquals(0, spool.listFiles().orEmpty().size)
+    }
+
+    @Test
     fun `a book that vanished before opening fails cleanly and leaves no copy behind`() = runTest {
         // 스캔과 열기 사이에 파일이 지워지는 경우. 반쯤 쓴 사본이 캐시에 남으면 안 된다.
         put("책.epub", epub("A", "가"))

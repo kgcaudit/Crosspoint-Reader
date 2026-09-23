@@ -87,7 +87,7 @@ data class LayoutSpec(
      * 바꾸면 모든 캐시가 한 번 무효화되므로(동작은 정상, 첫 열기만 느려짐) 바꿀 이유가
      * 없는 한 두는 게 낫다.
      */
-    val cacheKey: String get() = fnv1a(canonical())
+    val cacheKey: String get() = fnv1aHex(canonical())
 
     private fun canonical(): String = buildString {
         append(viewportWidthPx).append('|').append(viewportHeightPx).append('|')
@@ -105,14 +105,18 @@ data class LayoutSpec(
     companion object {
         /** 글꼴을 따로 정하지 않았을 때. 테스트의 가짜 측정기가 이 값으로 돈다. */
         const val DEFAULT_FONT_ID: String = "default"
-
-        private fun fnv1a(text: String): String {
-            var hash = -0x340d631b7bdddcdbL // 14695981039346656037 (FNV offset basis)
-            for (ch in text) {
-                hash = hash xor ch.code.toLong()
-                hash *= 0x100000001b3L
-            }
-            return hash.toULong().toString(16).padStart(16, '0')
-        }
     }
+}
+
+/**
+ * FNV-1a 64비트 해시의 16진수. 짧고, 플랫폼·버전에 무관하게 같은 값이 나온다 — 캐시 디렉터리 이름
+ * ([LayoutSpec.cacheKey], 책 id)에 쓴다. 바꾸면 모든 캐시가 한 번 무효화된다(동작은 정상, 첫 열기만 느림).
+ */
+internal fun fnv1aHex(text: String): String {
+    var hash = -0x340d631b7bdddcdbL // 14695981039346656037 (FNV offset basis)
+    for (ch in text) {
+        hash = hash xor ch.code.toLong()
+        hash *= 0x100000001b3L
+    }
+    return hash.toULong().toString(16).padStart(16, '0')
 }

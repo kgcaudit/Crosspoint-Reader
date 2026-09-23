@@ -75,13 +75,27 @@ class BookReader(
     private var layout: BookLayout? = null
     private var session: ReadingSession? = null
     private var spec: LayoutSpec? = null
+
+    /**
+     * 지금 화면에 보이는 페이지의 첫 글자. 설정을 바꿀 때 여기로 돌아온다.
+     *
+     * 화면 상태의 페이지 번호에서 매번 되구하지 않는 이유: 조판이 도중에 취소되면(글자 크기를 빠르게
+     * 두 번 누름) [layout] 은 새것인데 화면의 페이지 번호는 옛 조판의 것이라, 새 조판에서 엉뚱한
+     * 페이지를 가리킨다 — 읽던 자리가 튄다. 실제로 보여 준 순간의 글자를 들고 있으면 그런 일이 없다.
+     */
+    private var shownLocator: Locator.Reflow? = null
     private val texts = HashMap<Int, String>()
     private val images = LruCache<String, ImageBitmap>(8)
 
     val title: String get() = document.meta.title
 
-    /** 책에 글꼴이 들어 있다. 글꼴 목록에 "출판사 글꼴" 을 내놓는다. */
-    val hasBookFonts: Boolean get() = !bookFonts.isEmpty && bookFontsDir != null
+    /**
+     * 책에 **쓸 수 있는** 글꼴이 들어 있다. 글꼴 목록에 "출판사 글꼴" 을 내놓는다.
+     *
+     * 꺼내 보기 전에는 선언만 보고 판단하고, 꺼내 본 뒤에는 읽힌 것이 있는지를 본다. 모두 WOFF 이거나
+     * 깨진 책에서 "출판사 글꼴" 이 켜진 채 휴대폰 글꼴로 그려지면 무엇을 고른 것인지 알 수 없다.
+     */
+    val hasBookFonts: Boolean get() = !bookFonts.isEmpty && bookFontsDir != null && typefaces?.isEmpty != true
 
     /** 꺼내 읽은 책 글꼴. 처음으로 책 글꼴로 조판할 때 준비한다. */
     @Volatile
@@ -104,13 +118,19 @@ class BookReader(
      */
     suspend fun layOut(newSpec: LayoutSpec) = run {
         if (newSpec == spec) return@run
-        val anchor = currentLocator()
+        val anchor = shownLocator
         _state.value = _state.value.copy(busy = _state.value.page == null)
 
         if (newSpec.useBookFonts && typefaces == null && bookFontsDir != null) {
             // 처음 한 번. 수 MB 짜리 글꼴을 꺼내므로 입출력 스레드에서 한다.
             typefaces = withContext(Dispatchers.IO) {
-                runCatching { BookTypefaces.prepare(document, bookFonts, bookFontsDir) }.getOrDefault(BookTypefaces.EMPTY)
+                try {
+                    BookTypefaces.prepare(document, bookFonts, bookFontsDir)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    BookTypefaces.EMPTY
+                }
             }
         }
         val built = BookLayout(document, newSpec, store, measurer(newSpec), fonts = bookFonts)
@@ -226,6 +246,7 @@ class BookReader(
 
         val s = requireSession()
         val saved = s.saveProgress(position)
+        shownLocator = l.locatorAt(position.spineIndex, position.pageIndex)
         _state.value = ReaderState(
             page = page,
             text = text,
@@ -237,12 +258,6 @@ class BookReader(
             error = null,
             spec = spec,
         )
-    }
-
-    private suspend fun currentLocator(): Locator.Reflow? {
-        val l = layout ?: return null
-        val position = _state.value.position ?: return null
-        return l.locatorAt(position.spineIndex, position.pageIndex)
     }
 
     private fun requireLayout() = checkNotNull(layout) { "layOut() first" }

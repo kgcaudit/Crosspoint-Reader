@@ -23,6 +23,12 @@ class UriSources(
     private val spoolDir: File,
 ) {
 
+    init {
+        // 사본은 닫을 때 지운다. 그래도 책을 연 채 프로세스가 죽으면 남는다 — 앱이 켜질 때(아직 연 책이
+        // 없을 때) 비운다. 남겨 두면 클라우드 책 한 권마다 수십 MB 가 캐시에 쌓인다.
+        spoolDir.listFiles()?.forEach { it.delete() }
+    }
+
     /** TXT 처럼 앞에서부터 읽으면 되는 책. 여러 번 다시 열 수 있다. */
     fun byteSource(uri: Uri): ByteSource = ByteSource {
         resolver.openInputStream(uri) ?: throw FileNotFoundException("cannot open $uri")
@@ -53,13 +59,50 @@ class UriSources(
      * 경로는 따로 시험한다.
      */
     internal fun spooledSource(uri: Uri): SeekableSource {
+        val file = spool(uri)
+        return try {
+            SpooledFileSource(file)
+        } catch (e: Throwable) {
+            file.delete()
+            throw e
+        }
+    }
+
+    /**
+     * PDF 처럼 플랫폼이 파일 디스크립터로 직접 읽는 책. 되감을 수 있는 디스크립터를 준다.
+     *
+     * PdfRenderer 는 파이프를 받으면 거절한다(파일 끝의 상호 참조 표를 먼저 읽는다). 그때는
+     * [seekableSource] 처럼 캐시로 옮겨 연다.
+     */
+    fun seekableDescriptor(uri: Uri): ParcelFileDescriptor {
+        val pfd = resolver.openFileDescriptor(uri, "r") ?: throw FileNotFoundException("cannot open $uri")
+        if (pfd.statSize >= 0) return pfd
+        pfd.close()
+        return spooledDescriptor(uri)
+    }
+
+    /**
+     * 캐시로 옮긴 사본의 디스크립터. 열자마자 사본 파일은 지운다 — 디스크립터가 열려 있는 동안은
+     * 내용이 남고, 닫으면 시스템이 공간을 돌려받는다. 닫는 쪽(PdfRenderer)이 사본을 몰라도 된다.
+     */
+    internal fun spooledDescriptor(uri: Uri): ParcelFileDescriptor {
+        val file = spool(uri)
+        try {
+            return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+        } finally {
+            file.delete()
+        }
+    }
+
+    private fun spool(uri: Uri): File {
         spoolDir.mkdirs()
         val file = File.createTempFile("spool", ".bin", spoolDir)
         try {
             val input = resolver.openInputStream(uri) ?: throw FileNotFoundException("cannot open $uri")
             input.use { src -> file.outputStream().use { src.copyTo(it) } }
-            return SpooledFileSource(file)
-        } catch (e: IOException) {
+            return file
+        } catch (e: Throwable) {
+            // IOException 만이 아니다. 권한이 풀리면 SecurityException, 제공자 오류는 RuntimeException 이다.
             file.delete()
             throw e
         }

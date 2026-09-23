@@ -7,43 +7,26 @@ androidxCore = "1.13.1"
 androidxAnnotation = "1.9.1"
 composeBom = "2024.10.01"
 activityCompose = "1.9.3"
-lifecycle = "2.8.7"
-navigation = "2.8.4"
 room = "2.7.2"
 ksp = "2.1.21-2.0.2"
-datastore = "1.1.1"
-coil = "2.7.0"
-documentfile = "1.0.1"
 junit = "5.11.3"
 junit4 = "4.13.2"
 robolectric = "4.14.1"
 androidxTestCore = "1.6.1"
 
 [libraries]
-kotlin-stdlib        = { module = "org.jetbrains.kotlin:kotlin-stdlib",              version.ref = "kotlin" }
-coroutines-core      = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core",   version.ref = "coroutines" }
 coroutines-android   = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 androidx-core-ktx    = { module = "androidx.core:core-ktx",                          version.ref = "androidxCore" }
 androidx-annotation  = { module = "androidx.annotation:annotation",                  version.ref = "androidxAnnotation" }
-androidx-documentfile= { module = "androidx.documentfile:documentfile",              version.ref = "documentfile" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose",         version.ref = "activityCompose" }
-androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycle" }
-androidx-navigation-compose = { module = "androidx.navigation:navigation-compose",   version.ref = "navigation" }
 compose-bom          = { module = "androidx.compose:compose-bom",                    version.ref = "composeBom" }
 compose-ui           = { module = "androidx.compose.ui:ui" }
-compose-ui-graphics  = { module = "androidx.compose.ui:ui-graphics" }
-compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
-compose-material3    = { module = "androidx.compose.material3:material3" }
 compose-foundation   = { module = "androidx.compose.foundation:foundation" }
-compose-ui-tooling   = { module = "androidx.compose.ui:ui-tooling" }
 compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4" }
 compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest" }
 room-runtime         = { module = "androidx.room:room-runtime",                      version.ref = "room" }
 room-ktx             = { module = "androidx.room:room-ktx",                          version.ref = "room" }
 room-compiler        = { module = "androidx.room:room-compiler",                     version.ref = "room" }
-room-testing         = { module = "androidx.room:room-testing",                      version.ref = "room" }
-datastore-preferences= { module = "androidx.datastore:datastore-preferences",        version.ref = "datastore" }
-coil-compose         = { module = "io.coil-kt:coil-compose",                         version.ref = "coil" }
 junit-jupiter        = { module = "org.junit.jupiter:junit-jupiter",                 version.ref = "junit" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
 kotlin-test          = { module = "org.jetbrains.kotlin:kotlin-test",                 version.ref = "kotlin" }

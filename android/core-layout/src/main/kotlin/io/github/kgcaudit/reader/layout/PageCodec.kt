@@ -31,6 +31,13 @@ data class ChapterIndex(
     val complete: Boolean,
     /** 이 캐시를 만들 때의 텍스트 길이. `.txt` 와 다르면 짝이 맞지 않는 캐시다. */
     val textLength: Int,
+    /**
+     * 그 텍스트의 UTF-8 바이트 수(`.txt` 파일 크기). 모르면 -1.
+     *
+     * 짝 맞추기를 파일 크기로 한다. 글자 수로 하려면 `.txt` 를 통째로 읽어 풀어야 하는데, 한 번 넘길
+     * 때마다 여러 번 불려 7MB 짜리 TXT 한 챕터면 넘길 때마다 수십 MB 를 읽었다.
+     */
+    val textBytes: Long = -1,
 )
 
 /**
@@ -55,8 +62,9 @@ object PageCodec {
      *
      * 2: 그림 크기(파일 크기·CSS·퍼센트 반영, 비율 유지).
      * 3: 런 레코드의 예약 16비트에 책 글꼴 번호([TextStyle.face]).
+     * 4: 머리말 끝(예약 u32)에 텍스트 바이트 수. 페이지 수는 색인 크기로 센다(u16 칸의 65,535 쪽 한계를 없앰).
      */
-    const val VERSION: Int = 3
+    const val VERSION: Int = 4
 
     private const val MAGIC = 0x31505043 // "CPP1" 리틀엔디안
     private const val HEADER_SIZE = 32
@@ -79,10 +87,10 @@ object PageCodec {
     // ── 쓰기 ────────────────────────────────────────────────────────
 
     /**
-     * @param complete 조판이 끝까지 갔는지. 중간에 멈춘 결과를 저장할 때 false 로 둔다 —
-     *   그러면 다음에 열 때 그 지점까지는 바로 보여 주고 뒤만 이어서 조판한다.
+     * @param complete 조판이 끝까지 갔는지. 중간에 멈춘 결과를 저장할 때 false 로 둔다. 부분 캐시는
+     *   다음에 열 때 **처음부터 다시** 조판한다(이어서 조판하는 길은 아직 없다).
      */
-    fun encode(pages: List<Page>, textLength: Int, complete: Boolean = true): EncodedChapter {
+    fun encode(pages: List<Page>, textLength: Int, complete: Boolean = true, textBytes: Long = -1): EncodedChapter {
         val runs = ByteWriter(pages.sumOf { it.runs.size } * RUN_SIZE)
         val objects = ByteWriter(256)
         val index = ByteWriter(HEADER_SIZE + pages.size * PAGE_ENTRY_SIZE)
@@ -138,14 +146,16 @@ object PageCodec {
         val header = ByteWriter(HEADER_SIZE)
         header.putU32(MAGIC.toLong())
         header.putU16(VERSION)
-        header.putU16(pages.size)
+        // 옛 칸. 읽을 때는 쓰지 않는다 — 한 챕터가 65,535 쪽을 넘으면(큰 글자의 20MB TXT) 넘쳐서 뒤쪽이
+        // 사라진다. 페이지 수는 색인의 길이로 센다.
+        header.putU16(pages.size.coerceAtMost(0xFFFF))
         header.putU8(if (complete) 1 else 0)
         header.putU8(0); header.putU16(0)
         header.putU32(runCursor.toLong())
         header.putU32(imageCursor.toLong())
         header.putU32(ruleCursor.toLong())
         header.putU32(textLength.toLong())
-        header.putU32(0)
+        header.putU32(if (textBytes in 0..0xFFFFFFFFL) textBytes else 0xFFFFFFFFL)
 
         val indexBytes = index.toByteArray()
         header.toByteArray().copyInto(indexBytes, 0)
@@ -165,14 +175,17 @@ object PageCodec {
         val version = reader.u16()
         if (version != VERSION) return null
 
-        val pageCount = reader.u16()
+        reader.skip(2) // 옛 u16 페이지 수
         val complete = reader.u8() == 1
         reader.skip(3)
         reader.skip(12) // run/image/rule 개수는 페이지 엔트리로 충분하다
         val textLength = reader.u32().toInt()
+        val textBytes = reader.u32().let { if (it == 0xFFFFFFFFL) -1L else it }
 
-        if (index.size < HEADER_SIZE + pageCount * PAGE_ENTRY_SIZE) return null
-        return ChapterIndex(version, pageCount, complete, textLength)
+        // 페이지 엔트리는 고정 길이이고 머리말 뒤에 빈틈없이 이어진다. 남는 바이트가 있으면 잘린 파일이다.
+        val body = index.size - HEADER_SIZE
+        if (body % PAGE_ENTRY_SIZE != 0) return null
+        return ChapterIndex(version, body / PAGE_ENTRY_SIZE, complete, textLength, textBytes)
     }
 
     /**

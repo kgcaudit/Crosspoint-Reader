@@ -24,7 +24,9 @@ class LibraryFolders(private val resolver: ContentResolver) {
     }
 
     fun unregister(treeUri: Uri) {
-        resolver.releasePersistableUriPermission(treeUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        // 이미 권한이 없는 폴더(다른 곳에서 풀림, 목록이 오래됨)를 빼면 SecurityException 이 난다. 빼려던
+        // 것이 이미 빠져 있는 것이니 실패가 아니다 — 그대로 두면 앱이 죽는다.
+        runCatching { resolver.releasePersistableUriPermission(treeUri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
     }
 
     /** 등록된 폴더. 읽기 권한이 살아 있는 트리 URI 만 준다. */

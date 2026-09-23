@@ -11,7 +11,7 @@ import io.github.kgcaudit.reader.layout.TextAlign
  */
 data class ReaderPrefs(
     val fontSizeSp: Int = DEFAULT_SIZE_SP,
-    /** 글꼴 키([io.github.kgcaudit.reader.text.FontOption.key]). null 은 "기기 기본" — 명조가 있으면 명조. */
+    /** 글꼴 키([io.github.kgcaudit.reader.text.FontOption.key]). null 은 기본(휴대폰 글꼴). */
     val font: String? = null,
     val lineSpacing: LineSpacing = LineSpacing.Normal,
     /**
@@ -67,3 +67,11 @@ fun ReaderPrefs.toSpec(
     cssPxScale = pxPerDp,
     useBookFonts = useBookFonts,
 )
+
+/**
+ * 이 책을 출판사 글꼴로 조판하는가. 설정이 켜져 있고 책에 쓸 수 있는 글꼴이 있을 때만.
+ *
+ * 한 곳에서만 판단한다 — 조판(캐시 키)·보기 판의 이름·글꼴 목록의 선택 표시가 서로 다르게 판단하면
+ * "출판사 글꼴" 이 켜져 보이는데 휴대폰 글꼴로 조판되는 식으로 어긋난다.
+ */
+fun BookReader.usesBookFonts(prefs: ReaderPrefs): Boolean = prefs.publisherFonts && hasBookFonts

@@ -58,6 +58,17 @@ class PageCodecTest {
     }
 
     @Test
+    fun `a chapter with more pages than a 16 bit count survives`() {
+        // 큰 글자로 20MB 짜리 한 챕터 TXT 를 조판하면 65,535 쪽을 넘는다. 16비트 칸에 세면 넘쳐서
+        // 뒤쪽 페이지가 조용히 사라진다.
+        val count = 70_000
+        val pages = (0 until count).map { Page(index = it, startChar = it, endCharExclusive = it + 1, runs = emptyList()) }
+        val encoded = PageCodec.encode(pages, textLength = count)
+        assertEquals(count, PageCodec.decodeIndex(encoded.index)!!.pageCount)
+        assertEquals(count - 1, PageCodec.decodePage(encoded, count - 1)!!.startChar)
+    }
+
+    @Test
     fun `float positions survive exactly, including fractional pixels`() {
         // 양쪽정렬이 소수점 위치를 만든다. 반올림해 저장하면 글자가 조금씩 밀린다.
         val positions = listOf(0f, 0.25f, 33.333333f, -1.5f, 1234.5678f)

@@ -1,5 +1,6 @@
 package io.github.kgcaudit.reader.document.image
 
+import io.github.kgcaudit.reader.document.readUpTo
 import java.io.IOException
 import java.io.InputStream
 
@@ -126,16 +127,6 @@ object ImageHeader {
     private fun u32be(b: ByteArray, at: Int) =
         ((b[at].toInt() and 0xFF) shl 24) or ((b[at + 1].toInt() and 0xFF) shl 16) or
             ((b[at + 2].toInt() and 0xFF) shl 8) or (b[at + 3].toInt() and 0xFF)
-
-    private fun InputStream.readUpTo(buffer: ByteArray): Int {
-        var total = 0
-        while (total < buffer.size) {
-            val n = read(buffer, total, buffer.size - total)
-            if (n <= 0) break
-            total += n
-        }
-        return total
-    }
 
     /** 이미 읽은 머리 바이트를 앞에 붙인 스트림. 읽은 위치를 센다. */
     private class PrefixedStream(

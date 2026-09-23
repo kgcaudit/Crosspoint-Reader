@@ -122,12 +122,12 @@ class LibraryTest {
         library.markOpened(BookId(c.uri), 20)
         library.markOpened(BookId(b.uri), 30)
         library.markOpened(BookId(a.uri), 40)
-        assertEquals(listOf("a.epub", "b.txt", "c.pdf"), library.recent().first().map { it.displayName })
+        assertEquals(listOf("a.epub", "b.txt", "c.pdf"), library.recent(limit = 20).first().map { it.displayName })
         assertEquals(listOf("a.epub", "b.txt"), library.recent(limit = 2).first().map { it.displayName })
 
         // 눌러도 열리지 않는 책을 최근 목록에 두지 않는다.
         library.applyScan(folder, ScanResult(listOf(a, c), complete = true), 50)
-        assertEquals(listOf("a.epub", "c.pdf"), library.recent().first().map { it.displayName })
+        assertEquals(listOf("a.epub", "c.pdf"), library.recent(limit = 20).first().map { it.displayName })
     }
 
     @Test

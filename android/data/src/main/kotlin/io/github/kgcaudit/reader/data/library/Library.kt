@@ -18,7 +18,6 @@ data class LibraryBook(
     val title: String?,
     val author: String?,
     val sizeBytes: Long?,
-    val folderUri: String,
 ) {
     /** 목록에 보일 이름. 제목을 모르면 파일 이름이다. */
     val label: String get() = title?.takeIf { it.isNotBlank() } ?: displayName
@@ -38,7 +37,7 @@ class Library(private val db: ReaderDatabase) {
 
     fun books(): Flow<List<LibraryBook>> = books.observeVisible().map { rows -> rows.mapNotNull(::toBook) }
 
-    fun recent(limit: Int = RECENT_LIMIT): Flow<List<LibraryBook>> =
+    fun recent(limit: Int): Flow<List<LibraryBook>> =
         recent.observe(limit).map { rows -> rows.mapNotNull(::toBook) }
 
     suspend fun get(id: BookId): LibraryBook? = books.get(id.value)?.let(::toBook)
@@ -125,11 +124,6 @@ class Library(private val db: ReaderDatabase) {
             title = row.title,
             author = row.author,
             sizeBytes = row.sizeBytes,
-            folderUri = row.folderUri,
         )
-    }
-
-    companion object {
-        const val RECENT_LIMIT: Int = 20
     }
 }

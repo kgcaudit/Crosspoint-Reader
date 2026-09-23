@@ -36,6 +36,8 @@ object NavParser {
         var listDepth = 0
         var anchorLabel: StringBuilder? = null
         var anchorHref: String? = null
+        // <a> 가 열려 있는가. 그 안의 <span> 을 항목으로 보지 않게 한다.
+        var inAnchor = false
 
         fun flushAnchor() {
             val text = anchorLabel?.toString()?.normalizeLabel()
@@ -68,11 +70,16 @@ object NavParser {
 
                     event.isLocal("ol") || event.isLocal("ul") -> listDepth++
 
+                    // <a> 안의 <span> 은 글자 꾸밈일 뿐이다(`<a href="c1"><span>1장</span></a>`). 새 항목으로
+                    // 보면 아직 빈 <a> 가 먼저 버려져 그 목차 줄이 통째로 사라진다.
+                    event.isLocal("span") && inAnchor -> Unit
+
                     event.isLocal("a") || event.isLocal("span") -> {
                         // <span> 은 링크 없는 상위 항목에 쓰인다(눌러도 이동할 곳이 없는 제목).
                         flushAnchor()
                         anchorHref = event.attribute("href")
                         anchorLabel = StringBuilder()
+                        inAnchor = event.isLocal("a")
                     }
                 }
 
@@ -80,7 +87,12 @@ object NavParser {
                 is XmlEvent.Text -> if (navDepth > 0) anchorLabel?.append(event.value)
 
                 is XmlEvent.EndElement -> when {
-                    event.isLocal("a") || event.isLocal("span") -> flushAnchor()
+                    event.isLocal("span") && inAnchor -> Unit
+
+                    event.isLocal("a") || event.isLocal("span") -> {
+                        flushAnchor()
+                        inAnchor = false
+                    }
 
                     event.isLocal("ol") || event.isLocal("ul") ->
                         if (navDepth > 0 && listDepth > 0) listDepth--

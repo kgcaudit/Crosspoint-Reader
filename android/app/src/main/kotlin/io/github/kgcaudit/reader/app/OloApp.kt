@@ -49,12 +49,14 @@ class AppContainer(private val app: Application) {
     /** 책을 연다. PDF 는 아직 리더가 없다(결정 P1 미결). */
     suspend fun open(book: LibraryBook): BookReader = withContext(Dispatchers.IO) {
         val document = read(book.id, book.displayName, book.format, Uri.parse(book.id.value))
-        // 목록이 파일 이름 대신 책 제목을 보여 주게 한다. TXT 는 제목이 곧 파일 이름이다.
-        if (book.format == BookFormat.EPUB) {
-            data.library.updateMetadata(book.id, document.meta.title, document.meta.author)
+        closingOnFailure(document) {
+            // 목록이 파일 이름 대신 책 제목을 보여 주게 한다. TXT 는 제목이 곧 파일 이름이다.
+            if (book.format == BookFormat.EPUB) {
+                data.library.updateMetadata(book.id, document.meta.title, document.meta.author)
+            }
+            data.library.markOpened(book.id, System.currentTimeMillis())
+            reader(document)
         }
-        data.library.markOpened(book.id, System.currentTimeMillis())
-        reader(document)
     }
 
     /**
@@ -66,11 +68,29 @@ class AppContainer(private val app: Application) {
      */
     suspend fun openIncoming(file: IncomingFile): BookReader = withContext(Dispatchers.IO) {
         data.library.findByFile(file.displayName, file.sizeBytes)?.let { book ->
-            runCatching { return@withContext open(book) }
-                .onFailure { android.util.Log.w("OloApp", "library copy of ${file.displayName} did not open", it) }
+            try {
+                return@withContext open(book)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // 취소는 "라이브러리 쪽이 안 열림" 이 아니다. 삼키면 취소된 뒤에도 받은 URI 로 한 번 더 연다.
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.w("OloApp", "library copy of ${file.displayName} did not open", e)
+            }
         }
         val id = BookId(file.uri.toString())
-        reader(read(id, file.displayName, file.format, file.uri))
+        val document = read(id, file.displayName, file.format, file.uri)
+        closingOnFailure(document) { reader(document) }
+    }
+
+    /**
+     * 연 문서로 뒷일을 하되, 그 뒷일이 실패하거나 취소되면 문서를 닫는다. 닫지 않으면 파일 디스크립터와
+     * 캐시 사본이 남는다(리더가 만들어지지 않았으니 닫을 사람이 없다).
+     */
+    private suspend fun <T> closingOnFailure(document: ReflowDocument, block: suspend () -> T): T = try {
+        block()
+    } catch (e: Throwable) {
+        (document as? AutoCloseable)?.runCatching { close() }
+        throw e
     }
 
     /**
@@ -78,7 +98,14 @@ class AppContainer(private val app: Application) {
      * 수십 MB 를 풀 이유가 없다. 처음으로 책 글꼴로 조판할 때 꺼낸다.
      */
     private suspend fun reader(document: ReflowDocument): BookReader {
-        val table = runCatching { BookFontTable.load(document) }.getOrDefault(BookFontTable.EMPTY)
+        val table = try {
+            BookFontTable.load(document)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // 글꼴표를 못 만들어도 책은 연다(출판사 글꼴만 없다).
+            BookFontTable.EMPTY
+        }
         return BookReader(
             fonts = fonts,
             document = document,

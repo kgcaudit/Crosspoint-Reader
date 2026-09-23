@@ -145,7 +145,9 @@ class XmlScanner(reader: Reader) {
             // 인용부호 없는 값. 공백이나 태그 끝까지 읽는다.
             while (true) {
                 val c = scanner.peek()
-                if (c < 0 || c == '>'.code || c == '/'.code || isWhitespace(c)) break
+                // '/' 는 바로 뒤가 '>' 일 때만 값의 끝(`<br class=x/>`)이다. 아니면 경로의 일부다 —
+                // `<img src=images/a.jpg>` 가 `src="images"` 로 잘려 그림이 사라지던 자리.
+                if (c < 0 || c == '>'.code || isWhitespace(c) || (c == '/'.code && scanner.peekAt(1) == '>'.code)) break
                 scanner.read()
                 if (c == '&'.code) appendReference(sb) else sb.append(c.toChar())
             }
@@ -270,6 +272,12 @@ private class CharScanner(private val reader: Reader) {
     fun peek(): Int {
         if (!fill()) return -1
         return buffer[position].code
+    }
+
+    /** [offset] 글자 뒤를 소비하지 않고 본다. 없으면 -1. */
+    fun peekAt(offset: Int): Int {
+        if (!ensureAvailable(offset + 1)) return -1
+        return buffer[position + offset].code
     }
 
     /**

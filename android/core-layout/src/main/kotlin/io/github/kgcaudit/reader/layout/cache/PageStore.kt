@@ -6,6 +6,7 @@ import io.github.kgcaudit.reader.layout.EncodedChapter
 import io.github.kgcaudit.reader.layout.LayoutSpec
 import io.github.kgcaudit.reader.layout.Page
 import io.github.kgcaudit.reader.layout.PageCodec
+import io.github.kgcaudit.reader.layout.fnv1aHex
 import java.io.Closeable
 import java.io.File
 
@@ -55,21 +56,9 @@ class PageStore(private val root: File) {
         root.deleteRecursively()
     }
 
-    private fun bookDir(bookId: BookId) = File(root, hash(bookId.value))
+    private fun bookDir(bookId: BookId) = File(root, fnv1aHex(bookId.value))
 
     private fun layoutDir(bookId: BookId, spec: LayoutSpec) = File(bookDir(bookId), spec.cacheKey)
-
-    private companion object {
-        /** FNV-1a. 짧고 플랫폼·버전에 무관하게 같은 값이 나온다([LayoutSpec.cacheKey] 와 같은 이유). */
-        fun hash(text: String): String {
-            var value = -0x340d631b7bdddcdbL
-            for (ch in text) {
-                value = value xor ch.code.toLong()
-                value *= 0x100000001b3L
-            }
-            return value.toULong().toString(16).padStart(16, '0')
-        }
-    }
 }
 
 /**
@@ -95,8 +84,9 @@ class ChapterCache internal constructor(
     fun readIndex(): ChapterIndex? {
         val bytes = indexFile.readBytesOrNull() ?: return null
         val header = PageCodec.decodeIndex(bytes) ?: return null
-        // 텍스트와 색인이 서로 다른 조판에서 왔을 수 있다. 길이로 걸러 낸다.
-        return if (header.textLength == textLength()) header else null
+        // 텍스트와 색인이 서로 다른 조판에서 왔을 수 있다. 파일 크기로 걸러 낸다 — 텍스트를 풀어 글자를
+        // 세면 넘길 때마다 챕터 전체를 읽게 된다.
+        return if (header.textBytes >= 0 && header.textBytes == textFile.length()) header else null
     }
 
     /** 조판 텍스트. 좌표계의 원본이다. 없으면 null. */
@@ -157,26 +147,25 @@ class ChapterCache internal constructor(
     /**
      * 조판하면서 이어 쓰는 쓰기 도구.
      *
-     * 페이지가 나오는 대로 받아 두고 [ChapterWriter.flush] 때 디스크에 내린다. 중간에
-     * 내려 두는 이유: 큰 챕터를 조판하다 앱이 내려가면 처음부터 다시 해야 하는데,
-     * 부분 캐시가 있으면 앞쪽은 즉시 보여 주고 뒤쪽만 이어서 조판할 수 있다.
+     * 페이지가 나오는 대로 받아 두고 [ChapterWriter.flush] 때 디스크에 내린다. 중간에 내려 두면
+     * 조판이 끝나기 전에도 앞쪽 페이지를 읽을 수 있다(`BookLayout.ensurePaginated` 의 첫 페이지 알림).
+     * 부분 캐시를 **이어서** 조판하는 길은 아직 없다 — 다음에 열면 처음부터 다시 한다.
      */
     fun writer(text: String): ChapterWriter = ChapterWriter(this, text)
 
     internal fun writeFiles(text: String, pages: List<Page>, complete: Boolean) {
         dir.mkdirs()
-        val encoded = PageCodec.encode(pages, text.length, complete)
+        val bytes = text.toByteArray(Charsets.UTF_8)
+        val encoded = PageCodec.encode(pages, text.length, complete, bytes.size.toLong())
 
         // 임시 파일에 쓴 뒤 바꿔 넣는다. 그렇지 않으면 쓰다 만 색인이 멀쩡한 캐시처럼
         // 읽힐 수 있다. 색인을 **마지막에** 바꿔 넣는 것이 중요하다 — 읽기가 색인부터
         // 보므로, 색인이 새것이면 나머지도 이미 새것이다.
-        textFile.writeAtomically(text.toByteArray(Charsets.UTF_8))
+        textFile.writeAtomically(bytes)
         runsFile.writeAtomically(encoded.runs)
         objectsFile.writeAtomically(encoded.objects)
         indexFile.writeAtomically(encoded.index)
     }
-
-    private fun textLength(): Int = textFile.readTextOrNull()?.length ?: -1
 
     private companion object {
         fun File.readBytesOrNull(): ByteArray? = runCatching { readBytes() }.getOrNull()

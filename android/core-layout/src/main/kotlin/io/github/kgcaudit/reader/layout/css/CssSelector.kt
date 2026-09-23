@@ -75,6 +75,10 @@ data class CssSelector(val parts: List<Part>) {
     companion object {
         /** 셀렉터 하나를 해석한다. 마디가 하나도 안 나오면 null. */
         fun parse(raw: String): CssSelector? {
+            // 의사 **요소**(::first-letter, ::before…)는 요소의 일부나 없던 상자를 가리킨다. 떼어 내고
+            // 요소 전체에 적용하면 `p::first-letter { font-size: 3em }`(드롭 캡)이 모든 문단을 3배로,
+            // `::before { display: none }` 가 문단 자체를 지운다. 규칙을 버린다.
+            if (PSEUDO_ELEMENT.containsMatchIn(raw)) return null
             val parts = raw.trim()
                 // 자식·인접 결합자는 후손으로 낮춘다(§ 클래스 주석 참조).
                 .replace('>', ' ')
@@ -86,8 +90,10 @@ data class CssSelector(val parts: List<Part>) {
             return if (parts.isEmpty()) null else CssSelector(parts)
         }
 
+        private val PSEUDO_ELEMENT = Regex("::|:(first-letter|first-line|before|after|marker|selection)\\b", RegexOption.IGNORE_CASE)
+
         private fun parsePart(raw: String): Part? {
-            // 의사 클래스/요소와 속성 셀렉터를 떼어 낸다. 지원하지 않지만, 규칙을
+            // 의사 클래스와 속성 셀렉터를 떼어 낸다(의사 요소는 parse 에서 규칙째 버렸다). 지원하지 않지만, 규칙을
             // 버리기보다 나머지 조건으로 맞히는 편이 실제 책에서 낫다.
             var text = raw.substringBefore(':')
             while (true) {

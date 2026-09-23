@@ -88,7 +88,7 @@ class OpenWithTest {
         // 읽기 권한이 없어 열리지 않는다.
         val id = BookId(intent.data.toString())
         compose.waitUntil(10_000) { runBlocking { app.container.data.progress.get(id) } != null }
-        assertTrue(runBlocking { app.container.data.library.recent().first() }.isEmpty())
+        assertTrue(runBlocking { app.container.data.library.recent(limit = 20).first() }.isEmpty())
 
         // 뒤로: 라이브러리가 아니라 보낸 앱으로 돌아간다.
         onActivity { it.onBackPressedDispatcher.onBackPressed() }
@@ -112,7 +112,7 @@ class OpenWithTest {
         onActivity { it.onNewIntent(view("어린 왕자.epub")) }
         waitFor("1 / ", substring = true)
         val libraryId = DocumentsContract.buildDocumentUriUsingTree(FolderProvider.treeUri, "Books/소설/어린 왕자.epub").toString()
-        val recent = { runBlocking { app.container.data.library.recent().first() }.map { it.id.value } }
+        val recent = { runBlocking { app.container.data.library.recent(limit = 20).first() }.map { it.id.value } }
         runCatching { compose.waitUntil(10_000) { recent() == listOf(libraryId) } }
             .onFailure { throw AssertionError("최근 목록 ${recent()}, 라이브러리 ${runBlocking { app.container.data.library.books().first() }}", it) }
     }

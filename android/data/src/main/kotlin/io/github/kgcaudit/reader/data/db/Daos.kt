@@ -3,7 +3,6 @@ package io.github.kgcaudit.reader.data.db
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
-import androidx.room.Transaction
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
@@ -71,13 +70,9 @@ interface RecentDao {
     suspend fun upsert(recent: RecentEntity)
 
     /** 숨겨진(스캔에서 사라진) 책은 뺀다. 눌러도 열리지 않는 항목을 보여 주면 안 된다. */
-    @Transaction
     @Query(
         "SELECT books.* FROM recent JOIN books ON books.id = recent.bookId " +
             "WHERE books.missing = 0 ORDER BY recent.openedAtEpochMs DESC LIMIT :limit",
     )
     fun observe(limit: Int): Flow<List<BookEntity>>
-
-    @Query("SELECT * FROM recent WHERE bookId = :bookId")
-    suspend fun get(bookId: String): RecentEntity?
 }

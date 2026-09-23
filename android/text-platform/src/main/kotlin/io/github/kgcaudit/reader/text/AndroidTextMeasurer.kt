@@ -11,7 +11,7 @@ import io.github.kgcaudit.reader.layout.TextStyle
 /**
  * `Paint` 로 글자 폭을 재는 [TextMeasurer].
  *
- * 커닝·한글 조합·대체 글꼴(이모지, 번들 글꼴에 없는 한자) 셰이핑은 플랫폼이 한다.
+ * 커닝·한글 조합·대체 글꼴(이모지, 고른 글꼴에 없는 한자) 셰이핑은 플랫폼이 한다.
  * 이 클래스가 하는 일은 서식별 `Paint` 를 만들어 두는 것과, 세로 지표를 글꼴과 무관하게
  * 맞추는 것뿐이다.
  *
@@ -20,7 +20,7 @@ import io.github.kgcaudit.reader.layout.TextStyle
  */
 class AndroidTextMeasurer(
     private val regular: Typeface,
-    /** null 이면 굵게를 합성한다(굵은 파일이 없는 사용자 글꼴·시스템 명조). */
+    /** null 이면 굵게를 합성한다(굵은 파일이 없는 사용자 글꼴). */
     private val bold: Typeface?,
     override val baseSizePx: Float,
     /**
@@ -39,9 +39,9 @@ class AndroidTextMeasurer(
     /**
      * 베이스라인이 줄 위쪽에서 얼마나 내려오는가(em).
      *
-     * 폰트의 ascent 를 그대로 쓰지 않는다. KoPubWorld 는 hhea ascent 가 1.05em,
-     * descent 가 0.49em 이라 줄 높이가 글자 크기의 1.54배가 되고, Pretendard 는
-     * 1.19배다. 그대로 쓰면 **글꼴만 바꿔도 한 페이지의 줄 수가 30% 가까이 바뀌고**,
+     * 폰트의 ascent 를 그대로 쓰지 않는다. 책에 흔한 KoPubWorld 는 hhea ascent 가 1.05em,
+     * descent 가 0.49em 이라 줄 높이가 글자 크기의 1.54배가 되고, 사용자가 흔히 넣는
+     * Pretendard 는 1.19배다. 그대로 쓰면 **글꼴만 바꿔도 한 페이지의 줄 수가 30% 가까이 바뀌고**,
      * 사용자가 고른 줄 간격 1.2 가 글꼴마다 다른 간격이 된다.
      *
      * 대신 줄 높이를 1em 으로 두고(줄 간격 배수는 조판기가 곱한다), 베이스라인은 실제

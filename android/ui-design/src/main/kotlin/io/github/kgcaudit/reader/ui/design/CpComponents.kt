@@ -227,7 +227,7 @@ fun CpTabBar(tabs: List<String>, selected: Int, onSelect: (Int) -> Unit, modifie
 
 // ── 6·7. 상태바 · 진행바 ────────────────────────────────────────────
 
-enum class CpBarWeight(val height: Dp) { Thin(2.dp), Medium(4.dp), Thick(6.dp) }
+enum class CpBarWeight(val height: Dp) { Thin(2.dp), Medium(4.dp) }
 
 /** CrossPoint `drawProgressBar`. 굵기 3단계. */
 @Composable
@@ -480,6 +480,10 @@ fun CpSlider(
 ) {
     val c = CpTheme.colors
     val latest = androidx.compose.runtime.rememberUpdatedState(value)
+    // pointerInput(Unit) 은 처음 받은 람다를 끝까지 쥔다. 부르는 쪽이 바뀐 값을 담은 람다를 다시 넘겨도
+    // 옛것이 불린다 — 최신 것을 거쳐 부른다.
+    val change = androidx.compose.runtime.rememberUpdatedState(onChange)
+    val commit = androidx.compose.runtime.rememberUpdatedState(onCommit)
     androidx.compose.foundation.layout.BoxWithConstraints(
         modifier
             .fillMaxWidth()
@@ -488,15 +492,18 @@ fun CpSlider(
             .pointerInput(Unit) {
                 detectTapGestures { offset ->
                     val v = (offset.x / size.width).coerceIn(0f, 1f)
-                    onChange(v)
-                    onCommit(v)
+                    change.value(v)
+                    commit.value(v)
                 }
             }
             .pointerInput(Unit) {
                 detectHorizontalDragGestures(
-                    onDragEnd = { onCommit(latest.value) },
-                ) { change, _ ->
-                    onChange((change.position.x / size.width).coerceIn(0f, 1f))
+                    onDragEnd = { commit.value(latest.value) },
+                    // 끄는 도중 끊겨도(시스템 제스처가 가로챔) 끝낸 것으로 본다. 그냥 두면 부르는 쪽이
+                    // "끄는 중" 에 머물러 막대와 숫자가 멈춘다.
+                    onDragCancel = { commit.value(latest.value) },
+                ) { pointer, _ ->
+                    change.value((pointer.position.x / size.width).coerceIn(0f, 1f))
                 }
             },
         contentAlignment = Alignment.CenterStart,

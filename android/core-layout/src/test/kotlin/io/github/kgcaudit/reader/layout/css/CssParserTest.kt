@@ -129,6 +129,20 @@ class CssParserTest {
     }
 
     @Test
+    fun `auto keeps its place in the margin shorthand`() {
+        // Calibre 의 가운데 블록. auto 를 걸러 내면 값이 하나로 줄어 좌우 1em 들여쓰기가 된다.
+        val centred = declarations("margin: 1em auto")
+        assertEquals(CssLength(1f, CssUnit.Em), centred.marginTop)
+        assertEquals(CssLength(1f, CssUnit.Em), centred.marginBottom)
+        assertNull(centred.marginLeft)
+        assertNull(centred.marginRight)
+
+        val three = declarations("margin: 0 auto 2em")
+        assertEquals(CssLength(2f, CssUnit.Em), three.marginBottom, "아래가 0 으로 밀리면 안 된다")
+        assertNull(three.marginLeft)
+    }
+
+    @Test
     fun `padding folds into margin`() {
         // 배경도 테두리도 그리지 않으므로 눈에 보이는 결과가 같다.
         assertEquals(CssLength(2f, CssUnit.Em), declarations("padding-left: 2em").marginLeft)

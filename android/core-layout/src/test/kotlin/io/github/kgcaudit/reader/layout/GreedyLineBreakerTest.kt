@@ -312,4 +312,18 @@ class GreedyLineBreakerTest {
             assertTrue(line.firstOrNull() != '。', "줄이 마침표로 시작한다: $line")
         }
     }
+
+    @Test
+    fun `a forced split never cuts an emoji in half`() {
+        // 이모지·확장 한자는 두 칸(서로게이트 쌍)이다. 공백 없는 긴 줄을 강제로 자를 때 쌍 사이에서
+        // 자르면 두 줄 모두 깨진 글자가 그려진다. 폭 35px 이면 한 칸 10px 기준 셋째 칸(쌍의 가운데)에서
+        // 잘리기 쉽다.
+        val text = "\uD83D\uDE00".repeat(10)
+        val lines = breakLines(text, widthPx = 35f)
+        assertTrue(lines.size > 1)
+        for (line in lines) {
+            assertTrue(!Character.isLowSurrogate(text[line.startChar]), "줄이 쌍의 가운데서 시작한다: ${line.startChar}")
+        }
+        assertEquals(text.length, lines.last().endCharExclusive)
+    }
 }

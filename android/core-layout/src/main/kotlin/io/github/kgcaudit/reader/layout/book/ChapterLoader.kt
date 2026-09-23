@@ -49,9 +49,12 @@ class ChapterLoader(
     /** 챕터의 `<head>` 만 훑어 이 챕터가 쓰는 스타일시트를 문서 순서대로 합친다. */
     suspend fun stylesheetFor(index: Int): Stylesheet {
         val head = document.openChapter(index).use { ChapterHead.scan(it) }
+        val chapterPath = document.spine().getOrNull(index)?.href.orEmpty()
         var sheet = Stylesheet.EMPTY
         for (href in head.stylesheetHrefs) {
-            sheet += sheetCache.getOrPut(href) { CssParser.parse(readCss(index, href)) }
+            // 캐시는 **풀린 경로**로 찾는다. `../style.css` 는 `Text/a.xhtml` 과 `Text/sub/b.xhtml` 에서
+            // 서로 다른 파일인데, 적힌 글자로 찾으면 두 번째 챕터가 첫 챕터의 CSS 를 받는다.
+            sheet += sheetCache.getOrPut(document.resolveHref(chapterPath, href)) { CssParser.parse(readCss(index, href)) }
         }
         return sheet
     }
@@ -95,17 +98,20 @@ class ChapterLoader(
             document.openChapterResource(index, href)?.use { it.readCssText() }
         }.getOrNull().orEmpty()
 
-    private fun InputStream.readCssText(): String {
-        // CSS 는 EPUB 규격상 UTF-8 이다. @charset 은 무시한다 — 다른 인코딩으로 적힌
-        // 스타일시트는 실제로 보기 어렵고, 틀려도 서식 일부가 빠지는 정도다.
-        val bytes = readBytes()
-        val offset = if (bytes.size >= 3 &&
-            bytes[0] == 0xEF.toByte() && bytes[1] == 0xBB.toByte() && bytes[2] == 0xBF.toByte()
-        ) {
-            3
-        } else {
-            0
-        }
-        return String(bytes, offset, bytes.size - offset, Charsets.UTF_8)
+}
+
+/**
+ * CSS 파일을 글자로. EPUB 규격상 UTF-8 이고 앞의 BOM 은 뗀다. @charset 은 무시한다 — 다른 인코딩으로
+ * 적힌 스타일시트는 실제로 보기 어렵고, 틀려도 서식 일부가 빠지는 정도다.
+ */
+internal fun InputStream.readCssText(): String {
+    val bytes = readBytes()
+    val offset = if (bytes.size >= 3 &&
+        bytes[0] == 0xEF.toByte() && bytes[1] == 0xBB.toByte() && bytes[2] == 0xBF.toByte()
+    ) {
+        3
+    } else {
+        0
     }
+    return String(bytes, offset, bytes.size - offset, Charsets.UTF_8)
 }

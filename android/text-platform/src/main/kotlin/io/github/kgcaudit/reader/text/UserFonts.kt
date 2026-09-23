@@ -113,7 +113,7 @@ class UserFonts(private val dir: File) {
                 return ImportResult.Rejected(ImportResult.Reason.Broken)
             }
 
-            val name = digest.digest().joinToString("") { "%02x".format(it) }.take(24) + extension(incoming)
+            val name = hexDigest(digest.digest(), 24) + extension(incoming)
             val target = File(dir, name)
             val already = target.exists()
             if (!already && !incoming.renameTo(target)) return ImportResult.Rejected(ImportResult.Reason.Unreadable)
@@ -140,6 +140,11 @@ class UserFonts(private val dir: File) {
     }
 
     private fun scan(): List<Family> {
+        // 넣다가 프로세스가 죽으면 incoming*.tmp(최대 64MB)가 남는다. 목록에는 안 오르지만 공간을 먹는다.
+        // 넣는 중(다른 스레드)인 파일을 지우지 않게 한 시간 넘은 것만.
+        val stale = System.currentTimeMillis() - STALE_TEMP_MS
+        dir.listFiles { f -> f.name.startsWith("incoming") && f.name.endsWith(".tmp") && f.lastModified() < stale }
+            ?.forEach { it.delete() }
         val faces = dir.listFiles().orEmpty()
             .filter { it.isFile && it.extension in EXTENSIONS }
             .flatMap { file ->
@@ -157,11 +162,7 @@ class UserFonts(private val dir: File) {
     }
 
     private fun family(faces: List<Face>): Family {
-        // 기울임만 있는 가족이 아니면 바로 선 서체에서 고른다. 본문을 기울임으로 조판하면 안 된다.
-        val upright = faces.filter { !it.info.italic }.ifEmpty { faces }
-        val regular = upright.minWith(compareBy<Face> { kotlin.math.abs(it.nominalWeight - 400) }.thenBy { it.nominalWeight })
-        val bold = upright.filter { it !== regular && it.nominalWeight >= 600 && it.nominalWeight > regular.nominalWeight }
-            .minByOrNull { kotlin.math.abs(it.nominalWeight - 700) }
+        val (regular, bold) = chooseRegularAndBold(faces, { it.nominalWeight }, { it.info.italic })
         return Family(
             key = KEY_PREFIX + regular.info.family.lowercase(),
             label = regular.info.label,
@@ -198,6 +199,8 @@ class UserFonts(private val dir: File) {
         const val MAX_BYTES = 64L * 1024 * 1024
 
         private val EXTENSIONS = setOf("ttf", "otf", "ttc")
+
+        private const val STALE_TEMP_MS = 60 * 60 * 1000L
 
         /**
          * 파일에서 서체를 읽는다. 실패하면 null.

@@ -42,16 +42,15 @@ data class CssLength(val value: Float, val unit: CssUnit) {
             val text = raw.trim().lowercase()
             if (text.isEmpty()) return null
 
-            val unit = when {
-                text.endsWith("em") -> CssUnit.Em
+            // rem 은 em 으로도 끝나므로 먼저 본다.
+            val resolvedUnit = when {
                 text.endsWith("rem") -> CssUnit.Rem
+                text.endsWith("em") -> CssUnit.Em
                 text.endsWith("px") -> CssUnit.Px
                 text.endsWith("pt") -> CssUnit.Pt
                 text.endsWith("%") -> CssUnit.Percent
                 else -> null
             }
-            // rem 은 em 으로도 끝나므로 먼저 본다.
-            val resolvedUnit = if (text.endsWith("rem")) CssUnit.Rem else unit
 
             val numberText = when (resolvedUnit) {
                 CssUnit.Rem -> text.dropLast(3)

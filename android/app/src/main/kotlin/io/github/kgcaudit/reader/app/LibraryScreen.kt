@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -45,8 +44,8 @@ import io.github.kgcaudit.reader.ui.design.CpPopup
 import io.github.kgcaudit.reader.ui.design.CpProgressBar
 import io.github.kgcaudit.reader.ui.design.CpSectionLabel
 import io.github.kgcaudit.reader.ui.design.CpText
-import io.github.kgcaudit.reader.ui.design.CpTile
 import io.github.kgcaudit.reader.ui.design.CpTheme
+import io.github.kgcaudit.reader.ui.design.CpTile
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -57,28 +56,47 @@ import kotlin.math.roundToInt
  * (128/512)에 걸리고, 폴더에 책을 넣는 것만으로 목록에 나타나는 편이 쓰기 쉽다.
  */
 @Composable
-fun LibraryScreen(onOpen: (LibraryBook) -> Unit) {
+fun LibraryScreen(
+    onOpen: (LibraryBook) -> Unit,
+    /** 이번 실행에서 아직 훑지 않았다. 책을 닫고 돌아올 때마다 훑지 않게 부르는 쪽이 기억한다. */
+    scanOnStart: Boolean = true,
+    onStartScan: () -> Unit = {},
+) {
     val context = LocalContext.current
     val container = context.container
     val data = container.data
     val scope = rememberCoroutineScope()
     val colors = CpTheme.colors
 
-    val books by data.library.books().collectAsState(initial = null)
-    val recent by data.library.recent(limit = 3).collectAsState(initial = emptyList())
-    val percents by data.library.percents().collectAsState(initial = emptyMap())
+    // Flow 를 remember 한다. 부를 때마다 새 Flow 라서, 그대로 두면 다시 그릴 때마다(알림·스캔 표시)
+    // 세 질의를 끊고 다시 건다.
+    val books by remember { data.library.books() }.collectAsState(initial = null)
+    val recent by remember { data.library.recent(limit = RECENT_SHOWN) }.collectAsState(initial = emptyList())
+    val percents by remember { data.library.percents() }.collectAsState(initial = emptyMap())
     var folders by remember { mutableStateOf(data.folders.folders()) }
     var scanning by remember { mutableStateOf(false) }
     var notice by remember { mutableStateOf<Pair<String, String?>?>(null) }
     var manageFolders by remember { mutableStateOf(false) }
 
-    fun rescan() = scope.launch {
+    fun rescan() {
+        // 훑는 중에 새로고침을 또 누르면 두 스캔이 같은 표를 고치고, 먼저 끝난 쪽이 표시를 꺼 버린다.
+        if (scanning) return
         scanning = true
-        val results = runCatching { data.rescanAll() }.getOrDefault(emptyMap())
-        scanning = false
-        if (results.values.any { !it.complete }) {
+        scope.launch {
+            val results = try {
+                data.rescanAll()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                scanning = false
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.w("OloLibrary", "rescan failed", e)
+                null
+            }
+            scanning = false
+            if (results == null || results.values.any { !it.complete }) {
             notice = "일부 폴더를 읽지 못했습니다" to
                 "그 폴더의 책은 목록에 그대로 둡니다. 저장소가 연결돼 있는지 확인한 뒤 새로고침하세요."
+            }
         }
     }
 
@@ -91,8 +109,14 @@ fun LibraryScreen(onOpen: (LibraryBook) -> Unit) {
         }
     }
 
-    // 앱을 열 때마다 한 번 훑는다. 폴더에 새로 넣은 책이 바로 보여야 한다.
-    LaunchedEffect(Unit) { if (folders.isNotEmpty()) rescan() }
+    // 앱을 열 때마다 한 번 훑는다. 폴더에 새로 넣은 책이 바로 보여야 한다. 책을 닫고 돌아올 때는 훑지
+    // 않는다 — 이 화면은 책을 여는 동안 사라졌다 다시 생기므로, 여기서 기억하면 돌아올 때마다 훑는다.
+    LaunchedEffect(Unit) {
+        if (scanOnStart && folders.isNotEmpty()) {
+            onStartScan()
+            rescan()
+        }
+    }
 
     Column(Modifier.fillMaxSize().background(colors.background).windowInsetsPadding(WindowInsets.safeDrawing)) {
         val list = books
@@ -236,5 +260,5 @@ private fun folderName(uri: Uri): String {
     return path.substringAfterLast('/').ifBlank { if (id.startsWith("primary")) "내장 저장소" else id }
 }
 
-/** 저장된 책 id 로 목록의 책을 찾는다(앱이 다시 켜졌을 때 열던 책으로 돌아가기). */
-suspend fun io.github.kgcaudit.reader.data.library.Library.find(id: String): LibraryBook? = get(BookId(id))
+/** 라이브러리 위쪽 "최근에 읽은 책" 의 줄 수. 한 화면에 목록과 함께 보이는 만큼. */
+private const val RECENT_SHOWN = 3

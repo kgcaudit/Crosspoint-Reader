@@ -278,6 +278,24 @@ class ChapterParserTest {
     }
 
     @Test
+    fun `dropped elements do not take their parent's style with them`() {
+        // <noscript>·<title> 의 내용은 버리지만, 닫히면서 **부모의** 프레임을 빼면 안 된다. 그러면
+        // 인용문 속 문단이 들여쓰기와 `.poem p` 서식을 잃고, <head><title> 뒤에서 html 의 서식이 사라진다.
+        val quote = parse(
+            "<blockquote class=\"poem\"><noscript>x</noscript><p>시 한 줄</p></blockquote>",
+            css = ".poem p { font-style: italic }",
+        ).paragraphs().single()
+        assertEquals(2f, quote.style.indentStartEm)
+        assertTrue(quote.runs.all { it.style.italic }, "후손 셀렉터가 계속 맞아야 한다")
+
+        val body = parse(
+            "<html><head><title>t</title></head><body><p>가운데</p></body></html>",
+            css = "html { text-align: center }",
+        ).paragraphs().single()
+        assertEquals(TextAlign.Center, body.style.align)
+    }
+
+    @Test
     fun `a style element is adopted as css rather than shown as text`() {
         val chapter = parse(
             """

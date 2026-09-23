@@ -4,10 +4,8 @@ import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -18,10 +16,7 @@ import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -47,27 +42,26 @@ import io.github.kgcaudit.reader.document.Bookmark
 import io.github.kgcaudit.reader.document.TocEntry
 import io.github.kgcaudit.reader.layout.Insets
 import io.github.kgcaudit.reader.layout.PlacedImage
-import io.github.kgcaudit.reader.text.AndroidTextMeasurer
-import io.github.kgcaudit.reader.text.FontCatalog
 import io.github.kgcaudit.reader.ui.design.CpButton
 import io.github.kgcaudit.reader.ui.design.CpChoice
+import io.github.kgcaudit.reader.ui.design.CpFullScreen
 import io.github.kgcaudit.reader.ui.design.CpHeader
 import io.github.kgcaudit.reader.ui.design.CpIconButton
 import io.github.kgcaudit.reader.ui.design.CpIcons
 import io.github.kgcaudit.reader.ui.design.CpLinkRow
 import io.github.kgcaudit.reader.ui.design.CpListRow
 import io.github.kgcaudit.reader.ui.design.CpPopup
-import io.github.kgcaudit.reader.ui.design.CpSlider
+import io.github.kgcaudit.reader.ui.design.CpReaderBar
 import io.github.kgcaudit.reader.ui.design.CpStatusBar
 import io.github.kgcaudit.reader.ui.design.CpStepper
 import io.github.kgcaudit.reader.ui.design.CpTabBar
 import io.github.kgcaudit.reader.ui.design.CpText
 import io.github.kgcaudit.reader.ui.design.CpTheme
 import io.github.kgcaudit.reader.ui.design.CpToolButton
-import kotlin.math.abs
-import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /**
  * 리플로우 리더.
@@ -115,8 +109,8 @@ fun ReaderScreen(
                 left = 24.dp.toPx() + cutout.getLeft(this, direction),
                 top = 34.dp.toPx() + cutout.getTop(this),
                 right = 24.dp.toPx() + cutout.getRight(this, direction),
-                // 상태바(28dp) + 숨 쉴 틈. 본문이 상태바 밑으로 들어가면 마지막 줄이 가려진다.
-                bottom = 56.dp.toPx() + cutout.getBottom(this),
+                // 상태바 + 숨 쉴 틈. 본문이 상태바 밑으로 들어가면 마지막 줄이 가려진다.
+                bottom = (CpTheme.metrics.statusBarHeight + 28.dp).toPx() + cutout.getBottom(this),
             )
         }
         // 1sp 가 몇 px 인가. 시스템 글자 크기 설정(fontScale)을 따른다.
@@ -124,11 +118,17 @@ fun ReaderScreen(
         val pxPerDp = density.density
         // 글꼴 ID 는 글자를 재서 만든다(지문). 설정이 바뀔 때만 다시 잰다.
         val fontId = remember(prefs.font, fontsRevision) { reader.fonts.layoutFontId(prefs.font) }
-        val useBookFonts = prefs.publisherFonts && reader.hasBookFonts
+        val useBookFonts = reader.usesBookFonts(prefs)
         val spec = remember(widthPx, heightPx, margin, prefs, pxPerSp, pxPerDp, fontId, useBookFonts) {
             prefs.toSpec(widthPx, heightPx, margin, pxPerSp, pxPerDp, fontId, useBookFonts)
         }
-        LaunchedEffect(spec) { runCatching { reader.layOut(spec) } }
+        LaunchedEffect(spec) {
+            // 실패는 reader.state.error 로 화면에 간다. 여기서는 로그만 — 흔적 없이 삼키면 기기에서 원인을 못 찾는다.
+            runCatching { reader.layOut(spec) }.onFailure {
+                if (it is kotlinx.coroutines.CancellationException) throw it
+                Log.w(TAG, "layout failed", it)
+            }
+        }
 
         // 그리기 전용 측정기. 조판에 쓴 설정(state.spec)으로 만든다 — 새 설정으로 조판이
         // 끝나기 전까지는 옛 페이지를 옛 글꼴로 그려야 한다.
@@ -244,76 +244,27 @@ private fun ReaderBar(
     onPanel: (Panel) -> Unit,
     scope: CoroutineScope,
 ) {
-    val colors = CpTheme.colors
-    // 막대를 끄는 동안의 값. 손을 떼기 전까지는 옮기지 않고 숫자만 바꾼다.
-    var dragging by remember { mutableStateOf<Float?>(null) }
-
-    Column(Modifier.fillMaxSize()) {
-        // 위: 제목 · 뒤로 · 책갈피
-        Column(Modifier.fillMaxWidth().background(colors.surface).windowInsetsPadding(WindowInsets.statusBars)) {
-            val position = state.position
-            CpHeader(
-                title = reader.title,
-                subtitle = if (position != null) "${position.spineIndex + 1} / ${state.chapterCount} 장" else null,
-                onBack = onClose,
-            ) {
-                CpIconButton(
-                    if (state.bookmarked) CpIcons.BookmarkFilled else CpIcons.Bookmark,
-                    if (state.bookmarked) "책갈피 빼기" else "책갈피 꽂기",
-                    onClick = { scope.go { reader.toggleBookmark() } },
-                    tint = if (state.bookmarked) colors.accent else colors.text,
-                )
-            }
-        }
-        // 가운데: 지면이 보이는 곳. 누르면 닫힌다.
-        Box(
-            Modifier.weight(1f).fillMaxWidth()
-                .clickable(indication = null, interactionSource = null) { onPanel(Panel.None) },
-        )
-        // 아래: (보기 설정) · 진행 막대 · 도구
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .background(colors.surface)
-                .windowInsetsPadding(WindowInsets.navigationBars),
-        ) {
+    val position = state.position
+    CpReaderBar(
+        title = reader.title,
+        subtitle = if (position != null) "${position.spineIndex + 1} / ${state.chapterCount} 장" else null,
+        bookmarked = state.bookmarked,
+        onBookmark = { scope.go { reader.toggleBookmark() } },
+        onBack = onClose,
+        onDismiss = { onPanel(Panel.None) },
+        progress = state.percent / 100f,
+        progressLabel = { "${(it * 100).roundToInt()}%" },
+        onSeek = { target -> scope.go { reader.seek(target) } },
+        above = {
             if (showView) {
                 ViewSettings(reader, prefs, onPrefsChange, onFonts = { onPanel(Panel.Fonts) })
                 Spacer(Modifier.height(4.dp))
             }
-            val shown = dragging ?: (state.percent / 100f)
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                CpSlider(
-                    value = shown,
-                    onChange = { dragging = it },
-                    onCommit = { target ->
-                        scope.go { reader.seek(target) }
-                        dragging = null
-                    },
-                    modifier = Modifier.weight(1f),
-                    description = "읽은 위치",
-                )
-                CpText(
-                    "${(shown * 100).roundToInt()}%",
-                    CpTheme.type.label,
-                    colors.text,
-                    Modifier.padding(start = 12.dp),
-                )
-            }
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-            ) {
-                CpToolButton(CpIcons.Toc, "목차", { onPanel(Panel.Contents) })
-                CpToolButton(CpIcons.Bookmark, "책갈피", { onPanel(Panel.Bookmarks) })
-                CpToolButton(
-                    CpIcons.TextSize,
-                    "보기",
-                    { onPanel(if (showView) Panel.Bar else Panel.View) },
-                    selected = showView,
-                )
-            }
-        }
+        },
+    ) {
+        CpToolButton(CpIcons.Toc, "목차", { onPanel(Panel.Contents) })
+        CpToolButton(CpIcons.Bookmark, "책갈피", { onPanel(Panel.Bookmarks) })
+        CpToolButton(CpIcons.TextSize, "보기", { onPanel(if (showView) Panel.Bar else Panel.View) }, selected = showView)
     }
 }
 
@@ -326,7 +277,6 @@ private fun ReaderLists(
     onPanel: (Panel) -> Unit,
     scope: CoroutineScope,
 ) {
-    val colors = CpTheme.colors
     var toc by remember { mutableStateOf<List<TocEntry>?>(null) }
     var marks by remember { mutableStateOf<List<Bookmark>?>(null) }
     LaunchedEffect(Unit) { toc = runCatching { reader.outline() }.getOrDefault(emptyList()) }
@@ -334,14 +284,7 @@ private fun ReaderLists(
         if (showBookmarks) marks = runCatching { reader.bookmarks() }.getOrDefault(emptyList())
     }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(colors.background)
-            .windowInsetsPadding(WindowInsets.systemBars)
-            // 목록 뒤의 지면으로 터치가 새지 않게 한다.
-            .clickable(indication = null, interactionSource = null) {},
-    ) {
+    CpFullScreen {
         CpHeader(title = reader.title, onBack = { onPanel(Panel.Bar) })
         CpTabBar(
             listOf("목차", "책갈피"),
@@ -416,10 +359,10 @@ private fun ViewSettings(reader: BookReader, prefs: ReaderPrefs, onChange: (Read
     val catalog = reader.fonts
     Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
         CpStepper("글자 크기", "${prefs.fontSizeSp}", { onChange(prefs.withSize(-1)) }, { onChange(prefs.withSize(+1)) })
-        // 고른 값이 목록에 없으면(지운 사용자 글꼴, 명조가 없는 기기로 옮긴 설정) 실제로 쓰이는
-        // 글꼴 이름을 보인다. 사용자 글꼴이 몇 개일지 모르므로 단추를 늘어놓지 않고 목록을 연다.
+        // 고른 값이 목록에 없으면(지운 사용자 글꼴, 없어진 옛 설정) 실제로 쓰이는 글꼴 이름을 보인다.
+        // 사용자 글꼴이 몇 개일지 모르므로 단추를 늘어놓지 않고 목록을 연다.
         val current = catalog.effectiveKey(prefs.font)
-        val label = if (prefs.publisherFonts && reader.hasBookFonts) {
+        val label = if (reader.usesBookFonts(prefs)) {
             PUBLISHER_LABEL
         } else {
             catalog.options().firstOrNull { it.key == current }?.label.orEmpty()
@@ -445,6 +388,8 @@ private fun Empty(message: String) {
  */
 private fun CoroutineScope.go(block: suspend () -> Unit) {
     launch {
-        runCatching { block() }.onFailure { if (it !is kotlinx.coroutines.CancellationException) Log.w("OloReader", "reader action failed", it) }
+        runCatching { block() }.onFailure { if (it !is kotlinx.coroutines.CancellationException) Log.w(TAG, "reader action failed", it) }
     }
 }
+
+private const val TAG = "OloReader"

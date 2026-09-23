@@ -248,7 +248,9 @@ object CssParser {
 
     /** `margin: 1em 2em` 처럼 1~4개 값이 오는 축약형. CSS 규칙대로 펼친다. */
     private fun shorthandMargins(value: String): CssDeclarations {
-        val parts = value.split(' ', '\t').filter { it.isNotBlank() }.mapNotNull(CssLength::parse)
+        // 자리를 지킨 채 읽는다. `auto` 는 길이가 아니라 null(정하지 않음)이지만 **자리는 차지한다** —
+        // 걸러 내면 `margin: 1em auto`(Calibre 의 가운데 블록)가 값 하나로 줄어 좌우 1em 이 된다.
+        val parts = value.split(' ', '\t').filter { it.isNotBlank() }.map(CssLength::parse)
         // CSS 축약형: 1개=모두, 2개=세로/가로, 3개=위·가로·아래, 4개=위·오른쪽·아래·왼쪽.
         val (top, right, bottom, left) = when (parts.size) {
             1 -> listOf(parts[0], parts[0], parts[0], parts[0])

@@ -6,7 +6,6 @@ import io.github.kgcaudit.reader.layout.Block
 import io.github.kgcaudit.reader.layout.BlockStyle
 import io.github.kgcaudit.reader.layout.ImageSizing
 import io.github.kgcaudit.reader.layout.InlineRun
-import io.github.kgcaudit.reader.layout.TextStyle
 import io.github.kgcaudit.reader.layout.book.BookFontTable
 import io.github.kgcaudit.reader.layout.css.CssDeclarations
 import io.github.kgcaudit.reader.layout.css.CssLength
@@ -126,6 +125,11 @@ class ChapterParser(
 
             val tag = event.name.local.lowercase()
             if (tag in TagDefaults.SKIPPED_TAGS) {
+                // 닫힐 때 프레임과 스택을 하나씩 뺀다(endElement). 여기서 넣지 않으면 **부모의 것**이
+                // 빠진다 — `<head><title>` 뒤에 `head` 프레임이, 인용문 속 `<noscript>` 뒤에 인용문의
+                // 들여쓰기와 `.poem p` 규칙이 사라진다.
+                elements.add(ElementInfo.of(tag, event.attribute("class"), event.attribute("id")))
+                frames.add(Frame(tag, current(), isBlock = false, restoreStyle = blockStyle))
                 skipDepth = 1
                 return
             }
@@ -388,7 +392,6 @@ class ChapterParser(
         fun isCollapsible(ch: Char): Boolean =
             ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || ch == '\u000C'
 
-        /** `width="300"` 과 `width="300px"` 를 모두 받는다. 퍼센트는 모름(0)으로 본다. */
         /**
          * HTML 속성의 길이. 단위 없는 숫자는 CSS px 이고(`width="600"`), 퍼센트도 된다
          * (`width="100%"` — 한 권에서 106번 나왔다). 0 이하나 알아볼 수 없는 값은 지정 없음.

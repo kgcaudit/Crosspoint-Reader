@@ -48,9 +48,8 @@ class BookFontTable(val families: List<BookFontFamily>) {
             val declared = LinkedHashMap<String, MutableList<BookFontFile>>()
             val lists = ArrayList<List<String>>()
             for (path in document.stylesheets()) {
-                val css = runCatching { document.openResource(path)?.use { String(it.readBytes(), Charsets.UTF_8) } }
-                    .getOrNull() ?: continue
-                val sheet = CssParser.parse(css.removePrefix("﻿"))
+                val css = runCatching { document.openResource(path)?.use { it.readCssText() } }.getOrNull() ?: continue
+                val sheet = CssParser.parse(css)
                 for (face in sheet.fontFaces) {
                     val file = BookFontFile(document.resolveHref(path, face.src), face.weight, face.italic)
                     declared.getOrPut(face.family) { ArrayList() }.add(file)

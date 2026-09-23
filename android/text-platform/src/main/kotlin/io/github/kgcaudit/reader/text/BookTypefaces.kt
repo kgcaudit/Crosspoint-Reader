@@ -5,7 +5,6 @@ import io.github.kgcaudit.reader.document.ReflowDocument
 import io.github.kgcaudit.reader.layout.book.BookFontTable
 import io.github.kgcaudit.reader.text.font.SfntReader
 import java.io.File
-import java.security.MessageDigest
 
 /**
  * 책에 든 글꼴(출판사 글꼴)을 꺼내 읽어 둔 것. [AndroidTextMeasurer] 가
@@ -40,11 +39,9 @@ class BookTypefaces private constructor(private val families: List<Family?>) {
     }
 
     private fun pick(family: Family, bold: Boolean): Pair<Typeface, Boolean> {
-        val upright = family.faces.filter { !it.italic }.ifEmpty { family.faces }
-        if (bold) {
-            upright.filter { it.weight >= 600 }.minByOrNull { kotlin.math.abs(it.weight - 700) }?.let { return it.typeface to false }
-        }
-        val regular = upright.minWith(compareBy<Face> { kotlin.math.abs(it.weight - 400) }.thenBy { it.weight })
+        val (regular, boldFace) = chooseRegularAndBold(family.faces, { it.weight }, { it.italic })
+        if (bold && boldFace != null) return boldFace.typeface to false
+        // 굵은 파일 하나뿐인 가족(보통이 곧 굵음)은 다시 굵히지 않는다.
         return regular.typeface to (bold && regular.weight < 600)
     }
 
@@ -58,6 +55,8 @@ class BookTypefaces private constructor(private val families: List<Family?>) {
         suspend fun prepare(document: ReflowDocument, table: BookFontTable, dir: File): BookTypefaces {
             if (table.isEmpty) return EMPTY
             dir.mkdirs()
+            // 꺼내다 프로세스가 죽으면 .part 가 남는다. 아무도 지우지 않으면 수 MB 씩 쌓인다.
+            dir.listFiles { f -> f.name.endsWith(".part") }?.forEach { it.delete() }
             val families = table.families.map { family ->
                 val faces = family.files.mapNotNull { file ->
                     val target = File(dir, name(file.path))
@@ -80,15 +79,22 @@ class BookTypefaces private constructor(private val families: List<Family?>) {
 
         private suspend fun extract(document: ReflowDocument, path: String, target: File): Boolean {
             val temp = File(target.parentFile, target.name + ".part")
-            return runCatching {
+            return try {
                 val input = document.openFont(path) ?: return false
                 input.use { i -> temp.outputStream().use { i.copyTo(it) } }
                 temp.renameTo(target)
-            }.getOrDefault(false).also { temp.delete() }
+            } catch (e: java.util.concurrent.CancellationException) {
+                // 취소는 실패가 아니다. 삼키면 취소된 준비가 남은 글꼴(각 수 MB)을 끝까지 꺼낸다.
+                throw e
+            } catch (e: Exception) {
+                false
+            } finally {
+                temp.delete()
+            }
         }
 
         /** 책 안 경로에서 파일 이름. 경로에 한글·공백·`../` 가 섞여도 안전한 이름이 되게 해시한다. */
         private fun name(path: String): String =
-            MessageDigest.getInstance("SHA-1").digest(path.toByteArray()).joinToString("") { "%02x".format(it) }.take(20) + ".font"
+            sha1Hex(path, 20) + ".font"
     }
 }
