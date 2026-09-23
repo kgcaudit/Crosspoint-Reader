@@ -20,7 +20,8 @@ ESP32 제약 때문에 존재하는 코드다.
 ## 빌드
 
 ```bash
-cd android && ./gradlew check          # :document + :core-layout (순수 Kotlin)
+cd android && ./gradlew check          # SDK 없으면 :document + :core-layout 만
+./gradlew :app:assembleRelease         # APK (OLO eBook). 화면 확인은 :app:testDebugUnitTest 의 스크린샷
 ```
 
 안드로이드 SDK 가 없으면 `settings.gradle.kts` 가 순수 Kotlin 모듈만 구성한다. 그게

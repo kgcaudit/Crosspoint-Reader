@@ -132,6 +132,17 @@ class LibraryTest {
     }
 
     @Test
+    fun `the list shows how far each book has been read`() = runTest {
+        val a = book("a.epub"); val b = book("b.txt")
+        library.applyScan(folder, ScanResult(listOf(a, b), complete = true), 1)
+        val progress = RoomProgressRepository(db.progress())
+        progress.save(ReadingProgress(BookId(a.uri), Locator.Reflow(3, 0), 37.5f, 1))
+
+        // 읽지 않은 책은 항목이 없다(0% 와 구별한다 — "아직 안 폄" 과 "처음에 멈춤" 은 다르다).
+        assertEquals(mapOf(BookId(a.uri) to 37.5f), library.percents().first())
+    }
+
+    @Test
     fun `a row with an unknown format is left out instead of breaking the list`() = runTest {
         // 다음 버전이 쓴 포맷 이름(예: CBZ)을 옛 버전이 읽는 경우.
         library.applyScan(folder, ScanResult(listOf(book("a.epub")), complete = true), 1)

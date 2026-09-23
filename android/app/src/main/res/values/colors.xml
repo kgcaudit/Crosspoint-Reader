@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 앱 아이콘. OLO Explorer 와 같은 주황 바탕에 밝은 그레이 도형. -->
+    <color name="launcher_background_light">#FFDA7B56</color>
+    <color name="launcher_background_dark">#FFCC6743</color>
+    <color name="launcher_shape">#FFEEEDEB</color>
+    <!-- 앱이 뜨기 전 창 배경. CpTheme 의 background 와 같아야 첫 화면이 번쩍이지 않는다. -->
+    <color name="window_background">#FFF6F4F1</color>
+</resources>

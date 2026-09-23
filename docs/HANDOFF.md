@@ -11,15 +11,15 @@
 
 ## 1. 지금 상태
 
-**순수 Kotlin 코어가 완성됐고, 화면 아래 층(`:text-platform` `:data`)이 모두 붙었다.**
-EPUB/TXT 파일 바이트 → 챕터 → 블록 → 페이지 → 디스크 캐시 → 글자 오프셋 위치 →
-책갈피·이어읽기까지 **기기 없이 한 줄로 돌아가고**, 그 조판이 **번들 글꼴과 실제
-`Paint`** 로 돌며(Robolectric 네이티브 그래픽스), 책갈피·진도는 **Room** 에 저장되고,
-책은 **SAF 폴더**에서 찾아 연다. 남은 것은 화면뿐이다.
+**첫 APK(OLO eBook 0.1.0)가 나왔다.** 폴더 등록 → 라이브러리 → EPUB/TXT 열기 → 페이지
+넘김 → 목차·책갈피 → 글꼴·크기 바꾸기까지 된다. 앱 전체를 Robolectric 으로 실제로 띄워
+사람이 쓰는 순서대로 한 바퀴 도는 테스트가 있고, 화면을 스크린샷으로 남긴다.
+PDF 는 목록에만 보이고("준비 중") 열리지 않는다(P1 미결).
 
 ```bash
-cd android && ./gradlew check
-# SDK 있음: :document 143 + :core-layout 223 + :text-platform 12 + :data 32 = 410개 + lint
+cd android && ./gradlew check                 # 413개 + lint
+./gradlew :app:assembleRelease                # → app/build/outputs/apk/release/OLO-eBook-0.1.0-release.apk
+./gradlew :app:testDebugUnitTest              # → app/build/screenshots/*.png (화면 확인용)
 # SDK 없음: :document + :core-layout 366개 (기존과 같다)
 ```
 
@@ -36,15 +36,17 @@ cd android && ./gradlew check
 | `:core-layout` | `MeasurerConformance` — 안드로이드 `TextMeasurer` 구현이 통과해야 할 검사 |
 | `:text-platform` | `AndroidTextMeasurer`(`Paint`) · `ReaderFont`(번들 글꼴 2종) — conformance 통과 |
 | `:data` | Room(`books` `progress` `bookmarks` `recent`) 보관소 · SAF 폴더 등록·재귀 스캔 · `Uri` → `SeekableSource`/`ByteSource` · `ReaderData`(묶음) |
+| `:ui-design` | `CpTheme`(색·치수·글꼴 토큰, 라이트/다크) · `CpHeader` `CpListRow` `CpTabBar` `CpStatusBar` `CpProgressBar` `CpPopup` `CpButton` `CpStepper` `CpChoice` · 선 아이콘 12종. Material 없음 |
+| `:reader-reflow` | `BookReader`(조판 스레드·넘김·책갈피·목차·설정 변경 시 읽던 글자로 복귀) · `drawPage` · `ReaderScreen`(탭·스와이프·메뉴) |
+| `:app` | `OloApp`·`AppContainer`(수동 DI) · `LibraryScreen` · `MainActivity` · 앱 아이콘 · 개발용 서명 키 |
 
 ### 남은 것 — 전부 안드로이드 모듈이다
 
 | 모듈 | 내용 | 비고 |
 |---|---|---|
-| `:ui-design` | GUI 컴포넌트(`CpHeader` `CpList` `CpStatusBar` `CpPopup` …) | **여기부터.** CrossPoint GUI 참고 |
-| `:reader-reflow` `:app` | 리플로우 리더(Canvas) · 라이브러리 화면 · `AppContainer` | 첫 APK. **B1 을 먼저 정한다** |
+| 실기기 확인 | §3.3 의 목록 | **여기부터.** 에뮬레이터가 없어 기기에서만 볼 수 있는 것들 |
 | `:reader-pdf` | `PdfRenderer` 기반 고정 페이지 리더 | 결정 P1 |
-| `:ui` | 목차·설정 화면 | |
+| GUI 나머지 | `CpCoverTile`(최근 책 표지) · `CpButtonMenu` · 세피아 지면 · 라이선스 화면 | R4 |
 
 ---
 
@@ -161,32 +163,37 @@ ReadingSession(layout, data.bookmarks, data.progress)
 알려진 한계(v2): 파일을 **다른 폴더로 옮기면 URI 가 바뀌어** 진도·책갈피가 따라가지
 않는다. 필요해지면 (이름, 크기)로 옛 `bookId` 를 찾아 옮기는 단계를 `applyScan` 에 더한다.
 
-### 3.3 `:ui-design` · `:reader-reflow` · `:app` — 첫 APK
+### 3.3 `:ui-design` · `:reader-reflow` · `:app` — 첫 APK 나옴. 여기서 정한 것
 
-R1 스프린트는 PDF 부터였지만, PDF 는 P1 이 미결이고 리플로우 경로는 아래 층이 전부
-준비돼 있다. **TXT/EPUB 리더로 첫 APK 를 내는 것을 권한다.** 첫 APK 전에 B1(패키지
-이름)을 정해야 한다 — 설치 후 바꾸면 사용자 데이터가 끊긴다.
+- **B1**: 표시 이름 **OLO eBook**, `applicationId` **`io.github.kgcaudit.oloebook`**
+  (안드로이드 패키지 ID 에는 공백·대문자를 못 쓴다). 코드 네임스페이스는
+  `io.github.kgcaudit.reader` 그대로 — 사용자에게 보이지 않는다. debug 빌드는
+  `.debug` 접미사가 붙어 release 와 나란히 설치된다.
+- **아이콘**: OLO Explorer 와 같은 주황 바탕 · 밝은 그레이 도형 · 찢는 모티프(펼친 책의
+  오른쪽 페이지가 사선으로 찢겨 들림). 원본은 `app/icon-src/`.
+- **서명**: `app/olo-dev.keystore` 를 **커밋했다**(비밀 아님, 암호도 build.gradle.kts 에
+  있음). 세션마다 다른 debug 키로 서명하면 다음 APK 를 덮어 설치할 수 없고, 지우고 다시
+  깔면 책갈피가 사라진다. **공개 배포 전에는 비공개 릴리스 키로 바꿔야 한다.**
+- 사람에게 건네는 것은 **release**(R8) APK 다. Compose 는 debug 빌드에서 눈에 띄게 느리다.
+- Material 을 쓰지 않는다. `CpTheme` 과 foundation 만으로 부품을 그린다.
+- 보기 설정은 SharedPreferences(DataStore 아님): 리더를 여는 순간 동기로 읽어야 첫 조판을
+  옛 설정으로 한 번 더 하지 않는다.
+- 두 화면뿐이라 내비게이션 라이브러리 없이 상태 하나로 오간다. 열던 책 id 는
+  `rememberSaveable` 이라 프로세스가 죽었다 살아나도 읽던 책으로 돌아온다.
+- 회전·다크 모드 전환은 `configChanges` 로 액티비티를 다시 만들지 않는다(EPUB 파일
+  디스크립터를 닫았다 열지 않도록). 조판은 새 크기로 읽던 글자에 돌아온다.
 
-`:app` 을 만들 때: 폰트가 압축돼 들어가면 로드할 때 메모리로 풀린다(KoPubWorld 한
-벌 8MB × 2). `androidResources { noCompress += listOf("otf", "ttf") }` 로 mmap 되게 할지
-정한다 — 설치 크기 +10MB 대 메모리 16MB 의 교환이다. 라이브러리 모듈의 설정은 앱으로
-전파되지 않으므로 `:app` 에서 해야 한다. 또 KoPub 약관은 **받는 사람에게 약관을 알릴
-의무**가 있으므로 `assets/licenses/` 를 보여 주는 화면(오픈소스 라이선스)이 필요하다.
+**실기기에서 볼 것**(Robolectric 이 못 보여 주는 것):
+- 페이지 넘김 체감 속도(16ms 예산). 넘길 때 디스크 캐시에서 페이지를 읽는다 — 느리면 앞뒤
+  한 장씩 미리 읽기를 `BookReader` 에 더한다.
+- release(R8) 빌드의 시작. 테스트는 축소 전 코드로 돈다. Room·Compose 는 자체 keep 규칙을
+  싣고 오고 우리 코드는 리플렉션이 없으므로 문제없을 것으로 보지만 확인은 기기에서.
+- 몰입 모드(시스템 바 숨김)와 디스플레이 컷아웃 여백, 제스처 내비게이션과 스와이프 충돌.
+- 폴더 선택기 → 등록 → 스캔(실제 파일 관리자·SD 카드·Google Drive).
+- 호스트와 기기의 글자 폭 차이(§3.1).
 
-리플로우 리더:
-
-`BookLayout` 과 `ReadingSession` 만 쓰면 된다. 화면에 남는 일은 이것뿐이다:
-
-```kotlin
-val position = session.restore()                       // 지난번 자리
-val page = layout.page(position.spineIndex, position.pageIndex)
-// page.runs / images / rules 를 좌표 그대로 Canvas 에 찍는다 (산술 없음)
-layout.next(position) / layout.previous(position)       // 챕터 경계도 여기서 넘긴다
-session.addBookmark(position) / session.saveProgress(position)
-```
-
-`Page` 의 좌표는 여백이 반영된 **절대값**이다. 그리는 쪽에 산술을 남기지 않는 것이
-16ms 예산의 전제다.
+알려진 한계: 표지·검색·세피아 없음. 그림은 넣었지만 견본 책에 그림이 없어 스크린샷으로
+확인하지 못했다. lint 경고 45개는 전부 "새 버전 있음" — 버전 올리기는 따로 판단한다.
 
 ### 3.4 `:reader-pdf`, GUI, 나머지
 
@@ -194,12 +201,11 @@ session.addBookmark(position) / session.saveProgress(position)
 
 ---
 
-## 4. 미결 결정 3건 — 사용자 확인 필요
+## 4. 미결 결정 2건 — 사용자 확인 필요
 
 | # | 항목 | 권장 | 왜 지금 필요한가 |
 |---|---|---|---|
 | **P1** | PDF 렌더러 | `PdfRenderer`(플랫폼 내장) | APK 크기 0, v1 범위에 충분. 목차·검색이 필요해지면 Pdfium 으로(R8) |
-| **B1** | 앱·패키지 이름 | 현재 `io.github.kgcaudit.reader`, 표시명 "Reader" (가칭) | 첫 APK 를 내기 전에 정해야 한다. 나중에 바꾸면 설치 데이터가 끊긴다 |
 | **B3** | 테스트 코퍼스 | EPUB 20 · TXT 10 · PDF 10 | `corpus/README.md` 참고. 파일은 커밋하지 않고 골든만 커밋한다 |
 
 ---
@@ -208,6 +214,7 @@ session.addBookmark(position) / session.saveProgress(position)
 
 | 결정 | 근거 |
 |---|---|
+| **B1: 앱 이름 OLO eBook · 아이콘 컨셉** (2026-09-23 사용자 결정) | 표시 이름 "OLO eBook", `applicationId` `io.github.kgcaudit.oloebook`. 아이콘은 OLO Explorer 와 바탕색 통일·도형 그레이·찢는 느낌. 배포 후 `applicationId` 를 바꾸면 다른 앱이 되어 데이터가 끊긴다 |
 | **B2: KoPubWorld 바탕 + Pretendard 번들** (2026-09-23 사용자 결정) | 시스템 글꼴은 기기마다 조판이 달라진다. KoPub 구판이 아니라 **KoPubWorld** 인 이유: 구판에는 `—`(U+2014)가 없고 한자가 4,620자뿐이다(World 는 6,007자). 두 글꼴 모두 한글 11,172자 전부. 라이선스: Pretendard 는 OFL, **KoPubWorld 는 OFL 이 아니라 KOPUS 약관**(무료 재배포 가능 · 유료 판매 금지 · 약관 동봉 의무 · 수정본에 "KoPub" 이름 금지) — 그래서 서브셋하지 않고 원본을 넣었다. 저장소 +21.5MB, APK +11MB(압축) |
 | C++ 를 옮기지 않는다. GUI 구성만 참고 | 사용자 명시: "crosspoint 의 GUI 구성이 마음에 들었을 뿐이라, 코드 구조는 어떤 것이든 상관없어". 원본의 60~70% 는 ESP32 제약 때문의 코드다 |
 | 네이티브 Canvas + 디스크 페이지 캐시 | WebView 는 메모리·시작 시간이 무겁고 조판을 통제할 수 없다. `docs/ANDROID_ARCHITECTURE_DECISION.md` |
@@ -242,7 +249,7 @@ session.addBookmark(position) / session.saveProgress(position)
 ```
 docs/HANDOFF.md 와 CLAUDE.md 를 읽고 이어서 진행해.
 브랜치는 claude/android-epub-viewer-plan-y7m3k3 이고, 순수 Kotlin 코어는 끝나 있다.
-:text-platform(측정기·글꼴) · :data(Room · SAF)까지 끝나 있다. HANDOFF §2 대로 SDK 와
-Maven 미러를 설정하고 §3.3(:ui-design · :reader-reflow · :app, 첫 APK)부터 이어가라.
-미결 3건(P1 PDF 렌더러 · B1 앱 이름 · B3 코퍼스) 중 필요한 것은 먼저 물어봐.
+첫 APK(OLO eBook 0.1.0, EPUB·TXT)까지 나와 있다. HANDOFF §2 대로 SDK 와 Maven 미러를
+설정하고, §3.3 의 실기기 확인 결과를 먼저 물어본 뒤 이어가라.
+미결 2건(P1 PDF 렌더러 · B3 코퍼스) 중 필요한 것은 먼저 물어봐.
 ```

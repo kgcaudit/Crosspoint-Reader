@@ -43,6 +43,15 @@ class Library(private val db: ReaderDatabase) {
 
     suspend fun get(id: BookId): LibraryBook? = books.get(id.value)?.let(::toBook)
 
+    /**
+     * 책마다 읽은 정도(0~100). 목록 오른쪽에 보여 준다.
+     *
+     * 표시용이라 저장된 값을 범위 안으로만 자른다. 위치를 복원하는 데는 쓰지 않는다.
+     */
+    fun percents(): Flow<Map<BookId, Float>> = db.progress().observeAll().map { rows ->
+        rows.associate { BookId(it.bookId) to it.percent.coerceIn(0f, 100f) }
+    }
+
     /** 책을 열었다. 최근 목록의 맨 앞으로 온다. */
     suspend fun markOpened(id: BookId, nowEpochMs: Long) = recent.upsert(RecentEntity(id.value, nowEpochMs))
 

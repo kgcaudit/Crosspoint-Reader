@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 권한이 없다. 책은 사용자가 SAF 로 고른 폴더에서만 읽는다(저장소 전체 권한 불필요).
+         인터넷도 쓰지 않는다. -->
+
+    <application
+        android:name=".OloApp"
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Olo">
+
+        <!-- configChanges: 회전·다크 모드 전환에 액티비티를 다시 만들지 않는다. 다시 만들면
+             열려 있던 책(EPUB 파일 디스크립터)을 닫고 다시 열어야 한다. Compose 가 새 크기로
+             다시 그리고, 조판은 새 크기의 캐시로 읽던 글자에 돌아온다. -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode|density"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
