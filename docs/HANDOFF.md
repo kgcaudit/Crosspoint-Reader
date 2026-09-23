@@ -11,14 +11,14 @@
 
 ## 1. 지금 상태
 
-**OLO eBook 0.2.0 이 나왔다**(0.1.0 → 0.2.0: OLO 디자인 시스템 색·모양 적용). 폴더 등록 → 라이브러리 → EPUB/TXT 열기 → 페이지
+**OLO eBook 0.3.0 이 나왔다**(0.2.0: OLO 디자인 시스템 · 0.3.0: 그림 크기 · 리더 메뉴 · 폴더 단추). 폴더 등록 → 라이브러리 → EPUB/TXT 열기 → 페이지
 넘김 → 목차·책갈피 → 글꼴·크기 바꾸기까지 된다. 앱 전체를 Robolectric 으로 실제로 띄워
 사람이 쓰는 순서대로 한 바퀴 도는 테스트가 있고, 화면을 스크린샷으로 남긴다.
 PDF 는 목록에만 보이고("준비 중") 열리지 않는다(P1 미결).
 
 ```bash
-cd android && ./gradlew check                 # 421개 + lint
-./gradlew :app:assembleRelease                # → app/build/outputs/apk/release/OLO-eBook-0.2.0-release.apk
+cd android && ./gradlew check                 # 452개 + lint
+./gradlew :app:assembleRelease                # → app/build/outputs/apk/release/OLO-eBook-0.3.0-release.apk
 ./gradlew :app:testDebugUnitTest              # → app/build/screenshots/*.png (화면 확인용)
 # SDK 없음: :document + :core-layout 366개 (기존과 같다)
 ```
@@ -191,6 +191,34 @@ ReadingSession(layout, data.bookmarks, data.progress)
   `rememberSaveable` 이라 프로세스가 죽었다 살아나도 읽던 책으로 돌아온다.
 - 회전·다크 모드 전환은 `configChanges` 로 액티비티를 다시 만들지 않는다(EPUB 파일
   디스크립터를 닫았다 열지 않도록). 조판은 새 크기로 읽던 글자에 돌아온다.
+
+**0.3.0 — 실제 책 세 권(Calibre·편집기·Sigil 제작본)으로 찾은 것과 정한 것** (2026-09-23)
+
+- **그림 크기.** 172개 중 171개가 같은 1124×843 상자를 받아 세로 표지가 납작해지고
+  118px 로고가 폭 가득 부풀었다. 크기를 정하는 곳이 `<img>` 속성이 아니라 CSS 클래스
+  (`.calibre4 {width:45%}`, `.w100 {width:100%}`)와 **속성의 퍼센트**(`width="100%"`)였는데
+  셋 다 못 읽고 있었다. 이제:
+  - 그림 파일 **머리**에서 원래 크기를 읽는다(`:document` `ImageHeader` — PNG·GIF·JPEG·WebP,
+    디코드 없음). `ChapterLoader` 가 채운다.
+  - 크기 지정: HTML `width`/`height`(px·%) < CSS `width`·`height`·`max-width`·`max-height`.
+    높이 %는 **최대 높이**로 다룬다(흐르는 본문에는 높이 기준이 없다).
+  - 원래 크기는 **1 CSS px = 1dp**(`LayoutSpec.cssPxScale`, 캐시 키에 들어감).
+  - **비율은 언제나 지킨다**(SVG `preserveAspectRatio="none"` 도). 지정 없는 작은 그림은 키우지
+    않는다. 그리는 쪽도 상자 안에 비율대로 넣는다(방어).
+  - `PageCodec.VERSION` 2 — 옛 규칙의 페이지 캐시는 자동으로 버려진다. **조판 결과를 바꾸면
+    이 값을 올린다.**
+- **빈 면 그림**(종이책의 빈 페이지를 옮긴 단색 그림)은 **그대로 둔다**(사용자 결정 (가)).
+  출판사가 넣은 페이지를 앱이 지우지 않는다.
+- **문장 속 그림**(로고를 글자처럼 줄 안에)은 v2. 세 권 합쳐 1개였고, 지금은 원래 크기의 작은
+  블록으로 문단 위에 선다.
+- **리더 메뉴**: 가운데를 누르면 얇은 도구줄(진행 막대 + 목차·책갈피·보기)만 뜬다. 목차·책갈피는
+  전체 화면(한 줄 48dp, 지금 위치로 스크롤), 보기는 도구줄 위의 작은 판. 목차의 "지금" 은
+  **지금 위치 이전의 마지막 항목**(`currentTocIndex`) — 실제 책은 목차가 챕터보다 훨씬 적다.
+  진행 막대는 `BookLayout.locatorAtPercent`(100% 가 마지막 챕터의 **처음**으로 떨어지던 버그를
+  테스트가 잡았다).
+- **폴더 단추 하나**: ＋ 를 없애고 폴더 단추가 "책 폴더"(추가·빼기)를 연다.
+- 올려 준 책 세 권은 저장소에 넣지 않았다. 테스트는 그 구조를 흉내 낸 견본으로 한다
+  (`ImageSizingTest` 의 사례가 전부 실제 책의 값이다).
 
 **실기기에서 볼 것**(Robolectric 이 못 보여 주는 것):
 - 페이지 넘김 체감 속도(16ms 예산). 넘길 때 디스크 캐시에서 페이지를 읽는다 — 느리면 앞뒤

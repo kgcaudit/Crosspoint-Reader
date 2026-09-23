@@ -76,10 +76,16 @@ fun DrawScope.drawPage(
 
     for (placed in page.images) {
         val bitmap = images[placed] ?: continue
+        // 상자 안에 비율대로 넣는다(object-fit: contain). 조판이 파일 크기를 읽었다면 상자가
+        // 이미 같은 비율이지만, 크기를 못 읽은 그림은 3:4 상자를 받는다 — 거기에 늘려
+        // 채우면 세로 표지가 납작해지는 증상이 그대로 돌아온다.
+        val scale = minOf(placed.widthPx / bitmap.width, placed.heightPx / bitmap.height)
+        val w = (bitmap.width * scale).coerceAtLeast(1f)
+        val h = (bitmap.height * scale).coerceAtLeast(1f)
         drawImage(
             bitmap,
-            dstOffset = IntOffset(placed.xPx.toInt(), placed.yPx.toInt()),
-            dstSize = IntSize(placed.widthPx.toInt().coerceAtLeast(1), placed.heightPx.toInt().coerceAtLeast(1)),
+            dstOffset = IntOffset((placed.xPx + (placed.widthPx - w) / 2f).toInt(), (placed.yPx + (placed.heightPx - h) / 2f).toInt()),
+            dstSize = IntSize(w.toInt(), h.toInt()),
         )
     }
 }

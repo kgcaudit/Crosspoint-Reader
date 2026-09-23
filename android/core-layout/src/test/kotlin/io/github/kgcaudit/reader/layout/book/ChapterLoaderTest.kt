@@ -13,10 +13,12 @@ import io.github.kgcaudit.reader.layout.Paginator
 import io.github.kgcaudit.reader.layout.TextAlign
 import io.github.kgcaudit.reader.layout.html.StyleContext
 import kotlinx.coroutines.test.runTest
+import java.awt.image.BufferedImage
 import java.io.ByteArrayOutputStream
 import java.util.zip.CRC32
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import javax.imageio.ImageIO
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -43,7 +45,8 @@ class ChapterLoaderTest {
 
     // ── EPUB 조립 ───────────────────────────────────────────────────
 
-    private fun epubBytes(vararg entries: Pair<String, String>): ByteArray {
+    /** 엔트리 내용은 글자(String) 또는 바이트(ByteArray — 그림 파일). */
+    private fun epubBytes(vararg entries: Pair<String, Any>): ByteArray {
         val out = ByteArrayOutputStream()
         ZipOutputStream(out).use { zip ->
             val mime = "application/epub+zip".toByteArray()
@@ -59,7 +62,7 @@ class ChapterLoaderTest {
             zip.closeEntry()
             entries.forEach { (name, body) ->
                 zip.putNextEntry(ZipEntry(name))
-                zip.write(body.toByteArray())
+                zip.write(if (body is ByteArray) body else body.toString().toByteArray())
                 zip.closeEntry()
             }
         }
@@ -117,6 +120,52 @@ class ChapterLoaderTest {
         EpubDocument.open(BookId("t"), "book.epub", SeekableSource.of(bytes))
 
     // ── EPUB ────────────────────────────────────────────────────────
+
+    private fun image(format: String, w: Int, h: Int): ByteArray = ByteArrayOutputStream().also {
+        ImageIO.write(BufferedImage(w, h, BufferedImage.TYPE_INT_RGB), format, it)
+    }.toByteArray()
+
+    @Test
+    fun `image files give their real size to the layout`() = runTest {
+        // 실제 책처럼 <img> 에는 크기가 없고, 크기는 파일과 CSS 클래스에만 있다.
+        val bytes = epubBytes(
+            "META-INF/container.xml" to
+                """<container><rootfiles><rootfile full-path="OEBPS/content.opf"/></rootfiles></container>""",
+            "OEBPS/content.opf" to opf,
+            "OEBPS/styles/main.css" to ".head { width: 45% }",
+            "OEBPS/text/ch1.xhtml" to """
+                <html><head><link rel="stylesheet" href="../styles/main.css"/></head><body>
+                <p><img src="../images/cover.png"/></p>
+                <p><img class="head" src="../images/head.jpg"/></p>
+                <p><img src="../images/missing.png"/></p>
+                <p><img src="../images/broken.png"/></p>
+                <p><img src="../images/cover.png"/></p>
+                </body></html>
+            """.trimIndent(),
+            "OEBPS/text/ch2.xhtml" to "<html><body><p>둘</p></body></html>",
+            "OEBPS/images/cover.png" to image("png", 591, 839),
+            "OEBPS/images/head.jpg" to image("jpg", 600, 244),
+            // 확장자는 PNG 인데 내용은 글자 — 저작 도구가 남긴 깨진 파일.
+            "OEBPS/images/broken.png" to "PNGDATA",
+        )
+        openEpub(bytes).use { doc ->
+            val chapter = ChapterLoader(doc, spec).load(0)
+            val images = chapter.blocks.filterIsInstance<Block.Image>()
+            assertEquals(5, images.size, "깨진 그림이 있어도 챕터는 끝까지 읽혀야 한다")
+            assertEquals(591 to 839, images[0].intrinsicWidth to images[0].intrinsicHeight)
+            assertEquals(600 to 244, images[1].intrinsicWidth to images[1].intrinsicHeight)
+            assertFalse(images[2].hasIntrinsicSize, "없는 파일")
+            assertFalse(images[3].hasIntrinsicSize, "깨진 파일")
+            assertEquals(591 to 839, images[4].intrinsicWidth to images[4].intrinsicHeight)
+
+            // 지면까지: 표지는 세로형 그대로, 장 제목은 폭의 45%.
+            val placed = Paginator(spec, FakeMeasurer(10f)).paginate(chapter.text, chapter.blocks)
+                .flatMap { it.images }.toList()
+            val cover = placed.first()
+            assertEquals(839f / 591f, cover.heightPx / cover.widthPx, 0.01f)
+            assertEquals(spec.contentWidthPx * 0.45f, placed[1].widthPx, 0.5f)
+        }
+    }
 
     @Test
     fun `an external stylesheet is found relative to the chapter`() = runTest {

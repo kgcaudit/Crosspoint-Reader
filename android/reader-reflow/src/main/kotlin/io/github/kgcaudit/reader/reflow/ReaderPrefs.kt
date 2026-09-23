@@ -41,6 +41,8 @@ fun ReaderPrefs.toSpec(
     heightPx: Float,
     margin: Insets,
     pxPerSp: Float,
+    /** 1dp 가 몇 px 인가. 그림의 CSS px 을 dp 로 옮기는 데 쓴다. */
+    pxPerDp: Float,
 ): LayoutSpec = LayoutSpec(
     viewportWidthPx = widthPx,
     viewportHeightPx = heightPx,
@@ -51,4 +53,5 @@ fun ReaderPrefs.toSpec(
     paragraphIndentEm = 1f,
     paragraphSpacingEm = 0.25f,
     fontId = font.layoutFontId,
+    cssPxScale = pxPerDp,
 )

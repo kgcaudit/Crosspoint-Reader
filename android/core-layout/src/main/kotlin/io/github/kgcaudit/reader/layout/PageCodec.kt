@@ -46,7 +46,16 @@ data class ChapterIndex(
  */
 object PageCodec {
 
-    const val VERSION: Int = 1
+    /**
+     * 판 번호. **조판 결과가 바뀌는 수정을 하면 올린다.**
+     *
+     * 캐시 키는 설정만 본다. 조판 규칙이 바뀌어도 설정이 같으면 같은 키라서, 올리지 않으면
+     * 업데이트 뒤에도 옛 규칙으로 만든 페이지가 그대로 보인다. 올리면 옛 캐시는 "다른 판"
+     * 으로 읽히지 않아 자동으로 다시 조판된다.
+     *
+     * 2: 그림 크기(파일 크기·CSS·퍼센트 반영, 비율 유지).
+     */
+    const val VERSION: Int = 2
 
     private const val MAGIC = 0x31505043 // "CPP1" 리틀엔디안
     private const val HEADER_SIZE = 32

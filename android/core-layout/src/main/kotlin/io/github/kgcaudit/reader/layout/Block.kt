@@ -1,5 +1,7 @@
 package io.github.kgcaudit.reader.layout
 
+import io.github.kgcaudit.reader.layout.css.CssLength
+
 /**
  * 한 가지 서식이 걸린 글자 구간.
  *
@@ -54,10 +56,11 @@ sealed interface Block {
     /**
      * 그림.
      *
-     * @param intrinsicWidth 원본 픽셀 크기. 0 이면 모름 — 파서가 채우지 못한 경우다
-     *   (안드로이드에서는 `BitmapFactory` 의 `inJustDecodeBounds` 로 싸게 알 수 있다).
-     *   모를 때 조판은 지면 폭에 3:4 비율로 자리를 잡는다. 그림이 그보다 납작하면
-     *   아래에 빈 공간이 남지만, 넘쳐서 잘리는 것보다 낫다.
+     * @param intrinsicWidth 그림 파일의 픽셀 크기. 0 이면 모름. 파서는 채우지 않고
+     *   `ChapterLoader` 가 파일 머리를 읽어 채운다(태그의 width 속성은 크기 **지정**이지
+     *   파일 크기가 아니다 — 둘을 섞으면 `width="100%"` 를 읽을 자리가 없다).
+     *   끝내 모르면 조판은 지면 폭에 3:4 로 자리를 잡는다.
+     * @param sizing 책이 지정한 크기(HTML 속성·CSS). 없으면 파일 크기대로 둔다.
      */
     data class Image(
         val href: String,
@@ -66,6 +69,7 @@ sealed interface Block {
         val intrinsicWidth: Int = 0,
         val intrinsicHeight: Int = 0,
         override val style: BlockStyle = BlockStyle.Default,
+        val sizing: ImageSizing = ImageSizing.Auto,
     ) : Block {
         val hasIntrinsicSize: Boolean get() = intrinsicWidth > 0 && intrinsicHeight > 0
     }
@@ -76,4 +80,21 @@ sealed interface Block {
         override val charEndExclusive: Int,
         override val style: BlockStyle = BlockStyle.Default,
     ) : Block
+}
+
+/**
+ * 책이 그림에 지정한 크기. 모두 null 이면 "지정 없음" 이다(0 과 다르다 — 규칙 5).
+ *
+ * 높이의 퍼센트는 **최대 높이**로 다룬다. 흐르는 본문에서 높이 퍼센트의 기준(부모 높이)은
+ * 정해지지 않는데, 저작 도구가 `height="85%"` 를 적는 뜻은 "한 페이지 안에 들어가게" 다.
+ */
+data class ImageSizing(
+    val width: CssLength? = null,
+    val height: CssLength? = null,
+    val maxWidth: CssLength? = null,
+    val maxHeight: CssLength? = null,
+) {
+    companion object {
+        val Auto: ImageSizing = ImageSizing()
+    }
 }

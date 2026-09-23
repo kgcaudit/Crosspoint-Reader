@@ -2,6 +2,9 @@ package io.github.kgcaudit.reader.layout.book
 
 import io.github.kgcaudit.reader.document.BookFormat
 import io.github.kgcaudit.reader.document.ReflowDocument
+import io.github.kgcaudit.reader.document.image.ImageHeader
+import io.github.kgcaudit.reader.document.image.ImageSize
+import io.github.kgcaudit.reader.layout.Block
 import io.github.kgcaudit.reader.layout.LayoutSpec
 import io.github.kgcaudit.reader.layout.css.CssParser
 import io.github.kgcaudit.reader.layout.css.Stylesheet
@@ -31,6 +34,9 @@ class ChapterLoader(
 
     private val sheetCache = HashMap<String, Stylesheet>()
 
+    /** 그림 파일 크기. 빈 면 그림 하나가 한 책에 여섯 번 나오는 식이라 파일마다 한 번만 읽는다. */
+    private val imageSizeCache = HashMap<String, ImageSize?>()
+
     suspend fun load(index: Int): Chapter = when (document.meta.format) {
         BookFormat.TXT -> document.openChapter(index).use { TextChapter.parse(it, context) }
         BookFormat.EPUB -> loadXhtml(index)
@@ -50,7 +56,30 @@ class ChapterLoader(
 
     private suspend fun loadXhtml(index: Int): Chapter {
         val sheet = stylesheetFor(index)
-        return document.openChapter(index).use { ChapterParser(sheet, context).parse(it) }
+        val chapter = document.openChapter(index).use { ChapterParser(sheet, context).parse(it) }
+        return withImageSizes(index, chapter)
+    }
+
+    /**
+     * 그림 블록에 파일의 원래 크기를 채운다.
+     *
+     * 파서가 아니라 여기서 하는 이유: 파서는 글자만 받아 그림 파일에 닿을 수 없고, 닿게
+     * 만들면 파서 테스트마다 가짜 파일 묶음을 꾸며야 한다. 파일에 닿는 일은 문서를 쥔 이
+     * 클래스의 몫이다.
+     *
+     * 파일이 없거나 머리가 깨졌으면 크기를 모르는 채로 둔다 — 조판은 자리를 잡고 넘어간다.
+     */
+    private suspend fun withImageSizes(index: Int, chapter: Chapter): Chapter {
+        if (chapter.blocks.none { it is Block.Image && !it.hasIntrinsicSize }) return chapter
+        val directory = document.spine().getOrNull(index)?.href?.substringBeforeLast('/', "").orEmpty()
+        val blocks = chapter.blocks.map { block ->
+            if (block !is Block.Image || block.hasIntrinsicSize) return@map block
+            val size = imageSizeCache.getOrPut("$directory|${block.href}") {
+                runCatching { document.openChapterResource(index, block.href)?.use(ImageHeader::read) }.getOrNull()
+            }
+            if (size == null) block else block.copy(intrinsicWidth = size.width, intrinsicHeight = size.height)
+        }
+        return chapter.copy(blocks = blocks)
     }
 
     /**

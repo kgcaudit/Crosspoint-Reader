@@ -288,6 +288,39 @@ class BookLayoutTest {
         }
     }
 
+    @Test
+    fun `seeking to a percentage lands where the progress bar says`() = runTest {
+        // 진행 막대로 옮긴 자리의 진도가 막대 위치와 같아야 한다. 어긋나면 막대를 놓는 순간
+        // 손잡이가 다른 자리로 튄다.
+        openEpub().use { doc ->
+            val book = layout(doc)
+            for (target in listOf(10f, 33f, 50f, 72f, 95f)) {
+                val landed = book.percent(book.locatorAtPercent(target))
+                assertTrue(kotlin.math.abs(landed - target) < 2f, "$target% 로 옮겼는데 $landed% 다")
+            }
+        }
+    }
+
+    @Test
+    fun `seeking to the ends and beyond stays inside the book`() = runTest {
+        openEpub().use { doc ->
+            val book = layout(doc)
+            val chapters = book.spine().size
+            assertEquals(Locator.Reflow(0, 0), book.locatorAtPercent(0f))
+            assertEquals(Locator.Reflow(0, 0), book.locatorAtPercent(-40f))
+            // 100% 와 그 너머는 마지막 챕터 안의 실제 글자여야 한다(글자 수를 넘으면 빈 페이지).
+            for (p in listOf(100f, 250f, Float.MAX_VALUE)) {
+                val end = book.locatorAtPercent(p)
+                assertEquals(chapters - 1, end.spine)
+                val length = book.chapterText(end.spine)!!.length
+                assertTrue(end.charOffset in 0 until length, "끝 위치 ${end.charOffset} / $length")
+                // 끝까지 민 막대는 마지막 페이지로 가야 한다(처음으로 떨어지면 안 된다).
+                val page = book.resolve(end)
+                assertEquals(page.pageCount - 1, page.pageIndex, "$p% 가 마지막 페이지가 아니다")
+            }
+        }
+    }
+
     // ── TXT ─────────────────────────────────────────────────────────
 
     @Test

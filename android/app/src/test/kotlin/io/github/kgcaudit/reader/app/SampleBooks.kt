@@ -66,6 +66,50 @@ object SampleBooks {
         return out.toByteArray()
     }
 
+    /**
+     * 그림 한 장짜리 책. Sigil 로 만든 실제 책의 모양 그대로다 — `<img>` 에 크기가 없고,
+     * 크기는 CSS 클래스(`.w100 {width:100%}`)에만 있다.
+     */
+    fun pictureBook(png: ByteArray): ByteArray {
+        val out = ByteArrayOutputStream()
+        ZipOutputStream(out).use { zip ->
+            val mime = "application/epub+zip".toByteArray()
+            zip.putNextEntry(
+                ZipEntry("mimetype").apply {
+                    method = ZipEntry.STORED
+                    size = mime.size.toLong()
+                    compressedSize = mime.size.toLong()
+                    crc = CRC32().apply { update(mime) }.value
+                },
+            )
+            zip.write(mime)
+            val text = linkedMapOf(
+                "META-INF/container.xml" to
+                    """<container><rootfiles><rootfile full-path="OEBPS/content.opf"/></rootfiles></container>""",
+                "OEBPS/content.opf" to """
+                    <package xmlns="http://www.idpf.org/2007/opf" version="2.0">
+                      <metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>그림책</dc:title></metadata>
+                      <manifest>
+                        <item id="c" href="Text/cover.xhtml" media-type="application/xhtml+xml"/>
+                        <item id="s" href="Styles/style.css" media-type="text/css"/>
+                        <item id="i" href="Images/cover.png" media-type="image/png"/>
+                      </manifest>
+                      <spine><itemref idref="c"/></spine>
+                    </package>
+                """.trimIndent(),
+                "OEBPS/Styles/style.css" to ".center { text-align: center; width: 100% } .w100 { width: 100% }",
+                "OEBPS/Text/cover.xhtml" to """
+                    <html><head><link href="../Styles/style.css" rel="stylesheet" type="text/css"/></head>
+                    <body><p class="center"><img alt="cover" class="w100" src="../Images/cover.png"/></p></body></html>
+                """.trimIndent(),
+            )
+            text.forEach { (name, body) -> zip.putNextEntry(ZipEntry(name)); zip.write(body.toByteArray()) }
+            zip.putNextEntry(ZipEntry("OEBPS/Images/cover.png"))
+            zip.write(png)
+        }
+        return out.toByteArray()
+    }
+
     /** 옛 한글 TXT 는 EUC-KR 이 흔하다. */
     fun txt(): ByteArray = (1..40).joinToString("\n") { "$it. " + paragraphs[it % paragraphs.size] }
         .toByteArray(charset("EUC-KR"))

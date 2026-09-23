@@ -111,6 +111,12 @@ class BookReader(
         show(l.resolve(l.locatorForAnchor(spine, entry.anchor)))
     }
 
+    /** 진행 막대로 옮긴다. [fraction] 은 0~1. */
+    suspend fun seek(fraction: Float) = run {
+        val l = requireLayout()
+        show(l.resolve(l.locatorAtPercent(fraction * 100f)))
+    }
+
     /** 이 페이지의 책갈피를 꽂거나 뺀다. */
     suspend fun toggleBookmark() = run {
         val position = _state.value.position ?: return@run

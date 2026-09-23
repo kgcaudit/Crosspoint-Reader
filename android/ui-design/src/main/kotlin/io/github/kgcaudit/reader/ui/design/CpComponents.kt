@@ -24,6 +24,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
@@ -155,15 +158,20 @@ fun CpListRow(
     value: String? = null,
     enabled: Boolean = true,
     selected: Boolean = false,
+    /**
+     * 한 줄짜리 목록(목차)용. 터치 최소값(48dp)까지 줄인다 — 부제가 있는 행 높이(64dp)를
+     * 한 줄에도 쓰면 목차 39개 중 한 화면에 다섯 개만 보인다.
+     */
+    compact: Boolean = false,
 ) {
     val c = CpTheme.colors
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = CpTheme.metrics.rowHeight)
+            .heightIn(min = if (compact) CpTheme.metrics.touchTarget else CpTheme.metrics.rowHeight)
             .background(if (selected) c.accentContainer else Color.Transparent)
             .clickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = CpTheme.metrics.gutter, vertical = 8.dp)
+            .padding(horizontal = CpTheme.metrics.gutter, vertical = if (compact) 4.dp else 8.dp)
             .alpha(if (enabled) 1f else 0.45f),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -361,5 +369,82 @@ fun CpChoice(label: String, options: List<String>, selected: Int, onSelect: (Int
                 contentAlignment = Alignment.Center,
             ) { CpText(option, CpTheme.type.label, if (on) c.onAccent else c.text) }
         }
+    }
+}
+
+// ── 도구줄 ──────────────────────────────────────────────────────────
+
+/** 아이콘 아래 이름을 단 단추. 리더 도구줄의 "목차 · 책갈피 · 보기". */
+@Composable
+fun CpToolButton(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    selected: Boolean = false,
+) {
+    val c = CpTheme.colors
+    val tint = if (selected) c.accent else c.text
+    Column(
+        modifier
+            .heightIn(min = 56.dp)
+            .clip(RoundedCornerShape(CpTheme.metrics.cornerMedium))
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        CpIcon(icon, tint)
+        CpText(label, CpTheme.type.caption, tint, Modifier.padding(top = 2.dp))
+    }
+}
+
+/**
+ * 진행 막대. 누르거나 끌어서 위치를 고른다.
+ *
+ * 끄는 동안에는 [onChange] 로 값만 알리고, 손을 뗄 때 [onCommit] 한 번으로 실제로 옮긴다.
+ * 끄는 내내 옮기면 챕터마다 조판이 돌아 막대가 손을 따라오지 못한다.
+ */
+@Composable
+fun CpSlider(
+    value: Float,
+    onChange: (Float) -> Unit,
+    onCommit: (Float) -> Unit,
+    modifier: Modifier = Modifier,
+    description: String = "위치",
+) {
+    val c = CpTheme.colors
+    val latest = androidx.compose.runtime.rememberUpdatedState(value)
+    androidx.compose.foundation.layout.BoxWithConstraints(
+        modifier
+            .fillMaxWidth()
+            .height(CpTheme.metrics.touchTarget)
+            .semantics { contentDescription = description }
+            .pointerInput(Unit) {
+                detectTapGestures { offset ->
+                    val v = (offset.x / size.width).coerceIn(0f, 1f)
+                    onChange(v)
+                    onCommit(v)
+                }
+            }
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragEnd = { onCommit(latest.value) },
+                ) { change, _ ->
+                    onChange((change.position.x / size.width).coerceIn(0f, 1f))
+                }
+            },
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        val fraction = value.coerceIn(0f, 1f)
+        CpProgressBar(fraction, weight = CpBarWeight.Medium)
+        val thumb = 18.dp
+        Box(
+            Modifier
+                .padding(start = (maxWidth - thumb) * fraction)
+                .size(thumb)
+                .clip(RoundedCornerShape(50))
+                .background(c.accent),
+        )
     }
 }

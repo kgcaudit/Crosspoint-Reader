@@ -89,6 +89,16 @@ data class CssDeclarations(
     val marginRight: CssLength? = null,
     val hidden: Boolean? = null,
     val pageBreakBefore: Boolean? = null,
+    /**
+     * 그림 크기. 조판기는 그림에만 쓴다(문단 폭은 여백으로 정한다).
+     *
+     * 실제 책에서 크기를 정하는 곳은 이 속성들이다 — Calibre 는 `.calibre4 {width:45%}`,
+     * Sigil 책은 `.w100 {width:100%}` 처럼 클래스로 적고 `<img>` 에는 아무 크기도 없다.
+     */
+    val width: CssLength? = null,
+    val height: CssLength? = null,
+    val maxWidth: CssLength? = null,
+    val maxHeight: CssLength? = null,
 ) {
     /** [other] 의 지정된 값으로 덮어쓴다. 지정되지 않은(null) 값은 이쪽 것을 남긴다. */
     fun mergedWith(other: CssDeclarations): CssDeclarations = CssDeclarations(
@@ -106,6 +116,10 @@ data class CssDeclarations(
         marginRight = other.marginRight ?: marginRight,
         hidden = other.hidden ?: hidden,
         pageBreakBefore = other.pageBreakBefore ?: pageBreakBefore,
+        width = other.width ?: width,
+        height = other.height ?: height,
+        maxWidth = other.maxWidth ?: maxWidth,
+        maxHeight = other.maxHeight ?: maxHeight,
     )
 
     val isEmpty: Boolean

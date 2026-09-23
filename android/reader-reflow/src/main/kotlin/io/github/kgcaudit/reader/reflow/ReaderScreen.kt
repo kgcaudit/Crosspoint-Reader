@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -20,14 +21,16 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,15 +57,17 @@ import io.github.kgcaudit.reader.ui.design.CpIconButton
 import io.github.kgcaudit.reader.ui.design.CpIcons
 import io.github.kgcaudit.reader.ui.design.CpListRow
 import io.github.kgcaudit.reader.ui.design.CpPopup
+import io.github.kgcaudit.reader.ui.design.CpSlider
 import io.github.kgcaudit.reader.ui.design.CpStatusBar
 import io.github.kgcaudit.reader.ui.design.CpStepper
 import io.github.kgcaudit.reader.ui.design.CpTabBar
 import io.github.kgcaudit.reader.ui.design.CpText
 import io.github.kgcaudit.reader.ui.design.CpTheme
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
+import io.github.kgcaudit.reader.ui.design.CpToolButton
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 
 /**
  * 리플로우 리더.
@@ -87,10 +92,17 @@ fun ReaderScreen(
     val density = LocalDensity.current
     val direction = LocalLayoutDirection.current
     val colors = CpTheme.colors
-    var menu by remember { mutableStateOf(false) }
+    var panel by remember { mutableStateOf(Panel.None) }
 
-    LaunchedEffect(menu) { onChrome(menu) }
-    BackHandler { if (menu) menu = false else onClose() }
+    LaunchedEffect(panel) { onChrome(panel != Panel.None) }
+    BackHandler {
+        panel = when (panel) {
+            Panel.None -> { onClose(); Panel.None }
+            // 목록에서 뒤로 가면 도구줄로 돌아온다 — 바로 닫히면 목록을 다시 열 길이 멀어진다.
+            Panel.Contents, Panel.Bookmarks, Panel.View -> Panel.Bar
+            Panel.Bar -> Panel.None
+        }
+    }
 
     BoxWithConstraints(Modifier.fillMaxSize().background(colors.paper)) {
         val widthPx = constraints.maxWidth.toFloat()
@@ -107,8 +119,9 @@ fun ReaderScreen(
         }
         // 1sp 가 몇 px 인가. 시스템 글자 크기 설정(fontScale)을 따른다.
         val pxPerSp = density.density * density.fontScale
-        val spec = remember(widthPx, heightPx, margin, prefs, pxPerSp) {
-            prefs.toSpec(widthPx, heightPx, margin, pxPerSp)
+        val pxPerDp = density.density
+        val spec = remember(widthPx, heightPx, margin, prefs, pxPerSp, pxPerDp) {
+            prefs.toSpec(widthPx, heightPx, margin, pxPerSp, pxPerDp)
         }
         LaunchedEffect(spec) { runCatching { reader.layOut(spec) } }
 
@@ -131,10 +144,10 @@ fun ReaderScreen(
                 .pointerInput(reader) {
                     detectTapGestures { offset ->
                         when {
-                            menu -> menu = false
+                            panel != Panel.None -> panel = Panel.None
                             offset.x < size.width * 0.3f -> scope.go { reader.previous() }
                             offset.x > size.width * 0.7f -> scope.go { reader.next() }
-                            else -> menu = true
+                            else -> panel = Panel.Bar
                         }
                     }
                 }
@@ -165,7 +178,26 @@ fun ReaderScreen(
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp).windowInsetsPadding(cutout),
         )
 
-        if (menu) ReaderMenu(reader, state, prefs, onPrefsChange, onClose, onDismiss = { menu = false }, scope)
+        when (panel) {
+            Panel.None -> Unit
+            Panel.Bar, Panel.View -> ReaderBar(
+                reader = reader,
+                state = state,
+                prefs = prefs,
+                onPrefsChange = onPrefsChange,
+                showView = panel == Panel.View,
+                onClose = onClose,
+                onPanel = { panel = it },
+                scope = scope,
+            )
+            Panel.Contents, Panel.Bookmarks -> ReaderLists(
+                reader = reader,
+                state = state,
+                showBookmarks = panel == Panel.Bookmarks,
+                onPanel = { panel = it },
+                scope = scope,
+            )
+        }
 
         if (state.busy && state.page == null) CpPopup(title = "책을 펼치는 중…", progress = null)
         state.error?.let { message ->
@@ -179,22 +211,29 @@ fun ReaderScreen(
     }
 }
 
+/**
+ * 리더 위에 뜨는 것들.
+ *
+ * 예전에는 가운데를 누르면 목차 판(320dp)과 탭이 함께 떠서 화면의 3분의 2 를 가렸다.
+ * 이제 누르면 **얇은 도구줄**만 뜨고 지면은 거의 그대로 보인다. 목차·책갈피는 볼 때만
+ * 전체 화면으로 연다(Play 북·리디와 같은 구성).
+ */
+private enum class Panel { None, Bar, View, Contents, Bookmarks }
+
 @Composable
-private fun ReaderMenu(
+private fun ReaderBar(
     reader: BookReader,
     state: ReaderState,
     prefs: ReaderPrefs,
     onPrefsChange: (ReaderPrefs) -> Unit,
+    showView: Boolean,
     onClose: () -> Unit,
-    onDismiss: () -> Unit,
+    onPanel: (Panel) -> Unit,
     scope: CoroutineScope,
 ) {
     val colors = CpTheme.colors
-    var tab by remember { mutableIntStateOf(0) }
-    var toc by remember { mutableStateOf<List<TocEntry>?>(null) }
-    var marks by remember { mutableStateOf<List<Bookmark>?>(null) }
-    LaunchedEffect(Unit) { toc = runCatching { reader.outline() }.getOrDefault(emptyList()) }
-    LaunchedEffect(tab, state.bookmarked) { if (tab == 1) marks = runCatching { reader.bookmarks() }.getOrDefault(emptyList()) }
+    // 막대를 끄는 동안의 값. 손을 떼기 전까지는 옮기지 않고 숫자만 바꾼다.
+    var dragging by remember { mutableStateOf<Float?>(null) }
 
     Column(Modifier.fillMaxSize()) {
         // 위: 제목 · 뒤로 · 책갈피
@@ -202,7 +241,7 @@ private fun ReaderMenu(
             val position = state.position
             CpHeader(
                 title = reader.title,
-                subtitle = if (position != null) "${position.spineIndex + 1} / ${state.chapterCount} 장 · ${state.percent.roundToInt()}%" else null,
+                subtitle = if (position != null) "${position.spineIndex + 1} / ${state.chapterCount} 장" else null,
                 onBack = onClose,
             ) {
                 CpIconButton(
@@ -213,26 +252,98 @@ private fun ReaderMenu(
                 )
             }
         }
-        // 가운데: 누르면 닫힌다(지면이 보이는 곳)
-        Box(Modifier.weight(1f).fillMaxWidth().clickable(indication = null, interactionSource = null, onClick = onDismiss))
-        // 아래: 목차 · 책갈피 · 보기
+        // 가운데: 지면이 보이는 곳. 누르면 닫힌다.
+        Box(
+            Modifier.weight(1f).fillMaxWidth()
+                .clickable(indication = null, interactionSource = null) { onPanel(Panel.None) },
+        )
+        // 아래: (보기 설정) · 진행 막대 · 도구
         Column(
             Modifier
                 .fillMaxWidth()
                 .background(colors.surface)
                 .windowInsetsPadding(WindowInsets.navigationBars),
         ) {
-            CpTabBar(listOf("목차", "책갈피", "보기"), tab, { tab = it })
-            Box(Modifier.fillMaxWidth().height(320.dp)) {
-                when (tab) {
-                    0 -> TocList(toc, state) { entry -> scope.go { reader.goTo(entry) }; onDismiss() }
-                    1 -> BookmarkList(
-                        marks,
-                        onOpen = { mark -> scope.go { reader.goTo(mark) }; onDismiss() },
-                        onRemove = { mark -> scope.go { reader.removeBookmark(mark); marks = reader.bookmarks() } },
-                    )
-                    else -> ViewSettings(prefs, onPrefsChange)
-                }
+            if (showView) {
+                ViewSettings(prefs, onPrefsChange)
+                Spacer(Modifier.height(4.dp))
+            }
+            val shown = dragging ?: (state.percent / 100f)
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                CpSlider(
+                    value = shown,
+                    onChange = { dragging = it },
+                    onCommit = { target ->
+                        scope.go { reader.seek(target) }
+                        dragging = null
+                    },
+                    modifier = Modifier.weight(1f),
+                    description = "읽은 위치",
+                )
+                CpText(
+                    "${(shown * 100).roundToInt()}%",
+                    CpTheme.type.label,
+                    colors.text,
+                    Modifier.padding(start = 12.dp),
+                )
+            }
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+            ) {
+                CpToolButton(CpIcons.Toc, "목차", { onPanel(Panel.Contents) })
+                CpToolButton(CpIcons.Bookmark, "책갈피", { onPanel(Panel.Bookmarks) })
+                CpToolButton(
+                    CpIcons.TextSize,
+                    "보기",
+                    { onPanel(if (showView) Panel.Bar else Panel.View) },
+                    selected = showView,
+                )
+            }
+        }
+    }
+}
+
+/** 목차·책갈피 전체 화면. 한 줄 48dp, 열면 지금 위치로 스크롤한다. */
+@Composable
+private fun ReaderLists(
+    reader: BookReader,
+    state: ReaderState,
+    showBookmarks: Boolean,
+    onPanel: (Panel) -> Unit,
+    scope: CoroutineScope,
+) {
+    val colors = CpTheme.colors
+    var toc by remember { mutableStateOf<List<TocEntry>?>(null) }
+    var marks by remember { mutableStateOf<List<Bookmark>?>(null) }
+    LaunchedEffect(Unit) { toc = runCatching { reader.outline() }.getOrDefault(emptyList()) }
+    LaunchedEffect(showBookmarks) {
+        if (showBookmarks) marks = runCatching { reader.bookmarks() }.getOrDefault(emptyList())
+    }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(colors.background)
+            .windowInsetsPadding(WindowInsets.systemBars)
+            // 목록 뒤의 지면으로 터치가 새지 않게 한다.
+            .clickable(indication = null, interactionSource = null) {},
+    ) {
+        CpHeader(title = reader.title, onBack = { onPanel(Panel.Bar) })
+        CpTabBar(
+            listOf("목차", "책갈피"),
+            if (showBookmarks) 1 else 0,
+            { onPanel(if (it == 1) Panel.Bookmarks else Panel.Contents) },
+        )
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            if (showBookmarks) {
+                BookmarkList(
+                    marks,
+                    onOpen = { mark -> scope.go { reader.goTo(mark) }; onPanel(Panel.None) },
+                    onRemove = { mark -> scope.go { reader.removeBookmark(mark); marks = reader.bookmarks() } },
+                )
+            } else {
+                TocList(toc, state) { entry -> scope.go { reader.goTo(entry) }; onPanel(Panel.None) }
             }
         }
     }
@@ -240,19 +351,25 @@ private fun ReaderMenu(
 
 @Composable
 private fun TocList(entries: List<TocEntry>?, state: ReaderState, onOpen: (TocEntry) -> Unit) {
-    val colors = CpTheme.colors
     when {
         entries == null -> Unit
         entries.isEmpty() -> Empty("목차가 없는 책입니다")
-        else -> LazyColumn(Modifier.fillMaxSize()) {
-            items(entries) { entry ->
-                val spine = (entry.locator as? io.github.kgcaudit.reader.document.Locator.Reflow)?.spine
-                CpListRow(
-                    title = entry.label,
-                    onClick = { onOpen(entry) },
-                    modifier = Modifier.padding(start = (entry.depth * 16).dp),
-                    selected = spine != null && spine == state.position?.spineIndex && entry.anchor == null,
-                )
+        else -> {
+            val current = currentTocIndex(entries, state.position?.spineIndex ?: 0)
+            val list = rememberLazyListState()
+            // 지금 위치가 화면 위쪽 3분의 1 쯤 오게 연다. 맨 위에 붙이면 앞 항목이 안 보여
+            // "어디쯤인지" 가 안 읽힌다.
+            LaunchedEffect(current) { if (current > 0) list.scrollToItem((current - 3).coerceAtLeast(0)) }
+            LazyColumn(Modifier.fillMaxSize(), state = list) {
+                itemsIndexed(entries) { i, entry ->
+                    CpListRow(
+                        title = entry.label,
+                        onClick = { onOpen(entry) },
+                        modifier = Modifier.padding(start = (entry.depth * 16).dp),
+                        selected = i == current,
+                        compact = true,
+                    )
+                }
             }
         }
     }
@@ -262,7 +379,7 @@ private fun TocList(entries: List<TocEntry>?, state: ReaderState, onOpen: (TocEn
 private fun BookmarkList(marks: List<Bookmark>?, onOpen: (Bookmark) -> Unit, onRemove: (Bookmark) -> Unit) {
     when {
         marks == null -> Unit
-        marks.isEmpty() -> Empty("책갈피가 없습니다. 위의 책갈피 단추로 이 페이지에 꽂을 수 있습니다")
+        marks.isEmpty() -> Empty("책갈피가 없습니다. 페이지 가운데를 누르고 위쪽 책갈피 단추로 꽂을 수 있습니다")
         else -> LazyColumn(Modifier.fillMaxSize()) {
             items(marks, key = { it.id }) { mark ->
                 val where = (mark.locator as? io.github.kgcaudit.reader.document.Locator.Reflow)?.let { "${it.spine + 1}장" }
@@ -283,7 +400,7 @@ private fun BookmarkList(marks: List<Bookmark>?, onOpen: (Bookmark) -> Unit, onR
 
 @Composable
 private fun ViewSettings(prefs: ReaderPrefs, onChange: (ReaderPrefs) -> Unit) {
-    Column(Modifier.fillMaxSize().padding(top = 8.dp)) {
+    Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
         CpStepper("글자 크기", "${prefs.fontSizeSp}", { onChange(prefs.withSize(-1)) }, { onChange(prefs.withSize(+1)) })
         val fonts = ReaderFont.entries
         CpChoice("글꼴", fonts.map { it.label }, fonts.indexOf(prefs.font), { onChange(prefs.copy(font = fonts[it])) })

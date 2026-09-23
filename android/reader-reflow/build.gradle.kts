@@ -27,4 +27,7 @@ dependencies {
     api(project(":document"))
     implementation(libs.coroutines.android)
     implementation(libs.androidx.activity.compose)
+
+    testImplementation(libs.junit4)
+    testImplementation(libs.kotlin.test)
 }

@@ -122,9 +122,22 @@ object CssParser {
                 else -> CssDeclarations.EMPTY
             }
 
+            // auto·none 은 "정하지 않음" 이다. CssLength.parse 가 null 을 돌려주므로 그대로 둔다.
+            "width" -> CssDeclarations(width = positiveLength(value))
+            "height" -> CssDeclarations(height = positiveLength(value))
+            "max-width" -> CssDeclarations(maxWidth = positiveLength(value))
+            "max-height" -> CssDeclarations(maxHeight = positiveLength(value))
+
             else -> CssDeclarations.EMPTY
         }
     }
+
+    /**
+     * 0 보다 큰 길이만. `width: 0` 이나 음수는 그림을 지우거나 조판을 0 으로 나누게 한다 —
+     * 저작 도구가 남긴 찌꺼기로 보고 "정하지 않음" 으로 둔다.
+     */
+    private fun positiveLength(value: String): CssLength? =
+        CssLength.parse(value)?.takeIf { it.value > 0f }
 
     private fun textAlign(value: String): TextAlign? = when (value) {
         "left", "start" -> TextAlign.Start

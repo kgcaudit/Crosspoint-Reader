@@ -4,10 +4,13 @@ import io.github.kgcaudit.reader.document.xml.XmlEvent
 import io.github.kgcaudit.reader.document.xml.XmlScanner
 import io.github.kgcaudit.reader.layout.Block
 import io.github.kgcaudit.reader.layout.BlockStyle
+import io.github.kgcaudit.reader.layout.ImageSizing
 import io.github.kgcaudit.reader.layout.InlineRun
 import io.github.kgcaudit.reader.layout.TextStyle
 import io.github.kgcaudit.reader.layout.css.CssDeclarations
+import io.github.kgcaudit.reader.layout.css.CssLength
 import io.github.kgcaudit.reader.layout.css.CssParser
+import io.github.kgcaudit.reader.layout.css.CssUnit
 import io.github.kgcaudit.reader.layout.css.ElementInfo
 import io.github.kgcaudit.reader.layout.css.Stylesheet
 import java.io.Reader
@@ -157,7 +160,7 @@ class ChapterParser(
 
             when (tag) {
                 "br" -> lineBreak()
-                "img", "image" -> image(event)
+                "img", "image" -> image(event, declarations)
                 "hr" -> rule()
                 in TagDefaults.PREFORMATTED_TAGS -> preDepth++
             }
@@ -285,7 +288,7 @@ class ChapterParser(
             blockStyle = style.copy(firstLineIndentEm = 0f, marginTopEm = 0f)
         }
 
-        private fun image(event: XmlEvent.StartElement) {
+        private fun image(event: XmlEvent.StartElement, declarations: CssDeclarations) {
             val href = event.attribute("src")
                 ?: event.attribute("xlink", "href")
                 ?: event.attribute("href")
@@ -302,9 +305,15 @@ class ChapterParser(
                     href = href,
                     charStart = start,
                     charEndExclusive = text.length,
-                    intrinsicWidth = event.attribute("width")?.toPixelsOrZero() ?: 0,
-                    intrinsicHeight = event.attribute("height")?.toPixelsOrZero() ?: 0,
                     style = blockStyle.copy(pageBreakBefore = takePageBreak()),
+                    // HTML 의 width/height 는 CSS 보다 약한 "표현 힌트" 다. CSS 가 정했으면
+                    // CSS 를 따른다 — Calibre 는 속성과 클래스를 함께 쓰는데 클래스 쪽이 의도다.
+                    sizing = ImageSizing(
+                        width = declarations.width ?: event.attribute("width")?.let(::htmlLength),
+                        height = declarations.height ?: event.attribute("height")?.let(::htmlLength),
+                        maxWidth = declarations.maxWidth,
+                        maxHeight = declarations.maxHeight,
+                    ),
                 ),
             )
             paragraphStart = text.length
@@ -377,7 +386,18 @@ class ChapterParser(
             ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || ch == '\u000C'
 
         /** `width="300"` 과 `width="300px"` 를 모두 받는다. 퍼센트는 모름(0)으로 본다. */
-        fun String.toPixelsOrZero(): Int =
-            trim().removeSuffix("px").trim().toFloatOrNull()?.toInt()?.coerceAtLeast(0) ?: 0
+        /**
+         * HTML 속성의 길이. 단위 없는 숫자는 CSS px 이고(`width="600"`), 퍼센트도 된다
+         * (`width="100%"` — 한 권에서 106번 나왔다). 0 이하나 알아볼 수 없는 값은 지정 없음.
+         */
+        fun htmlLength(raw: String): CssLength? {
+            val text = raw.trim().lowercase()
+            val length = when {
+                text.endsWith("%") -> text.dropLast(1).trim().toFloatOrNull()?.let { CssLength(it, CssUnit.Percent) }
+                text.endsWith("px") -> text.dropLast(2).trim().toFloatOrNull()?.let { CssLength(it, CssUnit.Px) }
+                else -> text.toFloatOrNull()?.let { CssLength(it, CssUnit.Px) } ?: CssLength.parse(text)
+            }
+            return length?.takeIf { it.value > 0f }
+        }
     }
 }

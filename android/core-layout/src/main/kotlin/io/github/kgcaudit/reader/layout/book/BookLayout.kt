@@ -180,6 +180,46 @@ class BookLayout(
         return percent.coerceIn(0.0, 100.0).toFloat()
     }
 
+    /**
+     * 진도(0~100)에 해당하는 위치. [percent] 의 역이다 — 진행 막대로 옮길 때 쓴다.
+     *
+     * 같은 무게(챕터 파일 크기)로 챕터를 고르고, 그 챕터 안에서는 글자 비율로 자리를 잡는다.
+     * 목차가 챕터보다 훨씬 적은 책(항목 7개가 챕터 113개를 덮는다)에서는 목차로는 가운데로
+     * 갈 수 없어, 이 길이 사실상 유일한 "멀리 가기" 다.
+     *
+     * 고른 챕터만 조판한다. 범위를 벗어난 값은 처음·끝으로 자른다.
+     */
+    suspend fun locatorAtPercent(percent: Float): Locator.Reflow {
+        val items = spine()
+        if (items.isEmpty()) return Locator.Reflow(0, 0)
+
+        val weights = items.map { it.sizeBytes.coerceAtLeast(1L).toDouble() }
+        val target = percent.coerceIn(0f, 100f) / 100.0 * weights.sum()
+
+        // 목표가 든 챕터를 찾는다. 끝(100%)은 어느 챕터의 "앞" 에도 들지 않으므로 마지막
+        // 챕터의 끝으로 둔다 — 누적값을 그대로 쓰면 마지막 챕터의 **처음**으로 떨어진다.
+        var before = 0.0
+        var index = -1
+        for (i in items.indices) {
+            if (target < before + weights[i]) {
+                index = i
+                break
+            }
+            before += weights[i]
+        }
+        val within = if (index < 0) {
+            index = items.size - 1
+            1.0
+        } else {
+            ((target - before) / weights[index]).coerceIn(0.0, 1.0)
+        }
+
+        ensurePaginated(index)
+        val length = cache(index).readIndex()?.textLength ?: 0
+        val offset = (within * length).toInt().coerceIn(0, (length - 1).coerceAtLeast(0))
+        return Locator.Reflow(index, offset)
+    }
+
     private fun chapterFraction(spineIndex: Int, charOffset: Int): Double {
         val length = cache(spineIndex).readIndex()?.textLength ?: return 0.0
         if (length <= 0) return 0.0

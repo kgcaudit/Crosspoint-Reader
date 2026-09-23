@@ -104,11 +104,13 @@ fun LibraryScreen(onOpen: (LibraryBook) -> Unit) {
                 else -> "책 ${list.size}권 · 폴더 ${folders.size}개"
             },
         ) {
+            // 폴더에 관한 일(추가·빼기)은 폴더 단추 하나로 모은다. 예전에는 ＋(추가)와
+            // 폴더(관리 — 그 안에 다시 추가)가 따로 있어 같은 일로 가는 길이 둘이었다.
+            // 폴더가 없을 때는 화면 가운데의 "폴더 추가" 가 그 자리를 대신한다.
             if (folders.isNotEmpty()) {
                 CpIconButton(CpIcons.Refresh, "새로고침", { rescan() })
-                CpIconButton(CpIcons.Folder, "폴더 관리", { manageFolders = true })
+                CpIconButton(CpIcons.Folder, "책 폴더", { manageFolders = true })
             }
-            CpIconButton(CpIcons.Plus, "폴더 추가", { pickFolder.launch(null) })
         }
         if (scanning) CpProgressBar(0.35f, Modifier.padding(horizontal = 16.dp), CpBarWeight.Thin)
 
@@ -137,8 +139,14 @@ fun LibraryScreen(onOpen: (LibraryBook) -> Unit) {
     }
 
     if (manageFolders) {
-        CpPopup(title = "등록한 폴더", message = "빼도 그 폴더 책의 진도와 책갈피는 남습니다. 다시 추가하면 이어집니다.", onDismiss = { manageFolders = false }) {
+        CpPopup(title = "책 폴더", message = "폴더를 빼도 그 책들의 진도와 책갈피는 남습니다. 다시 추가하면 이어집니다.", onDismiss = { manageFolders = false }) {
             Spacer(Modifier.height(8.dp))
+            CpListRow(
+                title = "폴더 추가",
+                icon = CpIcons.Plus,
+                onClick = { manageFolders = false; pickFolder.launch(null) },
+                compact = true,
+            )
             folders.forEach { uri ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     CpTile(CpIcons.Folder, colors.tiles.folder)
@@ -153,8 +161,6 @@ fun LibraryScreen(onOpen: (LibraryBook) -> Unit) {
                     }, tint = colors.textMuted)
                 }
             }
-            Spacer(Modifier.height(8.dp))
-            CpButton("폴더 추가", { manageFolders = false; pickFolder.launch(null) }, Modifier.fillMaxWidth())
         }
     }
 

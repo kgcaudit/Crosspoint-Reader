@@ -371,6 +371,7 @@ class PaginatorTest {
             "글자 단위 줄바꿈" to base.copy(breakBetweenCjk = false),
             "그림 표시" to base.copy(imagesEnabled = false),
             "글꼴" to base.copy(fontId = "pretendard"),
+            "화면 밀도" to base.copy(cssPxScale = 2.6f),
         )
         variants.forEach { (label, variant) ->
             assertTrue(variant.cacheKey != base.cacheKey, "$label 를 바꿨는데 캐시 키가 같다")

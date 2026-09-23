@@ -76,6 +76,15 @@ class AppWalkthroughTest {
         waitFor(hasText("준비 중"))
         shot("02-library")
 
+        // 폴더 단추는 하나다(＋ 와 폴더가 같은 일로 가던 중복을 없앴다). 추가는 그 안에 있다.
+        assertTrue(compose.onAllNodes(hasContentDescription("폴더 추가"), useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
+        node(hasContentDescription("책 폴더")).performClick()
+        waitFor(hasText("폴더 추가"))
+        shot("02b-book-folders")
+        // 팝업은 바깥을 눌러 닫는다.
+        compose.onRoot().performTouchInput { click(topCenter.copy(y = 8f)) }
+        compose.waitForIdle()
+
         // 3. 책 열기: 첫 페이지가 그려질 때까지. 상태바에 "1 / N" 이 뜨면 조판이 끝난 것이다.
         node(hasText("어린 왕자.epub")).performClick()
         waitFor(hasText("1 / ", substring = true), timeoutMs = 30_000)
@@ -86,38 +95,50 @@ class AppWalkthroughTest {
         waitFor(hasText("2 / ", substring = true))
         shot("04-reader-next-page")
 
-        // 5. 가운데를 누르면 메뉴(목차)
+        // 5. 가운데를 누르면 얇은 도구줄만 뜬다. 지면은 거의 그대로 보인다.
         compose.onRoot().performTouchInput { click(center) }
-        waitFor(hasText("제2장 사막의 아침"))
-        shot("05-menu-toc")
+        waitFor(hasText("목차"))
+        shot("05-menu-bar")
 
-        // 6. 책갈피를 꽂는다
+        // 6. 책갈피를 꽂는다(위쪽 단추)
         node(hasContentDescription("책갈피 꽂기")).performClick()
         waitFor(hasContentDescription("책갈피 빼기"))
+
+        // 7. 목차는 전체 화면으로 열리고, 지금 챕터가 표시된다.
+        node(hasText("목차")).performClick()
+        waitFor(hasText("제2장 사막의 아침"))
+        shot("06-contents")
         node(hasText("책갈피")).performClick()
         // 미리보기는 책갈피를 꽂은 페이지(2쪽)의 첫 글자부터다.
         waitFor(hasText("그 책에는", substring = true))
-        shot("06-menu-bookmarks")
+        shot("07-bookmarks")
+        // 뒤로 가면 도구줄로 돌아온다.
+        node(hasContentDescription("뒤로")).performClick()
+        waitFor(hasText("보기"))
 
-        // 7. 보기 설정: 고딕으로 바꾸고 글자를 키운다
+        // 8. 보기 설정: 도구줄 위에 작은 판으로 열린다. 고딕으로 바꾸고 글자를 키운다.
         node(hasText("보기")).performClick()
         waitFor(hasText("글자 크기"))
         node(hasText("고딕")).performClick()
         node(hasContentDescription("글자 크기 늘리기")).performClick()
         node(hasContentDescription("글자 크기 늘리기")).performClick()
-        shot("07-menu-settings")
+        shot("08-view-settings")
 
-        // 8. 메뉴를 닫고 바뀐 글꼴로 다시 조판된 페이지. 읽던 글자로 돌아와 있어야 한다.
+        // 9. 진행 막대를 끝쪽으로 눌러 멀리 간다. 마지막 장(3/3)으로 가야 한다.
+        node(hasContentDescription("읽은 위치")).performTouchInput { click(centerRight.copy(x = width * 0.97f)) }
+        waitFor(hasText("3 / 3 장"), timeoutMs = 30_000)
+
+        // 10. 지면을 누르면 메뉴가 닫히고, 바뀐 글꼴로 조판된 페이지가 보인다.
         compose.onRoot().performTouchInput { click(center) }
         compose.waitForIdle()
         waitFor(hasText(" / ", substring = true))
-        shot("08-reader-gothic-larger")
+        shot("09-reader-after-seek")
 
-        // 9. 라이브러리로 돌아오면 최근 책과 진도가 보인다.
+        // 11. 라이브러리로 돌아오면 최근 책과 진도가 보인다.
         compose.activity.onBackPressedDispatcher.onBackPressed()
         waitFor(hasText("최근에 읽은 책"))
         waitFor(hasText("%", substring = true))
-        shot("09-library-with-recent")
+        shot("10-library-with-recent")
 
         // 저장된 것 확인: 책갈피 1개, 진도가 기록됨, 목록에 책 제목이 반영됨
         val bookId = BookId(
@@ -169,6 +190,48 @@ class AppWalkthroughTest {
 
         node(hasText("어린 왕자.epub")).performClick()
         waitFor(hasText("1 / ", substring = true), timeoutMs = 30_000)
+    }
+
+    @Test
+    fun `a portrait picture in a book is drawn in its own shape`() {
+        // 세 권의 실제 책에서 세로 표지가 가로로 늘어나던 결함. 크기 없는 <img> 와 CSS
+        // 클래스(width:100%)만 있는 Sigil 책 모양 그대로 넣고, 화면에 칠해진 영역을 잰다.
+        val w = 591
+        val h = 839
+        val png = java.io.ByteArrayOutputStream().also {
+            Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.rgb(20, 60, 200)) }
+                .compress(Bitmap.CompressFormat.PNG, 100, it)
+        }.toByteArray()
+        File(folder, "그림책.epub").writeBytes(SampleBooks.pictureBook(png))
+        compose.activity.container.data.folders.register(FolderProvider.treeUri)
+        compose.activityRule.scenario.recreate()
+        waitFor(hasText("그림책.epub"))
+        node(hasText("그림책.epub")).performClick()
+        waitFor(hasText("1 / ", substring = true), timeoutMs = 30_000)
+        // 그림은 조판 뒤 따로 풀린다. 칠해질 때까지 기다린다.
+        compose.waitUntil(15_000) { blueBox() != null }
+        shot("11-picture-page")
+
+        val box = blueBox()!!
+        val ratio = box.height().toFloat() / box.width()
+        assertEquals(h.toFloat() / w, ratio, 0.02f, "화면의 그림 비율이 파일과 다르다: ${box.width()}x${box.height()}")
+        // 폭 100% 로 적혀 있으니 본문 폭 가까이 차야 한다(작게 쪼그라들어도 안 된다).
+        assertTrue(box.width() > compose.activity.window.decorView.width * 0.8f, "그림이 너무 작다: ${box.width()}")
+    }
+
+    /** 화면에서 파란 그림이 칠해진 영역. 없으면 null. */
+    private fun blueBox(): android.graphics.Rect? {
+        val view = compose.activity.window.decorView
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        compose.runOnUiThread { view.draw(Canvas(bitmap)) }
+        var l = Int.MAX_VALUE; var t = Int.MAX_VALUE; var r = -1; var b = -1
+        for (y in 0 until bitmap.height step 2) for (x in 0 until bitmap.width step 2) {
+            val p = bitmap.getPixel(x, y)
+            if (Color.blue(p) > 170 && Color.red(p) < 60) {
+                if (x < l) l = x; if (x > r) r = x; if (y < t) t = y; if (y > b) b = y
+            }
+        }
+        return if (r < 0) null else android.graphics.Rect(l, t, r, b)
     }
 
     @Test

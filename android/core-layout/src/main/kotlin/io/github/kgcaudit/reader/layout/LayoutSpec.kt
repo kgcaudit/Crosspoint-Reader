@@ -52,10 +52,19 @@ data class LayoutSpec(
      * 폰트 파일을 바꿀 때도 이 값을 바꿔야 한다(같은 이름이라도 폭이 다르다).
      */
     val fontId: String = DEFAULT_FONT_ID,
+    /**
+     * CSS 1px 이 화면 몇 px 인가 — 안드로이드 밀도(dp 배율)다.
+     *
+     * 그림의 원래 크기(파일 픽셀)와 책이 적은 `width: 300px` 는 CSS px 이다. 브라우저·
+     * WebView 처럼 1 CSS px = 1dp 로 옮기지 않으면, 고밀도 폰(약 3배)에서 118px 로고가
+     * 손톱만 하게, SVG 표지가 화면 3분의 1 크기로 나온다.
+     */
+    val cssPxScale: Float = 1f,
 ) {
     init {
         require(viewportWidthPx > 0f && viewportHeightPx > 0f) { "viewport must be positive" }
         require(baseSizePx > 0f) { "baseSizePx must be positive" }
+        require(cssPxScale > 0f) { "cssPxScale must be positive" }
     }
 
     /** 본문이 놓이는 폭. */
@@ -81,7 +90,7 @@ data class LayoutSpec(
         append(align.name).append('|')
         append(paragraphIndentEm).append('|').append(paragraphSpacingEm).append('|')
         append(breakBetweenCjk).append('|').append(imagesEnabled).append('|')
-        append(usePublisherStyles).append('|').append(fontId)
+        append(usePublisherStyles).append('|').append(fontId).append('|').append(cssPxScale)
     }
 
     companion object {

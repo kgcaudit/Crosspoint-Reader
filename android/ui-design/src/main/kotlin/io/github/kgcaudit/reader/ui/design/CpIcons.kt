@@ -27,6 +27,8 @@ object CpIcons {
     val Toc = line("M8.5 7 H19 M8.5 12 H19 M8.5 17 H19 M5 7 H5.1 M5 12 H5.1 M5 17 H5.1")
     val Minus = line("M5 12 H19")
     val Close = line("M6 6 L18 18 M18 6 L6 18")
+    /** 보기 설정. 큰 가·작은 가 — 글자 크기를 바꾸는 곳이라는 뜻. */
+    val TextSize = line("M3 19 L8.5 5 L14 19 M5 14 H12 M15 19 L18 11.5 L21 19 M16.2 16.5 H19.8")
 
     private fun line(d: String): ImageVector = ImageVector.Builder(
         defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f,
