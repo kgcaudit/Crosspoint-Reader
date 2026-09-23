@@ -22,8 +22,6 @@ dependencies {
     api(project(":core-layout"))
     implementation(project(":document"))
     implementation(libs.androidx.annotation)
-    // 내려받는 글꼴(FontsContractCompat). Google Play 서비스가 받아 주므로 인터넷 권한이 필요 없다.
-    implementation(libs.androidx.core.ktx)
     testImplementation(libs.junit4)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)

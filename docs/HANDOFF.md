@@ -11,14 +11,14 @@
 
 ## 1. 지금 상태
 
-**OLO eBook 0.7.0 이 나왔다**(0.2.0: OLO 디자인 시스템 · 0.3.0: 그림 크기 · 리더 메뉴 · 폴더 단추 · 0.4.0: 번들 폰트 제거, 시스템 글꼴 · 0.5.0: 사용자 글꼴 넣기 · 0.5.1: 파일 관리자의 "연결 프로그램" 으로 열기 · 0.6.0: 출판사 글꼴 · 0.7.0: 추천 글꼴 받기·가변 폰트). 폴더 등록 → 라이브러리 → EPUB/TXT 열기 → 페이지
+**OLO eBook 0.7.1 이 나왔다**(0.2.0: OLO 디자인 시스템 · 0.3.0: 그림 크기 · 리더 메뉴 · 폴더 단추 · 0.4.0: 번들 폰트 제거, 시스템 글꼴 · 0.5.0: 사용자 글꼴 넣기 · 0.5.1: 파일 관리자의 "연결 프로그램" 으로 열기 · 0.6.0: 출판사 글꼴 · 0.7.0: 가변 폰트 · 0.7.1: 글꼴 목록을 세 갈래로). 폴더 등록 → 라이브러리 → EPUB/TXT 열기 → 페이지
 넘김 → 목차·책갈피 → 글꼴·크기 바꾸기까지 된다. 앱 전체를 Robolectric 으로 실제로 띄워
 사람이 쓰는 순서대로 한 바퀴 도는 테스트가 있고, 화면을 스크린샷으로 남긴다.
 PDF 는 목록에만 보이고("준비 중") 열리지 않는다(P1 미결).
 
 ```bash
-cd android && ./gradlew check                 # 506개 + lint
-./gradlew :app:assembleRelease                # → app/build/outputs/apk/release/OLO-eBook-0.7.0-release.apk
+cd android && ./gradlew check                 # 499개 + lint
+./gradlew :app:assembleRelease                # → app/build/outputs/apk/release/OLO-eBook-0.7.1-release.apk
 ./gradlew :app:testDebugUnitTest              # → app/build/screenshots/*.png (화면 확인용)
 # SDK 없음: :document + :core-layout 366개 (기존과 같다)
 ```
@@ -34,7 +34,7 @@ cd android && ./gradlew check                 # 506개 + lint
 | `:core-layout` | `PageStore`(디스크 캐시 · 부분 캐시 · 정리) |
 | `:core-layout` | `BookLayout`(페이지 이동 · 위치 복원 · 진도) · `ReadingSession`(책갈피 · 이어읽기) |
 | `:core-layout` | `MeasurerConformance` — 안드로이드 `TextMeasurer` 구현이 통과해야 할 검사 |
-| `:text-platform` | `AndroidTextMeasurer`(`Paint`) · `FontCatalog`(시스템 명조·휴대폰 글꼴 + 사용자 글꼴, 글자 폭 지문) · `UserFonts` · `SfntReader`(폰트 머리 판독, 순수 Kotlin) — conformance 통과 |
+| `:text-platform` | `AndroidTextMeasurer`(`Paint`) · `FontCatalog`(휴대폰 글꼴 + 사용자 글꼴, 글자 폭 지문) · `UserFonts` · `SfntReader`(폰트 머리 판독, 순수 Kotlin) — conformance 통과 |
 | `:data` | Room(`books` `progress` `bookmarks` `recent`) 보관소 · SAF 폴더 등록·재귀 스캔 · `Uri` → `SeekableSource`/`ByteSource` · `ReaderData`(묶음) |
 | `:ui-design` | `CpTheme`(색·치수·글꼴 토큰, 라이트/다크) · `CpHeader` `CpListRow` `CpTabBar` `CpStatusBar` `CpProgressBar` `CpPopup` `CpButton` `CpStepper` `CpChoice` · 선 아이콘 12종. Material 없음 |
 | `:reader-reflow` | `BookReader`(조판 스레드·넘김·책갈피·목차·설정 변경 시 읽던 글자로 복귀) · `drawPage` · `ReaderScreen`(탭·스와이프·메뉴) |
@@ -106,7 +106,7 @@ val paint = measurer.paintFor(run.style)                    // 그릴 때도 같
 ```
 
 - **글꼴은 `LayoutSpec.fontId` 에 들어간다**(규칙 4). 글꼴을 바꾸면 폭이 달라지므로
-  캐시 키에 없으면 명조로 잰 페이지를 고딕으로 그린다. `fontId` 는 `system-serif@<지문>` 꼴이고,
+  캐시 키에 없으면 명조로 잰 페이지를 고딕으로 그린다. `fontId` 는 `system-sans@<지문>` 꼴이고,
   지문은 기준 문자열을 **실제로 잰 폭**의 해시다 — OS 업데이트나 삼성 "글꼴 스타일" 로 시스템
   폰트가 바뀌면 캐시가 저절로 갈린다. 설정에는 지문 없는 키를 저장한다(null = 기기 기본).
 - **측정기는 `forSpec` 으로만 만든다.** 글꼴을 따로 넘기면 캐시 키와 실제로 잰 글꼴이
@@ -249,7 +249,17 @@ ReadingSession(layout, data.bookmarks, data.progress)
   (`AppWalkthroughTest`). 테스트 폰트는 `:text-platform` 의 `olo-test-fonts/` 를 함께 쓴다 — 폴더
   이름을 `fonts/` 로 하면 Robolectric 이 자기 시스템 폰트 대신 이걸 읽어 죽는다.
 
-**0.7.0 — 추천 글꼴 받기 · 가변 폰트** (2026-09-23, B2 번복의 P4)
+**0.7.1 — 글꼴 목록은 세 갈래: 출판사 글꼴 · 휴대폰 글꼴 · 사용자 글꼴** (2026-09-23 사용자 결정)
+
+- 실기기 화면을 보고 사용자가 정리를 요청: **시스템 명조와 "받을 수 있는 글꼴(Google Fonts)" 을
+  뺐다.** 추천 글꼴 받기(아래 0.7.0 의 P4)는 코드째 지웠다 — `FontDownloads`, 인증서 목록,
+  매니페스트 `<queries>`, androidx.core 의존. 가변 폰트 지원은 사용자 글꼴이 쓰므로 남겼다.
+- "글꼴 추가" 는 **"사용자 글꼴"** 로 바꿨다. 넣기 단추이자 넣은 글꼴들의 머리다 — 넣은 글꼴은 그
+  아래에 붙고, 목록은 늘 세 갈래로 보인다.
+- 기본 본문 글꼴은 휴대폰 글꼴. 예전 설정의 `system-serif`(명조)·번들 폰트 키는 `PrefsStore` 가
+  null(기본)로 지운다. 명조로 읽고 싶으면 명조 파일을 사용자 글꼴로 넣는다.
+
+**0.7.0 — 추천 글꼴 받기 · 가변 폰트** (2026-09-23, B2 번복의 P4 — 받기는 0.7.1 에서 뺐다)
 
 - 보기 › 글꼴 에 "받을 수 있는 글꼴 · Google Fonts": 나눔명조 · 고운바탕 · 본명조(Noto Serif KR) ·
   나눔고딕 · 고운돋움 · IBM Plex Sans KR(모두 OFL). 명조를 앞에 둔다 — 한국어 명조가 빠진 기기(삼성)가
@@ -331,7 +341,7 @@ ReadingSession(layout, data.bookmarks, data.progress)
 - 몰입 모드(시스템 바 숨김)와 디스플레이 컷아웃 여백, 제스처 내비게이션과 스와이프 충돌.
 - 폴더 선택기 → 등록 → 스캔(실제 파일 관리자·SD 카드·Google Drive).
 - 호스트와 기기의 글자 폭 차이(§3.1).
-- 글꼴: 명조가 목록에 뜨는지(삼성은 빠졌을 수 있다), 파일 관리자·Google Drive 에서 폰트 고르기,
+- 글꼴: 파일 관리자·Google Drive 에서 폰트 고르기,
   큰 한글 폰트(10~20MB) 넣는 시간.
 - 연결 프로그램: OLO Explorer·내 파일·Gmail 첨부에서 EPUB/TXT 를 눌러 목록에 뜨는지, 닫으면 보낸
   앱으로 돌아가는지. 한 번 "항상" 을 고르면 그 뒤로 바로 열린다.
@@ -359,7 +369,7 @@ ReadingSession(layout, data.bookmarks, data.progress)
 | 결정 | 근거 |
 |---|---|
 | **B1: 앱 이름 OLO eBook · 아이콘 컨셉 · OLO 디자인 시스템** (2026-09-23 사용자 결정) | 표시 이름 "OLO eBook", `applicationId` `io.github.kgcaudit.oloebook`. 아이콘은 OLO Explorer 와 바탕색 통일·도형 그레이·찢는 느낌. 배포 후 `applicationId` 를 바꾸면 다른 앱이 되어 데이터가 끊긴다 |
-| **B2 (번복): 폰트를 싣지 않는다 — 시스템 글꼴 + 사용자 글꼴 + 책 내장 글꼴** (2026-09-23 사용자 결정 "권장대로") | 아래 옛 B2 의 근거("기기마다 조판이 다르다")는 위치를 글자 오프셋으로 저장하고 캐시를 기기마다 만드는 구조에서 사용자에게 드러나지 않는다. 번들은 APK 12MB 중 11MB 였고, 올려 받은 책 세 권이 모두 KoPub 을 **내장**하고 있었다. 한국어 명조는 AOSP 에 대체 글꼴(Noto Serif CJK, 보통 굵기 하나)로만 있고 제조사가 빼기도 해서 **있는지 재 보고**(`FontCatalog.hasKoreanSerif`) 없으면 목록에서 뺀다. 순서: P1 시스템 글꼴(0.4.0, 끝남) → P2 사용자 글꼴 추가(0.5.0, 끝남 — SAF, TTF/OTF/TTC) → P3 출판사 내장 글꼴(0.6.0, 끝남 — `@font-face`, 내장 글꼴이 있는 책은 그것으로 시작) → P4 추천 글꼴 받기(0.7.0, 끝남 — Google Play 서비스 글꼴 제공자) |
+| **B2 (번복): 폰트를 싣지 않는다 — 시스템 글꼴 + 사용자 글꼴 + 책 내장 글꼴** (2026-09-23 사용자 결정 "권장대로") | 아래 옛 B2 의 근거("기기마다 조판이 다르다")는 위치를 글자 오프셋으로 저장하고 캐시를 기기마다 만드는 구조에서 사용자에게 드러나지 않는다. 번들은 APK 12MB 중 11MB 였고, 올려 받은 책 세 권이 모두 KoPub 을 **내장**하고 있었다. 한국어 명조는 AOSP 에 대체 글꼴(Noto Serif CJK, 보통 굵기 하나)로만 있고 제조사가 빼기도 해서 **있는지 재 보고**(`FontCatalog.hasKoreanSerif`) 없으면 목록에서 뺀다. 순서: P1 시스템 글꼴(0.4.0, 끝남) → P2 사용자 글꼴 추가(0.5.0, 끝남 — SAF, TTF/OTF/TTC) → P3 출판사 내장 글꼴(0.6.0, 끝남 — `@font-face`, 내장 글꼴이 있는 책은 그것으로 시작) → P4 추천 글꼴 받기(0.7.0 에 넣었다가 0.7.1 에서 사용자 요청으로 뺐다). 시스템 명조도 0.7.1 에서 뺐다 — 목록은 출판사 · 휴대폰 · 사용자 글꼴 세 갈래 |
 | ~~B2: KoPubWorld 바탕 + Pretendard 번들~~ (위 결정으로 대체) | 시스템 글꼴은 기기마다 조판이 달라진다. KoPub 구판이 아니라 **KoPubWorld** 인 이유: 구판에는 `—`(U+2014)가 없고 한자가 4,620자뿐이다(World 는 6,007자). 두 글꼴 모두 한글 11,172자 전부. 라이선스: Pretendard 는 OFL, **KoPubWorld 는 OFL 이 아니라 KOPUS 약관**(무료 재배포 가능 · 유료 판매 금지 · 약관 동봉 의무 · 수정본에 "KoPub" 이름 금지) — 그래서 서브셋하지 않고 원본을 넣었다. 저장소 +21.5MB, APK +11MB(압축) |
 | C++ 를 옮기지 않는다. GUI 구성만 참고 | 사용자 명시: "crosspoint 의 GUI 구성이 마음에 들었을 뿐이라, 코드 구조는 어떤 것이든 상관없어". 원본의 60~70% 는 ESP32 제약 때문의 코드다 |
 | 네이티브 Canvas + 디스크 페이지 캐시 | WebView 는 메모리·시작 시간이 무겁고 조판을 통제할 수 없다. `docs/ANDROID_ARCHITECTURE_DECISION.md` |

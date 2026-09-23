@@ -4,13 +4,6 @@
     <!-- 권한이 없다. 책은 사용자가 SAF 로 고른 폴더에서만 읽는다(저장소 전체 권한 불필요).
          인터넷도 쓰지 않는다. -->
 
-    <!-- 추천 글꼴은 Google Play 서비스의 글꼴 제공자에게 받는다(앱에는 인터넷 권한이 없다).
-         안드로이드 11 부터는 다른 앱의 제공자를 여기 밝혀야 찾을 수 있다 — 빠지면 Play 서비스가
-         있어도 "없음" 으로 보인다. -->
-    <queries>
-        <provider android:authorities="com.google.android.gms.fonts" />
-    </queries>
-
     <application
         android:name=".OloApp"
         android:allowBackup="true"

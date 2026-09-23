@@ -15,8 +15,6 @@ import io.github.kgcaudit.reader.layout.cache.PageStore
 import io.github.kgcaudit.reader.reflow.BookReader
 import io.github.kgcaudit.reader.reflow.ReaderPrefs
 import io.github.kgcaudit.reader.text.FontCatalog
-import io.github.kgcaudit.reader.text.FontDownloader
-import io.github.kgcaudit.reader.text.GmsFontSource
 import io.github.kgcaudit.reader.text.UserFonts
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -43,12 +41,10 @@ class AppContainer(private val app: Application) {
     val prefs = PrefsStore(app)
 
     /**
-     * 본문 글꼴. 명조가 있는지 한 번 재 두고 앱이 떠 있는 동안 같은 답을 쓴다. 사용자가 넣은
-     * 폰트는 앱 파일 영역에 둔다 — 캐시 영역이면 저장 공간이 부족할 때 시스템이 지운다.
+     * 본문 글꼴(휴대폰 글꼴 + 사용자 글꼴). 사용자가 넣은 폰트는 앱 파일 영역에 둔다 — 캐시
+     * 영역이면 저장 공간이 부족할 때 시스템이 지운다.
      */
-    val fonts: FontCatalog = UserFonts(File(app.filesDir, "fonts")).let { user ->
-        FontCatalog(user, FontDownloader(user, GmsFontSource(app)))
-    }
+    val fonts = FontCatalog(UserFonts(File(app.filesDir, "fonts")))
 
     /** 책을 연다. PDF 는 아직 리더가 없다(결정 P1 미결). */
     suspend fun open(book: LibraryBook): BookReader = withContext(Dispatchers.IO) {
@@ -157,13 +153,12 @@ class PrefsStore(context: Context) {
 
     companion object {
         /**
-         * 0.3.0 까지의 번들 폰트 설정을 시스템 글꼴 키로 옮긴다. "바탕" 을 고른 사람은 명조를,
-         * "고딕" 은 고딕을 원한 것이다. 옮기지 않으면 모르는 키라 기본값이 되는데, 명조 없는
-         * 기기에서는 우연히 맞고 명조 있는 기기에서 고딕을 고른 사람만 명조로 바뀐다.
+         * 없어진 글꼴 설정을 지운다: 0.3.0 까지의 번들 폰트("batang@…", "gothic@…")와 0.7.0 까지의
+         * 시스템 명조("system-serif"). 모두 휴대폰 글꼴(null = 기본)로 연다. 남겨 두면 모르는 키라
+         * 결과는 같지만, 나중에 같은 이름의 키가 생기면 옛 설정이 엉뚱한 글꼴을 가리킨다.
          */
         fun migrateFont(saved: String?): String? = when (saved?.substringBefore('@')) {
-            "batang" -> FontCatalog.SERIF
-            "gothic" -> FontCatalog.SANS
+            "batang", "gothic", "system-serif" -> null
             else -> saved
         }
 

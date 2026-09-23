@@ -22,14 +22,13 @@ class PrefsStoreTest {
     }
 
     @Test
-    fun `a font chosen before the bundled fonts were removed keeps its look`() {
-        // 0.3.0 은 "batang@kopubworld-1.0.3" 처럼 번들 폰트 ID 를 저장했다. 옮기지 않으면
-        // 모르는 키가 되어 기기 기본으로 떨어진다 — 명조 있는 기기에서 고딕을 고른 사람이
-        // 업데이트 한 번에 명조로 바뀐다.
-        saveRaw("gothic")
-        assertEquals(FontCatalog.SANS, PrefsStore(context).load().font)
-        saveRaw("batang@kopubworld-1.0.3")
-        assertEquals(FontCatalog.SERIF, PrefsStore(context).load().font)
+    fun `fonts that no longer exist are cleared to the phone font`() {
+        // 0.3.0 의 번들 폰트("batang@kopubworld-1.0.3", "gothic")와 0.7.0 까지의 시스템 명조.
+        // 남겨 두면 나중에 같은 이름의 키가 생겼을 때 옛 설정이 엉뚱한 글꼴을 가리킨다.
+        for (old in listOf("gothic", "batang@kopubworld-1.0.3", "system-serif")) {
+            saveRaw(old)
+            assertNull(PrefsStore(context).load().font, old)
+        }
     }
 
     @Test

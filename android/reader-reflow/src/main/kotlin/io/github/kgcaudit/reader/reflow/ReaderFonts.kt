@@ -28,10 +28,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import io.github.kgcaudit.reader.text.FontCatalog
-import io.github.kgcaudit.reader.text.DownloadFailure
-import io.github.kgcaudit.reader.text.FontDownloader
 import io.github.kgcaudit.reader.text.FontOption
-import io.github.kgcaudit.reader.text.RecommendedFonts
 import io.github.kgcaudit.reader.text.UserFonts.ImportResult
 import io.github.kgcaudit.reader.ui.design.CpButton
 import io.github.kgcaudit.reader.ui.design.CpHeader
@@ -40,7 +37,6 @@ import io.github.kgcaudit.reader.ui.design.CpIcons
 import io.github.kgcaudit.reader.ui.design.CpListRow
 import io.github.kgcaudit.reader.ui.design.CpPopup
 import io.github.kgcaudit.reader.ui.design.CpRadioRow
-import io.github.kgcaudit.reader.ui.design.CpSectionLabel
 import io.github.kgcaudit.reader.ui.design.CpTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -59,6 +55,8 @@ import kotlinx.coroutines.withContext
 internal class PublisherFonts(val preview: android.graphics.Typeface?)
 
 internal const val PUBLISHER_LABEL = "출판사 글꼴"
+
+internal const val USER_LABEL = "사용자 글꼴"
 
 @Composable
 internal fun FontsPanel(
@@ -149,7 +147,18 @@ internal fun FontsPanel(
                     onPrefsChange(prefs.copy(font = option.key, publisherFonts = false))
                 }
             }
-            if (user.isNotEmpty()) item { CpSectionLabel("추가한 글꼴") }
+            // "사용자 글꼴" 은 넣기 단추이자 넣은 글꼴들의 머리다. 목록은 늘 세 갈래(출판사 · 휴대폰 ·
+            // 사용자)로 보이고, 넣은 글꼴은 그 아래에만 붙는다.
+            if (catalog.user != null) {
+                item(key = "user-add") {
+                    CpListRow(
+                        title = USER_LABEL,
+                        subtitle = "글꼴 파일 추가 · TTF · OTF · TTC",
+                        icon = CpIcons.Plus,
+                        onClick = { picker.launch(arrayOf("*/*")) },
+                    )
+                }
+            }
             items(user, key = { it.key }) { option ->
                 FontRow(
                     catalog,
@@ -158,43 +167,6 @@ internal fun FontsPanel(
                     subtitle = if (option.hasHangul) null else "한글 없음 · 한글은 휴대폰 글꼴로 보입니다",
                     onRemove = { removing = option },
                 ) { onPrefsChange(prefs.copy(font = option.key, publisherFonts = false)) }
-            }
-            val downloads = catalog.downloads
-            val offered = if (downloads == null) emptyList() else RecommendedFonts.all.filterNot(downloads::isInstalled)
-            if (offered.isNotEmpty()) {
-                item { CpSectionLabel("받을 수 있는 글꼴 · Google Fonts") }
-                items(offered, key = { "get:" + it.family }) { font ->
-                    CpListRow(
-                        title = font.label,
-                        subtitle = (if (font.serif) "명조" else "고딕") + (if (700 in font.weights) " · 보통·굵게" else " · 보통"),
-                        icon = CpIcons.Download,
-                        onClick = {
-                            scope.launch {
-                                busy = "‘${font.label}’ 받는 중…"
-                                val result = withContext(Dispatchers.IO) { downloads!!.download(font) }
-                                busy = null
-                                when (result) {
-                                    is FontDownloader.Result.Done -> {
-                                        changed()
-                                        onPrefsChange(prefs.copy(font = result.key, publisherFonts = false))
-                                    }
-                                    is FontDownloader.Result.Failed -> notice = "글꼴을 받지 못했습니다" to describe(result.reason)
-                                }
-                            }
-                        },
-                    )
-                }
-            }
-            if (catalog.user != null) {
-                item {
-                    Spacer(Modifier.height(8.dp))
-                    CpListRow(
-                        title = "글꼴 추가",
-                        subtitle = "TTF · OTF · TTC 파일",
-                        icon = CpIcons.Plus,
-                        onClick = { picker.launch(arrayOf("*/*")) },
-                    )
-                }
             }
         }
     }
@@ -265,14 +237,6 @@ internal fun describe(reason: ImportResult.Reason): String = when (reason) {
     ImportResult.Reason.Broken -> "글꼴 파일이 손상됐습니다. 덜 받아졌을 수 있으니 다시 받아 보세요."
     ImportResult.Reason.TooLarge -> "글꼴 파일이 너무 큽니다. 64MB 이하만 넣을 수 있습니다."
     ImportResult.Reason.Unreadable -> "파일을 읽지 못했습니다. 저장소가 연결돼 있는지 확인해 보세요."
-}
-
-/** 받지 못한 이유를 사람의 말로. */
-internal fun describe(reason: DownloadFailure): String = when (reason) {
-    DownloadFailure.NoProvider -> "이 기기에서는 Google Play 서비스로 글꼴을 받을 수 없습니다. 글꼴 파일(TTF·OTF)을 직접 추가해 주세요."
-    DownloadFailure.Network -> "인터넷 연결을 확인하고 다시 시도해 주세요."
-    DownloadFailure.NotFound -> "이 글꼴을 찾지 못했습니다. 잠시 뒤 다시 시도해 주세요."
-    DownloadFailure.Broken -> "받은 파일을 글꼴로 읽을 수 없습니다. 다시 시도해 주세요."
 }
 
 private const val TAG = "OloFonts"

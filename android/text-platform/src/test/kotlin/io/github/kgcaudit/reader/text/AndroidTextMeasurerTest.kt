@@ -37,8 +37,8 @@ class AndroidTextMeasurerTest {
 
     private val fonts = TestFonts.catalog()
 
-    /** 시험할 글꼴 전부. Robolectric 에는 한국어 명조가 없어 명조는 고딕으로 대체된다. */
-    private val keys = listOf(FontCatalog.SANS, FontCatalog.SERIF, TestFonts.KEY)
+    /** 시험할 글꼴 전부: 휴대폰 글꼴과 사용자 글꼴. */
+    private val keys = listOf(FontCatalog.SANS, TestFonts.KEY)
 
     private fun spec(font: String, baseSizePx: Float = 42f) = LayoutSpec(
         viewportWidthPx = 1080f,
@@ -171,24 +171,17 @@ class AndroidTextMeasurerTest {
         assertNotEquals(spec(FontCatalog.SANS).cacheKey, spec(TestFonts.KEY).cacheKey)
     }
 
-    // ── 시스템 명조 ─────────────────────────────────────────────────
+    // ── 목록 ────────────────────────────────────────────────────────
 
     @Test
-    fun `a device without a Korean serif does not offer one`() {
-        // Robolectric 의 폰트는 한국어 명조가 없는 기기와 같다(명조를 달라 하면 고딕이 나온다).
-        // 목록에 "명조" 가 있으면 골라도 아무 변화가 없는 항목이 된다.
+    fun `the system offers only the phone font and old serif settings open with it`() {
+        // 목록은 출판사 · 휴대폰 · 사용자 세 갈래다. 0.7.0 까지 있던 시스템 명조를 고른 설정
+        // ("system-serif@…")은 없는 키가 되어 휴대폰 글꼴로 열린다 — 책은 열려야 한다.
         val system = FontCatalog()
-        assertFalse(system.hasKoreanSerif)
         assertEquals(listOf(FontCatalog.SANS), system.options().map { it.key })
         assertEquals(FontCatalog.SANS, system.defaultKey)
-        assertEquals(FontCatalog.SANS, system.effectiveKey(FontCatalog.SERIF), "명조 설정은 고딕으로 연다")
-    }
-
-    @Test
-    fun `a Korean face drawn differently is recognised as distinct`() {
-        // 명조가 있는 기기의 판정 쪽. 한글 모양이 다른 폰트를 넣으면 "다르다" 가 나와야 한다.
-        assertTrue(FontCatalog.hasDistinctKorean(TestFonts.regular, android.graphics.Typeface.SANS_SERIF))
-        assertFalse(FontCatalog.hasDistinctKorean(android.graphics.Typeface.SERIF, android.graphics.Typeface.SANS_SERIF))
+        assertEquals(FontCatalog.SANS, system.effectiveKey("system-serif"))
+        assertEquals(system.layoutFontId(FontCatalog.SANS), system.layoutFontId("system-serif@1234.fake"))
     }
 
     @Test

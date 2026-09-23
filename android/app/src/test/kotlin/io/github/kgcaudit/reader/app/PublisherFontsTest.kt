@@ -95,7 +95,7 @@ class PublisherFontsTest {
         compose.onRoot().performTouchInput { click(center) }
         node(hasText("보기")).performClick()
         node(hasText("휴대폰 글꼴")).performClick()
-        waitFor(hasText("글꼴 추가"))
+        waitFor(hasText("사용자 글꼴"))
         assertTrue(compose.onAllNodes(hasText("출판사 글꼴"), useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
         // 글꼴 없는 책을 여는 것만으로 설정이 꺼지지는 않는다 — 다음 글꼴 책에서는 다시 출판사 글꼴이다.
         assertTrue(compose.activity.container.prefs.load().publisherFonts)
