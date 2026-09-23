@@ -7,11 +7,16 @@ import io.github.kgcaudit.reader.data.ReaderData
 import io.github.kgcaudit.reader.data.library.LibraryBook
 import io.github.kgcaudit.reader.document.BookFormat
 import io.github.kgcaudit.reader.document.BookId
+import io.github.kgcaudit.reader.document.BookMeta
 import io.github.kgcaudit.reader.document.ReflowDocument
 import io.github.kgcaudit.reader.document.TxtDocument
 import io.github.kgcaudit.reader.document.epub.EpubDocument
 import io.github.kgcaudit.reader.layout.book.BookFontTable
 import io.github.kgcaudit.reader.layout.cache.PageStore
+import io.github.kgcaudit.reader.pdf.PdfBook
+import io.github.kgcaudit.reader.pdf.PdfReader
+import io.github.kgcaudit.reader.pdf.PdfSource
+import io.github.kgcaudit.reader.pdf.PlatformPdfSource
 import io.github.kgcaudit.reader.reflow.BookReader
 import io.github.kgcaudit.reader.reflow.ReaderPrefs
 import io.github.kgcaudit.reader.text.FontCatalog
@@ -19,6 +24,17 @@ import io.github.kgcaudit.reader.text.UserFonts
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+
+/** 연 책. 형식마다 리더가 다르다 — 리플로우(EPUB·TXT)는 조판하고, PDF 는 쪽을 그린다. */
+sealed interface OpenedBook : AutoCloseable {
+    class Reflow(val reader: BookReader) : OpenedBook {
+        override fun close() = reader.close()
+    }
+
+    class Pdf(val reader: PdfReader) : OpenedBook {
+        override fun close() = reader.close()
+    }
+}
 
 class OloApp : Application() {
     val container: AppContainer by lazy { AppContainer(this) }
@@ -46,16 +62,24 @@ class AppContainer(private val app: Application) {
      */
     val fonts = FontCatalog(UserFonts(File(app.filesDir, "fonts")))
 
-    /** 책을 연다. PDF 는 아직 리더가 없다(결정 P1 미결). */
-    suspend fun open(book: LibraryBook): BookReader = withContext(Dispatchers.IO) {
-        val document = read(book.id, book.displayName, book.format, Uri.parse(book.id.value))
-        closingOnFailure(document) {
-            // 목록이 파일 이름 대신 책 제목을 보여 주게 한다. TXT 는 제목이 곧 파일 이름이다.
-            if (book.format == BookFormat.EPUB) {
-                data.library.updateMetadata(book.id, document.meta.title, document.meta.author)
+    /**
+     * PDF 엔진. 테스트가 가짜로 바꾼다 — Robolectric 에는 PDF 엔진(pdfium)이 없어 PdfRenderer 가
+     * 돌지 않는다. Pdfium 으로 바꿀 때도 이 한 줄이다.
+     */
+    @androidx.annotation.VisibleForTesting
+    internal var pdfEngine: (android.os.ParcelFileDescriptor) -> PdfSource = ::PlatformPdfSource
+
+    /** 책을 연다. */
+    suspend fun open(book: LibraryBook): OpenedBook = withContext(Dispatchers.IO) {
+        val opened = read(book.id, book.displayName, book.format, Uri.parse(book.id.value))
+        closingOnFailure(opened) {
+            // 목록이 파일 이름 대신 책 제목을 보여 주게 한다. TXT·PDF 는 제목이 곧 파일 이름이다.
+            if (opened is OpenedBook.Reflow && book.format == BookFormat.EPUB) {
+                val meta = opened.reader.document.meta
+                data.library.updateMetadata(book.id, meta.title, meta.author)
             }
             data.library.markOpened(book.id, System.currentTimeMillis())
-            reader(document)
+            opened
         }
     }
 
@@ -66,7 +90,7 @@ class AppContainer(private val app: Application) {
      * 이어지고 최근 목록에도 오른다. 라이브러리 쪽이 열리지 않으면(폴더 권한이 풀림) 받은
      * URI 로 연다. 받은 파일은 라이브러리·최근 목록에 넣지 않는다([IncomingFile]).
      */
-    suspend fun openIncoming(file: IncomingFile): BookReader = withContext(Dispatchers.IO) {
+    suspend fun openIncoming(file: IncomingFile): OpenedBook = withContext(Dispatchers.IO) {
         data.library.findByFile(file.displayName, file.sizeBytes)?.let { book ->
             try {
                 return@withContext open(book)
@@ -77,19 +101,17 @@ class AppContainer(private val app: Application) {
                 android.util.Log.w("OloApp", "library copy of ${file.displayName} did not open", e)
             }
         }
-        val id = BookId(file.uri.toString())
-        val document = read(id, file.displayName, file.format, file.uri)
-        closingOnFailure(document) { reader(document) }
+        read(BookId(file.uri.toString()), file.displayName, file.format, file.uri)
     }
 
     /**
-     * 연 문서로 뒷일을 하되, 그 뒷일이 실패하거나 취소되면 문서를 닫는다. 닫지 않으면 파일 디스크립터와
-     * 캐시 사본이 남는다(리더가 만들어지지 않았으니 닫을 사람이 없다).
+     * 연 것으로 뒷일을 하되, 그 뒷일이 실패하거나 취소되면 연 것을 닫는다. 닫지 않으면 파일 디스크립터와
+     * 캐시 사본이 남는다(화면에 넘기지 못했으니 닫을 사람이 없다).
      */
-    private suspend fun <T> closingOnFailure(document: ReflowDocument, block: suspend () -> T): T = try {
+    private suspend fun <T> closingOnFailure(opened: Any, block: suspend () -> T): T = try {
         block()
     } catch (e: Throwable) {
-        (document as? AutoCloseable)?.runCatching { close() }
+        (opened as? AutoCloseable)?.runCatching { close() }
         throw e
     }
 
@@ -127,11 +149,23 @@ class AppContainer(private val app: Application) {
         return File(app.cacheDir, "book-fonts/$hash")
     }
 
-    private fun read(id: BookId, name: String, format: BookFormat, uri: Uri): ReflowDocument = when (format) {
-        BookFormat.EPUB -> EpubDocument.open(id, name, data.sources.seekableSource(uri))
-        BookFormat.TXT -> TxtDocument.open(id, name, data.sources.byteSource(uri))
-        BookFormat.PDF -> throw UnsupportedOperationException("PDF 보기는 다음 판에서 지원합니다")
+    private suspend fun read(id: BookId, name: String, format: BookFormat, uri: Uri): OpenedBook = when (format) {
+        BookFormat.EPUB -> reflow(EpubDocument.open(id, name, data.sources.seekableSource(uri)))
+        BookFormat.TXT -> reflow(TxtDocument.open(id, name, data.sources.byteSource(uri)))
+        BookFormat.PDF -> {
+            // PdfRenderer 는 제목·저자를 읽지 못한다. 파일 이름에서 확장자만 떼어 제목으로 쓴다.
+            val meta = BookMeta(id, format, title = name.substringBeforeLast('.').ifBlank { name })
+            val book = PdfBook(meta, pdfEngine(data.sources.seekableDescriptor(uri)))
+            closingOnFailure(book) {
+                val reader = PdfReader(book, data.bookmarks, data.progress)
+                reader.open()
+                OpenedBook.Pdf(reader)
+            }
+        }
     }
+
+    private suspend fun reflow(document: ReflowDocument): OpenedBook =
+        closingOnFailure(document) { OpenedBook.Reflow(reader(document)) }
 }
 
 /**
@@ -142,10 +176,16 @@ class AppContainer(private val app: Application) {
  */
 fun describeOpenFailure(error: Throwable, format: BookFormat?): String = when {
     error is UnsupportedOperationException -> error.message ?: "아직 열 수 없는 형식입니다."
+    // PdfRenderer 는 암호가 걸린 파일에 SecurityException 을 던진다. 권한이 풀린 것과 같은 예외라
+    // 문구로 가른다 — "파일을 찾을 수 없습니다" 라고 하면 멀쩡히 있는 파일을 찾아 헤맨다.
+    format == BookFormat.PDF && error is SecurityException && error.message.orEmpty().contains("password", ignoreCase = true) ->
+        "암호가 걸린 PDF 입니다. 암호를 푼 파일로 다시 열어 주세요."
     error is java.io.FileNotFoundException || error is SecurityException ->
         "파일을 찾을 수 없습니다. 옮겨졌거나 지워졌을 수 있습니다. 라이브러리를 새로고침해 보세요."
     format == BookFormat.EPUB && error is java.io.IOException ->
         "EPUB 파일이 손상됐거나 EPUB 형식이 아닙니다. 다른 곳에서 다시 받아 보세요."
+    format == BookFormat.PDF && error is java.io.IOException ->
+        "PDF 파일이 손상됐거나 PDF 형식이 아닙니다. 다른 곳에서 다시 받아 보세요."
     error is java.io.IOException -> "파일을 읽는 중 문제가 생겼습니다. 저장소가 연결돼 있는지 확인해 보세요."
     else -> "책을 여는 중 문제가 생겼습니다."
 }

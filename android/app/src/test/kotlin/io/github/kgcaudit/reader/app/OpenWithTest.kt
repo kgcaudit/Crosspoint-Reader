@@ -119,13 +119,9 @@ class OpenWithTest {
 
     @Test
     fun `files the app cannot read are explained instead of opening a blank reader`() {
-        // PDF(아직 리더 없음), 모르는 형식, 확장자만 epub 인 깨진 파일.
-        download("계약서.pdf", ByteArray(64))
-        launch(view("계약서.pdf", "application/pdf"))
-        waitFor("PDF 보기는 다음 판에서", substring = true)
-
+        // 모르는 형식, 확장자만 epub 인 깨진 파일.
         download("사진.heic", ByteArray(64))
-        onActivity { it.onNewIntent(view("사진.heic", "image/heic")) }
+        launch(view("사진.heic", "image/heic"))
         waitFor("열 수 없는 형식", substring = true)
 
         download("깨진 책.epub", ByteArray(300) { (it * 7).toByte() })
@@ -136,6 +132,14 @@ class OpenWithTest {
     }
 
     @Test
+    fun `a pdf sent from a file manager opens in the pdf reader`() {
+        app.container.pdfEngine = { DrawnPdf(it, pageCount = 3) }
+        download("계약서.pdf", ByteArray(64))
+        launch(view("계약서.pdf", "application/pdf"))
+        waitFor("1 / 3")
+    }
+
+    @Test
     fun `a file without an extension is recognised by the type the sender gives`() {
         download("book", SampleBooks.epub())
         launch(view("book", "application/epub+zip"))
@@ -143,7 +147,7 @@ class OpenWithTest {
     }
 
     @Test
-    fun `the phone offers OLO eBook for EPUB and TXT but not for PDF`() {
+    fun `the phone offers OLO eBook for EPUB, TXT and PDF but not for pictures`() {
         // 연결 프로그램 목록은 안드로이드가 매니페스트 선언으로 만든다. 선언이 빠지면 앱이 아무리
         // 잘 열어도 목록에 없다 — 사용자가 본 증상이 바로 이것이었다.
         fun offered(type: String): Boolean {
@@ -153,7 +157,7 @@ class OpenWithTest {
         }
         assertTrue(offered("application/epub+zip"), "EPUB")
         assertTrue(offered("text/plain"), "TXT")
-        assertTrue(!offered("application/pdf"), "PDF 는 리더가 생기기 전까지 받지 않는다")
+        assertTrue(offered("application/pdf"), "PDF")
         assertTrue(!offered("image/jpeg"))
         assertNotNull(app.packageManager.getLaunchIntentForPackage(app.packageName), "홈 화면 아이콘은 그대로")
     }

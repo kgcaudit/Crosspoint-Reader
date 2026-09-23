@@ -40,9 +40,8 @@ sealed interface Incoming {
             val (name, size) = describe(uri, resolver)
             val format = BookFormat.fromFileName(name) ?: formatOf(intent.type ?: runCatching { resolver.getType(uri) }.getOrNull())
             return when (format) {
-                BookFormat.EPUB, BookFormat.TXT -> Book(IncomingFile(uri, name, size, format))
-                BookFormat.PDF -> Refused("PDF 보기는 다음 판에서 지원합니다.")
-                null -> Refused("OLO eBook 은 EPUB 과 TXT 파일을 엽니다. ‘$name’ 은 열 수 없는 형식입니다.")
+                null -> Refused("OLO eBook 은 EPUB · TXT · PDF 파일을 엽니다. ‘$name’ 은 열 수 없는 형식입니다.")
+                else -> Book(IncomingFile(uri, name, size, format))
             }
         }
 

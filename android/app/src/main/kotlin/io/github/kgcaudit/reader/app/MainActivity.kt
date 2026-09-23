@@ -25,7 +25,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import io.github.kgcaudit.reader.document.BookFormat
 import io.github.kgcaudit.reader.document.BookId
-import io.github.kgcaudit.reader.reflow.BookReader
+import io.github.kgcaudit.reader.pdf.PdfScreen
 import io.github.kgcaudit.reader.reflow.ReaderScreen
 import io.github.kgcaudit.reader.ui.design.CpButton
 import io.github.kgcaudit.reader.ui.design.CpPopup
@@ -88,7 +88,7 @@ private fun OloApp(incoming: MutableState<Intent?>, hideSystemBars: (Boolean) ->
     val context = androidx.compose.ui.platform.LocalContext.current
     val container = context.container
     var openId by rememberSaveable { mutableStateOf<String?>(null) }
-    var reader by remember { mutableStateOf<BookReader?>(null) }
+    var reader by remember { mutableStateOf<OpenedBook?>(null) }
     var failure by remember { mutableStateOf<String?>(null) }
     var prefs by remember { mutableStateOf(container.prefs.load()) }
     // 이번 실행에서 폴더를 훑었는가. 화면(액티비티)이 새로 만들어지면 다시 훑는다.
@@ -184,22 +184,26 @@ private fun OloApp(incoming: MutableState<Intent?>, hideSystemBars: (Boolean) ->
         }
     }
 
-    val current = reader
-    if (current == null) {
-        LibraryScreen(
+    when (val current = reader) {
+        null -> LibraryScreen(
             onOpen = { book -> fromOutside = false; openId = book.id.value },
             scanOnStart = !scanned,
             onStartScan = { scanned = true },
         )
-    } else {
-        LaunchedEffect(current) { hideSystemBars(true) }
-        ReaderScreen(
-            reader = current,
-            prefs = prefs,
-            onPrefsChange = { prefs = it; container.prefs.save(it) },
-            onClose = ::close,
-            onChrome = { showing -> hideSystemBars(!showing) },
-        )
+        is OpenedBook.Reflow -> {
+            LaunchedEffect(current) { hideSystemBars(true) }
+            ReaderScreen(
+                reader = current.reader,
+                prefs = prefs,
+                onPrefsChange = { prefs = it; container.prefs.save(it) },
+                onClose = ::close,
+                onChrome = { showing -> hideSystemBars(!showing) },
+            )
+        }
+        is OpenedBook.Pdf -> {
+            LaunchedEffect(current) { hideSystemBars(true) }
+            PdfScreen(reader = current.reader, onClose = ::close, onChrome = { showing -> hideSystemBars(!showing) })
+        }
     }
 
     failure?.let { message ->
@@ -219,7 +223,7 @@ private fun OloApp(incoming: MutableState<Intent?>, hideSystemBars: (Boolean) ->
  * `withContext` 는 끝난 뒤 돌아오는 순간 취소돼 있으면 결과를 버린다. 그러면 열어 둔 파일 디스크립터와
  * 캐시 사본이 아무도 닫지 않은 채 남는다(책을 여는 중에 다른 앱이 파일을 또 보낸 경우).
  */
-private suspend fun openKeepingResult(open: suspend () -> BookReader): BookReader {
+private suspend fun openKeepingResult(open: suspend () -> OpenedBook): OpenedBook {
     val opened = withContext(kotlinx.coroutines.NonCancellable) { open() }
     if (!kotlin.coroutines.coroutineContext.isActive) {
         opened.close()

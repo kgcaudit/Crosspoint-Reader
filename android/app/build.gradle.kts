@@ -12,8 +12,8 @@ android {
         applicationId = providers.gradleProperty("reader.applicationId").get()
         minSdk = 26
         targetSdk = 35
-        versionCode = 9
-        versionName = "0.7.1"
+        versionCode = 10
+        versionName = "0.8.0"
         resValue("string", "app_name", providers.gradleProperty("reader.appName").get())
         // 의존 라이브러리가 싣고 오는 80여 개 언어 번역을 뺀다. 화면이 한국어뿐이다.
         resourceConfigurations += listOf("ko", "en")
@@ -75,6 +75,7 @@ base { archivesName.set("OLO-eBook-" + android.defaultConfig.versionName) }
 
 dependencies {
     implementation(project(":reader-reflow"))
+    implementation(project(":reader-pdf"))
     implementation(project(":data"))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.core.ktx)

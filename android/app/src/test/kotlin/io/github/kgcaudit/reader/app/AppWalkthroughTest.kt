@@ -74,7 +74,7 @@ class AppWalkthroughTest {
         container.data.folders.register(FolderProvider.treeUri)
         compose.activityRule.scenario.recreate()
         waitFor(hasText("옛 일기.txt"))
-        waitFor(hasText("준비 중"))
+        waitFor(hasText("계약서.pdf"))
         shot("02-library")
 
         // 폴더 단추는 하나다(＋ 와 폴더가 같은 일로 가던 중복을 없앴다). 추가는 그 안에 있다.

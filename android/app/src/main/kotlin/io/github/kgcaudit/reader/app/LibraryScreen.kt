@@ -149,13 +149,13 @@ fun LibraryScreen(
                 if (recent.isNotEmpty()) {
                     item { CpSectionLabel("최근에 읽은 책") }
                     items(recent, key = { "r" + it.id.value }) { book ->
-                        BookRow(book, percents[book.id], onOpen = onOpen, onUnsupported = { notice = it })
+                        BookRow(book, percents[book.id], onOpen = onOpen)
                     }
                     item { Spacer(Modifier.height(8.dp)); CpDivider() }
                 }
                 item { CpSectionLabel("모든 책") }
                 items(list.orEmpty(), key = { it.id.value }) { book ->
-                    BookRow(book, percents[book.id], onOpen = onOpen, onUnsupported = { notice = it })
+                    BookRow(book, percents[book.id], onOpen = onOpen)
                 }
                 item { Spacer(Modifier.height(24.dp)) }
             }
@@ -201,9 +201,7 @@ private fun BookRow(
     book: LibraryBook,
     percent: Float?,
     onOpen: (LibraryBook) -> Unit,
-    onUnsupported: (Pair<String, String?>) -> Unit,
 ) {
-    val supported = book.format != BookFormat.PDF
     val tiles = CpTheme.colors.tiles
     CpListRow(
         title = book.label,
@@ -219,16 +217,8 @@ private fun BookRow(
             BookFormat.EPUB -> tiles.book
             BookFormat.TXT, BookFormat.PDF -> tiles.document
         },
-        value = when {
-            !supported -> "준비 중"
-            percent != null -> "${percent.roundToInt()}%"
-            else -> null
-        },
-        enabled = supported,
-        onClick = {
-            if (supported) onOpen(book)
-            else onUnsupported("PDF 는 아직 열 수 없습니다" to "PDF 보기는 다음 판에서 지원합니다. 목록에는 미리 보여 둡니다.")
-        },
+        value = percent?.let { "${it.roundToInt()}%" },
+        onClick = { onOpen(book) },
     )
 }
 

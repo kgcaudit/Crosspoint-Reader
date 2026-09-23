@@ -1,0 +1,159 @@
+package io.github.kgcaudit.reader.pdf
+
+import android.graphics.Bitmap
+import android.util.LruCache
+import io.github.kgcaudit.reader.document.Bookmark
+import io.github.kgcaudit.reader.document.BookmarkRepository
+import io.github.kgcaudit.reader.document.Locator
+import io.github.kgcaudit.reader.document.ProgressRepository
+import io.github.kgcaudit.reader.document.ReadingProgress
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
+
+/** 화면이 그리는 데 필요한 전부. */
+data class PdfState(
+    /** 0부터 센 쪽. */
+    val page: Int = 0,
+    val pageCount: Int = 0,
+    val bookmarked: Boolean = false,
+    /** 처음 위치를 되찾기 전. 그동안은 첫 쪽을 잠깐 그렸다 옮기는 깜빡임을 막으려고 그리지 않는다. */
+    val ready: Boolean = false,
+) {
+    /** 진도(0~100). 마지막 쪽을 펴면 100. */
+    val percent: Float get() = if (pageCount <= 0) 0f else (page + 1) * 100f / pageCount
+}
+
+/**
+ * PDF 한 권을 읽는 동안의 상태와 동작. EPUB 의 `BookReader` 와 같은 역할이다.
+ *
+ * 위치는 [Locator.FixedPage] 로 저장한다(쪽 + 쪽 안의 세로 위치 천분율). 확대해서 보던 자리까지는
+ * 저장하지 않는다 — 다시 열면 그 쪽의 전체가 보이는 편이 어디였는지 알아보기 쉽다.
+ *
+ * 그리기는 **한 스레드**([renderThread])에서만 한다. PdfRenderer 는 한 번에 한 쪽만 열 수 있다.
+ */
+@OptIn(ExperimentalCoroutinesApi::class)
+class PdfReader(
+    val book: PdfBook,
+    private val bookmarkRepository: BookmarkRepository,
+    private val progressRepository: ProgressRepository,
+    private val renderThread: CoroutineDispatcher = Dispatchers.IO.limitedParallelism(1),
+    private val clock: () -> Long = System::currentTimeMillis,
+) {
+    private val _state = MutableStateFlow(PdfState(pageCount = book.pageCount))
+    val state: StateFlow<PdfState> = _state.asStateFlow()
+
+    val title: String get() = book.meta.title
+
+    /**
+     * 화면 크기로 그린 쪽. 지금 쪽과 앞뒤 한 쪽씩이면 넘길 때 기다리지 않는다. 쪽 하나가 화면 크기
+     * 비트맵(1080×2400 이면 약 10MB)이라 세 장까지만 둔다.
+     */
+    private val pages = LruCache<Triple<Int, Int, Int>, Bitmap>(3)
+
+    /** 저장된 자리로 간다. 없거나 범위를 벗어났으면(파일이 바뀜) 첫 쪽. */
+    suspend fun open() {
+        val saved = runCatching { progressRepository.get(book.meta.id)?.locator as? Locator.FixedPage }.getOrNull()
+        show(saved?.page ?: 0, save = false)
+    }
+
+    suspend fun next() = show(_state.value.page + 1)
+
+    suspend fun previous() = show(_state.value.page - 1)
+
+    suspend fun goTo(page: Int) = show(page)
+
+    /** 진행 막대. 0..1 → 쪽. 1 은 마지막 쪽이다. */
+    suspend fun seek(fraction: Float) {
+        val count = _state.value.pageCount
+        if (count <= 0) return
+        show(pageAt(fraction, count))
+    }
+
+    suspend fun goTo(bookmark: Bookmark) {
+        (bookmark.locator as? Locator.FixedPage)?.let { show(it.page) }
+    }
+
+    suspend fun bookmarks(): List<Bookmark> = bookmarkRepository.forBook(book.meta.id)
+
+    suspend fun removeBookmark(bookmark: Bookmark) {
+        bookmarkRepository.remove(bookmark.id)
+        refreshBookmarked()
+    }
+
+    /** 이 쪽에 책갈피가 있으면 빼고, 없으면 꽂는다. */
+    suspend fun toggleBookmark() {
+        val page = _state.value.page
+        val here = bookmarks().filter { (it.locator as? Locator.FixedPage)?.page == page }
+        if (here.isEmpty()) {
+            bookmarkRepository.add(
+                Bookmark(Bookmark.NO_ID, book.meta.id, Locator.FixedPage(page), snippet = "${page + 1}쪽", createdAtEpochMs = clock()),
+            )
+        } else {
+            here.forEach { bookmarkRepository.remove(it.id) }
+        }
+        refreshBookmarked()
+    }
+
+    /**
+     * [page] 쪽 전체를 [widthPx]×[heightPx] 로 그린 것. 같은 크기면 다시 그리지 않는다. 깨진 쪽은 null —
+     * 화면은 빈 종이를 보여 주고 다른 쪽은 계속 넘길 수 있다.
+     */
+    suspend fun page(page: Int, widthPx: Int, heightPx: Int): Bitmap? {
+        if (widthPx <= 0 || heightPx <= 0 || page !in 0 until book.pageCount) return null
+        val key = Triple(page, widthPx, heightPx)
+        pages.get(key)?.let { return it }
+        return withContext(renderThread) {
+            pages.get(key) ?: draw(page, widthPx, heightPx, PageRegion.WHOLE)?.also { pages.put(key, it) }
+        }
+    }
+
+    /** 이미 그려 둔 쪽이면 기다리지 않고 준다. 없으면 null — [page] 로 그린다. */
+    fun cachedPage(page: Int, widthPx: Int, heightPx: Int): Bitmap? = pages.get(Triple(page, widthPx, heightPx))
+
+    /** 확대했을 때 보이는 부분만 화면 해상도로. 캐시하지 않는다 — 조금만 움직여도 다른 구역이다. */
+    suspend fun region(page: Int, region: PageRegion, widthPx: Int, heightPx: Int): Bitmap? {
+        if (widthPx <= 0 || heightPx <= 0 || region.width <= 0f || region.height <= 0f) return null
+        if (page !in 0 until book.pageCount) return null
+        return withContext(renderThread) { draw(page, widthPx, heightPx, region) }
+    }
+
+    fun close() {
+        pages.evictAll()
+        book.close()
+    }
+
+    private fun draw(page: Int, widthPx: Int, heightPx: Int, region: PageRegion): Bitmap? = runCatching {
+        Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888).also { book.source.render(page, it, region) }
+    }.getOrNull()
+
+    private suspend fun show(page: Int, save: Boolean = true) {
+        val count = book.pageCount
+        if (count <= 0) {
+            _state.value = _state.value.copy(ready = true)
+            return
+        }
+        val target = page.coerceIn(0, count - 1)
+        _state.value = _state.value.copy(page = target, pageCount = count, ready = true)
+        refreshBookmarked()
+        if (save) {
+            runCatching {
+                progressRepository.save(
+                    ReadingProgress(book.meta.id, Locator.FixedPage(target), _state.value.percent.coerceIn(0f, 100f), clock()),
+                )
+            }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+        }
+    }
+
+    private suspend fun refreshBookmarked() {
+        val page = _state.value.page
+        val marked = runCatching { bookmarks().any { (it.locator as? Locator.FixedPage)?.page == page } }
+            .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+            .getOrDefault(false)
+        _state.value = _state.value.copy(bookmarked = marked)
+    }
+}
