@@ -226,6 +226,46 @@ class AppWalkthroughTest {
         assertTrue(container.fonts.user!!.families().isEmpty())
     }
 
+    @Test
+    fun `a recommended font can be downloaded from the font list, and a failure is explained`() {
+        // 실제 제공자(Google Play 서비스)는 테스트 환경에 없다. 가짜 제공자가 테스트 폰트를 내준다.
+        val container = compose.activity.container
+        val downloads = container.fonts.downloads!!
+        downloads.source = io.github.kgcaudit.reader.text.FontSource { _, _ ->
+            io.github.kgcaudit.reader.text.Fetched.Failed(io.github.kgcaudit.reader.text.DownloadFailure.Network)
+        }
+        container.data.folders.register(FolderProvider.treeUri)
+        compose.activityRule.scenario.recreate()
+        waitFor(hasText("어린 왕자.epub"))
+        node(hasText("어린 왕자.epub")).performClick()
+        waitFor(hasText("1 / ", substring = true), timeoutMs = 30_000)
+        compose.onRoot().performTouchInput { click(center) }
+        node(hasText("보기")).performClick()
+        node(hasText("휴대폰 글꼴")).performClick()
+        waitFor(hasText("받을 수 있는 글꼴", substring = true))
+        waitFor(hasText("나눔명조"))
+        shot("21-fonts-downloadable")
+
+        // 인터넷이 없을 때: 이유와 할 일을 말한다. 아무것도 넣지 않는다.
+        node(hasText("나눔명조")).performClick()
+        waitFor(hasText("글꼴을 받지 못했습니다"))
+        waitFor(hasText("인터넷 연결", substring = true))
+        node(hasText("확인")).performClick()
+        assertTrue(container.fonts.user!!.families().isEmpty())
+
+        // 받으면 바로 그 글꼴로 바뀐다.
+        downloads.source = io.github.kgcaudit.reader.text.FontSource { _, weight ->
+            val name = if (weight >= 700) "olo-test-bold.ttf" else "olo-test-regular.ttf"
+            val copy = File(folder, "받은-$weight.ttf").also { TestFonts.copy(name, it) }
+            io.github.kgcaudit.reader.text.Fetched.File { copy.inputStream() }
+        }
+        node(hasText("고운바탕")).performClick()
+        compose.waitUntil(15_000) { container.prefs.load().font == "user:olo test sans" }
+        waitFor(hasText("Olo Test Sans"))
+        assertTrue(container.fonts.user!!.families().single().bold != null, "굵게도 함께 받았다")
+        shot("22-fonts-downloaded")
+    }
+
     /** 파일 선택기 흉내: 앱이 띄운 선택 요청에 고른 문서의 URI 로 답한다. */
     private fun pickFont(path: String) {
         node(hasText("글꼴 추가")).performClick()

@@ -34,6 +34,8 @@ data class FontPair(val regular: Typeface, val bold: Typeface?)
 open class FontCatalog(
     /** 사용자가 넣은 글꼴. 없으면 시스템 글꼴만. */
     val user: UserFonts? = null,
+    /** 추천 글꼴 받기. 없으면 목록에 "받을 수 있는 글꼴" 을 내놓지 않는다. */
+    val downloads: FontDownloader? = null,
 ) {
 
     /** 기기에 한국어 명조가 따로 있는가. 없으면 명조를 목록에서 뺀다 — 골라도 고딕이 나온다. */
@@ -48,7 +50,10 @@ open class FontCatalog(
         // 내려받은 글꼴…)로 시스템 산세리프 자체를 바꾼다. 그 선택을 따르는 항목이므로 모양이
         // 아니라 출처로 부른다.
         add(FontOption(SANS, "휴대폰 글꼴", FontOption.Kind.System))
-        user?.families()?.forEach { add(FontOption(it.key, it.label, FontOption.Kind.User, it.hasHangul)) }
+        // 받은 추천 글꼴은 파일 이름("Gowun Batang") 대신 목록에서 보던 한국어 이름으로 부른다.
+        user?.families()?.forEach {
+            add(FontOption(it.key, RecommendedFonts.byKey(it.key)?.label ?: it.label, FontOption.Kind.User, it.hasHangul))
+        }
     }
 
     /** 설정 값(없거나 모르는 값 포함)을 실제로 쓸 글꼴 키로. 모르면 기본값 — 책은 열려야 한다. */

@@ -15,6 +15,8 @@ import io.github.kgcaudit.reader.layout.cache.PageStore
 import io.github.kgcaudit.reader.reflow.BookReader
 import io.github.kgcaudit.reader.reflow.ReaderPrefs
 import io.github.kgcaudit.reader.text.FontCatalog
+import io.github.kgcaudit.reader.text.FontDownloader
+import io.github.kgcaudit.reader.text.GmsFontSource
 import io.github.kgcaudit.reader.text.UserFonts
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -44,7 +46,9 @@ class AppContainer(private val app: Application) {
      * 본문 글꼴. 명조가 있는지 한 번 재 두고 앱이 떠 있는 동안 같은 답을 쓴다. 사용자가 넣은
      * 폰트는 앱 파일 영역에 둔다 — 캐시 영역이면 저장 공간이 부족할 때 시스템이 지운다.
      */
-    val fonts = FontCatalog(UserFonts(File(app.filesDir, "fonts")))
+    val fonts: FontCatalog = UserFonts(File(app.filesDir, "fonts")).let { user ->
+        FontCatalog(user, FontDownloader(user, GmsFontSource(app)))
+    }
 
     /** 책을 연다. PDF 는 아직 리더가 없다(결정 P1 미결). */
     suspend fun open(book: LibraryBook): BookReader = withContext(Dispatchers.IO) {

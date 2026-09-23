@@ -149,6 +149,26 @@ class UserFontsTest {
         assertEquals(id, restarted.layoutFontId(key), "재시작 후 캐시 키가 바뀌면 책마다 다시 조판한다")
     }
 
+    @Test
+    fun `a single variable font gives a real regular and bold`() {
+        // Pretendard Variable·Noto Serif KR 처럼 파일 하나에 모든 굵기가 든 글꼴. 기본 인스턴스를 그대로
+        // 쓰면 Noto Serif KR 은 200(아주 가늘게)으로 나오고, 굵게는 합성된다.
+        val family = assertIs<ImportResult.Added>(add("olo-test-variable.ttf")).families.single()
+        val pair = fonts.pair(family)
+        assertNotNull(pair.bold, "굵기 축으로 굵게를 만든다")
+        val statics = UserFonts(temp.newFolder("statics"))
+        TestFonts.file("olo-test-regular.ttf").inputStream().use { statics.import(it) }
+        TestFonts.file("olo-test-bold.ttf").inputStream().use { statics.import(it) }
+        val staticPair = statics.pair(statics.families().single())
+        // 축 400 은 보통 마스터, 700 은 굵은 마스터와 같은 폭이어야 한다(폭이 변하는 라틴 글자로 잰다).
+        assertEquals(latinWidth(staticPair.regular), latinWidth(pair.regular))
+        assertEquals(latinWidth(staticPair.bold!!), latinWidth(pair.bold!!))
+        assertNotEquals(latinWidth(pair.regular), latinWidth(pair.bold!!))
+    }
+
+    private fun latinWidth(typeface: android.graphics.Typeface): Float =
+        android.graphics.Paint().apply { this.typeface = typeface; textSize = 100f }.measureText("er1 er1 er1")
+
     private companion object {
         const val SAMPLE = "어린 왕자는 사막에서 조종사를 만났다. Chapter 1 — 1943년."
     }

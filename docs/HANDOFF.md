@@ -11,14 +11,14 @@
 
 ## 1. 지금 상태
 
-**OLO eBook 0.6.0 이 나왔다**(0.2.0: OLO 디자인 시스템 · 0.3.0: 그림 크기 · 리더 메뉴 · 폴더 단추 · 0.4.0: 번들 폰트 제거, 시스템 글꼴 · 0.5.0: 사용자 글꼴 넣기 · 0.5.1: 파일 관리자의 "연결 프로그램" 으로 열기 · 0.6.0: 출판사 글꼴). 폴더 등록 → 라이브러리 → EPUB/TXT 열기 → 페이지
+**OLO eBook 0.7.0 이 나왔다**(0.2.0: OLO 디자인 시스템 · 0.3.0: 그림 크기 · 리더 메뉴 · 폴더 단추 · 0.4.0: 번들 폰트 제거, 시스템 글꼴 · 0.5.0: 사용자 글꼴 넣기 · 0.5.1: 파일 관리자의 "연결 프로그램" 으로 열기 · 0.6.0: 출판사 글꼴 · 0.7.0: 추천 글꼴 받기·가변 폰트). 폴더 등록 → 라이브러리 → EPUB/TXT 열기 → 페이지
 넘김 → 목차·책갈피 → 글꼴·크기 바꾸기까지 된다. 앱 전체를 Robolectric 으로 실제로 띄워
 사람이 쓰는 순서대로 한 바퀴 도는 테스트가 있고, 화면을 스크린샷으로 남긴다.
 PDF 는 목록에만 보이고("준비 중") 열리지 않는다(P1 미결).
 
 ```bash
-cd android && ./gradlew check                 # 498개 + lint
-./gradlew :app:assembleRelease                # → app/build/outputs/apk/release/OLO-eBook-0.6.0-release.apk
+cd android && ./gradlew check                 # 506개 + lint
+./gradlew :app:assembleRelease                # → app/build/outputs/apk/release/OLO-eBook-0.7.0-release.apk
 ./gradlew :app:testDebugUnitTest              # → app/build/screenshots/*.png (화면 확인용)
 # SDK 없음: :document + :core-layout 366개 (기존과 같다)
 ```
@@ -249,6 +249,27 @@ ReadingSession(layout, data.bookmarks, data.progress)
   (`AppWalkthroughTest`). 테스트 폰트는 `:text-platform` 의 `olo-test-fonts/` 를 함께 쓴다 — 폴더
   이름을 `fonts/` 로 하면 Robolectric 이 자기 시스템 폰트 대신 이걸 읽어 죽는다.
 
+**0.7.0 — 추천 글꼴 받기 · 가변 폰트** (2026-09-23, B2 번복의 P4)
+
+- 보기 › 글꼴 에 "받을 수 있는 글꼴 · Google Fonts": 나눔명조 · 고운바탕 · 본명조(Noto Serif KR) ·
+  나눔고딕 · 고운돋움 · IBM Plex Sans KR(모두 OFL). 명조를 앞에 둔다 — 한국어 명조가 빠진 기기(삼성)가
+  이 기능이 필요한 이유다. 누르면 받아서 바로 그 글꼴로 바꾼다.
+- **Google Play 서비스의 글꼴 제공자**(`FontsContractCompat`)로 받는다. 앱에는 여전히 인터넷 권한이
+  없다 — 제공자가 받는다. 인증서 목록 `text-platform/res/values/font_certs.xml` 은 안드로이드 공식
+  예제(Apache 2.0)의 것. 안드로이드 11+ 에서 제공자를 찾으려면 매니페스트 `<queries><provider>` 가
+  필요하다(빠지면 Play 서비스가 있어도 "없음").
+- 받은 파일은 **사용자 글꼴(`UserFonts`)로 복사**한다. 제공자 캐시가 비워져도·오프라인이어도 남고,
+  보통·굵게 짝짓기·빼기가 P2 와 같다. 굵게를 못 받으면 보통만 넣는다(합성 굵게).
+- "이미 받음" 판정은 **파일 안의 가족 이름**으로 한다. 나눔 글꼴은 Google 이름("Nanum Myeongjo")과
+  파일 이름("NanumMyeongjo")이 달라 `RecommendedFont.fileFamily` 에 따로 적었다(google/fonts 저장소
+  파일에서 확인).
+- **가변 폰트**: `fvar` 의 `wght` 범위를 읽어 보통=400, 굵게=700 을 축 값으로 만든다
+  (`setFontVariationSettings`). 그냥 읽으면 기본 인스턴스라 Noto Serif KR 은 200(실처럼 가늘게)으로
+  나온다. 사용자가 넣는 Pretendard Variable 도 같은 길을 탄다. 출판사 글꼴이 가변이면 보통(400)만.
+- 실패는 이유와 할 일을 말한다: Play 서비스 없음(파일로 추가하라고) · 인터넷 · 없는 글꼴 · 깨진 파일.
+- 실기기에서 볼 것: 실제로 받아지는지(테스트 환경엔 Play 서비스가 없어 가짜 제공자로만 확인),
+  Noto Serif KR 을 제공자가 정적 파일로 주는지 가변 파일로 주는지.
+
 **0.6.0 — 출판사 글꼴(책에 든 글꼴)** (2026-09-23, B2 번복의 P3)
 
 - 흐름: CSS `@font-face` → `BookFontTable`(core, 순수) → `TextStyle.face` 번호 → 페이지 캐시(런
@@ -338,7 +359,7 @@ ReadingSession(layout, data.bookmarks, data.progress)
 | 결정 | 근거 |
 |---|---|
 | **B1: 앱 이름 OLO eBook · 아이콘 컨셉 · OLO 디자인 시스템** (2026-09-23 사용자 결정) | 표시 이름 "OLO eBook", `applicationId` `io.github.kgcaudit.oloebook`. 아이콘은 OLO Explorer 와 바탕색 통일·도형 그레이·찢는 느낌. 배포 후 `applicationId` 를 바꾸면 다른 앱이 되어 데이터가 끊긴다 |
-| **B2 (번복): 폰트를 싣지 않는다 — 시스템 글꼴 + 사용자 글꼴 + 책 내장 글꼴** (2026-09-23 사용자 결정 "권장대로") | 아래 옛 B2 의 근거("기기마다 조판이 다르다")는 위치를 글자 오프셋으로 저장하고 캐시를 기기마다 만드는 구조에서 사용자에게 드러나지 않는다. 번들은 APK 12MB 중 11MB 였고, 올려 받은 책 세 권이 모두 KoPub 을 **내장**하고 있었다. 한국어 명조는 AOSP 에 대체 글꼴(Noto Serif CJK, 보통 굵기 하나)로만 있고 제조사가 빼기도 해서 **있는지 재 보고**(`FontCatalog.hasKoreanSerif`) 없으면 목록에서 뺀다. 순서: P1 시스템 글꼴(0.4.0, 끝남) → P2 사용자 글꼴 추가(0.5.0, 끝남 — SAF, TTF/OTF/TTC) → P3 출판사 내장 글꼴(0.6.0, 끝남 — `@font-face`, 내장 글꼴이 있는 책은 그것으로 시작). P4 내려받는 글꼴은 나중 |
+| **B2 (번복): 폰트를 싣지 않는다 — 시스템 글꼴 + 사용자 글꼴 + 책 내장 글꼴** (2026-09-23 사용자 결정 "권장대로") | 아래 옛 B2 의 근거("기기마다 조판이 다르다")는 위치를 글자 오프셋으로 저장하고 캐시를 기기마다 만드는 구조에서 사용자에게 드러나지 않는다. 번들은 APK 12MB 중 11MB 였고, 올려 받은 책 세 권이 모두 KoPub 을 **내장**하고 있었다. 한국어 명조는 AOSP 에 대체 글꼴(Noto Serif CJK, 보통 굵기 하나)로만 있고 제조사가 빼기도 해서 **있는지 재 보고**(`FontCatalog.hasKoreanSerif`) 없으면 목록에서 뺀다. 순서: P1 시스템 글꼴(0.4.0, 끝남) → P2 사용자 글꼴 추가(0.5.0, 끝남 — SAF, TTF/OTF/TTC) → P3 출판사 내장 글꼴(0.6.0, 끝남 — `@font-face`, 내장 글꼴이 있는 책은 그것으로 시작) → P4 추천 글꼴 받기(0.7.0, 끝남 — Google Play 서비스 글꼴 제공자) |
 | ~~B2: KoPubWorld 바탕 + Pretendard 번들~~ (위 결정으로 대체) | 시스템 글꼴은 기기마다 조판이 달라진다. KoPub 구판이 아니라 **KoPubWorld** 인 이유: 구판에는 `—`(U+2014)가 없고 한자가 4,620자뿐이다(World 는 6,007자). 두 글꼴 모두 한글 11,172자 전부. 라이선스: Pretendard 는 OFL, **KoPubWorld 는 OFL 이 아니라 KOPUS 약관**(무료 재배포 가능 · 유료 판매 금지 · 약관 동봉 의무 · 수정본에 "KoPub" 이름 금지) — 그래서 서브셋하지 않고 원본을 넣었다. 저장소 +21.5MB, APK +11MB(압축) |
 | C++ 를 옮기지 않는다. GUI 구성만 참고 | 사용자 명시: "crosspoint 의 GUI 구성이 마음에 들었을 뿐이라, 코드 구조는 어떤 것이든 상관없어". 원본의 60~70% 는 ESP32 제약 때문의 코드다 |
 | 네이티브 Canvas + 디스크 페이지 캐시 | WebView 는 메모리·시작 시간이 무겁고 조판을 통제할 수 없다. `docs/ANDROID_ARCHITECTURE_DECISION.md` |

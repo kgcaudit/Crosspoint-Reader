@@ -21,6 +21,13 @@ data class FontFace(
     val hasHangul: Boolean,
     /** 이름표에 한국어 이름이 있는가. TTC 에서 한국어 가족만 고르는 데 쓴다. */
     val hasKoreanName: Boolean,
+    /**
+     * 가변 폰트의 굵기 축(`fvar` 의 `wght`) 범위. 고정 폰트면 null.
+     *
+     * 가변 폰트는 그냥 읽으면 **기본 인스턴스**로 그려진다. Noto Serif KR 은 기본이 200(아주 가늘게)이라
+     * 본문이 실처럼 나온다. 이 범위가 있으면 보통·굵게를 축 값으로 골라 쓴다.
+     */
+    val variableWeights: IntRange? = null,
 )
 
 /** 폰트로 읽을 수 없는 파일. [reason] 으로 사용자에게 할 말을 고른다. */
@@ -121,6 +128,7 @@ object SfntReader {
         val names = Names(table(NAME) ?: throw FontFormatException(FontFormatException.Reason.Broken, "no name table"))
         val cmap = tables[CMAP] ?: throw FontFormatException(FontFormatException.Reason.Broken, "no cmap table")
         val os2 = table(OS2)
+        val variableWeights = table(FVAR)?.let(::weightAxis)
         val headTable = table(HEAD)
 
         val macStyle = headTable?.takeIf { it.size >= 46 }?.u16(44) ?: 0
@@ -142,7 +150,23 @@ object SfntReader {
             italic = italic,
             hasHangul = Cmap(source, cmap.first, cmap.second).coversAll(HANGUL_PROBE),
             hasKoreanName = names.hasKorean,
+            variableWeights = variableWeights,
         )
+    }
+
+    /** `fvar` 에서 `wght` 축의 범위. 없으면 null(굵기 말고 다른 축만 있는 가변 폰트). */
+    private fun weightAxis(t: Buf): IntRange? {
+        val axesOffset = t.u16(4)
+        val count = t.u16(8)
+        val size = t.u16(10)
+        for (i in 0 until count) {
+            val at = axesOffset + i * size
+            if (t.u32(at) != WGHT) continue
+            val min = (t.u32(at + 4) shr 16).toInt()
+            val max = (t.u32(at + 12) shr 16).toInt()
+            return if (min in 1..max) min..max else null
+        }
+        return null
     }
 
     /** name 표. nameID 16(타이포그래피 가족)이 있으면 1 보다 낫다 — 굵기별로 가족이 갈라지지 않는다. */
@@ -306,4 +330,6 @@ object SfntReader {
     private const val CMAP = 0x636D6170L
     private const val OS2 = 0x4F532F32L
     private const val HEAD = 0x68656164L
+    private const val FVAR = 0x66766172L
+    private const val WGHT = 0x77676874L
 }

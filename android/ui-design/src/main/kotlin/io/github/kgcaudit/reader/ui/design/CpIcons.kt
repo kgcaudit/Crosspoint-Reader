@@ -18,6 +18,7 @@ object CpIcons {
     val Back = line("M15 5 L8 12 L15 19")
     val Forward = line("M9 5 L16 12 L9 19")
     val Plus = line("M12 5 V19 M5 12 H19")
+    val Download = line("M12 4 V15 M7 10 L12 15 L17 10 M5 19.5 H19")
     val Refresh = line("M19 12 A7 7 0 1 1 16.5 6.6 M19 4 V8 H15")
     val Folder = line("M3.5 7.5 V18 A1.5 1.5 0 0 0 5 19.5 H19 A1.5 1.5 0 0 0 20.5 18 V9.5 A1.5 1.5 0 0 0 19 8 H11.5 L9.5 5.5 H5 A1.5 1.5 0 0 0 3.5 7 Z")
     val Book = line("M4 5.5 C6.5 4.5 9.5 4.5 12 6 C14.5 4.5 17.5 4.5 20 5.5 V18.5 C17.5 17.5 14.5 17.5 12 19 C9.5 17.5 6.5 17.5 4 18.5 Z M12 6 V19")

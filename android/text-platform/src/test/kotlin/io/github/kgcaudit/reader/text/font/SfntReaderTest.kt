@@ -48,6 +48,13 @@ class SfntReaderTest {
     }
 
     @Test
+    fun `a variable font reports its weight range and a static one does not`() {
+        // 가변 폰트를 그냥 읽으면 기본 인스턴스로 그려진다. 범위를 알아야 보통·굵게를 축으로 고른다.
+        assertEquals(400..700, SfntReader.read(bytes("olo-test-variable.ttf")).single().variableWeights)
+        assertEquals(null, SfntReader.read(bytes("olo-test-regular.ttf")).single().variableWeights)
+    }
+
+    @Test
     fun `a web font is refused with its own reason`() {
         // 책에서 뽑은 WOFF 를 넣는 사람이 있다. "폰트가 아닙니다" 보다 정확한 말을 해 줘야 한다.
         for (tag in listOf("wOFF", "wOF2")) {

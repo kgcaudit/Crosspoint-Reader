@@ -30,7 +30,10 @@ class UserFonts(private val dir: File) {
         val files: Set<File>,
     )
 
-    data class Face(val file: File, val info: FontFace)
+    data class Face(val file: File, val info: FontFace) {
+        /** 짝짓기에 쓰는 굵기. 가변 폰트는 보통(400)을 낼 수 있으면 400 으로 본다. */
+        val nominalWeight: Int get() = info.variableWeights?.takeIf { 400 in it }?.let { 400 } ?: info.weight
+    }
 
     sealed interface ImportResult {
         /** 넣었다(또는 이미 있었다). [families] 는 이 파일이 속한 가족. */
@@ -45,7 +48,7 @@ class UserFonts(private val dir: File) {
     }
 
     private var cached: List<Family>? = null
-    private val typefaces = HashMap<Pair<File, Int>, Typeface>()
+    private val typefaces = HashMap<Triple<File, Int, Int?>, Typeface>()
 
     /** 넣은 글꼴 가족. 이름 순. */
     @Synchronized
@@ -56,7 +59,14 @@ class UserFonts(private val dir: File) {
 
     /** 보통·굵게 서체. 한 번 읽은 서체는 붙잡아 둔다 — 페이지를 그릴 때마다 파일을 열지 않는다. */
     @Synchronized
-    fun pair(family: Family): FontPair = FontPair(typeface(family.regular), family.bold?.let(::typeface))
+    fun pair(family: Family): FontPair {
+        val regular = family.regular
+        // 가변 폰트 하나뿐인 가족(Pretendard Variable, Noto Serif KR)은 같은 파일에서 굵기 축만 바꿔
+        // 굵게를 만든다. 합성 굵게보다 훨씬 곱다.
+        val bold = family.bold?.let { typeface(it, 700) }
+            ?: regular.info.variableWeights?.takeIf { 700 in it }?.let { typeface(regular, 700) }
+        return FontPair(typeface(regular, 400), bold)
+    }
 
     /**
      * 폰트 파일을 넣는다. [input] 은 여기서 닫지 않는다.
@@ -149,9 +159,9 @@ class UserFonts(private val dir: File) {
     private fun family(faces: List<Face>): Family {
         // 기울임만 있는 가족이 아니면 바로 선 서체에서 고른다. 본문을 기울임으로 조판하면 안 된다.
         val upright = faces.filter { !it.info.italic }.ifEmpty { faces }
-        val regular = upright.minWith(compareBy<Face> { kotlin.math.abs(it.info.weight - 400) }.thenBy { it.info.weight })
-        val bold = upright.filter { it !== regular && it.info.weight >= 600 && it.info.weight > regular.info.weight }
-            .minByOrNull { kotlin.math.abs(it.info.weight - 700) }
+        val regular = upright.minWith(compareBy<Face> { kotlin.math.abs(it.nominalWeight - 400) }.thenBy { it.nominalWeight })
+        val bold = upright.filter { it !== regular && it.nominalWeight >= 600 && it.nominalWeight > regular.nominalWeight }
+            .minByOrNull { kotlin.math.abs(it.nominalWeight - 700) }
         return Family(
             key = KEY_PREFIX + regular.info.family.lowercase(),
             label = regular.info.label,
@@ -162,8 +172,13 @@ class UserFonts(private val dir: File) {
         )
     }
 
-    private fun typeface(face: Face): Typeface =
-        typefaces.getOrPut(face.file to face.info.index) { load(face.file, face.info.index) ?: Typeface.DEFAULT }
+    /** [weight] 는 가변 폰트일 때만 쓰인다(축 범위 안으로 자른다). 고정 폰트는 파일 그대로. */
+    private fun typeface(face: Face, weight: Int): Typeface {
+        val axis = face.info.variableWeights?.let { weight.coerceIn(it) }
+        return typefaces.getOrPut(Triple(face.file, face.info.index, axis)) {
+            load(face.file, face.info.index, axis) ?: Typeface.DEFAULT
+        }
+    }
 
     private fun extension(file: File): String = runCatching {
         file.inputStream().use { input ->
@@ -190,8 +205,10 @@ class UserFonts(private val dir: File) {
          * `Typeface.Builder.build()` 는 실패를 예외가 아니라 **대체 서체**로 알린다(대체를 정하지
          * 않으면 판에 따라 null 이거나 기본 서체). 둘 다 실패로 본다.
          */
-        fun load(file: File, index: Int): Typeface? = runCatching {
-            Typeface.Builder(file).setTtcIndex(index).build()
+        fun load(file: File, index: Int, weight: Int? = null): Typeface? = runCatching {
+            Typeface.Builder(file).setTtcIndex(index)
+                .apply { if (weight != null) setFontVariationSettings("'wght' $weight") }
+                .build()
         }.getOrNull()?.takeUnless { it == Typeface.DEFAULT }
     }
 }

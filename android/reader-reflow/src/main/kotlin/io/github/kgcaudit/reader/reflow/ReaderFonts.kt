@@ -28,7 +28,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import io.github.kgcaudit.reader.text.FontCatalog
+import io.github.kgcaudit.reader.text.DownloadFailure
+import io.github.kgcaudit.reader.text.FontDownloader
 import io.github.kgcaudit.reader.text.FontOption
+import io.github.kgcaudit.reader.text.RecommendedFonts
 import io.github.kgcaudit.reader.text.UserFonts.ImportResult
 import io.github.kgcaudit.reader.ui.design.CpButton
 import io.github.kgcaudit.reader.ui.design.CpHeader
@@ -76,7 +79,8 @@ internal fun FontsPanel(
     // 는 사실(책이 정하지 않은 곳은 본문 글꼴)이 오히려 "무엇을 골랐나" 를 흐린다.
     val publisherOn = publisher != null && prefs.publisherFonts
     val current = if (publisherOn) null else catalog.effectiveKey(prefs.font)
-    var busy by remember { mutableStateOf(false) }
+    // 진행 중인 일의 이름(글꼴 넣기·받기). null 이면 한가하다.
+    var busy by remember { mutableStateOf<String?>(null) }
     var notice by remember { mutableStateOf<Pair<String, String>?>(null) }
     var removing by remember { mutableStateOf<FontOption?>(null) }
 
@@ -92,7 +96,7 @@ internal fun FontsPanel(
         val user = catalog.user
         if (uri == null || user == null) return@rememberLauncherForActivityResult
         scope.launch {
-            busy = true
+            busy = "글꼴을 넣는 중…"
             val result = withContext(Dispatchers.IO) {
                 runCatching {
                     context.contentResolver.openInputStream(uri)?.use { user.import(it) }
@@ -102,7 +106,7 @@ internal fun FontsPanel(
                     ImportResult.Rejected(ImportResult.Reason.Unreadable)
                 }
             }
-            busy = false
+            busy = null
             when (result) {
                 is ImportResult.Added -> {
                     changed()
@@ -155,6 +159,32 @@ internal fun FontsPanel(
                     onRemove = { removing = option },
                 ) { onPrefsChange(prefs.copy(font = option.key, publisherFonts = false)) }
             }
+            val downloads = catalog.downloads
+            val offered = if (downloads == null) emptyList() else RecommendedFonts.all.filterNot(downloads::isInstalled)
+            if (offered.isNotEmpty()) {
+                item { CpSectionLabel("받을 수 있는 글꼴 · Google Fonts") }
+                items(offered, key = { "get:" + it.family }) { font ->
+                    CpListRow(
+                        title = font.label,
+                        subtitle = (if (font.serif) "명조" else "고딕") + (if (700 in font.weights) " · 보통·굵게" else " · 보통"),
+                        icon = CpIcons.Download,
+                        onClick = {
+                            scope.launch {
+                                busy = "‘${font.label}’ 받는 중…"
+                                val result = withContext(Dispatchers.IO) { downloads!!.download(font) }
+                                busy = null
+                                when (result) {
+                                    is FontDownloader.Result.Done -> {
+                                        changed()
+                                        onPrefsChange(prefs.copy(font = result.key, publisherFonts = false))
+                                    }
+                                    is FontDownloader.Result.Failed -> notice = "글꼴을 받지 못했습니다" to describe(result.reason)
+                                }
+                            }
+                        },
+                    )
+                }
+            }
             if (catalog.user != null) {
                 item {
                     Spacer(Modifier.height(8.dp))
@@ -169,7 +199,7 @@ internal fun FontsPanel(
         }
     }
 
-    if (busy) CpPopup(title = "글꼴을 넣는 중…", progress = null)
+    busy?.let { CpPopup(title = it, progress = null) }
     notice?.let { (title, message) ->
         CpPopup(title = title, message = message, onDismiss = { notice = null }) {
             Spacer(Modifier.height(16.dp))
@@ -235,6 +265,14 @@ internal fun describe(reason: ImportResult.Reason): String = when (reason) {
     ImportResult.Reason.Broken -> "글꼴 파일이 손상됐습니다. 덜 받아졌을 수 있으니 다시 받아 보세요."
     ImportResult.Reason.TooLarge -> "글꼴 파일이 너무 큽니다. 64MB 이하만 넣을 수 있습니다."
     ImportResult.Reason.Unreadable -> "파일을 읽지 못했습니다. 저장소가 연결돼 있는지 확인해 보세요."
+}
+
+/** 받지 못한 이유를 사람의 말로. */
+internal fun describe(reason: DownloadFailure): String = when (reason) {
+    DownloadFailure.NoProvider -> "이 기기에서는 Google Play 서비스로 글꼴을 받을 수 없습니다. 글꼴 파일(TTF·OTF)을 직접 추가해 주세요."
+    DownloadFailure.Network -> "인터넷 연결을 확인하고 다시 시도해 주세요."
+    DownloadFailure.NotFound -> "이 글꼴을 찾지 못했습니다. 잠시 뒤 다시 시도해 주세요."
+    DownloadFailure.Broken -> "받은 파일을 글꼴로 읽을 수 없습니다. 다시 시도해 주세요."
 }
 
 private const val TAG = "OloFonts"

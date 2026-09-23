@@ -63,13 +63,15 @@ class BookTypefaces private constructor(private val families: List<Family?>) {
                     val target = File(dir, name(file.path))
                     if (!target.isFile && !extract(document, file.path, target)) return@mapNotNull null
                     val info = runCatching { SfntReader.read(target).firstOrNull() }.getOrNull()
-                    val typeface = info?.let { UserFonts.load(target, it.index) }
+                    // 가변 폰트는 기본 인스턴스가 아니라 보통(400)으로 — 기본이 아주 가는 글꼴이 있다.
+                    val axis = info?.variableWeights?.let { 400.coerceIn(it) }
+                    val typeface = info?.let { UserFonts.load(target, it.index, axis) }
                     if (info == null || typeface == null) {
                         // 읽지 못하는 파일을 남겨 두면 다음에도 꺼냈다고 믿고 또 실패한다.
                         target.delete()
                         return@mapNotNull null
                     }
-                    Face(typeface, file.weight ?: info.weight, file.italic ?: info.italic)
+                    Face(typeface, file.weight ?: axis ?: info.weight, file.italic ?: info.italic)
                 }
                 faces.takeIf { it.isNotEmpty() }?.let(::Family)
             }
