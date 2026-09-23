@@ -11,14 +11,14 @@
 
 ## 1. 지금 상태
 
-**첫 APK(OLO eBook 0.1.0)가 나왔다.** 폴더 등록 → 라이브러리 → EPUB/TXT 열기 → 페이지
+**OLO eBook 0.2.0 이 나왔다**(0.1.0 → 0.2.0: OLO 디자인 시스템 색·모양 적용). 폴더 등록 → 라이브러리 → EPUB/TXT 열기 → 페이지
 넘김 → 목차·책갈피 → 글꼴·크기 바꾸기까지 된다. 앱 전체를 Robolectric 으로 실제로 띄워
 사람이 쓰는 순서대로 한 바퀴 도는 테스트가 있고, 화면을 스크린샷으로 남긴다.
 PDF 는 목록에만 보이고("준비 중") 열리지 않는다(P1 미결).
 
 ```bash
-cd android && ./gradlew check                 # 413개 + lint
-./gradlew :app:assembleRelease                # → app/build/outputs/apk/release/OLO-eBook-0.1.0-release.apk
+cd android && ./gradlew check                 # 421개 + lint
+./gradlew :app:assembleRelease                # → app/build/outputs/apk/release/OLO-eBook-0.2.0-release.apk
 ./gradlew :app:testDebugUnitTest              # → app/build/screenshots/*.png (화면 확인용)
 # SDK 없음: :document + :core-layout 366개 (기존과 같다)
 ```
@@ -176,6 +176,15 @@ ReadingSession(layout, data.bookmarks, data.progress)
   깔면 책갈피가 사라진다. **공개 배포 전에는 비공개 릴리스 키로 바꿔야 한다.**
 - 사람에게 건네는 것은 **release**(R8) APK 다. Compose 는 debug 빌드에서 눈에 띄게 느리다.
 - Material 을 쓰지 않는다. `CpTheme` 과 foundation 만으로 부품을 그린다.
+- **색·모양은 OLO 디자인 시스템을 따른다**(2026-09-23 사용자 지정: "OLO Explorer 의 디자인
+  컨셉을 활용"). 원본은 `kgcaudit/Filezilla-Client` 의 `docs/OLO-Design-System.md` 와
+  `ui/theme/Theme.kt`. 클레이 `#B95B3B`(다크 `#E8A183`) · 아이보리 웜톤 중립색 · 크림슨
+  에러 · 의미색(진행바 트랙, 파일 타일) 분리 · 모서리 6/10/14/18/20dp · 제목 19sp. 값을
+  바꾸지 않고 옮겼으므로 **원본 문서가 바뀌면 `CpTheme.kt` 도 따라 바꾼다**.
+  `ContrastTest` 가 WCAG 대비와 원본 값 일치를 붙들고 있다.
+- 목록 아이콘은 Explorer 의 `FileTile` 처럼 색 타일 + 흰 글리프. TXT·PDF 는 Explorer 와
+  같은 문서(슬레이트), EPUB 은 Explorer 표에 없어 팔레트 3차색(틸)을 썼다. 폴더는 클레이.
+- 앱 아이콘 바탕은 Explorer 런처와 같은 그라데이션(`#E07B55` → `#C5613F`).
 - 보기 설정은 SharedPreferences(DataStore 아님): 리더를 여는 순간 동기로 읽어야 첫 조판을
   옛 설정으로 한 번 더 하지 않는다.
 - 두 화면뿐이라 내비게이션 라이브러리 없이 상태 하나로 오간다. 열던 책 id 는
@@ -214,7 +223,7 @@ ReadingSession(layout, data.bookmarks, data.progress)
 
 | 결정 | 근거 |
 |---|---|
-| **B1: 앱 이름 OLO eBook · 아이콘 컨셉** (2026-09-23 사용자 결정) | 표시 이름 "OLO eBook", `applicationId` `io.github.kgcaudit.oloebook`. 아이콘은 OLO Explorer 와 바탕색 통일·도형 그레이·찢는 느낌. 배포 후 `applicationId` 를 바꾸면 다른 앱이 되어 데이터가 끊긴다 |
+| **B1: 앱 이름 OLO eBook · 아이콘 컨셉 · OLO 디자인 시스템** (2026-09-23 사용자 결정) | 표시 이름 "OLO eBook", `applicationId` `io.github.kgcaudit.oloebook`. 아이콘은 OLO Explorer 와 바탕색 통일·도형 그레이·찢는 느낌. 배포 후 `applicationId` 를 바꾸면 다른 앱이 되어 데이터가 끊긴다 |
 | **B2: KoPubWorld 바탕 + Pretendard 번들** (2026-09-23 사용자 결정) | 시스템 글꼴은 기기마다 조판이 달라진다. KoPub 구판이 아니라 **KoPubWorld** 인 이유: 구판에는 `—`(U+2014)가 없고 한자가 4,620자뿐이다(World 는 6,007자). 두 글꼴 모두 한글 11,172자 전부. 라이선스: Pretendard 는 OFL, **KoPubWorld 는 OFL 이 아니라 KOPUS 약관**(무료 재배포 가능 · 유료 판매 금지 · 약관 동봉 의무 · 수정본에 "KoPub" 이름 금지) — 그래서 서브셋하지 않고 원본을 넣었다. 저장소 +21.5MB, APK +11MB(압축) |
 | C++ 를 옮기지 않는다. GUI 구성만 참고 | 사용자 명시: "crosspoint 의 GUI 구성이 마음에 들었을 뿐이라, 코드 구조는 어떤 것이든 상관없어". 원본의 60~70% 는 ESP32 제약 때문의 코드다 |
 | 네이티브 Canvas + 디스크 페이지 캐시 | WebView 는 메모리·시작 시간이 무겁고 조판을 통제할 수 없다. `docs/ANDROID_ARCHITECTURE_DECISION.md` |

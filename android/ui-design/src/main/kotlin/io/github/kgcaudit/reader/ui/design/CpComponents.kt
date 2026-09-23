@@ -62,6 +62,21 @@ fun CpIcon(icon: ImageVector, tint: Color, modifier: Modifier = Modifier, size: 
     Image(icon, contentDescription = null, modifier = modifier.size(size), colorFilter = ColorFilter.tint(tint))
 }
 
+/**
+ * 색 타일 위에 흰 글리프. OLO Explorer 의 `FileTile` 과 같은 모양이다.
+ *
+ * 연한 칩 위에 작은 선 그림을 얹던 것을 바꿨다. 행을 훑어 내릴 때는 그림이 아니라 색이
+ * 먼저 읽힌다 — 이름을 읽기 전에 "무슨 종류인가" 가 보여야 한다.
+ */
+@Composable
+fun CpTile(icon: ImageVector, color: Color, modifier: Modifier = Modifier) {
+    val m = CpTheme.metrics
+    Box(
+        modifier.size(m.tileSize).clip(RoundedCornerShape(m.tileCorner)).background(color),
+        contentAlignment = Alignment.Center,
+    ) { CpIcon(icon, Color.White, size = m.tileSize * 0.58f) }
+}
+
 /** 아이콘 단추. 그림은 24dp 여도 누르는 영역은 48dp 다. */
 @Composable
 fun CpIconButton(
@@ -134,6 +149,8 @@ fun CpListRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
+    /** 주면 [icon] 을 이 색 타일 위에 흰색으로 그린다. 없으면 흐린 선 아이콘. */
+    tile: Color? = null,
     subtitle: String? = null,
     value: String? = null,
     enabled: Boolean = true,
@@ -144,18 +161,18 @@ fun CpListRow(
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = CpTheme.metrics.rowHeight)
-            .background(if (selected) c.selection else Color.Transparent)
+            .background(if (selected) c.accentContainer else Color.Transparent)
             .clickable(role = Role.Button, onClick = onClick)
             .padding(horizontal = CpTheme.metrics.gutter, vertical = 8.dp)
             .alpha(if (enabled) 1f else 0.45f),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {
-            CpIcon(icon, if (selected) c.accent else c.textMuted)
+            if (tile != null) CpTile(icon, tile) else CpIcon(icon, if (selected) c.accent else c.textMuted)
             Spacer(Modifier.width(14.dp))
         }
         Column(Modifier.weight(1f)) {
-            CpText(title, CpTheme.type.body, c.text, maxLines = 2)
+            CpText(title, CpTheme.type.body, if (selected) c.onAccentContainer else c.text, maxLines = 2)
             if (subtitle != null) CpText(subtitle, CpTheme.type.subtitle, c.textMuted)
         }
         if (value != null) {
@@ -208,7 +225,7 @@ enum class CpBarWeight(val height: Dp) { Thin(2.dp), Medium(4.dp), Thick(6.dp) }
 @Composable
 fun CpProgressBar(fraction: Float, modifier: Modifier = Modifier, weight: CpBarWeight = CpBarWeight.Thin) {
     val c = CpTheme.colors
-    Box(modifier.fillMaxWidth().height(weight.height).clip(RoundedCornerShape(50)).background(c.divider)) {
+    Box(modifier.fillMaxWidth().height(weight.height).clip(RoundedCornerShape(50)).background(c.progressTrack)) {
         Box(
             Modifier
                 .fillMaxWidth(fraction.coerceIn(0f, 1f))
@@ -269,9 +286,8 @@ fun CpPopup(
                 .padding(32.dp)
                 .widthIn(max = 420.dp)
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(CpTheme.metrics.corner))
-                .background(c.surface)
-                .border(1.dp, c.divider, RoundedCornerShape(CpTheme.metrics.corner))
+                .clip(RoundedCornerShape(CpTheme.metrics.cornerDialog))
+                .background(c.dialog)
                 // 틀 안을 눌러도 닫히지 않게 한다.
                 .clickable(indication = null, interactionSource = null) {}
                 .padding(20.dp),
@@ -300,7 +316,7 @@ fun CpButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, p
             .heightIn(min = CpTheme.metrics.touchTarget)
             .clip(RoundedCornerShape(50))
             .background(if (primary) c.accent else Color.Transparent)
-            .border(1.dp, if (primary) c.accent else c.divider, RoundedCornerShape(50))
+            .border(1.dp, if (primary) c.accent else c.outline, RoundedCornerShape(50))
             .clickable(role = Role.Button, onClick = onClick)
             .padding(horizontal = 22.dp),
         contentAlignment = Alignment.Center,
@@ -337,9 +353,9 @@ fun CpChoice(label: String, options: List<String>, selected: Int, onSelect: (Int
                 Modifier
                     .padding(start = 6.dp)
                     .heightIn(min = 40.dp)
-                    .clip(RoundedCornerShape(50))
+                    .clip(RoundedCornerShape(CpTheme.metrics.cornerSmall))
                     .background(if (on) c.accent else Color.Transparent)
-                    .border(1.dp, if (on) c.accent else c.divider, RoundedCornerShape(50))
+                    .border(1.dp, if (on) c.accent else c.outline, RoundedCornerShape(CpTheme.metrics.cornerSmall))
                     .clickable(role = Role.RadioButton) { onSelect(i) }
                     .padding(horizontal = 16.dp),
                 contentAlignment = Alignment.Center,

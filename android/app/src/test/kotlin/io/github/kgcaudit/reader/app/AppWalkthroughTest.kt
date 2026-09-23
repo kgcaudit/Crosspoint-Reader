@@ -132,6 +132,26 @@ class AppWalkthroughTest {
     }
 
     @Test
+    @Config(qualifiers = "w393dp-h851dp-night-xhdpi")
+    fun `the dark theme uses the OLO dark palette on the library and the page`() {
+        compose.activity.container.data.folders.register(FolderProvider.treeUri)
+        compose.activityRule.scenario.recreate()
+        waitFor(hasText("옛 일기.txt"))
+        shot("11-dark-library")
+
+        node(hasText("옛 일기.txt")).performClick()
+        waitFor(hasText("1 / ", substring = true), timeoutMs = 30_000)
+        shot("12-dark-reader")
+
+        // 다크 지면은 OLO 다크 바탕(#181613)이어야 한다. 검은색(#000)이면 흰 글자가 번져 보이고,
+        // 밝은 회색이면 다크 모드의 뜻이 없다.
+        val view = compose.activity.window.decorView
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        compose.runOnUiThread { view.draw(Canvas(bitmap)) }
+        assertEquals(0xFF181613.toInt(), bitmap.getPixel(4, view.height / 2))
+    }
+
+    @Test
     fun `a broken book shows why it cannot open and the library keeps working`() {
         // 확장자만 .epub 인 깨진 파일. 앱이 죽거나 빈 화면에 갇히면 안 된다 — 이유를 알리고
         // 라이브러리로 돌려보내, 다른 책은 계속 열 수 있어야 한다.

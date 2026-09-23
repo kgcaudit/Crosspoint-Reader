@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -44,6 +45,7 @@ import io.github.kgcaudit.reader.ui.design.CpPopup
 import io.github.kgcaudit.reader.ui.design.CpProgressBar
 import io.github.kgcaudit.reader.ui.design.CpSectionLabel
 import io.github.kgcaudit.reader.ui.design.CpText
+import io.github.kgcaudit.reader.ui.design.CpTile
 import io.github.kgcaudit.reader.ui.design.CpTheme
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -139,6 +141,8 @@ fun LibraryScreen(onOpen: (LibraryBook) -> Unit) {
             Spacer(Modifier.height(8.dp))
             folders.forEach { uri ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    CpTile(CpIcons.Folder, colors.tiles.folder)
+                    Spacer(Modifier.width(12.dp))
                     CpText(folderName(uri), CpTheme.type.body, colors.text, Modifier.weight(1f))
                     CpIconButton(CpIcons.Close, "${folderName(uri)} 빼기", {
                         scope.launch {
@@ -170,6 +174,7 @@ private fun BookRow(
     onUnsupported: (Pair<String, String?>) -> Unit,
 ) {
     val supported = book.format != BookFormat.PDF
+    val tiles = CpTheme.colors.tiles
     CpListRow(
         title = book.label,
         subtitle = book.author ?: book.format.name,
@@ -177,6 +182,12 @@ private fun BookRow(
             BookFormat.EPUB -> CpIcons.Book
             BookFormat.TXT -> CpIcons.Text
             BookFormat.PDF -> CpIcons.Pdf
+        },
+        // OLO Explorer 와 같은 뜻의 같은 색: TXT·PDF 는 문서(슬레이트). EPUB 은 Explorer 표에
+        // 없어 팔레트 3차색(틸)을 쓴다 — 목록에서 가장 흔한 종류가 한눈에 갈려야 한다.
+        tile = when (book.format) {
+            BookFormat.EPUB -> tiles.book
+            BookFormat.TXT, BookFormat.PDF -> tiles.document
         },
         value = when {
             !supported -> "준비 중"

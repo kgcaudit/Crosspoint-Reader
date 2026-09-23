@@ -274,7 +274,7 @@ rev.1 대비: 쓸 수 있는 앱이 **10주 → 2주**, 1차 배포 **10주 → 
 | `TextMeasurer` 안드로이드 구현 (`Paint`) · 번들 글꼴 (B2) | `:text-platform` | **완료** · 12 테스트 (Robolectric 네이티브 그래픽스) |
 | SAF 폴더 스캔 · Room 구현 · `Uri` 바이트 원천 | `:data` | **완료** · 32 테스트 (진짜 `DocumentsProvider` 위에서 등록→스캔→EPUB 열기) |
 | PDF 렌더 (`PdfRenderer`) | `:reader-pdf` | 미착수 (결정 P1) |
-| GUI 컴포넌트 · 라이브러리·리더 화면 · 첫 APK | `:ui-design` `:reader-reflow` `:app` | **완료(v0.1.0, EPUB·TXT)** · 앱 한 바퀴 Robolectric 테스트 + 스크린샷 |
+| GUI 컴포넌트 · 라이브러리·리더 화면 · 첫 APK | `:ui-design` `:reader-reflow` `:app` | **완료(v0.2.0, EPUB·TXT, OLO 디자인 시스템)** · 앱 한 바퀴 Robolectric 테스트 + 스크린샷 |
 
 **지금 상태로 증명된 것**: EPUB/TXT 파일 바이트 → 챕터 → 블록 → 페이지 → 디스크 캐시
 → 글자 오프셋 위치 → 책갈피·이어읽기까지가 기기 없이 한 줄로 돌아간다.
