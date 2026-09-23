@@ -53,6 +53,9 @@ object PageCodec {
     private const val PAGE_ENTRY_SIZE = 24
     private const val RUN_SIZE = 24
 
+    /** 페이지 엔트리 안에서 startChar 가 놓인 위치. */
+    private const val START_CHAR_OFFSET = 12
+
     private const val OBJECT_IMAGE: Byte = 1
     private const val OBJECT_RULE: Byte = 2
 
@@ -160,6 +163,25 @@ object PageCodec {
 
         if (index.size < HEADER_SIZE + pageCount * PAGE_ENTRY_SIZE) return null
         return ChapterIndex(version, pageCount, complete, textLength)
+    }
+
+    /**
+     * 페이지마다 시작 글자 오프셋만 뽑는다. 알아볼 수 없으면 null.
+     *
+     * 책갈피와 이어읽기는 "이 글자가 몇 번째 페이지인가" 만 알면 되고, 그건 색인
+     * 파일만 읽어 이분 탐색으로 끝난다. 이것 없이 위치를 찾으려면 페이지를 하나씩
+     * 복원해야 하고, 그러면 책을 열 때마다 챕터 전체를 되돌리는 값을 치른다.
+     */
+    fun decodeStarts(index: ByteArray): IntArray? {
+        val header = decodeIndex(index) ?: return null
+        val starts = IntArray(header.pageCount)
+        for (page in 0 until header.pageCount) {
+            // 페이지 엔트리 안에서 startChar 의 자리: runStart(4) + runCount(2) +
+            // imageStart(2) + imageCount(1) + ruleCount(1) + ruleStart(2) = 12바이트째.
+            starts[page] = ByteReader(index, HEADER_SIZE + page * PAGE_ENTRY_SIZE + START_CHAR_OFFSET)
+                .u32().toInt()
+        }
+        return starts
     }
 
     /**
