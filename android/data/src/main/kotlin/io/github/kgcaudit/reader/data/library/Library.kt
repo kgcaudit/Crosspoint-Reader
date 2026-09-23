@@ -44,6 +44,16 @@ class Library(private val db: ReaderDatabase) {
     suspend fun get(id: BookId): LibraryBook? = books.get(id.value)?.let(::toBook)
 
     /**
+     * 다른 앱이 넘긴 파일과 같은 책이 라이브러리에 있는가. 이름과 크기가 모두 같아야 한다.
+     *
+     * 파일 관리자가 넘기는 URI 는 라이브러리의 SAF URI 와 모양이 달라 id 로는 못 찾는다. 같은 책을
+     * 다른 id 로 열면 진도·책갈피가 두 벌로 갈라진다. 크기를 모르면 찾지 않는다 — 이름만 같은
+     * 다른 판을 열 수 있다.
+     */
+    suspend fun findByFile(displayName: String, sizeBytes: Long?): LibraryBook? =
+        sizeBytes?.let { books.byFile(displayName, it) }?.let(::toBook)
+
+    /**
      * 책마다 읽은 정도(0~100). 목록 오른쪽에 보여 준다.
      *
      * 표시용이라 저장된 값을 범위 안으로만 자른다. 위치를 복원하는 데는 쓰지 않는다.

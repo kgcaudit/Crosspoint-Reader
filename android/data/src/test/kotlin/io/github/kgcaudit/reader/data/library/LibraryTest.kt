@@ -101,6 +101,20 @@ class LibraryTest {
     }
 
     @Test
+    fun `a file handed over by another app is matched to its library copy by name and size`() = runTest {
+        // 파일 관리자의 "연결 프로그램" 으로 온 책. URI 는 달라도 같은 파일이면 라이브러리의 책으로
+        // 열어야 진도·책갈피가 한 벌로 이어진다.
+        library.applyScan(folder, ScanResult(listOf(book("책.epub", size = 1234), book("책.txt", size = 1234)), complete = true), 1)
+        assertEquals(FakeTree.uriOf("책.epub"), library.findByFile("책.epub", 1234)?.id?.value)
+
+        // 이름만 같은 다른 판, 크기를 모르는 경우, 숨겨진 책은 짝짓지 않는다.
+        assertNull(library.findByFile("책.epub", 999))
+        assertNull(library.findByFile("책.epub", null))
+        library.applyScan(folder, ScanResult(listOf(book("책.txt", size = 1234)), complete = true), 2)
+        assertNull(library.findByFile("책.epub", 1234), "숨겨진 책의 URI 는 지금 열리지 않을 수 있다")
+    }
+
+    @Test
     fun `recent books are newest first and skip hidden ones`() = runTest {
         val a = book("a.epub"); val b = book("b.txt"); val c = book("c.pdf")
         library.applyScan(folder, ScanResult(listOf(a, b, c), complete = true), 1)

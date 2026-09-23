@@ -16,6 +16,9 @@ interface BookDao {
     @Query("SELECT * FROM books WHERE id = :id")
     suspend fun get(id: String): BookEntity?
 
+    @Query("SELECT * FROM books WHERE displayName = :name AND sizeBytes = :size AND missing = 0 ORDER BY id LIMIT 1")
+    suspend fun byFile(name: String, size: Long): BookEntity?
+
     @Query("SELECT * FROM books WHERE folderUri = :folderUri")
     suspend fun inFolder(folderUri: String): List<BookEntity>
 

@@ -26,7 +26,7 @@ SDK가 있으면 `ANDROID_HOME` 환경변수나 `local.properties` 의 `sdk.dir`
 | `:reader-reflow` | EPUB·TXT 리더 · Canvas 그리기 | **완료** |
 | `:reader-pdf` | PDF 리더 · `PdfRenderer` · 타일 줌 | R1 |
 | `:ui-design` | CpTheme 토큰(OLO 디자인 시스템) + 컴포넌트 | **완료**(기본 부품) |
-| `:app` | OLO eBook — 라이브러리 화면 · 조립 · 아이콘 · 서명 | **v0.5.0** (`./gradlew :app:assembleRelease`) |
+| `:app` | OLO eBook — 라이브러리 화면 · 조립 · 아이콘 · 서명 | **v0.5.1** (`./gradlew :app:assembleRelease`) |
 
 ## 지켜야 할 규칙 하나
 

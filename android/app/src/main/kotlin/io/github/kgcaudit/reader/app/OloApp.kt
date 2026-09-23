@@ -6,6 +6,7 @@ import android.net.Uri
 import io.github.kgcaudit.reader.data.ReaderData
 import io.github.kgcaudit.reader.data.library.LibraryBook
 import io.github.kgcaudit.reader.document.BookFormat
+import io.github.kgcaudit.reader.document.BookId
 import io.github.kgcaudit.reader.document.ReflowDocument
 import io.github.kgcaudit.reader.document.TxtDocument
 import io.github.kgcaudit.reader.document.epub.EpubDocument
@@ -46,18 +47,35 @@ class AppContainer(private val app: Application) {
 
     /** 책을 연다. PDF 는 아직 리더가 없다(결정 P1 미결). */
     suspend fun open(book: LibraryBook): BookReader = withContext(Dispatchers.IO) {
-        val uri = Uri.parse(book.id.value)
-        val document: ReflowDocument = when (book.format) {
-            BookFormat.EPUB -> EpubDocument.open(book.id, book.displayName, data.sources.seekableSource(uri))
-            BookFormat.TXT -> TxtDocument.open(book.id, book.displayName, data.sources.byteSource(uri))
-            BookFormat.PDF -> throw UnsupportedOperationException("PDF 보기는 다음 판에서 지원합니다")
-        }
+        val document = read(book.id, book.displayName, book.format, Uri.parse(book.id.value))
         // 목록이 파일 이름 대신 책 제목을 보여 주게 한다. TXT 는 제목이 곧 파일 이름이다.
         if (book.format == BookFormat.EPUB) {
             data.library.updateMetadata(book.id, document.meta.title, document.meta.author)
         }
         data.library.markOpened(book.id, System.currentTimeMillis())
         BookReader(fonts, document, pages, data.bookmarks, data.progress)
+    }
+
+    /**
+     * 다른 앱이 넘긴 파일을 연다.
+     *
+     * 같은 파일(이름·크기)이 라이브러리에 있으면 **그 책으로** 연다 — 진도·책갈피가 한 벌로
+     * 이어지고 최근 목록에도 오른다. 라이브러리 쪽이 열리지 않으면(폴더 권한이 풀림) 받은
+     * URI 로 연다. 받은 파일은 라이브러리·최근 목록에 넣지 않는다([IncomingFile]).
+     */
+    suspend fun openIncoming(file: IncomingFile): BookReader = withContext(Dispatchers.IO) {
+        data.library.findByFile(file.displayName, file.sizeBytes)?.let { book ->
+            runCatching { return@withContext open(book) }
+                .onFailure { android.util.Log.w("OloApp", "library copy of ${file.displayName} did not open", it) }
+        }
+        val id = BookId(file.uri.toString())
+        BookReader(fonts, read(id, file.displayName, file.format, file.uri), pages, data.bookmarks, data.progress)
+    }
+
+    private fun read(id: BookId, name: String, format: BookFormat, uri: Uri): ReflowDocument = when (format) {
+        BookFormat.EPUB -> EpubDocument.open(id, name, data.sources.seekableSource(uri))
+        BookFormat.TXT -> TxtDocument.open(id, name, data.sources.byteSource(uri))
+        BookFormat.PDF -> throw UnsupportedOperationException("PDF 보기는 다음 판에서 지원합니다")
     }
 }
 

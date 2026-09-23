@@ -11,14 +11,14 @@
 
 ## 1. 지금 상태
 
-**OLO eBook 0.5.0 이 나왔다**(0.2.0: OLO 디자인 시스템 · 0.3.0: 그림 크기 · 리더 메뉴 · 폴더 단추 · 0.4.0: 번들 폰트 제거, 시스템 글꼴 · 0.5.0: 사용자 글꼴 넣기). 폴더 등록 → 라이브러리 → EPUB/TXT 열기 → 페이지
+**OLO eBook 0.5.1 이 나왔다**(0.2.0: OLO 디자인 시스템 · 0.3.0: 그림 크기 · 리더 메뉴 · 폴더 단추 · 0.4.0: 번들 폰트 제거, 시스템 글꼴 · 0.5.0: 사용자 글꼴 넣기 · 0.5.1: 파일 관리자의 "연결 프로그램" 으로 열기). 폴더 등록 → 라이브러리 → EPUB/TXT 열기 → 페이지
 넘김 → 목차·책갈피 → 글꼴·크기 바꾸기까지 된다. 앱 전체를 Robolectric 으로 실제로 띄워
 사람이 쓰는 순서대로 한 바퀴 도는 테스트가 있고, 화면을 스크린샷으로 남긴다.
 PDF 는 목록에만 보이고("준비 중") 열리지 않는다(P1 미결).
 
 ```bash
-cd android && ./gradlew check                 # 470개 + lint
-./gradlew :app:assembleRelease                # → app/build/outputs/apk/release/OLO-eBook-0.5.0-release.apk
+cd android && ./gradlew check                 # 479개 + lint
+./gradlew :app:assembleRelease                # → app/build/outputs/apk/release/OLO-eBook-0.5.1-release.apk
 ./gradlew :app:testDebugUnitTest              # → app/build/screenshots/*.png (화면 확인용)
 # SDK 없음: :document + :core-layout 366개 (기존과 같다)
 ```
@@ -249,6 +249,25 @@ ReadingSession(layout, data.bookmarks, data.progress)
   (`AppWalkthroughTest`). 테스트 폰트는 `:text-platform` 의 `olo-test-fonts/` 를 함께 쓴다 — 폴더
   이름을 `fonts/` 로 하면 Robolectric 이 자기 시스템 폰트 대신 이걸 읽어 죽는다.
 
+**0.5.1 — "연결 프로그램" 으로 열기** (2026-09-23)
+
+- 증상: OLO Explorer·내 파일에서 EPUB 을 눌러도 목록에 OLO eBook 이 없었다. 원인은 매니페스트에
+  `MAIN/LAUNCHER` 뿐이고 **`VIEW` 선언이 없었던 것**. 안드로이드는 선언으로 목록을 만든다.
+- 이제 `application/epub+zip` · `text/plain` 의 `content://` 를 받는다. **PDF 는 리더가 생기면
+  더한다**(먼저 올리면 열 수 없는 파일을 받는다). OLO Explorer 는 정확한 형식부터 묻고 넓혀 가므로,
+  이 선언이 있으면 EPUB 을 눌렀을 때 OLO eBook 이 첫 질문에서 답한다.
+- 받은 파일(`Incoming`): 형식은 **파일 이름 먼저, 없으면 보낸 MIME**. 이름·크기가 같은 책이
+  라이브러리에 있으면 **그 책으로** 연다(진도·책갈피 한 벌). 없으면 받은 URI 를 id 로 열고
+  라이브러리·최근 목록에는 넣지 않는다 — 읽기 권한이 이 화면 동안뿐이라 나중에 누르면 안 열린다.
+- `launchMode=singleTask`: 앱이 떠 있으면 새 창을 쌓지 않고 `onNewIntent` 로 연다. 받은 책을 닫으면
+  라이브러리가 아니라 **보낸 앱으로 돌아간다**(`moveTaskToBack`).
+- 받은 URI·형식은 `rememberSaveable` — 프로세스가 죽었다 살아나도 다시 연다. 형식을 함께 저장하는
+  이유: 확장자 없는 파일은 인텐트의 MIME 으로만 알 수 있다(테스트가 잡았다).
+- 테스트가 잡은 것 둘 더: `ContentResolver.query` 옛 5인자 판은 `DocumentsProvider` 가 거절해 크기를
+  못 얻었다(Bundle 판으로). 화면이 다시 만들어지며 **취소된 열기를 실패로 다뤄** 받은 책을 잊었다
+  (`CancellationException` 은 다시 던진다).
+- OLO Explorer 쪽은 바꿀 것이 없다. 파일을 **보내는** 앱이고, 자기 목록에서 자신을 빼는 것도 맞다.
+
 **실기기에서 볼 것**(Robolectric 이 못 보여 주는 것):
 - 페이지 넘김 체감 속도(16ms 예산). 넘길 때 디스크 캐시에서 페이지를 읽는다 — 느리면 앞뒤
   한 장씩 미리 읽기를 `BookReader` 에 더한다.
@@ -259,6 +278,8 @@ ReadingSession(layout, data.bookmarks, data.progress)
 - 호스트와 기기의 글자 폭 차이(§3.1).
 - 글꼴: 명조가 목록에 뜨는지(삼성은 빠졌을 수 있다), 파일 관리자·Google Drive 에서 폰트 고르기,
   큰 한글 폰트(10~20MB) 넣는 시간.
+- 연결 프로그램: OLO Explorer·내 파일·Gmail 첨부에서 EPUB/TXT 를 눌러 목록에 뜨는지, 닫으면 보낸
+  앱으로 돌아가는지. 한 번 "항상" 을 고르면 그 뒤로 바로 열린다.
 
 알려진 한계: 표지·검색·세피아 없음. 그림은 넣었지만 견본 책에 그림이 없어 스크린샷으로
 확인하지 못했다. lint 경고 45개는 전부 "새 버전 있음" — 버전 올리기는 따로 판단한다.
