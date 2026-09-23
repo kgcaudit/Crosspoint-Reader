@@ -256,7 +256,54 @@ systemProp.http.proxyPort=포트
 한 번 내려받으면 `C:\Users\<사용자>\.gradle` 에 캐시되어 이후에는 사내망에서도
 네트워크 없이 돈다.
 
-### 6.2 그 밖의 증상
+### 6.2 `What went wrong:` 뒤에 `25.0.4.1` 같은 숫자만 나온다
+
+```
+FAILURE: Build failed with an exception.
+* What went wrong:
+25.0.4.1
+```
+
+**원인.** 그 숫자는 **Java 버전**이다. PC 에 Java 25 가 깔려 있는데 Gradle 8.14.3 이
+그 버전을 모른다(Java 25 는 Gradle 9.1 부터 지원한다). 버전을 해석하지 못해 숫자만
+찍고 죽는다.
+
+**Gradle 을 9 로 올리지 않는다.** Android Gradle Plugin 8.x 가 Gradle 9 를 지원하지
+않아 나중에 Android 층에서 막힌다. **JDK 21 을 쓰는 것이 맞다** — Android 개발의
+표준이고 Android Studio 가 그 버전을 함께 설치한다.
+
+**해결 1 — `run-tests.bat` 을 쓴다 (권장).**
+
+최신 코드를 받으면 배치 파일이 **쓸 수 있는 JDK 를 알아서 찾는다.** 시스템에 Java 25
+가 있어도 Android Studio 의 JDK 21 을 골라 쓰고, 쓸 수 있는 것이 없으면 무엇을
+설치해야 하는지 알려 준다.
+
+```powershell
+cd $HOME\Documents\Crosspoint-Reader
+git pull
+```
+
+그다음 `android\run-tests.bat` 더블클릭. 실행하면 첫 줄에 어떤 Java 를 쓰는지 나온다:
+
+```
+ Java : C:\Users\user\AppData\Local\Programs\Android Studio\jbr  (버전 21, Android Studio)
+```
+
+**해결 2 — 직접 지정한다.** Android Studio 를 설치했다면:
+
+```powershell
+$env:JAVA_HOME="$env:LOCALAPPDATA\Programs\Android Studio\jbr"
+.\gradlew.bat :document:check :core-layout:check
+```
+
+**해결 3 — JDK 21 을 설치한다.** Android Studio 가 없거나 위 경로가 틀리면:
+
+https://adoptium.net → **Temurin 21 (LTS)** → Windows x64 `.msi` → 설치 중
+**"Set JAVA_HOME variable"** 항목을 **켜** 둔다. 설치 후 PowerShell 을 닫고 새로 연다.
+
+> 지금 쓰는 Java 버전이 궁금하면: `java -version`
+
+### 6.3 그 밖의 증상
 
 | 증상 | 원인과 해결 |
 |---|---|
