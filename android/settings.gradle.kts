@@ -22,14 +22,27 @@ val androidSdkAvailable: Boolean =
         System.getenv("ANDROID_SDK_ROOT") != null ||
         file("local.properties").let { it.exists() && it.readText().contains("sdk.dir") }
 
+// 아직 만들지 않은 모듈도 있으므로 **폴더가 실제로 있는 것만** 포함한다. Gradle 은
+// 빈 프로젝트를 허용해서 빌드가 깨지지는 않지만, IDE 프로젝트 뷰에 아무것도 없는
+// 모듈이 줄줄이 보여 뭐가 진짜인지 알 수 없게 된다.
+val plannedAndroidModules = listOf(
+    "text-platform",
+    "data",
+    "reader-reflow",
+    "reader-pdf",
+    "ui-design",
+    "ui",
+    "app",
+)
+
 if (androidSdkAvailable) {
-    include(":app")
-    include(":ui")
-    include(":ui-design")
-    include(":reader-reflow")
-    include(":reader-pdf")
-    include(":text-platform")
-    include(":data")
+    val present = plannedAndroidModules.filter { file(it).isDirectory }
+    present.forEach { include(":$it") }
+
+    val missing = plannedAndroidModules - present.toSet()
+    if (missing.isNotEmpty()) {
+        logger.lifecycle("[reader] 아직 만들지 않은 모듈: ${missing.joinToString(", ")}")
+    }
 } else {
     logger.lifecycle(
         "[reader] Android SDK 없음 → JVM 코어 모듈(:document, :core-layout)만 구성합니다. " +
