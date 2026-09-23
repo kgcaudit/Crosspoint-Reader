@@ -194,17 +194,78 @@ del document\src\main\kotlin\io\github\kgcaudit\reader\document\_Probe.kt
 
 ## 6. 막혔을 때
 
+### 6.1 `PKIX path building failed` / `SSLHandshakeException` — **사내망에서 가장 흔하다**
+
+```
+Exception in thread "main" javax.net.ssl.SSLHandshakeException: (certificate_unknown)
+PKIX path building failed: ... unable to find valid certification path to requested target
+```
+
+**원인.** 회사 네트워크가 HTTPS 를 가로채 검사한다(TLS 검사 프록시). 회사가 자체
+인증서로 연결을 끊었다 다시 맺는데, Java 는 그 인증서를 모르니 거부한다. 브라우저가
+되는 이유는 회사가 그 인증서를 **Windows 인증서 저장소**에 이미 깔아 뒀기 때문이다.
+
+**해결.** Java 도 Windows 인증서 저장소를 쓰게 한다.
+
+`run-tests.bat` 에는 이 설정이 **이미 들어 있다.** 최신 코드를 받았는지 확인하고
+더블클릭하면 된다:
+
+```powershell
+cd $HOME\Documents\Crosspoint-Reader
+git pull
+```
+
+직접 명령을 입력하는 경우에는 PowerShell 에서 먼저 이 줄을 실행한다(창을 닫으면
+사라지므로 새 창마다 한 번씩):
+
+```powershell
+$env:JAVA_TOOL_OPTIONS="-Djavax.net.ssl.trustStoreType=Windows-ROOT"
+```
+
+그 다음 평소대로:
+
+```powershell
+.\gradlew.bat :document:check :core-layout:check
+```
+
+`Picked up JAVA_TOOL_OPTIONS: ...` 줄이 먼저 나오는데 **정상**이다.
+
+> **왜 `JAVA_TOOL_OPTIONS` 인가**: Gradle 배포본을 내려받는 래퍼 JVM 과, 그 뒤에
+> 라이브러리를 내려받는 데몬 JVM 이 서로 다른 프로세스다. 이 환경변수는 둘 다에
+> 적용되므로 한 번에 해결된다.
+
+**영구 적용**(매번 안 쳐도 되게):
+
+```powershell
+[Environment]::SetEnvironmentVariable("JAVA_TOOL_OPTIONS", "-Djavax.net.ssl.trustStoreType=Windows-ROOT", "User")
+```
+
+실행 후 PowerShell 을 닫고 새로 연다.
+
+**그래도 안 되면** — 프록시가 인증서 검사뿐 아니라 접속 자체를 막는 경우다.
+사내 IT 에 프록시 주소와 포트를 물어 `android\gradle.properties` 맨 아래에 추가한다:
+
+```
+systemProp.https.proxyHost=프록시주소
+systemProp.https.proxyPort=포트
+systemProp.http.proxyHost=프록시주소
+systemProp.http.proxyPort=포트
+```
+
+**가장 빠른 우회** — 집 PC 나 개인 네트워크(휴대폰 테더링 포함)에서 한 번 실행한다.
+한 번 내려받으면 `C:\Users\<사용자>\.gradle` 에 캐시되어 이후에는 사내망에서도
+네트워크 없이 돈다.
+
+### 6.2 그 밖의 증상
+
 | 증상 | 원인과 해결 |
 |---|---|
 | `gradlew.bat : 용어가 ... 인식되지 않습니다` | `android` 폴더가 아닌 곳에 있다. `cd $HOME\Documents\Crosspoint-Reader\android` |
 | `git : 용어가 ... 인식되지 않습니다` | Git 설치 후 **PowerShell 을 닫고 새로 열어야** PATH 가 반영된다 |
-| `JAVA_HOME is not set` / `No Java` | JDK 가 없다. Android Studio 를 깔았다면 그 안의 JDK 를 알려 준다:<br>`$env:JAVA_HOME="$env:LOCALAPPDATA\Programs\Android Studio\jbr"`<br>(경로가 다르면 Android Studio → Settings → Build → Gradle → Gradle JDK 에서 실제 경로 확인) |
-| 회사 PC 라 설치를 못 한다 | Android Studio 대신 **JDK 21 만** 깔면 된다(설치 파일이 작다): https://adoptium.net → Temurin 21 (LTS) → Windows x64 `.msi`. Android 앱 빌드는 나중에 필요하고, 지금 확인에는 JDK 만으로 충분하다 |
-| 다운로드가 계속 실패한다 | 사내 프록시일 가능성이 크다. `android\gradle.properties` 맨 아래에 추가:<br>`systemProp.https.proxyHost=프록시주소`<br>`systemProp.https.proxyPort=포트`<br>(주소·포트는 사내 IT 에 문의) |
-| `Could not GET ... 429` | 일시적 속도 제한이다. 1~2분 뒤 같은 명령을 다시 실행 |
+| `JAVA_HOME is not set` / `No Java` | JDK 가 없다. `run-tests.bat` 은 Android Studio 가 깐 JDK 를 알아서 찾으니 그걸 쓰면 된다. 직접 지정하려면:<br>`$env:JAVA_HOME="$env:LOCALAPPDATA\Programs\Android Studio\jbr"` |
+| 회사 PC 라 설치를 못 한다 | Android Studio 대신 **JDK 21 만** 깔면 된다: https://adoptium.net → Temurin 21 (LTS) → Windows x64 `.msi` |
+| `Could not GET ... 429` | 일시적 속도 제한이다. 1~2분 뒤 다시 실행 |
 | 테스트가 실패한다 | **알려 주세요.** 실패한 테스트 이름과 메시지를 그대로 붙여 주면 원인을 찾겠습니다 |
-
----
 
 ## 7. 확인이 끝나면
 
