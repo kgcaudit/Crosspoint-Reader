@@ -1,6 +1,6 @@
 plugins {
-    alias(libs.plugins.android.library)
-    alias(libs.plugins.kotlin.android)
+    id("com.android.library")
+    id("org.jetbrains.kotlin.android")
 }
 
 // 코어의 유일한 플랫폼 경계(TextMeasurer)를 Paint 로 구현하고, 그 폭을 재는 번들

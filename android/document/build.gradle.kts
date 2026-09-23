@@ -1,4 +1,4 @@
-plugins { alias(libs.plugins.kotlin.jvm) }
+plugins { id("org.jetbrains.kotlin.jvm") }
 
 // 순수 Kotlin. 의존성은 stdlib 와 테스트 라이브러리뿐이며, 여기에 Android 의존을
 // 추가하면 안 된다(checkNoPlatformImports 가 막는다). 이 모듈이 순수한 덕분에
