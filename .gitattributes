@@ -1,5 +1,9 @@
 # 배치 파일은 CRLF 로 유지한다. LF 로 정규화되면 cmd.exe 가 마지막 줄을 잘못 읽는다.
 *.bat text eol=crlf
+*.ps1 text eol=crlf
 *.sh text eol=lf
 gradlew text eol=lf
 gradlew.bat text eol=crlf
+
+# PowerShell 5.1 은 BOM 없는 .ps1 을 ANSI 로 읽는다. BOM 이 보존돼야 한글이 안 깨진다.
+*.ps1 -text diff
