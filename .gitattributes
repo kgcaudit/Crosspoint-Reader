@@ -1,0 +1,5 @@
+# 배치 파일은 CRLF 로 유지한다. LF 로 정규화되면 cmd.exe 가 마지막 줄을 잘못 읽는다.
+*.bat text eol=crlf
+*.sh text eol=lf
+gradlew text eol=lf
+gradlew.bat text eol=crlf

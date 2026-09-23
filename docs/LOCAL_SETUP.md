@@ -57,44 +57,77 @@ GitHub 로그인을 물으면 계정(kgcaudit)으로 로그인한다. 브라우�
 
 ## 4. 테스트 실행 (첫 실행 약 5분)
 
-같은 PowerShell 창에서:
+### 방법 A — 더블클릭 (권장)
+
+**타이핑이 필요 없다.**
+
+1. 파일 탐색기를 열고 `문서\Crosspoint-Reader\android` 폴더로 간다
+2. **`run-tests.bat`** 파일을 **더블클릭**
+3. 검은 창이 열리고 알아서 실행된다. 첫 실행은 다운로드 때문에 몇 분 걸린다
+4. 끝나면 결과가 나오고 창은 `계속하려면 아무 키나 누르십시오` 상태로 **멈춰 있다**
+   (결과를 읽을 수 있게 일부러 멈춘다)
+
+성공하면:
+
+```
+================================================
+ [OK] 성공! 모든 테스트가 통과했습니다.
+================================================
+```
+
+> 이 배치 파일은 Android Studio 가 함께 설치한 Java 를 알아서 찾아 쓴다. 그래서
+> `JAVA_HOME` 같은 것을 설정할 필요가 없다.
+
+macOS·Linux 라면 터미널에서 `./run-tests.sh` 를 실행한다.
+
+### 방법 B — 명령을 직접 입력
+
+터미널에 익숙하거나, 다른 테스트만 골라 돌리고 싶을 때.
+
+1. 시작 메뉴에서 **PowerShell** 을 찾아 실행 (검은 창이 열린다)
+2. 아래를 복사해서 창에 **마우스 우클릭**(붙여넣기) 하고 **Enter**
+
+```powershell
+cd $HOME\Documents\Crosspoint-Reader\android
+```
+
+3. 이어서 아래를 같은 방법으로 붙여넣고 **Enter**
 
 ```powershell
 .\gradlew.bat :document:check :core-layout:check
 ```
 
-첫 실행은 Gradle(약 130MB)과 라이브러리를 내려받아 몇 분 걸린다. 두 번째부터는 몇 초.
+이 한 줄이 뜻하는 것:
 
-### 성공하면 이렇게 나온다
+| 조각 | 뜻 |
+|---|---|
+| `.\gradlew.bat` | 지금 폴더(`.`)에 있는 `gradlew.bat` 실행 |
+| `:document:check` | `document` 모듈의 검사·테스트 실행 |
+| `:core-layout:check` | `core-layout` 모듈의 검사·테스트 실행 |
+
+성공하면 마지막에 `BUILD SUCCESSFUL` 이 나온다.
+
+> PowerShell 에서는 **우클릭이 붙여넣기**다(Ctrl+V 도 최신 Windows 에서는 된다).
+> 여러 줄을 한꺼번에 붙여넣지 말고 한 줄씩 Enter 를 누른다.
+
+### 첫 줄에 나오는 이 메시지는 정상이다
 
 ```
 [reader] Android SDK 없음 → JVM 코어 모듈(:document, :core-layout)만 구성합니다. ...
-
-BUILD SUCCESSFUL in 1m 12s
 ```
 
-> **첫 줄의 "Android SDK 없음" 은 정상이다.** PowerShell 은 Android Studio 가 깐 SDK
-> 위치를 모르기 때문이고, 애초에 이 테스트는 SDK 가 필요 없다. 오히려 "SDK 없이도
-> 코어가 돈다" 는 것이 설계 의도다.
-
-`BUILD SUCCESSFUL` 이 나오면 **끝났다.** 222개 테스트가 전부 통과한 것이다.
-
-### 테스트 목록을 보고 싶으면
-
-```powershell
-.\gradlew.bat :document:test :core-layout:test --info | Select-String "PASSED"
-```
+PowerShell 은 Android Studio 가 깐 SDK 위치를 모르기 때문이고, 이 테스트는 애초에
+SDK 가 필요 없다. 오히려 "SDK 없이도 코어가 돈다" 는 것이 설계 의도다.
 
 ### 보기 좋은 보고서
 
 실행 후 아래 파일을 브라우저로 열면 테스트 목록과 소요 시간이 표로 나온다.
+파일 탐색기에서 더블클릭해도 된다.
 
-```powershell
-start document\build\reports\tests\test\index.html
-start core-layout\build\reports\tests\test\index.html
 ```
-
----
+android\document\build\reports\tests\test\index.html
+android\core-layout\build\reports\tests\test\index.html
+```
 
 ## 5. 곁들여 볼 것 (선택)
 
