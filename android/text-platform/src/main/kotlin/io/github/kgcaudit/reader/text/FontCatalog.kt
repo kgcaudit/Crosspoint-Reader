@@ -6,7 +6,13 @@ import android.graphics.RectF
 import android.graphics.Typeface
 
 /** 글꼴 목록의 한 줄. [key] 가 설정에 저장되는 값이다. */
-data class FontOption(val key: String, val label: String, val kind: Kind) {
+data class FontOption(
+    val key: String,
+    val label: String,
+    val kind: Kind,
+    /** 한글 글리프가 있는가. 없으면 한글은 기본 글꼴로 그려진다 — 목록에서 알려 준다. */
+    val hasHangul: Boolean = true,
+) {
     enum class Kind { System, User }
 }
 
@@ -25,7 +31,10 @@ data class FontPair(val regular: Typeface, val bold: Typeface?)
  * 글꼴로만, 보통 굵기 하나** 들어 있다(AOSP fonts.xml). 제조사가 빼기도 하므로 명조가 정말
  * 있는지는 [hasKoreanSerif] 로 재 본다.
  */
-open class FontCatalog {
+open class FontCatalog(
+    /** 사용자가 넣은 글꼴. 없으면 시스템 글꼴만. */
+    val user: UserFonts? = null,
+) {
 
     /** 기기에 한국어 명조가 따로 있는가. 없으면 명조를 목록에서 뺀다 — 골라도 고딕이 나온다. */
     open val hasKoreanSerif: Boolean by lazy { hasDistinctKorean(Typeface.SERIF, Typeface.SANS_SERIF) }
@@ -35,7 +44,11 @@ open class FontCatalog {
 
     open fun options(): List<FontOption> = buildList {
         if (hasKoreanSerif) add(FontOption(SERIF, "명조", FontOption.Kind.System))
-        add(FontOption(SANS, "고딕", FontOption.Kind.System))
+        // "고딕" 이 아니라 "휴대폰 글꼴" 이다. 삼성은 설정 › 글꼴 스타일(SamsungOne, 굵은 고딕,
+        // 내려받은 글꼴…)로 시스템 산세리프 자체를 바꾼다. 그 선택을 따르는 항목이므로 모양이
+        // 아니라 출처로 부른다.
+        add(FontOption(SANS, "휴대폰 글꼴", FontOption.Kind.System))
+        user?.families()?.forEach { add(FontOption(it.key, it.label, FontOption.Kind.User, it.hasHangul)) }
     }
 
     /** 설정 값(없거나 모르는 값 포함)을 실제로 쓸 글꼴 키로. 모르면 기본값 — 책은 열려야 한다. */
@@ -51,16 +64,25 @@ open class FontCatalog {
      */
     fun layoutFontId(key: String?): String {
         val effective = effectiveKey(key)
-        return "$effective@${fingerprint(pair(effective).regular)}"
+        val pair = pair(effective)
+        // 굵게 파일을 나중에 더하면 굵은 글자의 폭이 바뀐다. 보통만 재면 옛 캐시가 남는다.
+        val bold = pair.bold?.let(::fingerprint) ?: "fake"
+        return "$effective@${fingerprint(pair.regular)}.$bold"
     }
+
+    /** 목록에서 이름을 그 글꼴로 그릴 때 쓰는 보통 서체. */
+    fun typeface(key: String?): Typeface = pair(effectiveKey(key)).regular
 
     /** [layoutFontId] 가 가리키는 글꼴. 지문은 무시한다(지금 기기의 폰트가 곧 답이다). */
     fun resolve(layoutFontId: String): FontPair = pair(effectiveKey(layoutFontId.substringBefore('@')))
 
     protected open fun pair(key: String): FontPair = when (key) {
+        in userKeys() -> user!!.let { it.pair(it.family(key)!!) }
         SERIF -> FontPair(Typeface.SERIF, Typeface.create(Typeface.SERIF, Typeface.BOLD))
         else -> FontPair(Typeface.SANS_SERIF, Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD))
     }
+
+    private fun userKeys(): Set<String> = user?.families()?.mapTo(HashSet()) { it.key }.orEmpty()
 
     companion object {
         const val SANS = "system-sans"

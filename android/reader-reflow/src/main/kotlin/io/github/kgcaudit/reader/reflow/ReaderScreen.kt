@@ -54,6 +54,7 @@ import io.github.kgcaudit.reader.ui.design.CpChoice
 import io.github.kgcaudit.reader.ui.design.CpHeader
 import io.github.kgcaudit.reader.ui.design.CpIconButton
 import io.github.kgcaudit.reader.ui.design.CpIcons
+import io.github.kgcaudit.reader.ui.design.CpLinkRow
 import io.github.kgcaudit.reader.ui.design.CpListRow
 import io.github.kgcaudit.reader.ui.design.CpPopup
 import io.github.kgcaudit.reader.ui.design.CpSlider
@@ -91,6 +92,8 @@ fun ReaderScreen(
     val direction = LocalLayoutDirection.current
     val colors = CpTheme.colors
     var panel by remember { mutableStateOf(Panel.None) }
+    // 글꼴을 넣거나 뺀 횟수. 같은 설정 값이라도 굵은 파일이 더해지면 글꼴 ID 가 바뀐다.
+    var fontsRevision by remember { mutableStateOf(0) }
 
     LaunchedEffect(panel) { onChrome(panel != Panel.None) }
     BackHandler {
@@ -98,6 +101,7 @@ fun ReaderScreen(
             Panel.None -> { onClose(); Panel.None }
             // 목록에서 뒤로 가면 도구줄로 돌아온다 — 바로 닫히면 목록을 다시 열 길이 멀어진다.
             Panel.Contents, Panel.Bookmarks, Panel.View -> Panel.Bar
+            Panel.Fonts -> Panel.View
             Panel.Bar -> Panel.None
         }
     }
@@ -119,7 +123,7 @@ fun ReaderScreen(
         val pxPerSp = density.density * density.fontScale
         val pxPerDp = density.density
         // 글꼴 ID 는 글자를 재서 만든다(지문). 설정이 바뀔 때만 다시 잰다.
-        val fontId = remember(prefs.font) { reader.fonts.layoutFontId(prefs.font) }
+        val fontId = remember(prefs.font, fontsRevision) { reader.fonts.layoutFontId(prefs.font) }
         val spec = remember(widthPx, heightPx, margin, prefs, pxPerSp, pxPerDp, fontId) {
             prefs.toSpec(widthPx, heightPx, margin, pxPerSp, pxPerDp, fontId)
         }
@@ -190,6 +194,13 @@ fun ReaderScreen(
                 onPanel = { panel = it },
                 scope = scope,
             )
+            Panel.Fonts -> FontsPanel(
+                catalog = reader.fonts,
+                prefs = prefs,
+                onPrefsChange = onPrefsChange,
+                onFontsChanged = { fontsRevision++ },
+                onBack = { panel = Panel.View },
+            )
             Panel.Contents, Panel.Bookmarks -> ReaderLists(
                 reader = reader,
                 state = state,
@@ -218,7 +229,7 @@ fun ReaderScreen(
  * 이제 누르면 **얇은 도구줄**만 뜨고 지면은 거의 그대로 보인다. 목차·책갈피는 볼 때만
  * 전체 화면으로 연다(Play 북·리디와 같은 구성).
  */
-private enum class Panel { None, Bar, View, Contents, Bookmarks }
+private enum class Panel { None, Bar, View, Fonts, Contents, Bookmarks }
 
 @Composable
 private fun ReaderBar(
@@ -265,7 +276,7 @@ private fun ReaderBar(
                 .windowInsetsPadding(WindowInsets.navigationBars),
         ) {
             if (showView) {
-                ViewSettings(reader.fonts, prefs, onPrefsChange)
+                ViewSettings(reader.fonts, prefs, onPrefsChange, onFonts = { onPanel(Panel.Fonts) })
                 Spacer(Modifier.height(4.dp))
             }
             val shown = dragging ?: (state.percent / 100f)
@@ -399,16 +410,14 @@ private fun BookmarkList(marks: List<Bookmark>?, onOpen: (Bookmark) -> Unit, onR
 }
 
 @Composable
-private fun ViewSettings(catalog: FontCatalog, prefs: ReaderPrefs, onChange: (ReaderPrefs) -> Unit) {
+private fun ViewSettings(catalog: FontCatalog, prefs: ReaderPrefs, onChange: (ReaderPrefs) -> Unit, onFonts: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
         CpStepper("글자 크기", "${prefs.fontSizeSp}", { onChange(prefs.withSize(-1)) }, { onChange(prefs.withSize(+1)) })
         // 고른 값이 목록에 없으면(지운 사용자 글꼴, 명조가 없는 기기로 옮긴 설정) 실제로 쓰이는
-        // 글꼴에 불이 들어와야 한다. 아무 것도 선택되지 않은 줄은 "무슨 글꼴로 보고 있나" 를 숨긴다.
-        val fonts = remember(catalog) { catalog.options() }
+        // 글꼴 이름을 보인다. 사용자 글꼴이 몇 개일지 모르므로 단추를 늘어놓지 않고 목록을 연다.
         val current = catalog.effectiveKey(prefs.font)
-        CpChoice("글꼴", fonts.map { it.label }, fonts.indexOfFirst { it.key == current }, {
-            onChange(prefs.copy(font = fonts[it].key))
-        })
+        val label = catalog.options().firstOrNull { it.key == current }?.label.orEmpty()
+        CpLinkRow("글꼴", label, onFonts)
         val spacings = ReaderPrefs.LineSpacing.entries
         CpChoice("줄 간격", spacings.map { it.label }, spacings.indexOf(prefs.lineSpacing), {
             onChange(prefs.copy(lineSpacing = spacings[it]))

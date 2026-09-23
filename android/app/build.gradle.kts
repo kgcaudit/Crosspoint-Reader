@@ -12,8 +12,8 @@ android {
         applicationId = providers.gradleProperty("reader.applicationId").get()
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.4.0"
+        versionCode = 5
+        versionName = "0.5.0"
         resValue("string", "app_name", providers.gradleProperty("reader.appName").get())
         // 의존 라이브러리가 싣고 오는 80여 개 언어 번역을 뺀다. 화면이 한국어뿐이다.
         resourceConfigurations += listOf("ko", "en")
@@ -61,6 +61,8 @@ android {
         resValues = true
     }
     testOptions { unitTests.isIncludeAndroidResources = true }
+    // 글꼴 넣기 테스트가 :text-platform 의 테스트 폰트를 쓴다. 같은 파일을 두 번 싣지 않는다.
+    sourceSets.getByName("test").resources.srcDir("../text-platform/src/test/resources")
     packaging {
         resources.excludes += setOf("META-INF/*.version", "META-INF/**/LICENSE*", "kotlin/**", "DebugProbesKt.bin")
     }

@@ -3,9 +3,9 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-// 코어의 유일한 플랫폼 경계(TextMeasurer)를 Paint 로 구현하고, 그 폭을 재는 번들
-// 글꼴을 함께 둔다. 글꼴이 여기 있는 이유: 재는 글꼴과 그리는 글꼴이 한 곳에서
-// 나와야 어긋나지 않는다.
+// 코어의 유일한 플랫폼 경계(TextMeasurer)를 Paint 로 구현하고, 그 폭을 재는 글꼴 목록
+// (시스템 · 사용자가 넣은 것)을 함께 둔다. 글꼴이 여기 있는 이유: 재는 글꼴과 그리는
+// 글꼴이 한 곳에서 나와야 어긋나지 않는다. 폰트 파일은 싣지 않는다(B2 번복).
 android {
     namespace = providers.gradleProperty("reader.namespace").get() + ".text"
     compileSdk = 35
@@ -14,8 +14,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    // Robolectric 이 R.font 의 번들 글꼴을 읽으려면 리소스가 테스트에 들어가야 한다.
-    testOptions { unitTests.isIncludeAndroidResources = true }
 }
 
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }

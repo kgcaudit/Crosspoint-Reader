@@ -11,14 +11,14 @@
 
 ## 1. 지금 상태
 
-**OLO eBook 0.4.0 이 나왔다**(0.2.0: OLO 디자인 시스템 · 0.3.0: 그림 크기 · 리더 메뉴 · 폴더 단추 · 0.4.0: 번들 폰트 제거, 시스템 글꼴). 폴더 등록 → 라이브러리 → EPUB/TXT 열기 → 페이지
+**OLO eBook 0.5.0 이 나왔다**(0.2.0: OLO 디자인 시스템 · 0.3.0: 그림 크기 · 리더 메뉴 · 폴더 단추 · 0.4.0: 번들 폰트 제거, 시스템 글꼴 · 0.5.0: 사용자 글꼴 넣기). 폴더 등록 → 라이브러리 → EPUB/TXT 열기 → 페이지
 넘김 → 목차·책갈피 → 글꼴·크기 바꾸기까지 된다. 앱 전체를 Robolectric 으로 실제로 띄워
 사람이 쓰는 순서대로 한 바퀴 도는 테스트가 있고, 화면을 스크린샷으로 남긴다.
 PDF 는 목록에만 보이고("준비 중") 열리지 않는다(P1 미결).
 
 ```bash
-cd android && ./gradlew check                 # 458개 + lint
-./gradlew :app:assembleRelease                # → app/build/outputs/apk/release/OLO-eBook-0.4.0-release.apk
+cd android && ./gradlew check                 # 470개 + lint
+./gradlew :app:assembleRelease                # → app/build/outputs/apk/release/OLO-eBook-0.5.0-release.apk
 ./gradlew :app:testDebugUnitTest              # → app/build/screenshots/*.png (화면 확인용)
 # SDK 없음: :document + :core-layout 366개 (기존과 같다)
 ```
@@ -34,7 +34,7 @@ cd android && ./gradlew check                 # 458개 + lint
 | `:core-layout` | `PageStore`(디스크 캐시 · 부분 캐시 · 정리) |
 | `:core-layout` | `BookLayout`(페이지 이동 · 위치 복원 · 진도) · `ReadingSession`(책갈피 · 이어읽기) |
 | `:core-layout` | `MeasurerConformance` — 안드로이드 `TextMeasurer` 구현이 통과해야 할 검사 |
-| `:text-platform` | `AndroidTextMeasurer`(`Paint`) · `FontCatalog`(시스템 명조·고딕, 글자 폭 지문) — conformance 통과 |
+| `:text-platform` | `AndroidTextMeasurer`(`Paint`) · `FontCatalog`(시스템 명조·휴대폰 글꼴 + 사용자 글꼴, 글자 폭 지문) · `UserFonts` · `SfntReader`(폰트 머리 판독, 순수 Kotlin) — conformance 통과 |
 | `:data` | Room(`books` `progress` `bookmarks` `recent`) 보관소 · SAF 폴더 등록·재귀 스캔 · `Uri` → `SeekableSource`/`ByteSource` · `ReaderData`(묶음) |
 | `:ui-design` | `CpTheme`(색·치수·글꼴 토큰, 라이트/다크) · `CpHeader` `CpListRow` `CpTabBar` `CpStatusBar` `CpProgressBar` `CpPopup` `CpButton` `CpStepper` `CpChoice` · 선 아이콘 12종. Material 없음 |
 | `:reader-reflow` | `BookReader`(조판 스레드·넘김·책갈피·목차·설정 변경 시 읽던 글자로 복귀) · `drawPage` · `ReaderScreen`(탭·스와이프·메뉴) |
@@ -222,6 +222,33 @@ ReadingSession(layout, data.bookmarks, data.progress)
 - 올려 준 책 세 권은 저장소에 넣지 않았다. 테스트는 그 구조를 흉내 낸 견본으로 한다
   (`ImageSizingTest` 의 사례가 전부 실제 책의 값이다).
 
+**0.4.0 · 0.5.0 — 글꼴** (2026-09-23, B2 번복의 P1 · P2)
+
+- 폰트를 싣지 않는다. 목록은 **명조**(기기에 한국어 명조가 따로 있을 때만) · **휴대폰 글꼴** ·
+  사용자가 넣은 글꼴. "고딕" 이 아니라 "휴대폰 글꼴" 인 이유: 삼성은 설정 › 글꼴 스타일
+  (SamsungOne · 굵은 고딕 · 내려받은 글꼴)로 시스템 산세리프 자체를 바꾼다. 앱은 그 목록을 읽을
+  수 없지만 `Typeface.SANS_SERIF` 가 그 선택을 따른다. 글꼴 ID 의 폭 지문 덕에 글꼴 스타일을 바꾸면
+  캐시가 저절로 갈린다.
+- **넣기**: 보기 › 글꼴 › "글꼴 추가" → SAF 로 파일 하나. 앱 영역(`filesDir/fonts/<sha256>.ttf`)에
+  복사한다 — 원본 URI 를 붙잡으면 다운로드 폴더를 비울 때 글꼴이 사라진다. 색인 파일 없이 폴더를
+  읽어 목록을 만든다. 같은 파일은 한 번만.
+- 이름·굵기·한글 여부는 `SfntReader` 가 name · OS/2 · head · cmap 을 직접 읽어 안다.
+  `Paint.hasGlyph` 는 대체 글꼴까지 뒤져 영문 폰트에도 "한글 있음" 이라 답하므로 쓰지 않는다.
+  한국어 이름 판정은 **가족 이름(ID 1·16)만** 본다 — 영문 폰트도 저작권 칸은 한국어인 경우가 흔하다
+  (테스트가 잡았다). 표가 파일 끝을 넘으면(덜 받은 파일) 거절한다.
+- **짝짓기**: 영어 가족 이름으로 묶는다. 보통 = 400 에 가장 가까운 바로 선 서체, 굵게 = 600 이상 중
+  700 에 가장 가까운 것. 굵게가 없으면 `isFakeBoldText`. 굵은 파일을 나중에 더하면 글꼴 ID 가 바뀐다
+  (지문이 굵은 서체도 잰다).
+- TTC 는 한 파일에 여러 나라 가족이 있으면 **한국어 이름이 있는 가족만** 올린다(Noto CJK).
+- 한글 없는 글꼴은 거절하지 않고 알린다(영문 책용). WOFF · 폰트 아닌 파일 · 깨진 파일 · 64MB 초과는
+  이유와 할 일을 말하고 거절한다. 파일 종류는 `*/*` 로 연다 — `.otf` 를 OpenDocument 서식으로 아는
+  파일 관리자가 있어서, 좁히면 진짜 폰트가 회색으로 눌리지 않는다.
+- 빼면 파일이 지워지고, 그 글꼴을 고른 설정은 **null(기기 기본)로 되돌린다**. 되돌리지 않으면 지운
+  글꼴의 ID 로 기본 글꼴 폭이 캐시에 들어간다.
+- 앱 테스트는 파일 선택기에 Robolectric 으로 답해서 "글꼴 추가 → 고름 → 조판" 을 실제로 돈다
+  (`AppWalkthroughTest`). 테스트 폰트는 `:text-platform` 의 `olo-test-fonts/` 를 함께 쓴다 — 폴더
+  이름을 `fonts/` 로 하면 Robolectric 이 자기 시스템 폰트 대신 이걸 읽어 죽는다.
+
 **실기기에서 볼 것**(Robolectric 이 못 보여 주는 것):
 - 페이지 넘김 체감 속도(16ms 예산). 넘길 때 디스크 캐시에서 페이지를 읽는다 — 느리면 앞뒤
   한 장씩 미리 읽기를 `BookReader` 에 더한다.
@@ -230,6 +257,8 @@ ReadingSession(layout, data.bookmarks, data.progress)
 - 몰입 모드(시스템 바 숨김)와 디스플레이 컷아웃 여백, 제스처 내비게이션과 스와이프 충돌.
 - 폴더 선택기 → 등록 → 스캔(실제 파일 관리자·SD 카드·Google Drive).
 - 호스트와 기기의 글자 폭 차이(§3.1).
+- 글꼴: 명조가 목록에 뜨는지(삼성은 빠졌을 수 있다), 파일 관리자·Google Drive 에서 폰트 고르기,
+  큰 한글 폰트(10~20MB) 넣는 시간.
 
 알려진 한계: 표지·검색·세피아 없음. 그림은 넣었지만 견본 책에 그림이 없어 스크린샷으로
 확인하지 못했다. lint 경고 45개는 전부 "새 버전 있음" — 버전 올리기는 따로 판단한다.
@@ -254,7 +283,7 @@ ReadingSession(layout, data.bookmarks, data.progress)
 | 결정 | 근거 |
 |---|---|
 | **B1: 앱 이름 OLO eBook · 아이콘 컨셉 · OLO 디자인 시스템** (2026-09-23 사용자 결정) | 표시 이름 "OLO eBook", `applicationId` `io.github.kgcaudit.oloebook`. 아이콘은 OLO Explorer 와 바탕색 통일·도형 그레이·찢는 느낌. 배포 후 `applicationId` 를 바꾸면 다른 앱이 되어 데이터가 끊긴다 |
-| **B2 (번복): 폰트를 싣지 않는다 — 시스템 글꼴 + 사용자 글꼴 + 책 내장 글꼴** (2026-09-23 사용자 결정 "권장대로") | 아래 옛 B2 의 근거("기기마다 조판이 다르다")는 위치를 글자 오프셋으로 저장하고 캐시를 기기마다 만드는 구조에서 사용자에게 드러나지 않는다. 번들은 APK 12MB 중 11MB 였고, 올려 받은 책 세 권이 모두 KoPub 을 **내장**하고 있었다. 한국어 명조는 AOSP 에 대체 글꼴(Noto Serif CJK, 보통 굵기 하나)로만 있고 제조사가 빼기도 해서 **있는지 재 보고**(`FontCatalog.hasKoreanSerif`) 없으면 목록에서 뺀다. 순서: P1 시스템 글꼴(0.4.0) → P2 사용자 글꼴 추가(SAF, TTF/OTF/TTC) → P3 출판사 내장 글꼴(`@font-face`, 내장 글꼴이 있는 책은 그것으로 시작). P4 내려받는 글꼴은 나중 |
+| **B2 (번복): 폰트를 싣지 않는다 — 시스템 글꼴 + 사용자 글꼴 + 책 내장 글꼴** (2026-09-23 사용자 결정 "권장대로") | 아래 옛 B2 의 근거("기기마다 조판이 다르다")는 위치를 글자 오프셋으로 저장하고 캐시를 기기마다 만드는 구조에서 사용자에게 드러나지 않는다. 번들은 APK 12MB 중 11MB 였고, 올려 받은 책 세 권이 모두 KoPub 을 **내장**하고 있었다. 한국어 명조는 AOSP 에 대체 글꼴(Noto Serif CJK, 보통 굵기 하나)로만 있고 제조사가 빼기도 해서 **있는지 재 보고**(`FontCatalog.hasKoreanSerif`) 없으면 목록에서 뺀다. 순서: P1 시스템 글꼴(0.4.0, 끝남) → P2 사용자 글꼴 추가(0.5.0, 끝남 — SAF, TTF/OTF/TTC) → P3 출판사 내장 글꼴(`@font-face`, 내장 글꼴이 있는 책은 그것으로 시작). P4 내려받는 글꼴은 나중 |
 | ~~B2: KoPubWorld 바탕 + Pretendard 번들~~ (위 결정으로 대체) | 시스템 글꼴은 기기마다 조판이 달라진다. KoPub 구판이 아니라 **KoPubWorld** 인 이유: 구판에는 `—`(U+2014)가 없고 한자가 4,620자뿐이다(World 는 6,007자). 두 글꼴 모두 한글 11,172자 전부. 라이선스: Pretendard 는 OFL, **KoPubWorld 는 OFL 이 아니라 KOPUS 약관**(무료 재배포 가능 · 유료 판매 금지 · 약관 동봉 의무 · 수정본에 "KoPub" 이름 금지) — 그래서 서브셋하지 않고 원본을 넣었다. 저장소 +21.5MB, APK +11MB(압축) |
 | C++ 를 옮기지 않는다. GUI 구성만 참고 | 사용자 명시: "crosspoint 의 GUI 구성이 마음에 들었을 뿐이라, 코드 구조는 어떤 것이든 상관없어". 원본의 60~70% 는 ESP32 제약 때문의 코드다 |
 | 네이티브 Canvas + 디스크 페이지 캐시 | WebView 는 메모리·시작 시간이 무겁고 조판을 통제할 수 없다. `docs/ANDROID_ARCHITECTURE_DECISION.md` |

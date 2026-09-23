@@ -17,6 +17,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.core.app.ApplicationProvider
 import io.github.kgcaudit.reader.document.BookId
+import io.github.kgcaudit.reader.reflow.ReaderPrefs
 import kotlinx.coroutines.runBlocking
 import org.junit.Before
 import org.junit.Rule
@@ -33,7 +34,7 @@ import kotlin.test.assertTrue
 /**
  * 앱을 실제로 띄워 사람이 쓰는 순서대로 한 바퀴 돈다.
  *
- * 에뮬레이터 없이 Robolectric 네이티브 그래픽스로 `MainActivity` 를 띄운다. 번들 글꼴로
+ * 에뮬레이터 없이 Robolectric 네이티브 그래픽스로 `MainActivity` 를 띄운다. 실제 글꼴로
  * 조판된 페이지가 진짜로 그려지므로, 스크린샷(`build/screenshots/`)으로 화면을 눈으로
  * 확인할 수 있다. 폴더 선택기(시스템 UI)만은 띄울 수 없어 등록 호출로 대신한다.
  */
@@ -116,10 +117,11 @@ class AppWalkthroughTest {
         node(hasContentDescription("뒤로")).performClick()
         waitFor(hasText("보기"))
 
-        // 8. 보기 설정: 도구줄 위에 작은 판으로 열린다. 고딕으로 바꾸고 글자를 키운다.
+        // 8. 보기 설정: 도구줄 위에 작은 판으로 열린다. 글자를 키운다. 글꼴은 휴대폰 글꼴이다
+        // (이 환경에는 한국어 명조가 없다).
         node(hasText("보기")).performClick()
         waitFor(hasText("글자 크기"))
-        node(hasText("고딕")).performClick()
+        waitFor(hasText("휴대폰 글꼴"))
         node(hasContentDescription("글자 크기 늘리기")).performClick()
         node(hasContentDescription("글자 크기 늘리기")).performClick()
         shot("08-view-settings")
@@ -149,7 +151,7 @@ class AppWalkthroughTest {
             assertNotNull(container.data.progress.get(bookId))
             assertEquals("어린 왕자", container.data.library.get(bookId)?.title)
         }
-        assertEquals(io.github.kgcaudit.reader.text.FontCatalog.SANS, container.prefs.load().font)
+        assertEquals(ReaderPrefs.DEFAULT_SIZE_SP + 2, container.prefs.load().fontSizeSp)
     }
 
     @Test
@@ -170,6 +172,72 @@ class AppWalkthroughTest {
         val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
         compose.runOnUiThread { view.draw(Canvas(bitmap)) }
         assertEquals(0xFF181613.toInt(), bitmap.getPixel(4, view.height / 2))
+    }
+
+    @Test
+    fun `a font file picked from storage becomes the reading font, and a broken one is explained`() {
+        File(folder, "글꼴").mkdirs()
+        TestFonts.copy("olo-test-regular.ttf", File(folder, "글꼴/올로.ttf"))
+        File(folder, "글꼴/덜 받은.ttf").writeBytes(File(folder, "글꼴/올로.ttf").readBytes().copyOf(3000))
+        val container = compose.activity.container
+        container.data.folders.register(FolderProvider.treeUri)
+        compose.activityRule.scenario.recreate()
+        waitFor(hasText("어린 왕자.epub"))
+        node(hasText("어린 왕자.epub")).performClick()
+        waitFor(hasText("1 / ", substring = true), timeoutMs = 30_000)
+        compose.onRoot().performTouchInput { click(center) }
+        node(hasText("보기")).performClick()
+        node(hasText("글꼴")).performClick()
+        waitFor(hasText("글꼴 추가"))
+        shot("13-fonts-system-only")
+
+        // "글꼴 추가" → 파일 선택기(시스템 UI)가 고른 파일을 돌려준다.
+        pickFont("글꼴/올로.ttf")
+        waitFor(hasText("Olo Test Sans"))
+        waitFor(hasText("추가한 글꼴"))
+        shot("14-fonts-added")
+        val key = container.prefs.load().font
+        assertEquals("user:olo test sans", key, "넣은 글꼴로 바로 바뀌어야 한다")
+
+        // 덜 받은 파일: 앱이 죽거나 조용히 넘어가지 않고 이유를 말한다.
+        pickFont("글꼴/덜 받은.ttf")
+        waitFor(hasText("글꼴을 넣지 못했습니다"))
+        waitFor(hasText("손상", substring = true))
+        shot("15-fonts-broken")
+        node(hasText("확인")).performClick()
+        assertEquals(1, container.fonts.user!!.families().size)
+
+        // 돌아가면 넣은 글꼴로 조판된 페이지. 보기 판에도 이름이 보인다.
+        node(hasContentDescription("뒤로")).performClick()
+        waitFor(hasText("Olo Test Sans"))
+        shot("16-view-settings-user-font")
+        compose.onRoot().performTouchInput { click(topCenter.copy(y = height * 0.3f)) }
+        waitFor(hasText(" / ", substring = true))
+        shot("17-reader-user-font")
+
+        // 빼면 휴대폰 글꼴로 돌아간다.
+        compose.onRoot().performTouchInput { click(center) }
+        node(hasText("보기")).performClick()
+        node(hasText("Olo Test Sans")).performClick()
+        node(hasContentDescription("Olo Test Sans 빼기")).performClick()
+        node(hasText("빼기")).performClick()
+        compose.waitUntil(10_000) { container.prefs.load().font == null }
+        waitFor(hasText("휴대폰 글꼴"))
+        assertTrue(container.fonts.user!!.families().isEmpty())
+    }
+
+    /** 파일 선택기 흉내: 앱이 띄운 선택 요청에 고른 문서의 URI 로 답한다. */
+    private fun pickFont(path: String) {
+        node(hasText("글꼴 추가")).performClick()
+        compose.waitForIdle()
+        val activity = org.robolectric.Shadows.shadowOf(compose.activity)
+        val request = checkNotNull(activity.nextStartedActivityForResult) { "파일 선택기를 띄우지 않았다" }
+        assertEquals(android.content.Intent.ACTION_OPEN_DOCUMENT, request.intent.action)
+        val uri = android.provider.DocumentsContract.buildDocumentUriUsingTree(FolderProvider.treeUri, "Books/$path")
+        compose.runOnUiThread {
+            activity.receiveResult(request.intent, android.app.Activity.RESULT_OK, android.content.Intent().setData(uri))
+        }
+        compose.waitForIdle()
     }
 
     @Test

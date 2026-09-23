@@ -372,6 +372,71 @@ fun CpChoice(label: String, options: List<String>, selected: Int, onSelect: (Int
     }
 }
 
+/**
+ * 설정 한 줄: 이름 · 지금 값 · ›. 누르면 고르는 화면이 따로 열린다.
+ *
+ * 선택지가 몇 개로 정해지지 않는 설정(사용자가 넣은 글꼴)에 쓴다. [CpChoice] 에 단추를
+ * 늘어놓으면 네 개만 넘어도 한 줄을 넘친다.
+ */
+@Composable
+fun CpLinkRow(label: String, value: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val c = CpTheme.colors
+    Row(
+        modifier
+            .fillMaxWidth()
+            .heightIn(min = CpTheme.metrics.touchTarget)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(start = CpTheme.metrics.gutter, end = 8.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CpText(label, CpTheme.type.body, c.text, Modifier.weight(1f))
+        CpText(value, CpTheme.type.label, c.accent, Modifier.widthIn(max = 200.dp))
+        CpIcon(CpIcons.Forward, c.textMuted, Modifier.padding(start = 4.dp), size = 20.dp)
+    }
+}
+
+/**
+ * 하나만 고르는 목록의 한 줄. 왼쪽 동그라미 · 제목 · 부제 · (오른쪽 동작).
+ *
+ * [titleStyle] 을 따로 받는 이유: 글꼴 목록은 이름을 **그 글꼴로** 그려야 고르기 전에 모양을
+ * 본다(삼성 설정의 글꼴 목록과 같다).
+ */
+@Composable
+fun CpRadioRow(
+    title: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    subtitle: String? = null,
+    titleStyle: TextStyle = CpTheme.type.body,
+    trailing: @Composable RowScope.() -> Unit = {},
+) {
+    val c = CpTheme.colors
+    Row(
+        modifier
+            .fillMaxWidth()
+            .heightIn(min = CpTheme.metrics.rowHeight)
+            .clickable(role = Role.RadioButton, onClick = onClick)
+            .padding(start = CpTheme.metrics.gutter, end = 4.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .size(22.dp)
+                .border(2.dp, if (selected) c.accent else c.outline, RoundedCornerShape(50)),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (selected) Box(Modifier.size(12.dp).clip(RoundedCornerShape(50)).background(c.accent))
+        }
+        Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f)) {
+            CpText(title, titleStyle, c.text, maxLines = 1)
+            if (subtitle != null) CpText(subtitle, CpTheme.type.subtitle, c.textMuted, maxLines = 2)
+        }
+        trailing()
+    }
+}
+
 // ── 도구줄 ──────────────────────────────────────────────────────────
 
 /** 아이콘 아래 이름을 단 단추. 리더 도구줄의 "목차 · 책갈피 · 보기". */
