@@ -272,7 +272,7 @@ rev.1 대비: 쓸 수 있는 앱이 **10주 → 2주**, 1차 배포 **10주 → 
 | `ReadingSession` (책갈피 · 이어읽기) | `:core-layout` | **완료** · 합계 211 테스트 |
 | 책갈피·진도 보관소 **인터페이스** | `:document` | **완료** (구현은 `:data`) |
 | `TextMeasurer` 안드로이드 구현 (`Paint`) · 번들 글꼴 (B2) | `:text-platform` | **완료** · 12 테스트 (Robolectric 네이티브 그래픽스) |
-| SAF 폴더 스캔 · Room 구현 | `:data` | 미착수 |
+| SAF 폴더 스캔 · Room 구현 · `Uri` 바이트 원천 | `:data` | **완료** · 32 테스트 (진짜 `DocumentsProvider` 위에서 등록→스캔→EPUB 열기) |
 | PDF 렌더 (`PdfRenderer`) | `:reader-pdf` | 미착수 (결정 P1) |
 | GUI 컴포넌트 · 라이브러리·리더 화면 | `:ui-design` `:ui` `:app` | 미착수 |
 

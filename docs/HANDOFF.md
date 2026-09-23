@@ -11,14 +11,15 @@
 
 ## 1. 지금 상태
 
-**순수 Kotlin 코어가 완성됐고, 첫 안드로이드 모듈 `:text-platform` 이 붙었다.**
+**순수 Kotlin 코어가 완성됐고, 화면 아래 층(`:text-platform` `:data`)이 모두 붙었다.**
 EPUB/TXT 파일 바이트 → 챕터 → 블록 → 페이지 → 디스크 캐시 → 글자 오프셋 위치 →
-책갈피·이어읽기까지 **기기 없이 한 줄로 돌아가고**, 이제 그 조판이 **번들 글꼴과 실제
-`Paint`** 로도 돈다(Robolectric 네이티브 그래픽스 — 기기와 같은 minikin·FreeType).
+책갈피·이어읽기까지 **기기 없이 한 줄로 돌아가고**, 그 조판이 **번들 글꼴과 실제
+`Paint`** 로 돌며(Robolectric 네이티브 그래픽스), 책갈피·진도는 **Room** 에 저장되고,
+책은 **SAF 폴더**에서 찾아 연다. 남은 것은 화면뿐이다.
 
 ```bash
 cd android && ./gradlew check
-# SDK 있음: :document 143 + :core-layout 223 + :text-platform 12 = 378개 + lint
+# SDK 있음: :document 143 + :core-layout 223 + :text-platform 12 + :data 32 = 410개 + lint
 # SDK 없음: :document + :core-layout 366개 (기존과 같다)
 ```
 
@@ -34,15 +35,16 @@ cd android && ./gradlew check
 | `:core-layout` | `BookLayout`(페이지 이동 · 위치 복원 · 진도) · `ReadingSession`(책갈피 · 이어읽기) |
 | `:core-layout` | `MeasurerConformance` — 안드로이드 `TextMeasurer` 구현이 통과해야 할 검사 |
 | `:text-platform` | `AndroidTextMeasurer`(`Paint`) · `ReaderFont`(번들 글꼴 2종) — conformance 통과 |
+| `:data` | Room(`books` `progress` `bookmarks` `recent`) 보관소 · SAF 폴더 등록·재귀 스캔 · `Uri` → `SeekableSource`/`ByteSource` · `ReaderData`(묶음) |
 
 ### 남은 것 — 전부 안드로이드 모듈이다
 
 | 모듈 | 내용 | 비고 |
 |---|---|---|
-| `:data` | SAF 폴더 스캔 · Room(`books` `progress` `bookmarks` `recent`) | **여기부터.** 보관소 인터페이스는 이미 있다 |
+| `:ui-design` | GUI 컴포넌트(`CpHeader` `CpList` `CpStatusBar` `CpPopup` …) | **여기부터.** CrossPoint GUI 참고 |
+| `:reader-reflow` `:app` | 리플로우 리더(Canvas) · 라이브러리 화면 · `AppContainer` | 첫 APK. **B1 을 먼저 정한다** |
 | `:reader-pdf` | `PdfRenderer` 기반 고정 페이지 리더 | 결정 P1 |
-| `:ui-design` | GUI 컴포넌트(`CpHeader` `CpList` `CpStatusBar` `CpPopup` …) | CrossPoint GUI 참고 |
-| `:ui` `:app` | 라이브러리·리더·목차·설정 화면 | |
+| `:ui` | 목차·설정 화면 | |
 
 ---
 
@@ -77,6 +79,12 @@ beforeSettings {
 # ~/.gradle/gradle.properties — Robolectric 은 android-all 을 Gradle 밖에서 따로 받는다
 reader.robolectricRepo=https://maven-central.storage-download.googleapis.com/maven2/
 ```
+
+**Gradle 플러그인은 루트 `buildscript` 가 클래스패스에 한 번만 올린다.** 새 모듈은
+`plugins { id("com.android.library") }` 처럼 **버전 없이** 적용한다(`alias(...)` 금지).
+모듈마다 버전을 적으면 Kotlin 플러그인이 모듈마다 다른 클래스로더에 올라가 Gradle 이
+"빌드가 깨질 수 있다" 고 경고한다. Compose 모듈은 `id("org.jetbrains.kotlin.plugin.compose")`
+— 클래스패스에 이미 있다.
 
 에뮬레이터는 쓸 수 없다(`/dev/kvm` 없음). 그래서 `Paint` 검증은 Robolectric
 `@GraphicsMode(NATIVE)` 로 한다. 호스트용 minikin·FreeType 이라 기기와 같은 엔진이지만,
@@ -113,16 +121,51 @@ val paint = measurer.paintFor(run.style)                    // 그릴 때도 같
 폭이 같은지 본다. 다르면 캐시를 만든 기기와 그리는 기기가 같으므로 문제는 아니지만,
 기기마다 페이지 수가 달라지는 폭을 알아 둘 필요가 있다.
 
-### 3.2 `:data`
+### 3.2 `:data` — 끝남. 여기서 정한 것
 
-- 보관소 인터페이스(`BookmarkRepository` `ProgressRepository`)를 Room 으로 구현한다.
-  **계약은 `ReadingSessionTest` 의 `FakeBookmarks`/`FakeProgress` 가 이미 못 박아 뒀다** —
-  같은 성질(위치 오름차순 정렬, 책마다 진도 하나, id 부여)을 지키면 된다.
-- SAF: 폴더 등록 · 영속 권한 · 재귀 스캔(`.epub/.txt/.pdf`). `BookId` 는 `content://`
-  URI 를 담는다(`PageStore` 가 해시해서 디렉터리 이름으로 쓴다 — 테스트가 있다).
-- `SeekableSource` / `ByteSource` 를 SAF `Uri` 에 붙인다. EPUB 은 랜덤 액세스가 필요하다.
+```kotlin
+val data = ReaderData(context)                       // 앱에 하나. AppContainer 가 든다
+data.folders.register(treeUri)                       // ACTION_OPEN_DOCUMENT_TREE 결과
+data.rescan(treeUri)                                 // 또는 rescanAll() — 앱 시작·당겨서 새로고침
+data.library.books() / data.library.recent()         // Flow<List<LibraryBook>>
+val source = data.sources.seekableSource(Uri.parse(book.id.value))   // EPUB
+val text   = data.sources.byteSource(Uri.parse(book.id.value))       // TXT
+ReadingSession(layout, data.bookmarks, data.progress)
+```
 
-### 3.3 `:ui` 리플로우 리더 · `:app`
+- **스캔은 아무것도 지우지 않는다.** 스캔이 **끝까지 성공했을 때만** 안 보인 책을
+  숨기고(`missing`), 다시 보이면 되살린다. 폴더 하나라도 못 읽으면(권한 회수, 제공자
+  오류, null 커서) 불완전 스캔이라 아무것도 숨기지 않는다. 진도·책갈피는 외래 키 없이
+  `bookId` 로만 참조한다 — CASCADE 를 걸면 스캔 한 번의 실수로 책갈피가 지워진다.
+- **등록 폴더 목록의 원천은 OS 영속 권한**(`persistedUriPermissions`)이다. 따로 저장하면
+  사용자가 권한을 거둔 폴더가 목록에 남는다. 책마다가 아니라 폴더에 권한을 받는 이유는
+  권한 개수 제한(128/512)이다.
+- **책갈피 정렬은 숫자 열 세 개**(`orderMajor/Minor/Patch`)로 한다. 위치 문자열로
+  정렬하면 `r:10:…` 이 `r:2:…` 보다 앞에 온다. PDF 는 (페이지, 세로, 가로).
+- **스캔은 `DocumentsContract` 질의로** 한다(폴더당 한 번). `DocumentFile.listFiles()` 는
+  파일마다 질의가 따로 나가서 500권 폴더에서 2000번이 된다. `Bundle` 판 `query` 를 부른다 —
+  `DocumentsProvider` 는 O 부터 그 판만 받는다.
+- **제공자의 런타임 예외는 "그 폴더를 못 읽음" 으로** 바꾼다. 다른 앱의 버그가 바인더를
+  건너 올라오므로, 그대로 두면 클라우드 앱 하나 때문에 스캔 전체가 죽는다.
+- **파이프를 주는 제공자는 캐시 사본으로 연다**(`statSize < 0`). 사본은 닫을 때 지운다.
+- `fallbackToDestructiveMigration` 을 **쓰지 않는다.** 스키마는 `data/schemas/` 에 커밋돼
+  있다 — 다음에 테이블을 바꿀 때 `Migration` 과 `MigrationTestHelper` 테스트를 같이 쓴다.
+- Room 을 2.6.1 → **2.7.2** 로 올렸다(KSP2 호환). KSP `2.1.21-2.0.2`.
+
+실기기에서 할 일(Robolectric 이 재현 못 함):
+- **파이프 판정**: Robolectric 은 `createPipe()` 를 임시 파일로 흉내 내서 `statSize` 가
+  -1 이 되지 않는다. 사본 경로는 테스트했지만, "파이프면 사본으로 간다" 는 판정은
+  Google Drive 같은 클라우드 제공자로 한 번 확인한다.
+- 실제 파일 관리자·SD 카드 제공자로 폴더 등록 → 스캔 → 열기.
+
+알려진 한계(v2): 파일을 **다른 폴더로 옮기면 URI 가 바뀌어** 진도·책갈피가 따라가지
+않는다. 필요해지면 (이름, 크기)로 옛 `bookId` 를 찾아 옮기는 단계를 `applyScan` 에 더한다.
+
+### 3.3 `:ui-design` · `:reader-reflow` · `:app` — 첫 APK
+
+R1 스프린트는 PDF 부터였지만, PDF 는 P1 이 미결이고 리플로우 경로는 아래 층이 전부
+준비돼 있다. **TXT/EPUB 리더로 첫 APK 를 내는 것을 권한다.** 첫 APK 전에 B1(패키지
+이름)을 정해야 한다 — 설치 후 바꾸면 사용자 데이터가 끊긴다.
 
 `:app` 을 만들 때: 폰트가 압축돼 들어가면 로드할 때 메모리로 풀린다(KoPubWorld 한
 벌 8MB × 2). `androidResources { noCompress += listOf("otf", "ttf") }` 로 mmap 되게 할지
@@ -199,7 +242,7 @@ session.addBookmark(position) / session.saveProgress(position)
 ```
 docs/HANDOFF.md 와 CLAUDE.md 를 읽고 이어서 진행해.
 브랜치는 claude/android-epub-viewer-plan-y7m3k3 이고, 순수 Kotlin 코어는 끝나 있다.
-:text-platform(AndroidTextMeasurer · 번들 글꼴)까지 끝나 있다. HANDOFF §2 대로 SDK 와
-Maven 미러를 설정하고 :data(Room · SAF)부터 이어가라.
+:text-platform(측정기·글꼴) · :data(Room · SAF)까지 끝나 있다. HANDOFF §2 대로 SDK 와
+Maven 미러를 설정하고 §3.3(:ui-design · :reader-reflow · :app, 첫 APK)부터 이어가라.
 미결 3건(P1 PDF 렌더러 · B1 앱 이름 · B3 코퍼스) 중 필요한 것은 먼저 물어봐.
 ```
