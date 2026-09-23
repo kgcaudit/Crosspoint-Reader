@@ -41,11 +41,14 @@ if (androidSdkAvailable) {
 
     val missing = plannedAndroidModules - present.toSet()
     if (missing.isNotEmpty()) {
-        logger.lifecycle("[reader] 아직 만들지 않은 모듈: ${missing.joinToString(", ")}")
+        logger.lifecycle("[reader] Modules not created yet: ${missing.joinToString(", ")}")
     }
 } else {
+    // 로그는 영어로 낸다. 한국어 Windows 콘솔은 기본이 CP949 라 Gradle 의 UTF-8
+    // 출력이 깨져서, 정상 안내문이 오류처럼 보인다.
     logger.lifecycle(
-        "[reader] Android SDK 없음 → JVM 코어 모듈(:document, :core-layout)만 구성합니다. " +
-            "전체 빌드는 ANDROID_HOME 설정 또는 local.properties(sdk.dir) 후 실행하세요.",
+        "[reader] No Android SDK found - configuring JVM core modules only " +
+            "(:document, :core-layout). For the full build, set ANDROID_HOME " +
+            "or sdk.dir in local.properties.",
     )
 }

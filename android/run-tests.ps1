@@ -8,6 +8,10 @@
 $ErrorActionPreference = 'Continue'
 Set-Location -LiteralPath $PSScriptRoot
 
+# Gradle 은 로그를 UTF-8 로 내보내는데 한국어 Windows 콘솔은 기본이 CP949 라 한글이
+# 깨진다. 콘솔 쪽을 UTF-8 로 맞춘다(실패해도 빌드에는 지장 없으므로 무시한다).
+try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
+
 Write-Host '================================================'
 Write-Host ' Reader - core tests'
 Write-Host '================================================'
@@ -20,7 +24,11 @@ Write-Host ''
 #
 # JAVA_TOOL_OPTIONS 인 이유: Gradle 배포본을 내려받는 래퍼 JVM 과 그 뒤에 라이브러리를
 # 내려받는 데몬 JVM 이 서로 다른 프로세스인데, 이 변수는 둘 다에 붙는다.
-$env:JAVA_TOOL_OPTIONS = '-Djavax.net.ssl.trustStoreType=Windows-ROOT ' + $env:JAVA_TOOL_OPTIONS
+# 이미 같은 설정이 들어 있으면 덧붙이지 않는다(손으로 설정해 둔 경우 두 번 붙는다).
+$tlsOption = '-Djavax.net.ssl.trustStoreType=Windows-ROOT'
+if ($env:JAVA_TOOL_OPTIONS -notlike ('*' + $tlsOption + '*')) {
+    $env:JAVA_TOOL_OPTIONS = ($tlsOption + ' ' + $env:JAVA_TOOL_OPTIONS).Trim()
+}
 
 # ── 쓸 수 있는 JDK 찾기 ────────────────────────────────────────────
 #
@@ -135,8 +143,40 @@ Write-Host ''
 Write-Host ' 테스트를 실행합니다. 처음 실행은 몇 분 걸립니다(다운로드).'
 Write-Host ''
 
-& (Join-Path $PSScriptRoot 'gradlew.bat') ':document:check' ':core-layout:check'
-$exitCode = $LASTEXITCODE
+$gradlew = Join-Path $PSScriptRoot 'gradlew.bat'
+$logFile = Join-Path $env:TEMP 'reader-gradle.log'
+
+function Invoke-Checks {
+    & $gradlew ':document:check' ':core-layout:check' 2>&1 | Tee-Object -FilePath $logFile
+    $code = $LASTEXITCODE
+    $log = ''
+    if (Test-Path -LiteralPath $logFile) {
+        $log = Get-Content -LiteralPath $logFile -Raw -ErrorAction SilentlyContinue
+    }
+    return @{ Code = $code; Log = $log }
+}
+
+$result = Invoke-Checks
+
+# Gradle 이 임시 폴더를 최종 위치로 옮기지 못하는 경우가 Windows 에서 종종 있다.
+# 이전 실행이 중간에 죽어 캐시가 반쯤 남았거나, 보안 소프트웨어가 갓 만들어진
+# 파일을 검사하며 잠그고 있을 때다. 캐시를 지우고 한 번만 다시 시도한다 —
+# 사용자가 원인을 짐작하기 어려운 오류라 여기서 자동으로 푸는 편이 낫다.
+if ($result.Code -ne 0 -and $result.Log -match 'Could not move temporary workspace') {
+    Write-Host ''
+    Write-Host ' Gradle 캐시가 꼬였습니다. 정리하고 한 번 다시 시도합니다...'
+    Write-Host ''
+
+    & $gradlew '--stop' 2>&1 | Out-Null
+
+    foreach ($cache in (Resolve-Path (Join-Path $env:USERPROFILE '.gradle\caches\*\transforms') -ErrorAction SilentlyContinue)) {
+        Remove-Item -LiteralPath $cache.Path -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    $result = Invoke-Checks
+}
+
+$exitCode = $result.Code
 
 Write-Host ''
 if ($exitCode -eq 0) {
@@ -153,6 +193,13 @@ if ($exitCode -eq 0) {
     Write-Host ''
     Write-Host ' 위에 나온 메시지를 그대로 복사해서 알려주세요.'
     Write-Host ' docs\LOCAL_SETUP.md 6장에 흔한 증상별 해결이 있습니다.'
+    if ($result.Log -match 'Could not move temporary workspace') {
+        Write-Host ''
+        Write-Host ' 캐시를 지우고 다시 시도했는데도 같은 오류가 납니다.'
+        Write-Host ' 보안 소프트웨어가 아래 폴더를 검사하며 잠그고 있을 가능성이 큽니다.'
+        Write-Host ' 사내 IT 에 이 폴더의 실시간 검사 제외를 요청해 보세요:'
+        Write-Host ('   ' + (Join-Path $env:USERPROFILE '.gradle'))
+    }
     Write-Host '================================================'
 }
 
