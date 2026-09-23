@@ -196,21 +196,60 @@ class GreedyLineBreaker(
         // 나머지 픽셀을 앞쪽 간격에 하나씩 얹어, 줄의 오른쪽 끝이 정확히 맞게 한다.
         var remainder = if (justify) (slack - extraPerGap * gapCount) else 0f
 
-        val pieces = ArrayList<PlacedPiece>(tokens.size)
+        // 이어지는 토큰을 한 조각으로 합친다.
+        //
+        // 글자 단위 줄바꿈에서는 토큰이 글자마다 하나씩 생긴다. 그대로 두면 한 줄이
+        // 수십 개 조각이 되어 캐시가 부풀고 그리기도 글자마다 호출이 된다. 서식이
+        // 같고 글자가 이어지며 사이에 벌어진 틈이 없으면(양쪽정렬이 끼워 넣은 여유가
+        // 없으면) 한 조각으로 묶어도 그림이 같다.
+        val pieces = ArrayList<PlacedPiece>()
+        var pendingStart = -1
+        var pendingDrawEnd = -1
+        var pendingTokenEnd = -1
+        var pendingStyle = TextStyle.Default
+        var pendingX = 0f
+
+        fun flushPending() {
+            if (pendingStart >= 0 && pendingDrawEnd > pendingStart) {
+                pieces.add(PlacedPiece(pendingStart, pendingDrawEnd, pendingStyle, pendingX))
+            }
+            pendingStart = -1
+        }
+
         tokens.forEachIndexed { i, token ->
+            var gapInserted = false
             if (i > 0 && justify && token.breakableGapBefore) {
                 x += extraPerGap
                 if (remainder > EPSILON) {
                     x += 1f
                     remainder -= 1f
                 }
+                gapInserted = extraPerGap > EPSILON || remainder > EPSILON
             }
-            if (token.contentEnd > token.start) {
-                pieces.add(PlacedPiece(token.start, token.contentEnd, token.style, x))
+
+            val continues = pendingStart >= 0 &&
+                !gapInserted &&
+                token.style == pendingStyle &&
+                token.start == pendingTokenEnd
+
+            if (continues) {
+                pendingDrawEnd = token.contentEnd
+                pendingTokenEnd = token.endExclusive
+            } else {
+                flushPending()
+                if (token.contentEnd > token.start) {
+                    pendingStart = token.start
+                    pendingDrawEnd = token.contentEnd
+                    pendingTokenEnd = token.endExclusive
+                    pendingStyle = token.style
+                    pendingX = x
+                }
             }
+
             x += token.advance
             if (i < tokens.size - 1) x += token.trailingSpaceAdvance
         }
+        flushPending()
 
         val tallest = tokens.maxOf { measurer.lineHeight(it.style) }
         val deepest = tokens.maxOf { measurer.ascent(it.style) }

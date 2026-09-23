@@ -246,7 +246,18 @@ class GreedyLineBreakerTest {
     }
 
     @Test
-    fun `styles are preserved per piece`() {
+    fun `adjacent characters of the same style merge into one piece`() {
+        // 글자 단위 줄바꿈은 토큰을 글자마다 만든다. 그대로 조각이 되면 캐시가 부풀고
+        // 그리기도 글자마다 호출이 된다. 서식이 같고 글자가 이어지면 한 조각이어야 한다.
+        val text = "가나다라"
+        val lines = breakLines(text, 200f)
+        val piece = lines.single().pieces.single()
+        assertEquals(0, piece.start)
+        assertEquals(4, piece.endExclusive)
+    }
+
+    @Test
+    fun `a style change splits the pieces but keeps each style`() {
         val text = "가나다라"
         val bold = TextStyle(bold = true)
         val lines = GreedyLineBreaker().breakLines(
@@ -256,8 +267,27 @@ class GreedyLineBreakerTest {
             constraints = LineConstraints(200f),
             measurer = measurer,
         )
-        val styles = lines.flatMap { it.pieces }.map { it.style.bold }
-        assertEquals(listOf(false, false, true, true), styles)
+        val pieces = lines.flatMap { it.pieces }
+        assertEquals(listOf(false, true), pieces.map { it.style.bold })
+        assertEquals(listOf(0 to 2, 2 to 4), pieces.map { it.start to it.endExclusive })
+    }
+
+    @Test
+    fun `merging spans word spaces when nothing is inserted between`() {
+        // 공백도 함께 그려지므로, 벌어진 틈이 없으면 어절을 넘어 묶어도 그림이 같다.
+        val text = "aa bb cc"
+        val piece = breakLines(text, 200f).single().pieces.single()
+        assertEquals(0, piece.start)
+        assertEquals(text.length, piece.endExclusive)
+    }
+
+    @Test
+    fun `justification gaps stop the merge so the spacing is not lost`() {
+        // 양쪽정렬이 끼워 넣은 여유를 무시하고 묶으면 그 간격이 사라진다.
+        val text = "aa bb cc dd ee"
+        val lines = breakLines(text, 103f, align = TextAlign.Justify)
+        val stretched = lines.first { !it.isLastLine }
+        assertTrue(stretched.pieces.size > 1, "늘어난 줄이 한 조각으로 묶였다")
     }
 
     @Test

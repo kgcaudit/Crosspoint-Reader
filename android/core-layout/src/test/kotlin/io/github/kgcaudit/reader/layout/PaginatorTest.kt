@@ -326,6 +326,33 @@ class PaginatorTest {
         assertEquals(0, first.startChar)
     }
 
+    // ── 레코드 수 ───────────────────────────────────────────────────
+
+    @Test
+    fun `korean pages produce about one run per line, not one per character`() {
+        // 글자 단위 줄바꿈은 토큰을 글자마다 만든다. 병합이 없으면 880자 페이지가
+        // 런 880개가 되어 캐시가 20배로 부풀고 그리기도 글자마다 호출이 된다.
+        // 페이지 넘김 16ms 예산에 직접 걸리는 성질이라 테스트로 고정한다.
+        val text = "한국어 본문이 여러 줄에 걸쳐 이어지며 조판된다. 어절 사이에는 공백이 있다. ".repeat(20)
+        val s = LayoutSpec(
+            viewportWidthPx = 720f,
+            viewportHeightPx = 1280f,
+            margin = Insets.all(40f),
+            baseSizePx = 18f,
+            align = TextAlign.Justify,
+        )
+        val pages = Paginator(s, FakeMeasurer(baseSizePx = 18f, lineHeightRatio = 1.2f))
+            .paginate(text, listOf(Block.Paragraph(listOf(InlineRun(0, text.length))))).toList()
+
+        val lineTotal = pages.sumOf { page -> page.runs.map { it.baselineYPx }.distinct().size }
+        val runTotal = pages.sumOf { it.runs.size }
+        assertTrue(lineTotal > 20, "검사가 의미 있으려면 줄이 충분히 많아야 한다 (lineTotal=$lineTotal)")
+        assertTrue(
+            runTotal <= lineTotal * 3,
+            "런이 줄당 3개를 넘는다: runs=$runTotal lines=$lineTotal (병합이 깨졌다)",
+        )
+    }
+
     // ── 캐시 키 ─────────────────────────────────────────────────────
 
     @Test
