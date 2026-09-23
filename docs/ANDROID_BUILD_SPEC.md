@@ -313,13 +313,46 @@ R2 에서 구현·검증됨(`PageCodec`). 초안에서 두 가지가 바뀌었�
 **무효화**: `specHash`(조판 영향 설정 전부의 해시) 디렉터리 단위. LRU 상한 200MB.
 **PDF 는 이 캐시를 쓰지 않는다.**
 
-## 8. CSS 서브셋 (v1 — rev.1보다 축소)
+## 8. CSS 서브셋 (v1) — **구현됨**
 
 "간편하게 읽기"가 목표이므로 최소로 시작하고 실책 코퍼스가 요구할 때만 늘린다.
+구현은 `core-layout/.../layout/css/` 와 `layout/html/` 에 있다.
 
-**지원**: `text-align` · `text-indent` · `font-style`(italic) · `font-weight`(bold) · `font-size`(em/rem/%) · `margin`(4) · `padding`(4) · `display:none` · `text-decoration`(underline/line-through)
-**셀렉터**: 타입 · 클래스 · ID · 후손 · 그룹. 표준 특이도
-**무시(경고 없이)**: `float` · `position` · `color`/`background` · `border` · `line-height` · `@media` · 의사 클래스/요소 · 속성 셀렉터 · `direction`(v2) · `vertical-align`(v2) · 표 고급 속성
+**지원 속성**
+
+| 속성 | 받는 값 | 조판에 미치는 것 |
+|---|---|---|
+| `text-align` | left/start · right/end · center · justify | `BlockStyle.align` (상속) |
+| `text-indent` | em · rem · % · px · pt · 0 | `BlockStyle.firstLineIndentEm` (상속) |
+| `font-style` | italic · oblique · normal | `TextStyle.italic` |
+| `font-weight` | bold(er) · normal · lighter · 100–900 (≥600 = 굵게) | `TextStyle.bold` |
+| `font-size` | em · rem · % · px · pt · 키워드(xx-small…xx-large) | `TextStyle.sizeScale` (부모에 **곱한다**) |
+| `text-decoration(-line)` | underline · line-through · none | `TextStyle.underline` / `strikethrough` |
+| `vertical-align` | super · sub · baseline | `TextStyle.vertical` |
+| `margin` / `margin-*` | 1~4값 축약형 포함 | 상하 = 블록 여백, 좌우 = 들여쓰기(**누적**) |
+| `padding` / `padding-*` | 위와 같음 | `margin` 으로 접는다 — 배경·테두리를 안 그리므로 결과가 같다 |
+| `display` | `none` | 내용을 통째로 버린다 |
+| `page-break-before` / `break-before` | always · page · left · right · recto · verso | `BlockStyle.pageBreakBefore` |
+
+**셀렉터**: 타입 · 클래스 · ID · 후손 · 그룹. 표준 특이도(id 1,000,000 / 클래스 1,000 / 타입 1).
+`>` `+` `~` 는 **후손으로 낮추고**, 의사 클래스·속성 셀렉터는 떼어 내고 나머지로 맞힌다 —
+규칙을 통째로 버리면 책 한 권의 서식이 사라지기 때문이다.
+
+**캐스케이드 출처**: 태그 기본값(`TagDefaults`) → 책의 CSS → `style` 속성.
+세 단계를 특이도 계산에 섞지 않고 차례로 덮어쓴다. 섞으면 태그 기본값 `h1`(특이도 1)이
+책의 `*`(특이도 0)을 이겨 출처가 뒤집힌다.
+
+**상속**: `text-align` · `text-indent` 와 인라인 서식은 상속, 좌우 여백은 누적.
+그 밖의 속성은 요소별로만 적용한다.
+
+**무시(경고 없이)**: `float` · `position` · `color`/`background` · `border` · `line-height`(사용자 설정이 맡는다) · `@media` · `@font-face` · `direction`(v2) · 표 고급 속성.
+깨진 CSS(닫히지 않은 주석·블록, 값 없는 선언, 모르는 단위)는 그 부분만 버리고 계속 읽는다.
+
+**알려진 한계**
+- `<style>` 은 만나는 순간부터 적용된다(`<head>` 안이면 문제없다). 외부 CSS 는 호출자가 합쳐서 넘긴다.
+- 글을 직접 담지 않는 바깥 블록(`div`·`blockquote`·`ul`)의 **위아래** 여백은 버린다. 좌우는 누적해 넘긴다.
+- 표는 칸마다 한 문단으로 편다. 칸 사이 정렬은 맞지 않는다.
+- `<br>` 은 여백 없는 문단 나눔으로 처리한다.
 
 ---
 
