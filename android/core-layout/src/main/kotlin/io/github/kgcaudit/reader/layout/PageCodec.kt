@@ -54,8 +54,9 @@ object PageCodec {
      * 으로 읽히지 않아 자동으로 다시 조판된다.
      *
      * 2: 그림 크기(파일 크기·CSS·퍼센트 반영, 비율 유지).
+     * 3: 런 레코드의 예약 16비트에 책 글꼴 번호([TextStyle.face]).
      */
-    const val VERSION: Int = 2
+    const val VERSION: Int = 3
 
     private const val MAGIC = 0x31505043 // "CPP1" 리틀엔디안
     private const val HEADER_SIZE = 32
@@ -111,7 +112,7 @@ object PageCodec {
                 runs.putF32(run.style.sizeScale)
                 runs.putU8(styleFlags(run.style))
                 runs.putU8(0)
-                runs.putU16(0)
+                runs.putU16(run.style.face.coerceIn(0, 0xFFFF))
             }
             page.images.forEach { image ->
                 objects.putU8(OBJECT_IMAGE.toInt())
@@ -225,8 +226,9 @@ object PageCodec {
             val baseline = runReader.f32()
             val scale = runReader.f32()
             val flags = runReader.u8()
-            runReader.skip(3)
-            runs.add(PlacedRun(from, to, styleOf(flags, scale), x, baseline))
+            runReader.skip(1)
+            val face = runReader.u16()
+            runs.add(PlacedRun(from, to, styleOf(flags, scale, face), x, baseline))
         }
 
         val (images, rules) = readObjects(encoded.objects, imageStart, imageCount, ruleStart, ruleCount)
@@ -301,7 +303,8 @@ object PageCodec {
         return flags
     }
 
-    private fun styleOf(flags: Int, sizeScale: Float): TextStyle = TextStyle(
+    private fun styleOf(flags: Int, sizeScale: Float, face: Int): TextStyle = TextStyle(
+        face = face,
         bold = flags and FLAG_BOLD != 0,
         italic = flags and FLAG_ITALIC != 0,
         sizeScale = sizeScale,

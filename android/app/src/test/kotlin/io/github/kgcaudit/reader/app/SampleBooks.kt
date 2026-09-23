@@ -110,6 +110,44 @@ object SampleBooks {
         return out.toByteArray()
     }
 
+    /**
+     * 출판사 글꼴이 든 책. 올려 받은 책들의 모양 그대로 — `@font-face` 로 선언하고 본문(`p`)에만
+     * 쓴다. 제목은 책이 정하지 않았으므로 사용자가 고른 글꼴이다.
+     */
+    fun fontBook(font: ByteArray): ByteArray {
+        val out = ByteArrayOutputStream()
+        ZipOutputStream(out).use { zip ->
+            fun put(name: String, bytes: ByteArray) {
+                zip.putNextEntry(ZipEntry(name)); zip.write(bytes); zip.closeEntry()
+            }
+            put("mimetype", "application/epub+zip".toByteArray())
+            put("META-INF/container.xml", """<container><rootfiles><rootfile full-path="OEBPS/content.opf"/></rootfiles></container>""".toByteArray())
+            put(
+                "OEBPS/content.opf",
+                """
+                <package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+                  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>글꼴 책</dc:title></metadata>
+                  <manifest>
+                    <item id="c" href="Text/c.xhtml" media-type="application/xhtml+xml"/>
+                    <item id="s" href="Styles/style.css" media-type="text/css"/>
+                    <item id="f" href="Fonts/Body.ttf" media-type="font/ttf"/>
+                  </manifest>
+                  <spine><itemref idref="c"/></spine>
+                </package>
+                """.trimIndent().toByteArray(),
+            )
+            put("OEBPS/Styles/style.css", """@font-face { font-family: "본문체"; src: url(../Fonts/Body.ttf); } p { font-family: "본문체"; }""".toByteArray())
+            put(
+                "OEBPS/Text/c.xhtml",
+                ("<html><head><link rel=\"stylesheet\" href=\"../Styles/style.css\"/></head><body><h1>제1장 출판사 글꼴</h1>" +
+                    (0 until 12).joinToString("") { "<p>" + paragraphs[it % paragraphs.size] + "</p>" } +
+                    "</body></html>").toByteArray(),
+            )
+            put("OEBPS/Fonts/Body.ttf", font)
+        }
+        return out.toByteArray()
+    }
+
     /** 옛 한글 TXT 는 EUC-KR 이 흔하다. */
     fun txt(): ByteArray = (1..40).joinToString("\n") { "$it. " + paragraphs[it % paragraphs.size] }
         .toByteArray(charset("EUC-KR"))

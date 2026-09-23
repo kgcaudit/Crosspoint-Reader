@@ -38,12 +38,14 @@ class BookLayout(
     private val store: PageStore,
     private val measurer: TextMeasurer,
     styleContext: StyleContext = StyleContext.of(spec),
+    /** 책 글꼴표. 측정기가 같은 표로 글꼴을 골라야 한다 — 번호가 같은 가족을 가리켜야 폭이 맞는다. */
+    fonts: BookFontTable = BookFontTable.EMPTY,
 ) {
 
     /** 이 책의 식별자. 책갈피·진도가 같은 값을 쓰도록 여기서 한 번만 꺼낸다. */
     val bookId: BookId get() = document.meta.id
 
-    private val loader = ChapterLoader(document, styleContext)
+    private val loader = ChapterLoader(document, styleContext, fonts)
     private var spineCache: List<SpineItem>? = null
 
     suspend fun spine(): List<SpineItem> = spineCache ?: document.spine().also { spineCache = it }

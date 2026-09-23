@@ -153,7 +153,11 @@ data class CssRule(
  * 정렬이 안정적이어야 같은 입력에 늘 같은 결과가 나오고, 그래야 페이지 캐시와 화면이
  * 어긋나지 않는다.
  */
-class Stylesheet(val rules: List<CssRule>) {
+class Stylesheet(
+    val rules: List<CssRule>,
+    /** `@font-face` 규칙들. 경로(`src`)는 이 CSS 파일 기준 그대로다 — 푸는 것은 파일을 아는 쪽의 일. */
+    val fontFaces: List<CssFontFace> = emptyList(),
+) {
 
     /**
      * 두 스타일시트를 문서 순서대로 잇는다. 한 챕터가 외부 CSS 여러 개와 `<style>`
@@ -161,10 +165,10 @@ class Stylesheet(val rules: List<CssRule>) {
      * 나중 시트가 앞 시트에 지는 일이 생긴다. 순서를 다시 매겨 그걸 막는다.
      */
     operator fun plus(other: Stylesheet): Stylesheet {
-        if (other.rules.isEmpty()) return this
-        if (rules.isEmpty()) return other
+        if (other.rules.isEmpty() && other.fontFaces.isEmpty()) return this
+        if (rules.isEmpty() && fontFaces.isEmpty()) return other
         val base = rules.size
-        return Stylesheet(rules + other.rules.map { it.copy(order = base + it.order) })
+        return Stylesheet(rules + other.rules.map { it.copy(order = base + it.order) }, fontFaces + other.fontFaces)
     }
 
     fun declarationsFor(stack: List<ElementInfo>): CssDeclarations {
@@ -180,3 +184,16 @@ class Stylesheet(val rules: List<CssRule>) {
         val EMPTY: Stylesheet = Stylesheet(emptyList())
     }
 }
+
+/**
+ * `@font-face` 하나.
+ *
+ * @property family 소문자·따옴표 없는 이름. `font-family` 선언과 대소문자 무시로 맞춘다.
+ * @property weight 적혀 있으면 100~900. 없으면 null — 그때는 폰트 파일의 굵기를 본다.
+ */
+data class CssFontFace(
+    val family: String,
+    val src: String,
+    val weight: Int? = null,
+    val italic: Boolean? = null,
+)

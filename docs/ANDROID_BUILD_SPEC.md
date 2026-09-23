@@ -274,7 +274,7 @@ rev.1 대비: 쓸 수 있는 앱이 **10주 → 2주**, 1차 배포 **10주 → 
 | `TextMeasurer` 안드로이드 구현 (`Paint`) · 시스템 글꼴 목록 (B2 번복) | `:text-platform` | **완료** · Robolectric 네이티브 그래픽스 |
 | SAF 폴더 스캔 · Room 구현 · `Uri` 바이트 원천 | `:data` | **완료** · 32 테스트 (진짜 `DocumentsProvider` 위에서 등록→스캔→EPUB 열기) |
 | PDF 렌더 (`PdfRenderer`) | `:reader-pdf` | 미착수 (결정 P1) |
-| GUI 컴포넌트 · 라이브러리·리더 화면 · 첫 APK | `:ui-design` `:reader-reflow` `:app` | **완료(v0.5.1, EPUB·TXT, OLO 디자인 시스템, 그림 크기·리더 메뉴 개선, 시스템 글꼴 · 사용자 글꼴, 연결 프로그램으로 열기)** · 앱 한 바퀴 Robolectric 테스트 + 스크린샷 |
+| GUI 컴포넌트 · 라이브러리·리더 화면 · 첫 APK | `:ui-design` `:reader-reflow` `:app` | **완료(v0.6.0, EPUB·TXT, OLO 디자인 시스템, 그림 크기·리더 메뉴 개선, 시스템 글꼴 · 사용자 글꼴, 연결 프로그램으로 열기, 출판사 글꼴)** · 앱 한 바퀴 Robolectric 테스트 + 스크린샷 |
 
 **지금 상태로 증명된 것**: EPUB/TXT 파일 바이트 → 챕터 → 블록 → 페이지 → 디스크 캐시
 → 글자 오프셋 위치 → 책갈피·이어읽기까지가 기기 없이 한 줄로 돌아간다.
@@ -322,7 +322,7 @@ R2 에서 구현·검증됨(`PageCodec`). 초안에서 두 가지가 바뀌었�
 |---|---:|---|
 | `.idx` 머리말 | 32B | magic `CPP1` · version u16 · pageCount u16 · complete u8 · runCount u32 · imageCount u32 · ruleCount u32 · textLength u32 |
 | `.idx` PageEntry | 24B | runStart u32 · runCount u16 · imageStart u16 · imageCount u8 · ruleCount u8 · ruleStart u16 · charStart u32 · charEnd u32 |
-| `.run` Run | 24B | charStart u32 · charEnd u32 · x f32 · baselineY f32 · sizeScale f32 · styleFlags u8 |
+| `.run` Run | 24B | charStart u32 · charEnd u32 · x f32 · baselineY f32 · sizeScale f32 · styleFlags u8 · (예약 u8) · face u16 (v3, 책 글꼴 번호 — 0 = 본문 글꼴) |
 | `.obj` | 가변 | 표식 u8 + (그림: 길이 u16 + href + x,y,w,h f32) / (구분선: x,y,w,thickness f32) |
 
 리틀엔디안 정수 + IEEE 754 실수. 플랫폼에 무관하게 같은 바이트가 나오므로 JVM 에서
@@ -386,6 +386,8 @@ R2 에서 구현·검증됨(`PageCodec`). 초안에서 두 가지가 바뀌었�
 | `padding` / `padding-*` | 위와 같음 | `margin` 으로 접는다 — 배경·테두리를 안 그리므로 결과가 같다 |
 | `display` | `none` | 내용을 통째로 버린다 |
 | `page-break-before` / `break-before` | always · page · left · right · recto · verso | `BlockStyle.pageBreakBefore` |
+| `font-family` | 이름 목록(따옴표·쉼표) · inherit | 처음으로 **책에 든** 이름 → `TextStyle.face`. 없으면 0(본문 글꼴). 상속 |
+| `@font-face` | font-family · src `url()` (CSS 파일 기준) · font-weight · font-style | `BookFontTable`. 이름과 `url()` 을 따로 찾는다 — 세미콜론 빠진 규칙(삼체)도 산다. 여러 형식이면 ttf/otf 우선 |
 
 **셀렉터**: 타입 · 클래스 · ID · 후손 · 그룹. 표준 특이도(id 1,000,000 / 클래스 1,000 / 타입 1).
 `>` `+` `~` 는 **후손으로 낮추고**, 의사 클래스·속성 셀렉터는 떼어 내고 나머지로 맞힌다 —
@@ -398,7 +400,7 @@ R2 에서 구현·검증됨(`PageCodec`). 초안에서 두 가지가 바뀌었�
 **상속**: `text-align` · `text-indent` 와 인라인 서식은 상속, 좌우 여백은 누적.
 그 밖의 속성은 요소별로만 적용한다.
 
-**무시(경고 없이)**: `float` · `position` · `color`/`background` · `border` · `line-height`(사용자 설정이 맡는다) · `@media` · `@font-face` · `direction`(v2) · 표 고급 속성.
+**무시(경고 없이)**: `float` · `position` · `color`/`background` · `border` · `line-height`(사용자 설정이 맡는다) · `@media` · 챕터 안 `<style>` 의 `@font-face` · `direction`(v2) · 표 고급 속성.
 깨진 CSS(닫히지 않은 주석·블록, 값 없는 선언, 모르는 단위)는 그 부분만 버리고 계속 읽는다.
 
 **알려진 한계**

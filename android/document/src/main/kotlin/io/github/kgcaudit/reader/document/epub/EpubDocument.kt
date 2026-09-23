@@ -57,6 +57,25 @@ class EpubDocument private constructor(
         return zip.openStream(Hrefs.resolve(Hrefs.dirOf(chapter.href), href))
     }
 
+    override suspend fun stylesheets(): List<String> =
+        opf.manifestById.values.filter { it.mediaType.equals("text/css", ignoreCase = true) }.map { it.href }.sorted()
+
+    override fun resolveHref(fromPath: String, href: String): String = Hrefs.resolve(Hrefs.dirOf(fromPath), href)
+
+    /** 난독화된 글꼴 목록(경로 → 방식). 책마다 한 번 읽는다. 없거나 깨졌으면 비어 있다. */
+    private val obfuscated: Map<String, FontObfuscation.Method> by lazy {
+        runCatching { zip.readBytes(FontObfuscation.ENCRYPTION_PATH)?.let(FontObfuscation::parse) }.getOrNull().orEmpty()
+    }
+
+    override suspend fun openFont(path: String): InputStream? {
+        val stream = zip.openStream(path) ?: return null
+        val method = obfuscated[path] ?: return stream
+        val key = FontObfuscation.key(method, opf.uniqueIdentifier ?: opf.identifier)
+        // 열쇠를 못 만들면(식별자가 없음) 뒤섞인 채로 돌려준다. 받는 쪽이 "읽을 수 없는 글꼴" 로
+        // 알아서 기본 글꼴을 쓴다 — 책은 열린다.
+        return if (key == null) stream else FontObfuscation.Deobfuscating(stream, key, method.headerBytes)
+    }
+
     /** 표지 이미지. 없으면 null. */
     fun openCoverImage(): InputStream? = opf.coverImageItem?.href?.let(zip::openStream)
 

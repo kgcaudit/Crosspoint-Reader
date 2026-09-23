@@ -23,6 +23,13 @@ class AndroidTextMeasurer(
     /** null 이면 굵게를 합성한다(굵은 파일이 없는 사용자 글꼴·시스템 명조). */
     private val bold: Typeface?,
     override val baseSizePx: Float,
+    /**
+     * 책 글꼴. null 이면 [TextStyle.face] 를 무시하고 모두 본문 글꼴로 잰다(출판사 글꼴을 끈 상태).
+     *
+     * 세로 지표(줄 높이·베이스라인)는 책 글꼴이 섞여도 **본문 글꼴 하나로** 정한다. 가족마다 따로
+     * 재면 제목 글꼴이 든 줄만 베이스라인이 달라져 줄 간격이 들쭉날쭉해진다.
+     */
+    private val book: BookTypefaces? = null,
 ) : TextMeasurer {
 
     init {
@@ -70,7 +77,7 @@ class AndroidTextMeasurer(
     private fun metrics(style: TextStyle): Metrics {
         // 밑줄·취소선·위첨자는 폭을 바꾸지 않으므로 키에서 뺀다. 넣으면 같은 Paint 가
         // 서식 조합 수만큼 복제된다.
-        val key = Key(style.bold, style.italic, style.sizeScale)
+        val key = Key(style.bold, style.italic, style.sizeScale, if (book != null) style.face else 0)
         return cache.getOrPut(key) { Metrics(newPaint(key)) }
     }
 
@@ -82,17 +89,23 @@ class AndroidTextMeasurer(
      */
     private fun newPaint(key: Key): TextPaint =
         TextPaint(PAINT_FLAGS).apply {
-            typeface = if (key.bold && bold != null) bold else regular
-            // 굵은 파일이 없으면 획을 두껍게 그린다. 합성 굵게는 폭을 조금 넓히므로 잴 때도
-            // 같은 플래그여야 한다 — 그래서 그리기와 재기가 같은 이 Paint 를 쓴다.
-            isFakeBoldText = key.bold && bold == null
+            val fromBook = if (key.face > 0) book?.select(key.face, key.bold) else null
+            if (fromBook != null) {
+                typeface = fromBook.first
+                isFakeBoldText = fromBook.second
+            } else {
+                typeface = if (key.bold && bold != null) bold else regular
+                // 굵은 파일이 없으면 획을 두껍게 그린다. 합성 굵게는 폭을 조금 넓히므로 잴 때도
+                // 같은 플래그여야 한다 — 그래서 그리기와 재기가 같은 이 Paint 를 쓴다.
+                isFakeBoldText = key.bold && bold == null
+            }
             textSize = baseSizePx * key.sizeScale
             // 한글 글꼴에는 기울임꼴이 없다. 기울이기는 폭을 바꾸지 않으므로 조판과
             // 무관하고, 그리는 쪽도 이 Paint 를 쓰니 같은 모양이 나온다.
             textSkewX = if (key.italic) ITALIC_SKEW else 0f
         }
 
-    private data class Key(val bold: Boolean, val italic: Boolean, val sizeScale: Float)
+    private data class Key(val bold: Boolean, val italic: Boolean, val sizeScale: Float, val face: Int)
 
     private class Metrics(val paint: TextPaint) {
         val sizePx: Float = paint.textSize
@@ -130,9 +143,11 @@ class AndroidTextMeasurer(
          * 갈라질 수 없다. 따로 넘기면 "설정은 고딕인데 명조로 잰 페이지가 고딕 캐시에
          * 들어가는" 일이 생긴다.
          */
-        fun forSpec(fonts: FontCatalog, spec: LayoutSpec): AndroidTextMeasurer {
+        fun forSpec(fonts: FontCatalog, spec: LayoutSpec, book: BookTypefaces? = null): AndroidTextMeasurer {
             val pair = fonts.resolve(spec.fontId)
-            return AndroidTextMeasurer(pair.regular, pair.bold, spec.baseSizePx)
+            // 설정이 책 글꼴을 끈 상태면 넘겨받아도 쓰지 않는다 — 캐시 키(useBookFonts)와 잰 글꼴이
+            // 갈라지지 않게 한다.
+            return AndroidTextMeasurer(pair.regular, pair.bold, spec.baseSizePx, book.takeIf { spec.useBookFonts })
         }
 
         internal fun glyphTopEm(typeface: Typeface): Float {

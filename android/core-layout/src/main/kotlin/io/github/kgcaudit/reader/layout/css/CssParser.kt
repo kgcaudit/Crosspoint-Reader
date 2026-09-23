@@ -20,6 +20,7 @@ object CssParser {
     fun parse(css: String): Stylesheet {
         val text = stripComments(css)
         val rules = ArrayList<CssRule>()
+        val fontFaces = ArrayList<CssFontFace>()
         var cursor = 0
         var order = 0
 
@@ -27,11 +28,18 @@ object CssParser {
             while (cursor < text.length && text[cursor].isWhitespace()) cursor++
             if (cursor >= text.length) break
 
-            // @media, @font-face 등은 통째로 건너뛴다(§8 무시 목록).
+            // @font-face 는 글꼴표로 모으고, @media 등 나머지는 통째로 건너뛴다(§8 무시 목록).
             // 앞의 공백을 먼저 넘기지 않으면 직전 규칙의 줄바꿈 때문에 이 검사가
             // 빗나가고, @media 가 선택자로 읽혀 안쪽 규칙이 통째로 망가진다.
             if (text[cursor] == '@') {
-                cursor = skipAtRule(text, cursor)
+                val end = skipAtRule(text, cursor)
+                if (text.startsWith("@font-face", cursor, ignoreCase = true)) {
+                    val open = text.indexOf('{', cursor)
+                    if (open in cursor until end) {
+                        fontFace(text.substring(open + 1, (end - 1).coerceAtLeast(open + 1)))?.let(fontFaces::add)
+                    }
+                }
+                cursor = end
                 continue
             }
 
@@ -52,7 +60,72 @@ object CssParser {
             }
             cursor = (braceClose + 1).coerceAtLeast(braceOpen + 1)
         }
-        return Stylesheet(rules)
+        return Stylesheet(rules, fontFaces)
+    }
+
+    /**
+     * `@font-face` 본문. 선언 단위로 쪼개지 않고 **이름과 `url(...)` 을 따로 찾는다.**
+     *
+     * 실제 책에 `font-family: "kofb2":src:url(../Fonts/KoPubBatangMedium.ttf);` 처럼 세미콜론을
+     * 빠뜨린 규칙이 있다. 선언 단위로 읽으면 이 글꼴이 통째로 사라져, 그 글꼴을 쓰는 문단만
+     * 기본 글꼴로 나온다. 브라우저도 버리는 규칙이지만 출판사의 의도는 분명하다.
+     */
+    private fun fontFace(body: String): CssFontFace? {
+        val familyAt = Regex("font-family\\s*:", RegexOption.IGNORE_CASE).find(body) ?: return null
+        val family = firstName(body.substring(familyAt.range.last + 1)) ?: return null
+        val urls = Regex("url\\(\\s*(['\"]?)(.*?)\\1\\s*\\)", RegexOption.IGNORE_CASE).findAll(body)
+            .map { it.groupValues[2].trim() }.filter { it.isNotEmpty() }.toList()
+        // src 에 여러 형식이 오면(woff2, woff, ttf) 안드로이드가 읽는 것을 고른다.
+        val src = urls.firstOrNull { it.substringBefore('?').substringAfterLast('.').lowercase() in READABLE_FONTS }
+            ?: urls.firstOrNull() ?: return null
+        val weight = Regex("font-weight\\s*:\\s*([a-z0-9]+)", RegexOption.IGNORE_CASE).find(body)?.groupValues?.get(1)?.lowercase()?.let {
+            when (it) {
+                "normal" -> 400
+                "bold" -> 700
+                else -> it.toIntOrNull()?.takeIf { w -> w in 1..1000 }
+            }
+        }
+        val italic = Regex("font-style\\s*:\\s*([a-z]+)", RegexOption.IGNORE_CASE).find(body)?.groupValues?.get(1)?.lowercase()?.let {
+            it == "italic" || it == "oblique"
+        }
+        return CssFontFace(family, src, weight, italic)
+    }
+
+    /** `"KoPub 바탕", serif` 에서 첫 이름. 따옴표가 없으면 쉼표·세미콜론·콜론까지. */
+    private fun firstName(value: String): String? {
+        val trimmed = value.trimStart()
+        if (trimmed.isEmpty()) return null
+        val quote = trimmed[0]
+        val name = if (quote == '"' || quote == '\'') {
+            val close = trimmed.indexOf(quote, 1)
+            if (close < 0) return null
+            trimmed.substring(1, close)
+        } else {
+            trimmed.takeWhile { it != ',' && it != ';' && it != ':' && it != '}' }
+        }
+        return name.trim().lowercase().takeIf { it.isNotEmpty() }
+    }
+
+    /** `font-family` 목록. `inherit` 류는 "정하지 않음"(null) 이다. 따옴표 안의 쉼표는 이름의 일부다. */
+    private fun fontFamilies(value: String): List<String>? {
+        if (value in setOf("inherit", "initial", "unset", "revert")) return null
+        val names = ArrayList<String>()
+        val current = StringBuilder()
+        var quote: Char? = null
+        fun flush() {
+            current.toString().trim().takeIf { it.isNotEmpty() }?.let(names::add)
+            current.setLength(0)
+        }
+        for (c in value) {
+            when {
+                quote != null -> if (c == quote) quote = null else current.append(c)
+                c == '"' || c == '\'' -> quote = c
+                c == ',' -> flush()
+                else -> current.append(c)
+            }
+        }
+        flush()
+        return names.takeIf { it.isNotEmpty() }
     }
 
     // ── 선언 ────────────────────────────────────────────────────────
@@ -84,6 +157,7 @@ object CssParser {
 
             "font-weight" -> CssDeclarations(bold = fontWeightIsBold(value))
             "font-size" -> CssDeclarations(fontSizeScale = fontSizeScale(value))
+            "font-family" -> CssDeclarations(fontFamilies = fontFamilies(value))
 
             // 여러 값이 한 줄에 겹쳐 올 수 있다: "underline line-through"
             "text-decoration", "text-decoration-line" -> CssDeclarations(
@@ -239,6 +313,8 @@ object CssParser {
     }
 
     private const val DEFAULT_FONT_PX = 16f
+
+    private val READABLE_FONTS = setOf("ttf", "otf", "ttc")
 
     private val KEYWORD_SIZES = mapOf(
         "xx-small" to 0.6f, "x-small" to 0.75f, "small" to 0.89f,

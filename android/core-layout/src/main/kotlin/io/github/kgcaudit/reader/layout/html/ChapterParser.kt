@@ -7,6 +7,7 @@ import io.github.kgcaudit.reader.layout.BlockStyle
 import io.github.kgcaudit.reader.layout.ImageSizing
 import io.github.kgcaudit.reader.layout.InlineRun
 import io.github.kgcaudit.reader.layout.TextStyle
+import io.github.kgcaudit.reader.layout.book.BookFontTable
 import io.github.kgcaudit.reader.layout.css.CssDeclarations
 import io.github.kgcaudit.reader.layout.css.CssLength
 import io.github.kgcaudit.reader.layout.css.CssParser
@@ -57,6 +58,8 @@ class ChapterParser(
     /** 책의 외부 CSS 를 합친 것. `<style>` 블록은 파싱 중에 여기에 덧붙는다. */
     private val publisherStyles: Stylesheet = Stylesheet.EMPTY,
     private val context: StyleContext = StyleContext(),
+    /** 책 글꼴표. [StyleContext.useBookFonts] 가 꺼져 있으면 쓰이지 않는다. */
+    private val fonts: BookFontTable = BookFontTable.EMPTY,
 ) {
 
     fun parse(xhtml: String): Chapter = parse(StringReader(xhtml))
@@ -65,7 +68,7 @@ class ChapterParser(
 
     private inner class Session {
 
-        private var resolver = StyleResolver(publisherStyles, context)
+        private var resolver = StyleResolver(publisherStyles, context, fonts)
         private var embedded = Stylesheet.EMPTY
 
         private val text = StringBuilder()
@@ -204,7 +207,7 @@ class ChapterParser(
         private fun adoptEmbeddedCss() {
             if (css.isBlank()) return
             embedded += CssParser.parse(css.toString())
-            resolver = StyleResolver(publisherStyles + embedded, context)
+            resolver = StyleResolver(publisherStyles + embedded, context, fonts)
             css.setLength(0)
         }
 

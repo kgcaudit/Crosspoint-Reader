@@ -99,6 +99,11 @@ data class CssDeclarations(
     val height: CssLength? = null,
     val maxWidth: CssLength? = null,
     val maxHeight: CssLength? = null,
+    /**
+     * `font-family` 의 후보들, 적힌 순서대로·소문자·따옴표 없이. 첫 번째로 **책에 들어 있는**
+     * 글꼴을 쓴다(브라우저와 같다). 빈 목록이 아니라 null 이 "정하지 않음" 이다.
+     */
+    val fontFamilies: List<String>? = null,
 ) {
     /** [other] 의 지정된 값으로 덮어쓴다. 지정되지 않은(null) 값은 이쪽 것을 남긴다. */
     fun mergedWith(other: CssDeclarations): CssDeclarations = CssDeclarations(
@@ -120,6 +125,7 @@ data class CssDeclarations(
         height = other.height ?: height,
         maxWidth = other.maxWidth ?: maxWidth,
         maxHeight = other.maxHeight ?: maxHeight,
+        fontFamilies = other.fontFamilies ?: fontFamilies,
     )
 
     val isEmpty: Boolean

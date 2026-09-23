@@ -4,6 +4,7 @@ import io.github.kgcaudit.reader.layout.BlockStyle
 import io.github.kgcaudit.reader.layout.LayoutSpec
 import io.github.kgcaudit.reader.layout.TextAlign
 import io.github.kgcaudit.reader.layout.TextStyle
+import io.github.kgcaudit.reader.layout.book.BookFontTable
 import io.github.kgcaudit.reader.layout.css.CssDeclarations
 import io.github.kgcaudit.reader.layout.css.CssLength
 import io.github.kgcaudit.reader.layout.css.CssParser
@@ -25,6 +26,8 @@ data class StyleContext(
     val defaultAlign: TextAlign = TextAlign.Justify,
     /** 출판사 CSS 를 따를지. 끄면 태그 기본값과 사용자 설정만 남는다. */
     val usePublisherStyles: Boolean = true,
+    /** 책 글꼴을 쓸지. 끄면 `font-family` 를 무시한다(모두 본문 글꼴). */
+    val useBookFonts: Boolean = false,
 ) {
     companion object {
         fun of(spec: LayoutSpec): StyleContext = StyleContext(
@@ -32,6 +35,7 @@ data class StyleContext(
             contentWidthPx = spec.contentWidthPx,
             defaultAlign = spec.align,
             usePublisherStyles = spec.usePublisherStyles,
+            useBookFonts = spec.useBookFonts,
         )
     }
 }
@@ -51,6 +55,8 @@ data class StyleContext(
 class StyleResolver(
     private val publisherStyles: Stylesheet = Stylesheet.EMPTY,
     private val context: StyleContext = StyleContext(),
+    /** 책 글꼴표. `font-family` 이름을 [TextStyle.face] 번호로 바꾼다. */
+    private val fonts: BookFontTable = BookFontTable.EMPTY,
 ) {
 
     private val author: Stylesheet =
@@ -78,7 +84,18 @@ class StyleResolver(
         underline = parent.underline || (declarations.underline ?: false),
         strikethrough = parent.strikethrough || (declarations.strikethrough ?: false),
         vertical = declarations.verticalAlign ?: parent.vertical,
+        face = face(parent.face, declarations.fontFamilies),
     )
+
+    /**
+     * `font-family` 가 가리키는 책 글꼴. 목록에서 **처음으로 책에 있는** 이름을 쓰고, 하나도 없으면
+     * 0(본문 글꼴)이다 — `font-family: serif` 는 부모의 출판사 글꼴을 끄고 본문 글꼴로 돌아가라는 뜻이다.
+     * 정하지 않았으면(null) 부모를 물려받는다(`font-family` 는 상속 속성).
+     */
+    private fun face(parent: Int, families: List<String>?): Int {
+        if (!context.useBookFonts || !context.usePublisherStyles) return 0
+        return if (families == null) parent else fonts.faceFor(families)
+    }
 
     /**
      * 블록에서 블록으로 **상속되는** 값들을 한 단계 내린다.

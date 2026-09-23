@@ -52,9 +52,16 @@ import kotlinx.coroutines.withContext
  * @param onFontsChanged 글꼴을 넣거나 뺐을 때. 같은 가족에 굵은 파일이 더해지면 설정 값은 그대로인데
  *   조판이 달라지므로(글꼴 ID 가 바뀐다) 화면이 글꼴 ID 를 다시 재게 해야 한다.
  */
+/** 이 책에 든 글꼴. [preview] 는 이름을 그릴 서체(아직 꺼내기 전이면 null). */
+internal class PublisherFonts(val preview: android.graphics.Typeface?)
+
+internal const val PUBLISHER_LABEL = "출판사 글꼴"
+
 @Composable
 internal fun FontsPanel(
     catalog: FontCatalog,
+    /** 책에 글꼴이 들어 있으면. 없는 책에서는 이 줄을 보이지 않는다(골라도 아무것도 바뀌지 않는다). */
+    publisher: PublisherFonts?,
     prefs: ReaderPrefs,
     onPrefsChange: (ReaderPrefs) -> Unit,
     onFontsChanged: () -> Unit,
@@ -65,7 +72,10 @@ internal fun FontsPanel(
     val scope = rememberCoroutineScope()
     var revision by remember { mutableStateOf(0) }
     val options = remember(revision) { catalog.options() }
-    val current = catalog.effectiveKey(prefs.font)
+    // 출판사 글꼴이 켜져 있으면 그 줄에만 불이 들어온다. 본문 글꼴 줄까지 켜 두면 "둘 다 쓰인다"
+    // 는 사실(책이 정하지 않은 곳은 본문 글꼴)이 오히려 "무엇을 골랐나" 를 흐린다.
+    val publisherOn = publisher != null && prefs.publisherFonts
+    val current = if (publisherOn) null else catalog.effectiveKey(prefs.font)
     var busy by remember { mutableStateOf(false) }
     var notice by remember { mutableStateOf<Pair<String, String>?>(null) }
     var removing by remember { mutableStateOf<FontOption?>(null) }
@@ -97,7 +107,7 @@ internal fun FontsPanel(
                 is ImportResult.Added -> {
                     changed()
                     // 넣은 글꼴로 바로 바꾼다. 넣고 나서 다시 찾아 누르게 하면 한 번 더 헤맨다.
-                    result.families.firstOrNull()?.let { onPrefsChange(prefs.copy(font = it.key)) }
+                    result.families.firstOrNull()?.let { onPrefsChange(prefs.copy(font = it.key, publisherFonts = false)) }
                     if (result.withoutHangul) {
                         notice = "한글이 없는 글꼴입니다" to "영문·숫자는 이 글꼴로, 한글은 휴대폰 글꼴로 보입니다."
                     }
@@ -118,9 +128,21 @@ internal fun FontsPanel(
         LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
             val system = options.filter { it.kind == FontOption.Kind.System }
             val user = options.filter { it.kind == FontOption.Kind.User }
+            if (publisher != null) {
+                item(key = "publisher") {
+                    val family = remember(publisher.preview) { publisher.preview?.let { FontFamily(it) } }
+                    CpRadioRow(
+                        title = PUBLISHER_LABEL,
+                        selected = publisherOn,
+                        onClick = { onPrefsChange(prefs.copy(publisherFonts = true)) },
+                        subtitle = "이 책에 든 글꼴 · 책이 정하지 않은 곳은 아래 고른 글꼴",
+                        titleStyle = if (family != null) CpTheme.type.body.copy(fontFamily = family) else CpTheme.type.body,
+                    )
+                }
+            }
             items(system, key = { it.key }) { option ->
                 FontRow(catalog, option, option.key == current, subtitle = systemNote(option)) {
-                    onPrefsChange(prefs.copy(font = option.key))
+                    onPrefsChange(prefs.copy(font = option.key, publisherFonts = false))
                 }
             }
             if (user.isNotEmpty()) item { CpSectionLabel("추가한 글꼴") }
@@ -131,7 +153,7 @@ internal fun FontsPanel(
                     option.key == current,
                     subtitle = if (option.hasHangul) null else "한글 없음 · 한글은 휴대폰 글꼴로 보입니다",
                     onRemove = { removing = option },
-                ) { onPrefsChange(prefs.copy(font = option.key)) }
+                ) { onPrefsChange(prefs.copy(font = option.key, publisherFonts = false)) }
             }
             if (catalog.user != null) {
                 item {

@@ -28,9 +28,11 @@ import java.io.InputStream
 class ChapterLoader(
     private val document: ReflowDocument,
     private val context: StyleContext = StyleContext(),
+    private val fonts: BookFontTable = BookFontTable.EMPTY,
 ) {
 
-    constructor(document: ReflowDocument, spec: LayoutSpec) : this(document, StyleContext.of(spec))
+    constructor(document: ReflowDocument, spec: LayoutSpec, fonts: BookFontTable = BookFontTable.EMPTY) :
+        this(document, StyleContext.of(spec), fonts)
 
     private val sheetCache = HashMap<String, Stylesheet>()
 
@@ -56,7 +58,7 @@ class ChapterLoader(
 
     private suspend fun loadXhtml(index: Int): Chapter {
         val sheet = stylesheetFor(index)
-        val chapter = document.openChapter(index).use { ChapterParser(sheet, context).parse(it) }
+        val chapter = document.openChapter(index).use { ChapterParser(sheet, context, fonts).parse(it) }
         return withImageSizes(index, chapter)
     }
 

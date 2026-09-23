@@ -60,6 +60,13 @@ data class LayoutSpec(
      * 손톱만 하게, SVG 표지가 화면 3분의 1 크기로 나온다.
      */
     val cssPxScale: Float = 1f,
+    /**
+     * 책에 든 글꼴(출판사 글꼴, CSS `@font-face`)로 조판할지.
+     *
+     * 끄면 모든 글자가 [fontId] 의 글꼴이다. 켜면 책이 `font-family` 로 지정한 곳만 책 글꼴이고
+     * 나머지는 [fontId] 다. 글꼴이 바뀌면 폭이 바뀌므로 캐시 키에 들어가야 한다.
+     */
+    val useBookFonts: Boolean = false,
 ) {
     init {
         require(viewportWidthPx > 0f && viewportHeightPx > 0f) { "viewport must be positive" }
@@ -91,6 +98,8 @@ data class LayoutSpec(
         append(paragraphIndentEm).append('|').append(paragraphSpacingEm).append('|')
         append(breakBetweenCjk).append('|').append(imagesEnabled).append('|')
         append(usePublisherStyles).append('|').append(fontId).append('|').append(cssPxScale)
+        // 끈 상태(기본)의 키는 예전과 같게 둔다. 안 그러면 책 글꼴 없는 책까지 한 번씩 다시 조판한다.
+        if (useBookFonts) append("|bookfonts")
     }
 
     companion object {

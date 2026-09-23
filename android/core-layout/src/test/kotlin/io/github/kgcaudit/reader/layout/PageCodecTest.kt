@@ -42,6 +42,11 @@ class PageCodecTest {
             TextStyle(vertical = VerticalAlign.Subscript),
             TextStyle(sizeScale = 1.5f),
             TextStyle(bold = true, italic = true, underline = true, strikethrough = true, sizeScale = 0.85f),
+            // 책 글꼴 번호. 빠지면 캐시에서 읽은 페이지가 출판사 글꼴 대신 본문 글꼴로 그려지고,
+            // 잰 폭과 그린 폭이 달라 줄 끝이 어긋난다.
+            TextStyle(face = 1),
+            TextStyle(face = 7, bold = true, italic = true),
+            TextStyle(face = 0xFFFF),
         )
         val page = Page(
             index = 0,

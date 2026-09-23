@@ -14,6 +14,13 @@ data class ReaderPrefs(
     /** 글꼴 키([io.github.kgcaudit.reader.text.FontOption.key]). null 은 "기기 기본" — 명조가 있으면 명조. */
     val font: String? = null,
     val lineSpacing: LineSpacing = LineSpacing.Normal,
+    /**
+     * 책에 든 글꼴(출판사 글꼴)을 쓸지. 켜 두면 글꼴이 든 책은 출판사가 정한 모양으로 열린다.
+     *
+     * 책마다가 아니라 **하나의 설정**이다. 다른 글꼴을 고른 사람은 출판사 글꼴이 싫은 것이라,
+     * 다음 책에서 또 출판사 글꼴이 나오면 매번 끄게 된다.
+     */
+    val publisherFonts: Boolean = true,
 ) {
     enum class LineSpacing(val multiplier: Float, val label: String) {
         Tight(1.4f, "좁게"),
@@ -45,6 +52,8 @@ fun ReaderPrefs.toSpec(
     pxPerDp: Float,
     /** [io.github.kgcaudit.reader.text.FontCatalog.layoutFontId] 의 값. 글자 폭 지문이 붙어 있다. */
     fontId: String,
+    /** 이 책에 글꼴이 있고 [ReaderPrefs.publisherFonts] 가 켜져 있으면 true. */
+    useBookFonts: Boolean = false,
 ): LayoutSpec = LayoutSpec(
     viewportWidthPx = widthPx,
     viewportHeightPx = heightPx,
@@ -56,4 +65,5 @@ fun ReaderPrefs.toSpec(
     paragraphSpacingEm = 0.25f,
     fontId = fontId,
     cssPxScale = pxPerDp,
+    useBookFonts = useBookFonts,
 )

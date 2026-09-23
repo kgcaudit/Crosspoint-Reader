@@ -15,6 +15,14 @@ data class TextStyle(
     val underline: Boolean = false,
     val strikethrough: Boolean = false,
     val vertical: VerticalAlign = VerticalAlign.Baseline,
+    /**
+     * 책 글꼴표([io.github.kgcaudit.reader.layout.book.BookFontTable])의 번호. 0 은 **사용자가 고른
+     * 본문 글꼴**이다.
+     *
+     * 이름이 아니라 번호인 이유: 페이지 캐시의 런 레코드가 고정 길이라 문자열을 넣을 수 없다.
+     * 번호는 책의 CSS 목록에서 정해지므로 어느 챕터부터 읽어도 같다.
+     */
+    val face: Int = 0,
 ) {
     companion object {
         val Default: TextStyle = TextStyle()

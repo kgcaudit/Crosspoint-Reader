@@ -124,14 +124,15 @@ fun ReaderScreen(
         val pxPerDp = density.density
         // 글꼴 ID 는 글자를 재서 만든다(지문). 설정이 바뀔 때만 다시 잰다.
         val fontId = remember(prefs.font, fontsRevision) { reader.fonts.layoutFontId(prefs.font) }
-        val spec = remember(widthPx, heightPx, margin, prefs, pxPerSp, pxPerDp, fontId) {
-            prefs.toSpec(widthPx, heightPx, margin, pxPerSp, pxPerDp, fontId)
+        val useBookFonts = prefs.publisherFonts && reader.hasBookFonts
+        val spec = remember(widthPx, heightPx, margin, prefs, pxPerSp, pxPerDp, fontId, useBookFonts) {
+            prefs.toSpec(widthPx, heightPx, margin, pxPerSp, pxPerDp, fontId, useBookFonts)
         }
         LaunchedEffect(spec) { runCatching { reader.layOut(spec) } }
 
         // 그리기 전용 측정기. 조판에 쓴 설정(state.spec)으로 만든다 — 새 설정으로 조판이
         // 끝나기 전까지는 옛 페이지를 옛 글꼴로 그려야 한다.
-        val painter = remember(state.spec) { state.spec?.let { AndroidTextMeasurer.forSpec(reader.fonts, it) } }
+        val painter = remember(state.spec) { state.spec?.let(reader::measurer) }
         val images = remember(state.page) { mutableStateMapOf<PlacedImage, ImageBitmap>() }
         LaunchedEffect(state.page) {
             val page = state.page ?: return@LaunchedEffect
@@ -196,6 +197,7 @@ fun ReaderScreen(
             )
             Panel.Fonts -> FontsPanel(
                 catalog = reader.fonts,
+                publisher = if (reader.hasBookFonts) PublisherFonts(reader.bookFontPreview) else null,
                 prefs = prefs,
                 onPrefsChange = onPrefsChange,
                 onFontsChanged = { fontsRevision++ },
@@ -276,7 +278,7 @@ private fun ReaderBar(
                 .windowInsetsPadding(WindowInsets.navigationBars),
         ) {
             if (showView) {
-                ViewSettings(reader.fonts, prefs, onPrefsChange, onFonts = { onPanel(Panel.Fonts) })
+                ViewSettings(reader, prefs, onPrefsChange, onFonts = { onPanel(Panel.Fonts) })
                 Spacer(Modifier.height(4.dp))
             }
             val shown = dragging ?: (state.percent / 100f)
@@ -410,13 +412,18 @@ private fun BookmarkList(marks: List<Bookmark>?, onOpen: (Bookmark) -> Unit, onR
 }
 
 @Composable
-private fun ViewSettings(catalog: FontCatalog, prefs: ReaderPrefs, onChange: (ReaderPrefs) -> Unit, onFonts: () -> Unit) {
+private fun ViewSettings(reader: BookReader, prefs: ReaderPrefs, onChange: (ReaderPrefs) -> Unit, onFonts: () -> Unit) {
+    val catalog = reader.fonts
     Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
         CpStepper("글자 크기", "${prefs.fontSizeSp}", { onChange(prefs.withSize(-1)) }, { onChange(prefs.withSize(+1)) })
         // 고른 값이 목록에 없으면(지운 사용자 글꼴, 명조가 없는 기기로 옮긴 설정) 실제로 쓰이는
         // 글꼴 이름을 보인다. 사용자 글꼴이 몇 개일지 모르므로 단추를 늘어놓지 않고 목록을 연다.
         val current = catalog.effectiveKey(prefs.font)
-        val label = catalog.options().firstOrNull { it.key == current }?.label.orEmpty()
+        val label = if (prefs.publisherFonts && reader.hasBookFonts) {
+            PUBLISHER_LABEL
+        } else {
+            catalog.options().firstOrNull { it.key == current }?.label.orEmpty()
+        }
         CpLinkRow("글꼴", label, onFonts)
         val spacings = ReaderPrefs.LineSpacing.entries
         CpChoice("줄 간격", spacings.map { it.label }, spacings.indexOf(prefs.lineSpacing), {

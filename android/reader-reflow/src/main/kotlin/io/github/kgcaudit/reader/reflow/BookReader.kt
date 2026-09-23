@@ -17,7 +17,10 @@ import io.github.kgcaudit.reader.layout.book.ReadingPosition
 import io.github.kgcaudit.reader.layout.book.ReadingSession
 import io.github.kgcaudit.reader.layout.cache.PageStore
 import io.github.kgcaudit.reader.text.AndroidTextMeasurer
+import io.github.kgcaudit.reader.text.BookTypefaces
 import io.github.kgcaudit.reader.text.FontCatalog
+import io.github.kgcaudit.reader.layout.book.BookFontTable
+import java.io.File
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -56,6 +59,10 @@ class BookReader(
     /** 본문 글꼴 목록. 화면이 설정 목록과 그리기 측정기를 만들 때도 같은 것을 쓴다. */
     val fonts: FontCatalog,
     val document: ReflowDocument,
+    /** 책에 든 글꼴의 목록. 조판(글꼴 번호)과 측정기(서체)가 같은 표를 봐야 한다. */
+    private val bookFonts: BookFontTable = BookFontTable.EMPTY,
+    /** 책 글꼴을 꺼내 둘 곳. null 이면 책 글꼴을 쓰지 않는다. */
+    private val bookFontsDir: File? = null,
     private val store: PageStore,
     private val bookmarkRepository: BookmarkRepository,
     private val progressRepository: ProgressRepository,
@@ -73,6 +80,22 @@ class BookReader(
 
     val title: String get() = document.meta.title
 
+    /** 책에 글꼴이 들어 있다. 글꼴 목록에 "출판사 글꼴" 을 내놓는다. */
+    val hasBookFonts: Boolean get() = !bookFonts.isEmpty && bookFontsDir != null
+
+    /** 꺼내 읽은 책 글꼴. 처음으로 책 글꼴로 조판할 때 준비한다. */
+    @Volatile
+    private var typefaces: BookTypefaces? = null
+
+    /** "출판사 글꼴" 이름을 그릴 서체. 아직 준비 전이면 null. */
+    val bookFontPreview: android.graphics.Typeface? get() = typefaces?.preview
+
+    /**
+     * [spec] 으로 재고 그리는 측정기. 조판과 그리기가 **같은 서체**를 쓰게 하는 유일한 길이다 —
+     * 따로 만들면 책 글꼴로 잰 줄을 본문 글꼴로 그려 줄 끝이 어긋난다.
+     */
+    fun measurer(spec: LayoutSpec): AndroidTextMeasurer = AndroidTextMeasurer.forSpec(fonts, spec, typefaces)
+
     /**
      * 조판 설정을 정한다(처음 열 때, 화면 크기나 보기 설정이 바뀔 때).
      *
@@ -84,7 +107,13 @@ class BookReader(
         val anchor = currentLocator()
         _state.value = _state.value.copy(busy = _state.value.page == null)
 
-        val built = BookLayout(document, newSpec, store, AndroidTextMeasurer.forSpec(fonts, newSpec))
+        if (newSpec.useBookFonts && typefaces == null && bookFontsDir != null) {
+            // 처음 한 번. 수 MB 짜리 글꼴을 꺼내므로 입출력 스레드에서 한다.
+            typefaces = withContext(Dispatchers.IO) {
+                runCatching { BookTypefaces.prepare(document, bookFonts, bookFontsDir) }.getOrDefault(BookTypefaces.EMPTY)
+            }
+        }
+        val built = BookLayout(document, newSpec, store, measurer(newSpec), fonts = bookFonts)
         val newSession = ReadingSession(built, bookmarkRepository, progressRepository)
         layout = built
         session = newSession

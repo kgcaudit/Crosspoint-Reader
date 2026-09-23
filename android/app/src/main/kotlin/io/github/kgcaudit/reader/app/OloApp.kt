@@ -10,6 +10,7 @@ import io.github.kgcaudit.reader.document.BookId
 import io.github.kgcaudit.reader.document.ReflowDocument
 import io.github.kgcaudit.reader.document.TxtDocument
 import io.github.kgcaudit.reader.document.epub.EpubDocument
+import io.github.kgcaudit.reader.layout.book.BookFontTable
 import io.github.kgcaudit.reader.layout.cache.PageStore
 import io.github.kgcaudit.reader.reflow.BookReader
 import io.github.kgcaudit.reader.reflow.ReaderPrefs
@@ -53,7 +54,7 @@ class AppContainer(private val app: Application) {
             data.library.updateMetadata(book.id, document.meta.title, document.meta.author)
         }
         data.library.markOpened(book.id, System.currentTimeMillis())
-        BookReader(fonts, document, pages, data.bookmarks, data.progress)
+        reader(document)
     }
 
     /**
@@ -69,7 +70,34 @@ class AppContainer(private val app: Application) {
                 .onFailure { android.util.Log.w("OloApp", "library copy of ${file.displayName} did not open", it) }
         }
         val id = BookId(file.uri.toString())
-        BookReader(fonts, read(id, file.displayName, file.format, file.uri), pages, data.bookmarks, data.progress)
+        reader(read(id, file.displayName, file.format, file.uri))
+    }
+
+    /**
+     * 책 글꼴표를 읽어 리더를 만든다. 글꼴은 여기서 꺼내지 않는다 — 출판사 글꼴을 끈 사람에게
+     * 수십 MB 를 풀 이유가 없다. 처음으로 책 글꼴로 조판할 때 꺼낸다.
+     */
+    private suspend fun reader(document: ReflowDocument): BookReader {
+        val table = runCatching { BookFontTable.load(document) }.getOrDefault(BookFontTable.EMPTY)
+        return BookReader(
+            fonts = fonts,
+            document = document,
+            bookFonts = table,
+            bookFontsDir = bookFontsDir(document.meta.id),
+            store = pages,
+            bookmarkRepository = data.bookmarks,
+            progressRepository = data.progress,
+        )
+    }
+
+    /**
+     * 책마다 글꼴을 꺼내 둘 곳. 캐시 영역이다 — 지워져도 다시 꺼내면 되고, 공간이 모자랄 때
+     * 시스템이 가장 먼저 비울 수 있어야 한다.
+     */
+    private fun bookFontsDir(id: BookId): File {
+        val hash = java.security.MessageDigest.getInstance("SHA-1").digest(id.value.toByteArray())
+            .joinToString("") { "%02x".format(it) }.take(16)
+        return File(app.cacheDir, "book-fonts/$hash")
     }
 
     private fun read(id: BookId, name: String, format: BookFormat, uri: Uri): ReflowDocument = when (format) {
@@ -111,6 +139,7 @@ class PrefsStore(context: Context) {
         font = migrateFont(sp.getString(KEY_FONT, null)),
         lineSpacing = ReaderPrefs.LineSpacing.entries.firstOrNull { it.name == sp.getString(KEY_SPACING, null) }
             ?: ReaderPrefs.LineSpacing.Normal,
+        publisherFonts = sp.getBoolean(KEY_PUBLISHER_FONTS, true),
     )
 
     fun save(prefs: ReaderPrefs) {
@@ -118,6 +147,7 @@ class PrefsStore(context: Context) {
             .putInt(KEY_SIZE, prefs.fontSizeSp)
             .putString(KEY_FONT, prefs.font)
             .putString(KEY_SPACING, prefs.lineSpacing.name)
+            .putBoolean(KEY_PUBLISHER_FONTS, prefs.publisherFonts)
             .apply()
     }
 
@@ -136,5 +166,6 @@ class PrefsStore(context: Context) {
         private const val KEY_SIZE = "fontSizeSp"
         private const val KEY_FONT = "font"
         private const val KEY_SPACING = "lineSpacing"
+        private const val KEY_PUBLISHER_FONTS = "publisherFonts"
     }
 }
