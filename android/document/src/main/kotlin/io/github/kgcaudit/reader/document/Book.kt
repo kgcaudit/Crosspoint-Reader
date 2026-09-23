@@ -52,9 +52,17 @@ data class SpineItem(
     val sizeBytes: Long = 0,
 )
 
-/** 목차 한 줄. [locator]로 바로 이동할 수 있어야 한다. */
+/**
+ * 목차 한 줄. [locator]로 바로 이동할 수 있어야 한다.
+ *
+ * @param anchor 챕터 안 특정 지점을 가리키는 항목의 앵커 id(`ch1.xhtml#s2` 의 `s2`).
+ *   [locator]는 챕터 시작을 가리키고, 앵커가 실제 글자 오프셋으로 좁혀지는 것은 그
+ *   챕터가 조판된 뒤다 — 앵커가 몇 번째 글자인지는 조판 전에 알 수 없다. 조판
+ *   단계가 이 값을 소비해 위치를 보정한다.
+ */
 data class TocEntry(
     val label: String,
     val locator: Locator,
     val depth: Int = 0,
+    val anchor: String? = null,
 )
