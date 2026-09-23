@@ -147,7 +147,12 @@ $gradlew = Join-Path $PSScriptRoot 'gradlew.bat'
 $logFile = Join-Path $env:TEMP 'reader-gradle.log'
 
 function Invoke-Checks {
-    & $gradlew ':document:check' ':core-layout:check' 2>&1 | Tee-Object -FilePath $logFile
+    # Out-Host 가 반드시 있어야 한다. 없으면 Gradle 출력이 함수의 **반환값**에 섞여
+    # 들어가 화면에 아무것도 안 나오고, 호출부가 받는 것도 오염된다.
+    & $gradlew ':document:check' ':core-layout:check' 2>&1 |
+        Tee-Object -FilePath $logFile |
+        Out-Host
+
     $code = $LASTEXITCODE
     $log = ''
     if (Test-Path -LiteralPath $logFile) {
@@ -156,24 +161,53 @@ function Invoke-Checks {
     return @{ Code = $code; Log = $log }
 }
 
+function Clear-GradleCaches {
+    & $gradlew '--stop' 2>&1 | Out-Null
+    $pattern = Join-Path $env:GRADLE_USER_HOME 'caches\*\transforms'
+    foreach ($cache in (Resolve-Path $pattern -ErrorAction SilentlyContinue)) {
+        Remove-Item -LiteralPath $cache.Path -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Test-WorkspaceFailure($Result) {
+    return ($Result.Code -ne 0 -and $Result.Log -match 'Could not move temporary workspace')
+}
+
+if (-not $env:GRADLE_USER_HOME) {
+    $env:GRADLE_USER_HOME = Join-Path $env:USERPROFILE '.gradle'
+}
+Write-Host (' Gradle home : ' + $env:GRADLE_USER_HOME)
+Write-Host ''
+
 $result = Invoke-Checks
 
 # Gradle 이 임시 폴더를 최종 위치로 옮기지 못하는 경우가 Windows 에서 종종 있다.
-# 이전 실행이 중간에 죽어 캐시가 반쯤 남았거나, 보안 소프트웨어가 갓 만들어진
-# 파일을 검사하며 잠그고 있을 때다. 캐시를 지우고 한 번만 다시 시도한다 —
-# 사용자가 원인을 짐작하기 어려운 오류라 여기서 자동으로 푸는 편이 낫다.
-if ($result.Code -ne 0 -and $result.Log -match 'Could not move temporary workspace') {
+# 이전 실행이 중간에 죽어 캐시가 반쯤 남았거나, 보안 소프트웨어가 갓 만들어진 파일을
+# 검사하며 잠그고 있을 때다. 캐시를 지우고 다시 시도한다.
+if (Test-WorkspaceFailure $result) {
     Write-Host ''
-    Write-Host ' Gradle 캐시가 꼬였습니다. 정리하고 한 번 다시 시도합니다...'
+    Write-Host ' Gradle 캐시가 꼬였습니다. 정리하고 다시 시도합니다...'
     Write-Host ''
-
-    & $gradlew '--stop' 2>&1 | Out-Null
-
-    foreach ($cache in (Resolve-Path (Join-Path $env:USERPROFILE '.gradle\caches\*\transforms') -ErrorAction SilentlyContinue)) {
-        Remove-Item -LiteralPath $cache.Path -Recurse -Force -ErrorAction SilentlyContinue
-    }
-
+    Clear-GradleCaches
     $result = Invoke-Checks
+}
+
+# 그래도 같은 오류면 폴더 자체가 문제다. 사용자 프로필은 백업·동기화·보안 에이전트가
+# 집중적으로 건드리는 곳이라 파일이 사라지거나 잠기기 쉽다. LocalAppData 는 로밍·
+# 폴더 리디렉션 대상이 아니라 그런 간섭이 덜하므로, 거기로 옮겨 한 번 더 시도한다.
+# 처음부터 다시 내려받으므로 몇 분 걸린다.
+if (Test-WorkspaceFailure $result) {
+    $fallbackHome = Join-Path $env:LOCALAPPDATA 'GradleHome'
+    if ($env:GRADLE_USER_HOME -ne $fallbackHome) {
+        Write-Host ''
+        Write-Host ' 같은 오류가 반복됩니다. Gradle 폴더를 옮겨 다시 시도합니다:'
+        Write-Host ('   ' + $fallbackHome)
+        Write-Host ' 처음부터 다시 내려받으므로 몇 분 걸립니다.'
+        Write-Host ''
+        New-Item -ItemType Directory -Path $fallbackHome -Force -ErrorAction SilentlyContinue | Out-Null
+        $env:GRADLE_USER_HOME = $fallbackHome
+        $result = Invoke-Checks
+    }
 }
 
 $exitCode = $result.Code
@@ -195,10 +229,10 @@ if ($exitCode -eq 0) {
     Write-Host ' docs\LOCAL_SETUP.md 6장에 흔한 증상별 해결이 있습니다.'
     if ($result.Log -match 'Could not move temporary workspace') {
         Write-Host ''
-        Write-Host ' 캐시를 지우고 다시 시도했는데도 같은 오류가 납니다.'
-        Write-Host ' 보안 소프트웨어가 아래 폴더를 검사하며 잠그고 있을 가능성이 큽니다.'
-        Write-Host ' 사내 IT 에 이 폴더의 실시간 검사 제외를 요청해 보세요:'
-        Write-Host ('   ' + (Join-Path $env:USERPROFILE '.gradle'))
+        Write-Host ' 캐시 정리와 폴더 이동을 모두 시도했는데도 같은 오류가 납니다.'
+        Write-Host ' 보안 소프트웨어가 Gradle 이 만드는 파일을 잠그거나 지우고 있습니다.'
+        Write-Host ' 사내 IT 에 아래 폴더의 실시간 검사 제외를 요청해 주세요:'
+        Write-Host ('   ' + $env:GRADLE_USER_HOME)
     }
     Write-Host '================================================'
 }
