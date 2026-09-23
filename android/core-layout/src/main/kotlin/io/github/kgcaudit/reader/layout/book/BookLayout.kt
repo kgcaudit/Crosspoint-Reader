@@ -1,5 +1,6 @@
 package io.github.kgcaudit.reader.layout.book
 
+import io.github.kgcaudit.reader.document.BookId
 import io.github.kgcaudit.reader.document.Locator
 import io.github.kgcaudit.reader.document.ReflowDocument
 import io.github.kgcaudit.reader.document.SpineItem
@@ -38,6 +39,9 @@ class BookLayout(
     private val measurer: TextMeasurer,
     styleContext: StyleContext = StyleContext.of(spec),
 ) {
+
+    /** 이 책의 식별자. 책갈피·진도가 같은 값을 쓰도록 여기서 한 번만 꺼낸다. */
+    val bookId: BookId get() = document.meta.id
 
     private val loader = ChapterLoader(document, styleContext)
     private var spineCache: List<SpineItem>? = null
