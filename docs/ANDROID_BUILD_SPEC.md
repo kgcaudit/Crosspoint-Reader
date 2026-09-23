@@ -271,7 +271,7 @@ rev.1 대비: 쓸 수 있는 앱이 **10주 → 2주**, 1차 배포 **10주 → 
 | `BookLayout` (페이지 이동 · 위치 복원 · 진도) | `:core-layout` | **완료** |
 | `ReadingSession` (책갈피 · 이어읽기) | `:core-layout` | **완료** · 합계 211 테스트 |
 | 책갈피·진도 보관소 **인터페이스** | `:document` | **완료** (구현은 `:data`) |
-| `TextMeasurer` 안드로이드 구현 (`Paint`) | `:text-platform` | 미착수 |
+| `TextMeasurer` 안드로이드 구현 (`Paint`) · 번들 글꼴 (B2) | `:text-platform` | **완료** · 12 테스트 (Robolectric 네이티브 그래픽스) |
 | SAF 폴더 스캔 · Room 구현 | `:data` | 미착수 |
 | PDF 렌더 (`PdfRenderer`) | `:reader-pdf` | 미착수 (결정 P1) |
 | GUI 컴포넌트 · 라이브러리·리더 화면 | `:ui-design` `:ui` `:app` | 미착수 |
@@ -289,8 +289,9 @@ rev.1 대비: 쓸 수 있는 앱이 **10주 → 2주**, 1차 배포 **10주 → 
 ## 6.6 작업 환경 제약 (클라우드 세션)
 
 > **해결됨(조건부)**: 클라우드 환경의 **Network access** 를 넓히면(또는 허용 도메인에
-> `dl.google.com` 을 추가하면) SDK 를 받을 수 있다. 기본 정책에서는 아래와 같이 막힌다.
-> 인계와 다음 단계는 `docs/HANDOFF.md` 를 본다.
+> `dl.google.com` 을 추가하면) SDK 를 받을 수 있다. 2026-09-23 세션에서 그렇게 열어
+> `:text-platform` 을 붙였다(설치 순서와 Maven Central 429 우회는 `docs/HANDOFF.md` §2).
+> 기본 정책에서는 아래와 같이 막힌다.
 
 기본 네트워크 정책의 클라우드 세션은 **`dl.google.com` 에 나갈 수 없다**(프록시가
 CONNECT 를 403 으로 막는다). 그래서 세션 안에서는

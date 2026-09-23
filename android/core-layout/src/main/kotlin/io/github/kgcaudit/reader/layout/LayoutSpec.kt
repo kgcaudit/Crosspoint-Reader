@@ -41,6 +41,17 @@ data class LayoutSpec(
      * 조판 결과가 통째로 달라진다 — 그래서 여기(캐시 키 안)에 있어야 한다.
      */
     val usePublisherStyles: Boolean = true,
+    /**
+     * 측정기가 쓰는 글꼴의 식별자.
+     *
+     * 코어는 이 값의 뜻을 모른다 — 글꼴을 고르는 것은 플랫폼 쪽 [TextMeasurer] 의 일이다.
+     * 그래도 여기 있어야 하는 이유: 글꼴을 바꾸면 글자 폭이 달라져 페이지 경계가 전부
+     * 움직이는데, 캐시 키에 글꼴이 없으면 바탕으로 잰 페이지를 고딕으로 그리게 된다.
+     * 증상은 "줄 끝이 지면을 넘거나 오른쪽이 들쭉날쭉하다" 로 나타난다.
+     *
+     * 폰트 파일을 바꿀 때도 이 값을 바꿔야 한다(같은 이름이라도 폭이 다르다).
+     */
+    val fontId: String = DEFAULT_FONT_ID,
 ) {
     init {
         require(viewportWidthPx > 0f && viewportHeightPx > 0f) { "viewport must be positive" }
@@ -70,11 +81,14 @@ data class LayoutSpec(
         append(align.name).append('|')
         append(paragraphIndentEm).append('|').append(paragraphSpacingEm).append('|')
         append(breakBetweenCjk).append('|').append(imagesEnabled).append('|')
-        append(usePublisherStyles)
+        append(usePublisherStyles).append('|').append(fontId)
     }
 
-    private companion object {
-        fun fnv1a(text: String): String {
+    companion object {
+        /** 글꼴을 따로 정하지 않았을 때. 테스트의 가짜 측정기가 이 값으로 돈다. */
+        const val DEFAULT_FONT_ID: String = "default"
+
+        private fun fnv1a(text: String): String {
             var hash = -0x340d631b7bdddcdbL // 14695981039346656037 (FNV offset basis)
             for (ch in text) {
                 hash = hash xor ch.code.toLong()

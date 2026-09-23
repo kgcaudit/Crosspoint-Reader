@@ -22,7 +22,7 @@ SDK가 있으면 `ANDROID_HOME` 환경변수나 `local.properties` 의 `sdk.dir`
 | `:document` | **순수 Kotlin** — 위치 모델 · 포맷 감지 · Document 계약 | R1 진행 중 |
 | `:core-layout` | **순수 Kotlin** — 블록 모델 · 조판 · 페이지 캐시 | R2 |
 | `:data` | Room · DataStore · SAF · 캐시 I/O | R1 |
-| `:text-platform` | `TextMeasurer` · `PlatformLineBreaker` | R2 |
+| `:text-platform` | `AndroidTextMeasurer`(`Paint`) · 번들 글꼴(KoPubWorld 바탕 · Pretendard) | **완료** |
 | `:reader-reflow` | EPUB·TXT 리더 · Canvas 그리기 | R2 |
 | `:reader-pdf` | PDF 리더 · `PdfRenderer` · 타일 줌 | R1 |
 | `:ui-design` | CpTheme 토큰 + 컴포넌트 | R1 |
