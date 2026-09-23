@@ -33,6 +33,14 @@ data class LayoutSpec(
     val paragraphSpacingEm: Float = 0f,
     val breakBetweenCjk: Boolean = true,
     val imagesEnabled: Boolean = true,
+    /**
+     * 출판사 CSS 를 따를지 여부.
+     *
+     * 끄면 책이 지정한 정렬·들여쓰기·여백·글자 크기를 무시하고 사용자 설정으로만
+     * 조판한다. 서식이 제각각인 책들을 한 모양으로 읽고 싶을 때 쓰는 흔한 기능이라
+     * 조판 결과가 통째로 달라진다 — 그래서 여기(캐시 키 안)에 있어야 한다.
+     */
+    val usePublisherStyles: Boolean = true,
 ) {
     init {
         require(viewportWidthPx > 0f && viewportHeightPx > 0f) { "viewport must be positive" }
@@ -61,7 +69,8 @@ data class LayoutSpec(
         append(baseSizePx).append('|').append(lineHeightMultiplier).append('|')
         append(align.name).append('|')
         append(paragraphIndentEm).append('|').append(paragraphSpacingEm).append('|')
-        append(breakBetweenCjk).append('|').append(imagesEnabled)
+        append(breakBetweenCjk).append('|').append(imagesEnabled).append('|')
+        append(usePublisherStyles)
     }
 
     private companion object {

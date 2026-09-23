@@ -40,13 +40,27 @@ enum class TextAlign {
  */
 data class BlockStyle(
     val align: TextAlign = TextAlign.Start,
-    /** 첫 줄 들여쓰기. 음수면 내어쓰기. */
-    val firstLineIndentEm: Float = 0f,
+    /**
+     * 첫 줄 들여쓰기(em). 음수면 내어쓰기.
+     *
+     * null 은 **"정해지지 않음"** 이고 0 과 다르다. null 이면 사용자 설정
+     * (`LayoutSpec.paragraphIndentEm`)을 쓰고, 0 이면 책이 `text-indent: 0` 으로
+     * 들여쓰기를 끈 것이므로 사용자 설정도 적용하지 않는다 — 인용문·목록·제목이
+     * 그렇다.
+     */
+    val firstLineIndentEm: Float? = null,
     val marginTopEm: Float = 0f,
     val marginBottomEm: Float = 0f,
     /** 좌우 들여쓰기(인용문·목록). 글의 방향 기준. */
     val indentStartEm: Float = 0f,
     val indentEndEm: Float = 0f,
+    /**
+     * 이 블록 앞에서 페이지를 강제로 넘긴다(`page-break-before`).
+     *
+     * 한 파일 안에 여러 절이 들어 있는 책에서 절 제목이 앞 절 끝에 붙어 버리는 걸
+     * 막는다 — EPUB 이 이 속성으로 표현하는 의도가 그것뿐이다.
+     */
+    val pageBreakBefore: Boolean = false,
 ) {
     companion object {
         val Default: BlockStyle = BlockStyle()

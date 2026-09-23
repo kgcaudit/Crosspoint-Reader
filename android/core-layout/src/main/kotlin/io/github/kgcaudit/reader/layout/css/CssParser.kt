@@ -1,6 +1,7 @@
 package io.github.kgcaudit.reader.layout.css
 
 import io.github.kgcaudit.reader.layout.TextAlign
+import io.github.kgcaudit.reader.layout.VerticalAlign
 
 /**
  * EPUB 용 CSS 파서.
@@ -89,6 +90,15 @@ object CssParser {
                 underline = value.contains("underline"),
                 strikethrough = value.contains("line-through"),
             )
+
+            // sup·sub 는 태그로도 알 수 있지만, CSS 로 같은 효과를 내는 책이 흔하다.
+            // 한 곳에서 해석해야 두 경로가 갈라지지 않는다.
+            "vertical-align" -> when (value) {
+                "super" -> CssDeclarations(verticalAlign = VerticalAlign.Superscript)
+                "sub" -> CssDeclarations(verticalAlign = VerticalAlign.Subscript)
+                "baseline" -> CssDeclarations(verticalAlign = VerticalAlign.Baseline)
+                else -> CssDeclarations.EMPTY
+            }
 
             "margin" -> shorthandMargins(value)
             "margin-top" -> CssDeclarations(marginTop = CssLength.parse(value))

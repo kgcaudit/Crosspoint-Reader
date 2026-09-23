@@ -1,6 +1,7 @@
 package io.github.kgcaudit.reader.layout.css
 
 import io.github.kgcaudit.reader.layout.TextAlign
+import io.github.kgcaudit.reader.layout.VerticalAlign
 
 enum class CssUnit { Em, Rem, Px, Pt, Percent }
 
@@ -81,6 +82,7 @@ data class CssDeclarations(
     val fontSizeScale: Float? = null,
     val underline: Boolean? = null,
     val strikethrough: Boolean? = null,
+    val verticalAlign: VerticalAlign? = null,
     val marginTop: CssLength? = null,
     val marginBottom: CssLength? = null,
     val marginLeft: CssLength? = null,
@@ -97,6 +99,7 @@ data class CssDeclarations(
         fontSizeScale = other.fontSizeScale ?: fontSizeScale,
         underline = other.underline ?: underline,
         strikethrough = other.strikethrough ?: strikethrough,
+        verticalAlign = other.verticalAlign ?: verticalAlign,
         marginTop = other.marginTop ?: marginTop,
         marginBottom = other.marginBottom ?: marginBottom,
         marginLeft = other.marginLeft ?: marginLeft,

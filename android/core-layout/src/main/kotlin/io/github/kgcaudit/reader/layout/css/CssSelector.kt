@@ -155,6 +155,18 @@ data class CssRule(
  */
 class Stylesheet(val rules: List<CssRule>) {
 
+    /**
+     * 두 스타일시트를 문서 순서대로 잇는다. 한 챕터가 외부 CSS 여러 개와 `<style>`
+     * 블록을 함께 쓰는 일이 흔한데, 그냥 합치면 각자 0부터 매긴 순서가 겹쳐
+     * 나중 시트가 앞 시트에 지는 일이 생긴다. 순서를 다시 매겨 그걸 막는다.
+     */
+    operator fun plus(other: Stylesheet): Stylesheet {
+        if (other.rules.isEmpty()) return this
+        if (rules.isEmpty()) return other
+        val base = rules.size
+        return Stylesheet(rules + other.rules.map { it.copy(order = base + it.order) })
+    }
+
     fun declarationsFor(stack: List<ElementInfo>): CssDeclarations {
         val matched = rules.filter { it.selector.matches(stack) }
         if (matched.isEmpty()) return CssDeclarations.EMPTY

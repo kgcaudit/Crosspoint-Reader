@@ -30,6 +30,11 @@ class Paginator(
         var pendingMarginPx = 0f
 
         for (block in blocks) {
+            if (block.style.pageBreakBefore && !builder.isAtPageTop) {
+                builder.finish()?.let { yield(it) }
+                pendingMarginPx = 0f
+            }
+
             val em = spec.baseSizePx
             val marginTop = max(block.style.marginTopEm * em, paragraphSpacing(block))
             val gap = max(pendingMarginPx, marginTop)
@@ -67,13 +72,9 @@ class Paginator(
         val indentEnd = block.style.indentEndEm * em
         val width = (spec.contentWidthPx - indentStart - indentEnd).coerceAtLeast(MIN_WIDTH)
 
-        // CSS text-indent 가 있으면 그걸 쓰고, 없으면 사용자 설정을 쓴다. 둘을 더하면
-        // 들여쓰기가 두 배가 된다.
-        val firstLineIndent = if (block.style.firstLineIndentEm != 0f) {
-            block.style.firstLineIndentEm * em
-        } else {
-            spec.paragraphIndentEm * em
-        }
+        // CSS text-indent 가 정해졌으면 그걸 쓰고, 없으면 사용자 설정을 쓴다. 둘을
+        // 더하면 들여쓰기가 두 배가 된다.
+        val firstLineIndent = (block.style.firstLineIndentEm ?: spec.paragraphIndentEm) * em
 
         val lines = lineBreaker.breakLines(
             text = text,
