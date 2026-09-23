@@ -149,7 +149,7 @@ class AppWalkthroughTest {
             assertNotNull(container.data.progress.get(bookId))
             assertEquals("어린 왕자", container.data.library.get(bookId)?.title)
         }
-        assertEquals("고딕", container.prefs.load().font.let { if (it.key == "gothic") "고딕" else it.key })
+        assertEquals(io.github.kgcaudit.reader.text.FontCatalog.SANS, container.prefs.load().font)
     }
 
     @Test

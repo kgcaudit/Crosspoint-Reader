@@ -11,14 +11,14 @@
 
 ## 1. 지금 상태
 
-**OLO eBook 0.3.0 이 나왔다**(0.2.0: OLO 디자인 시스템 · 0.3.0: 그림 크기 · 리더 메뉴 · 폴더 단추). 폴더 등록 → 라이브러리 → EPUB/TXT 열기 → 페이지
+**OLO eBook 0.4.0 이 나왔다**(0.2.0: OLO 디자인 시스템 · 0.3.0: 그림 크기 · 리더 메뉴 · 폴더 단추 · 0.4.0: 번들 폰트 제거, 시스템 글꼴). 폴더 등록 → 라이브러리 → EPUB/TXT 열기 → 페이지
 넘김 → 목차·책갈피 → 글꼴·크기 바꾸기까지 된다. 앱 전체를 Robolectric 으로 실제로 띄워
 사람이 쓰는 순서대로 한 바퀴 도는 테스트가 있고, 화면을 스크린샷으로 남긴다.
 PDF 는 목록에만 보이고("준비 중") 열리지 않는다(P1 미결).
 
 ```bash
-cd android && ./gradlew check                 # 452개 + lint
-./gradlew :app:assembleRelease                # → app/build/outputs/apk/release/OLO-eBook-0.3.0-release.apk
+cd android && ./gradlew check                 # 458개 + lint
+./gradlew :app:assembleRelease                # → app/build/outputs/apk/release/OLO-eBook-0.4.0-release.apk
 ./gradlew :app:testDebugUnitTest              # → app/build/screenshots/*.png (화면 확인용)
 # SDK 없음: :document + :core-layout 366개 (기존과 같다)
 ```
@@ -34,7 +34,7 @@ cd android && ./gradlew check                 # 452개 + lint
 | `:core-layout` | `PageStore`(디스크 캐시 · 부분 캐시 · 정리) |
 | `:core-layout` | `BookLayout`(페이지 이동 · 위치 복원 · 진도) · `ReadingSession`(책갈피 · 이어읽기) |
 | `:core-layout` | `MeasurerConformance` — 안드로이드 `TextMeasurer` 구현이 통과해야 할 검사 |
-| `:text-platform` | `AndroidTextMeasurer`(`Paint`) · `ReaderFont`(번들 글꼴 2종) — conformance 통과 |
+| `:text-platform` | `AndroidTextMeasurer`(`Paint`) · `FontCatalog`(시스템 명조·고딕, 글자 폭 지문) — conformance 통과 |
 | `:data` | Room(`books` `progress` `bookmarks` `recent`) 보관소 · SAF 폴더 등록·재귀 스캔 · `Uri` → `SeekableSource`/`ByteSource` · `ReaderData`(묶음) |
 | `:ui-design` | `CpTheme`(색·치수·글꼴 토큰, 라이트/다크) · `CpHeader` `CpListRow` `CpTabBar` `CpStatusBar` `CpProgressBar` `CpPopup` `CpButton` `CpStepper` `CpChoice` · 선 아이콘 12종. Material 없음 |
 | `:reader-reflow` | `BookReader`(조판 스레드·넘김·책갈피·목차·설정 변경 시 읽던 글자로 복귀) · `drawPage` · `ReaderScreen`(탭·스와이프·메뉴) |
@@ -99,24 +99,26 @@ reader.robolectricRepo=https://maven-central.storage-download.googleapis.com/mav
 ### 3.1 `:text-platform` — 끝남. 여기서 정한 것
 
 ```kotlin
-val spec = LayoutSpec(..., baseSizePx = px, fontId = ReaderFont.Batang.layoutFontId)
-val measurer = AndroidTextMeasurer.forSpec(context, spec)   // 글꼴·크기를 spec 에서 꺼낸다
+val fonts = FontCatalog()                                    // 앱에 하나(AppContainer.fonts)
+val spec = LayoutSpec(..., baseSizePx = px, fontId = fonts.layoutFontId(prefs.font))
+val measurer = AndroidTextMeasurer.forSpec(fonts, spec)      // 글꼴·크기를 spec 에서 꺼낸다
 val paint = measurer.paintFor(run.style)                    // 그릴 때도 같은 Paint
 ```
 
 - **글꼴은 `LayoutSpec.fontId` 에 들어간다**(규칙 4). 글꼴을 바꾸면 폭이 달라지므로
-  캐시 키에 없으면 바탕으로 잰 페이지를 고딕으로 그린다. `fontId` 에는 폰트 파일의
-  판(`batang@kopubworld-1.0.3`)이 붙어 있어서, **폰트 파일을 교체하면 `ReaderFont` 의
-  `revision` 을 올려야 한다.** 설정에는 판 없는 `key` 를 저장한다.
+  캐시 키에 없으면 명조로 잰 페이지를 고딕으로 그린다. `fontId` 는 `system-serif@<지문>` 꼴이고,
+  지문은 기준 문자열을 **실제로 잰 폭**의 해시다 — OS 업데이트나 삼성 "글꼴 스타일" 로 시스템
+  폰트가 바뀌면 캐시가 저절로 갈린다. 설정에는 지문 없는 키를 저장한다(null = 기기 기본).
 - **측정기는 `forSpec` 으로만 만든다.** 글꼴을 따로 넘기면 캐시 키와 실제로 잰 글꼴이
   갈라질 수 있다. 모르는 `fontId` 는 기본 글꼴로 연다(규칙 6).
 - **줄 높이는 1em 으로 정규화했다** — 인계 초안의 "`fontMetrics` 에서" 와 다르다.
-  KoPubWorld 는 hhea 지표로 줄 높이가 1.54em, Pretendard 는 1.19em 이라, 그대로 쓰면
-  글꼴만 바꿔도 한 페이지의 줄 수가 30% 가까이 바뀐다. 베이스라인은 실제 글리프
-  윗변(보통 글꼴에서 한 번 잰 값, KoPubWorld ≈ 0.81em)에 둔다.
+  폰트마다 hhea 지표가 1.2~1.5em 으로 제각각이라(KoPubWorld 1.54em, Pretendard 1.19em),
+  그대로 쓰면 글꼴만 바꿔도 한 페이지의 줄 수가 30% 가까이 바뀐다. 베이스라인은 실제 글리프
+  윗변(보통 글꼴에서 한 번 잰 값)에 둔다. 사용자 글꼴(P2)에서 더 중요해진다.
 - **힌팅된 폭을 쓴다**(`ANTI_ALIAS | SUBPIXEL`, `LINEAR_TEXT` 끔). 선형 텍스트는
   글리프 캐시를 꺼서 페이지 그리기가 느려진다. 같은 `Paint` 로 재고 그리므로 어긋나지 않는다.
-- 기울임은 `textSkewX` 합성(한글 글꼴에 이탤릭이 없다). 굵게는 번들 Bold 파일.
+- 기울임은 `textSkewX` 합성(한글 글꼴에 이탤릭이 없다). 굵게는 굵은 서체(`FontPair.bold`), 없으면
+  `isFakeBoldText` 로 합성한다.
 - `AndroidTextMeasurer` 는 **한 스레드 전용**이다. 조판용과 그리기용을 따로 만든다.
 
 실기기에서 할 일(아직 못 함): 같은 테스트를 계측 테스트로 한 번 돌려 호스트와 기기의
@@ -252,7 +254,8 @@ ReadingSession(layout, data.bookmarks, data.progress)
 | 결정 | 근거 |
 |---|---|
 | **B1: 앱 이름 OLO eBook · 아이콘 컨셉 · OLO 디자인 시스템** (2026-09-23 사용자 결정) | 표시 이름 "OLO eBook", `applicationId` `io.github.kgcaudit.oloebook`. 아이콘은 OLO Explorer 와 바탕색 통일·도형 그레이·찢는 느낌. 배포 후 `applicationId` 를 바꾸면 다른 앱이 되어 데이터가 끊긴다 |
-| **B2: KoPubWorld 바탕 + Pretendard 번들** (2026-09-23 사용자 결정) | 시스템 글꼴은 기기마다 조판이 달라진다. KoPub 구판이 아니라 **KoPubWorld** 인 이유: 구판에는 `—`(U+2014)가 없고 한자가 4,620자뿐이다(World 는 6,007자). 두 글꼴 모두 한글 11,172자 전부. 라이선스: Pretendard 는 OFL, **KoPubWorld 는 OFL 이 아니라 KOPUS 약관**(무료 재배포 가능 · 유료 판매 금지 · 약관 동봉 의무 · 수정본에 "KoPub" 이름 금지) — 그래서 서브셋하지 않고 원본을 넣었다. 저장소 +21.5MB, APK +11MB(압축) |
+| **B2 (번복): 폰트를 싣지 않는다 — 시스템 글꼴 + 사용자 글꼴 + 책 내장 글꼴** (2026-09-23 사용자 결정 "권장대로") | 아래 옛 B2 의 근거("기기마다 조판이 다르다")는 위치를 글자 오프셋으로 저장하고 캐시를 기기마다 만드는 구조에서 사용자에게 드러나지 않는다. 번들은 APK 12MB 중 11MB 였고, 올려 받은 책 세 권이 모두 KoPub 을 **내장**하고 있었다. 한국어 명조는 AOSP 에 대체 글꼴(Noto Serif CJK, 보통 굵기 하나)로만 있고 제조사가 빼기도 해서 **있는지 재 보고**(`FontCatalog.hasKoreanSerif`) 없으면 목록에서 뺀다. 순서: P1 시스템 글꼴(0.4.0) → P2 사용자 글꼴 추가(SAF, TTF/OTF/TTC) → P3 출판사 내장 글꼴(`@font-face`, 내장 글꼴이 있는 책은 그것으로 시작). P4 내려받는 글꼴은 나중 |
+| ~~B2: KoPubWorld 바탕 + Pretendard 번들~~ (위 결정으로 대체) | 시스템 글꼴은 기기마다 조판이 달라진다. KoPub 구판이 아니라 **KoPubWorld** 인 이유: 구판에는 `—`(U+2014)가 없고 한자가 4,620자뿐이다(World 는 6,007자). 두 글꼴 모두 한글 11,172자 전부. 라이선스: Pretendard 는 OFL, **KoPubWorld 는 OFL 이 아니라 KOPUS 약관**(무료 재배포 가능 · 유료 판매 금지 · 약관 동봉 의무 · 수정본에 "KoPub" 이름 금지) — 그래서 서브셋하지 않고 원본을 넣었다. 저장소 +21.5MB, APK +11MB(압축) |
 | C++ 를 옮기지 않는다. GUI 구성만 참고 | 사용자 명시: "crosspoint 의 GUI 구성이 마음에 들었을 뿐이라, 코드 구조는 어떤 것이든 상관없어". 원본의 60~70% 는 ESP32 제약 때문의 코드다 |
 | 네이티브 Canvas + 디스크 페이지 캐시 | WebView 는 메모리·시작 시간이 무겁고 조판을 통제할 수 없다. `docs/ANDROID_ARCHITECTURE_DECISION.md` |
 | 안드로이드 텍스트 API 를 조판에 쓰지 않는다 | `StaticLayout` 으로는 CrossPoint 의 한국어 양쪽정렬을 표현할 수 없음을 확인했다(INTER_WORD API 26, INTER_CHARACTER API 35, `lineBreakWordStyle=phrase` API 33 — 최소 지원 API 26 에서 불가) |

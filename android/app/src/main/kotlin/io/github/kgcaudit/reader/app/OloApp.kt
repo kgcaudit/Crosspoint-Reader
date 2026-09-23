@@ -12,7 +12,7 @@ import io.github.kgcaudit.reader.document.epub.EpubDocument
 import io.github.kgcaudit.reader.layout.cache.PageStore
 import io.github.kgcaudit.reader.reflow.BookReader
 import io.github.kgcaudit.reader.reflow.ReaderPrefs
-import io.github.kgcaudit.reader.text.ReaderFont
+import io.github.kgcaudit.reader.text.FontCatalog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -37,6 +37,9 @@ class AppContainer(private val app: Application) {
 
     val prefs = PrefsStore(app)
 
+    /** 본문 글꼴. 명조가 있는지 한 번 재 두고 앱이 떠 있는 동안 같은 답을 쓴다. */
+    val fonts = FontCatalog()
+
     /** 책을 연다. PDF 는 아직 리더가 없다(결정 P1 미결). */
     suspend fun open(book: LibraryBook): BookReader = withContext(Dispatchers.IO) {
         val uri = Uri.parse(book.id.value)
@@ -50,7 +53,7 @@ class AppContainer(private val app: Application) {
             data.library.updateMetadata(book.id, document.meta.title, document.meta.author)
         }
         data.library.markOpened(book.id, System.currentTimeMillis())
-        BookReader(app, document, pages, data.bookmarks, data.progress)
+        BookReader(fonts, document, pages, data.bookmarks, data.progress)
     }
 }
 
@@ -83,7 +86,7 @@ class PrefsStore(context: Context) {
     fun load(): ReaderPrefs = ReaderPrefs(
         fontSizeSp = sp.getInt(KEY_SIZE, ReaderPrefs.DEFAULT_SIZE_SP)
             .coerceIn(ReaderPrefs.MIN_SIZE_SP, ReaderPrefs.MAX_SIZE_SP),
-        font = ReaderFont.of(sp.getString(KEY_FONT, null).orEmpty()),
+        font = migrateFont(sp.getString(KEY_FONT, null)),
         lineSpacing = ReaderPrefs.LineSpacing.entries.firstOrNull { it.name == sp.getString(KEY_SPACING, null) }
             ?: ReaderPrefs.LineSpacing.Normal,
     )
@@ -91,14 +94,25 @@ class PrefsStore(context: Context) {
     fun save(prefs: ReaderPrefs) {
         sp.edit()
             .putInt(KEY_SIZE, prefs.fontSizeSp)
-            .putString(KEY_FONT, prefs.font.key)
+            .putString(KEY_FONT, prefs.font)
             .putString(KEY_SPACING, prefs.lineSpacing.name)
             .apply()
     }
 
-    private companion object {
-        const val KEY_SIZE = "fontSizeSp"
-        const val KEY_FONT = "font"
-        const val KEY_SPACING = "lineSpacing"
+    companion object {
+        /**
+         * 0.3.0 까지의 번들 폰트 설정을 시스템 글꼴 키로 옮긴다. "바탕" 을 고른 사람은 명조를,
+         * "고딕" 은 고딕을 원한 것이다. 옮기지 않으면 모르는 키라 기본값이 되는데, 명조 없는
+         * 기기에서는 우연히 맞고 명조 있는 기기에서 고딕을 고른 사람만 명조로 바뀐다.
+         */
+        fun migrateFont(saved: String?): String? = when (saved?.substringBefore('@')) {
+            "batang" -> FontCatalog.SERIF
+            "gothic" -> FontCatalog.SANS
+            else -> saved
+        }
+
+        private const val KEY_SIZE = "fontSizeSp"
+        private const val KEY_FONT = "font"
+        private const val KEY_SPACING = "lineSpacing"
     }
 }

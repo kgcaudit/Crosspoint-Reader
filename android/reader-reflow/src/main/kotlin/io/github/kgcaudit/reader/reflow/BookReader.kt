@@ -1,6 +1,5 @@
 package io.github.kgcaudit.reader.reflow
 
-import android.content.Context
 import android.graphics.BitmapFactory
 import android.util.LruCache
 import androidx.compose.ui.graphics.ImageBitmap
@@ -18,6 +17,7 @@ import io.github.kgcaudit.reader.layout.book.ReadingPosition
 import io.github.kgcaudit.reader.layout.book.ReadingSession
 import io.github.kgcaudit.reader.layout.cache.PageStore
 import io.github.kgcaudit.reader.text.AndroidTextMeasurer
+import io.github.kgcaudit.reader.text.FontCatalog
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -53,7 +53,8 @@ data class ReaderState(
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class BookReader(
-    private val context: Context,
+    /** 본문 글꼴 목록. 화면이 설정 목록과 그리기 측정기를 만들 때도 같은 것을 쓴다. */
+    val fonts: FontCatalog,
     val document: ReflowDocument,
     private val store: PageStore,
     private val bookmarkRepository: BookmarkRepository,
@@ -83,7 +84,7 @@ class BookReader(
         val anchor = currentLocator()
         _state.value = _state.value.copy(busy = _state.value.page == null)
 
-        val built = BookLayout(document, newSpec, store, AndroidTextMeasurer.forSpec(context, newSpec))
+        val built = BookLayout(document, newSpec, store, AndroidTextMeasurer.forSpec(fonts, newSpec))
         val newSession = ReadingSession(built, bookmarkRepository, progressRepository)
         layout = built
         session = newSession

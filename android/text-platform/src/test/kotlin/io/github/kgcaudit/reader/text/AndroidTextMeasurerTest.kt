@@ -1,8 +1,6 @@
 package io.github.kgcaudit.reader.text
 
-import android.content.Context
 import android.graphics.Rect
-import androidx.test.core.app.ApplicationProvider
 import io.github.kgcaudit.reader.layout.Block
 import io.github.kgcaudit.reader.layout.BlockStyle
 import io.github.kgcaudit.reader.layout.InlineRun
@@ -20,11 +18,12 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import kotlin.math.abs
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 /**
- * 번들 글꼴로 실제 `Paint` 를 돌려 보는 테스트.
+ * 실제 `Paint` 를 돌려 보는 테스트. 글꼴은 시스템 고딕·명조와 테스트 폰트 하나다.
  *
  * Robolectric 의 네이티브 그래픽스는 기기와 같은 minikin·FreeType 으로 글자를 잰다.
  * 그래서 기기 없이도 "폰트가 한글을 못 그린다", "글꼴을 바꾸니 줄이 무너진다" 같은
@@ -36,9 +35,12 @@ import kotlin.test.assertTrue
 @Config(sdk = [35])
 class AndroidTextMeasurerTest {
 
-    private val context: Context = ApplicationProvider.getApplicationContext()
+    private val fonts = TestFonts.catalog()
 
-    private fun spec(font: ReaderFont, baseSizePx: Float = 42f) = LayoutSpec(
+    /** 시험할 글꼴 전부. Robolectric 에는 한국어 명조가 없어 명조는 고딕으로 대체된다. */
+    private val keys = listOf(FontCatalog.SANS, FontCatalog.SERIF, TestFonts.KEY)
+
+    private fun spec(font: String, baseSizePx: Float = 42f) = LayoutSpec(
         viewportWidthPx = 1080f,
         viewportHeightPx = 1600f,
         margin = Insets.all(48f),
@@ -46,19 +48,19 @@ class AndroidTextMeasurerTest {
         lineHeightMultiplier = 1.5f,
         align = TextAlign.Justify,
         paragraphIndentEm = 1f,
-        fontId = font.layoutFontId,
+        fontId = fonts.layoutFontId(font),
     )
 
-    private fun measurer(font: ReaderFont, baseSizePx: Float = 42f) =
-        AndroidTextMeasurer.forSpec(context, spec(font, baseSizePx))
+    private fun measurer(font: String, baseSizePx: Float = 42f) =
+        AndroidTextMeasurer.forSpec(fonts, spec(font, baseSizePx))
 
     // ── 계약 ────────────────────────────────────────────────────────
 
     @Test
-    fun `every bundled font passes the measurer conformance suite`() {
-        // 한글 글리프 검사가 B2(번들 글꼴) 결정을 검증한다. 휴대폰 본문 크기(xhdpi 기준
-        // 16sp ≈ 42px)와 작은 크기 둘 다 본다 — 힌팅 반올림은 작은 크기에서 커진다.
-        for (font in ReaderFont.entries) {
+    fun `every offered font passes the measurer conformance suite`() {
+        // 시스템 폰트든 사용자가 넣은 폰트든 조판에 쓰기 전에 이 검사를 지나야 한다. 휴대폰
+        // 본문 크기(xhdpi 16sp ≈ 42px)와 작은 크기 둘 다 본다 — 힌팅 반올림은 작은 크기에서 커진다.
+        for (font in keys) {
             for (size in listOf(16f, 42f)) {
                 val problems = MeasurerConformance.check(measurer(font, size))
                 assertTrue(problems.isEmpty(), "$font ${size}px:\n" + problems.joinToString("\n"))
@@ -74,11 +76,11 @@ class AndroidTextMeasurerTest {
         // 1.19em 이 줄 높이가 된다. 글꼴만 바꿨는데 페이지 수가 30% 늘어나면 안 된다.
         val styles = listOf(TextStyle.Default, TextStyle(bold = true), TextStyle(sizeScale = 1.5f))
         for (style in styles) {
-            val heights = ReaderFont.entries.map { measurer(it).lineHeight(style) }
+            val heights = keys.map { measurer(it).lineHeight(style) }
             assertEquals(1, heights.distinct().size, "$style 의 줄 높이가 글꼴마다 다르다: $heights")
         }
 
-        val pitches = ReaderFont.entries.map { font ->
+        val pitches = keys.map { font ->
             val pages = paginate(font)
             val baselines = pages.first().runs.map { it.baselineYPx }.distinct().sorted()
             baselines.zipWithNext { a, b -> b - a }.distinct()
@@ -89,7 +91,7 @@ class AndroidTextMeasurerTest {
     @Test
     fun `the first line's glyphs do not rise above the top margin`() {
         // 베이스라인이 글리프 윗변보다 위에 있으면 첫 줄 머리가 여백을 넘어 잘린다.
-        for (font in ReaderFont.entries) {
+        for (font in keys) {
             val m = measurer(font)
             val bounds = Rect()
             m.paintFor(TextStyle.Default).getTextBounds("가漢H", 0, 3, bounds)
@@ -105,7 +107,7 @@ class AndroidTextMeasurerTest {
     @Test
     fun `bold words do not shift the baseline of their line`() {
         // 굵은 단어가 섞인 줄만 베이스라인이 내려가면 줄 간격이 들쭉날쭉해 보인다.
-        for (font in ReaderFont.entries) {
+        for (font in keys) {
             val m = measurer(font)
             assertEquals(m.ascent(TextStyle.Default), m.ascent(TextStyle(bold = true)), "$font")
             assertEquals(m.ascent(TextStyle.Default), m.ascent(TextStyle(italic = true)), "$font")
@@ -119,13 +121,13 @@ class AndroidTextMeasurerTest {
         // 챕터는 대개 제목으로 시작한다. 서식별 Paint 캐시가 크기를 키에서 빠뜨리거나
         // 한 Paint 를 돌려 쓰며 크기를 되돌리지 않으면, 먼저 잰 제목 크기로 본문이
         // 전부 재진다 — 증상은 "첫 챕터만 글자가 성기게 놓인다".
-        val m = measurer(ReaderFont.Batang)
+        val m = measurer(TestFonts.KEY)
         m.advance(SENTENCE, 0, SENTENCE.length, TextStyle(sizeScale = 2f, bold = true))
         m.advance(SENTENCE, 0, SENTENCE.length, TextStyle(sizeScale = 0.75f, italic = true))
         val body = m.advance(SENTENCE, 0, SENTENCE.length, TextStyle.Default)
         val italicBody = m.advance(SENTENCE, 0, SENTENCE.length, TextStyle(italic = true))
 
-        val fresh = measurer(ReaderFont.Batang)
+        val fresh = measurer(TestFonts.KEY)
         assertEquals(fresh.advance(SENTENCE, 0, SENTENCE.length, TextStyle.Default), body)
         assertEquals(fresh.advance(SENTENCE, 0, SENTENCE.length, TextStyle(italic = true)), italicBody)
         assertEquals(fresh.lineHeight(TextStyle.Default), m.lineHeight(TextStyle.Default))
@@ -134,7 +136,7 @@ class AndroidTextMeasurerTest {
     @Test
     fun `underline and strikethrough share the plain paint`() {
         // 폭을 바꾸지 않는 서식이 Paint 를 복제하면 서식 조합 수만큼 글리프 캐시가 생긴다.
-        val m = measurer(ReaderFont.Batang)
+        val m = measurer(TestFonts.KEY)
         val plain = m.paintFor(TextStyle.Default)
         assertTrue(plain === m.paintFor(TextStyle(underline = true, strikethrough = true)))
     }
@@ -143,33 +145,60 @@ class AndroidTextMeasurerTest {
 
     @Test
     fun `the font chosen in the layout spec is the font that gets measured`() {
-        // forSpec 이 fontId 를 무시하면, 캐시 키는 고딕인데 바탕으로 잰 페이지가 들어간다.
-        val batang = measurer(ReaderFont.Batang).advance(SENTENCE, 0, SENTENCE.length, TextStyle.Default)
-        val gothic = measurer(ReaderFont.Gothic).advance(SENTENCE, 0, SENTENCE.length, TextStyle.Default)
-        assertNotEquals(batang, gothic)
+        // forSpec 이 fontId 를 무시하면, 캐시 키는 고딕인데 다른 글꼴로 잰 페이지가 들어간다.
+        val chosen = measurer(TestFonts.KEY).advance(SENTENCE, 0, SENTENCE.length, TextStyle.Default)
+        val gothic = measurer(FontCatalog.SANS).advance(SENTENCE, 0, SENTENCE.length, TextStyle.Default)
+        assertNotEquals(chosen, gothic)
     }
 
     @Test
-    fun `an unknown font id still opens the book with the default font`() {
-        // 폰트를 빼거나 이름을 바꾼 뒤 옛 설정이 남아 있어도 책은 열려야 한다.
-        val stale = AndroidTextMeasurer.forSpec(context, spec(ReaderFont.Batang).copy(fontId = "removed-font@0.1"))
-        val empty = AndroidTextMeasurer.forSpec(context, spec(ReaderFont.Batang).copy(fontId = ""))
-        val expected = measurer(ReaderFont.Default).advance(SENTENCE, 0, SENTENCE.length, TextStyle.Default)
-
-        assertEquals(expected, stale.advance(SENTENCE, 0, SENTENCE.length, TextStyle.Default))
-        assertEquals(expected, empty.advance(SENTENCE, 0, SENTENCE.length, TextStyle.Default))
+    fun `an unknown or old font id still opens the book with the default font`() {
+        // 사용자 글꼴을 지웠거나, 번들 폰트 시절의 설정("batang@kopubworld-1.0.3")이 남은 경우.
+        // "이 책은 열리지 않습니다" 가 아니라 기본 글꼴로 열려야 한다.
+        val expected = measurer(fonts.defaultKey).advance(SENTENCE, 0, SENTENCE.length, TextStyle.Default)
+        for (stale in listOf("removed-font@0.1", "", "batang@kopubworld-1.0.3", "user:gone@1")) {
+            val m = AndroidTextMeasurer.forSpec(fonts, spec(FontCatalog.SANS).copy(fontId = stale))
+            assertEquals(expected, m.advance(SENTENCE, 0, SENTENCE.length, TextStyle.Default), stale)
+        }
     }
 
     @Test
-    fun `an old font revision reaches the same font but a different cache`() {
-        // 폰트 파일을 교체한 뒤에도 사용자의 글꼴 선택은 유지되고, 옛 판으로 잰 페이지는
-        // 다른 캐시 키라 섞이지 않는다.
-        val old = "batang@kopubworld-0.9"
-        assertEquals(ReaderFont.Batang, ReaderFont.of(old))
-        assertNotEquals(
-            spec(ReaderFont.Batang).copy(fontId = old).cacheKey,
-            spec(ReaderFont.Batang).cacheKey,
-        )
+    fun `a different font gives a different cache key and the same font the same one`() {
+        // 글꼴 ID 에는 실제로 잰 폭의 지문이 붙는다. 삼성 "글꼴 스타일" 을 바꾸거나 OS 가
+        // 폰트를 바꾸면 지문이 달라져, 옛 폭으로 조판한 페이지가 새 폰트로 그려지지 않는다.
+        assertNotEquals(fonts.layoutFontId(FontCatalog.SANS), fonts.layoutFontId(TestFonts.KEY))
+        assertEquals(fonts.layoutFontId(TestFonts.KEY), fonts.layoutFontId(TestFonts.KEY))
+        assertNotEquals(spec(FontCatalog.SANS).cacheKey, spec(TestFonts.KEY).cacheKey)
+    }
+
+    // ── 시스템 명조 ─────────────────────────────────────────────────
+
+    @Test
+    fun `a device without a Korean serif does not offer one`() {
+        // Robolectric 의 폰트는 한국어 명조가 없는 기기와 같다(명조를 달라 하면 고딕이 나온다).
+        // 목록에 "명조" 가 있으면 골라도 아무 변화가 없는 항목이 된다.
+        val system = FontCatalog()
+        assertFalse(system.hasKoreanSerif)
+        assertEquals(listOf(FontCatalog.SANS), system.options().map { it.key })
+        assertEquals(FontCatalog.SANS, system.defaultKey)
+        assertEquals(FontCatalog.SANS, system.effectiveKey(FontCatalog.SERIF), "명조 설정은 고딕으로 연다")
+    }
+
+    @Test
+    fun `a Korean face drawn differently is recognised as distinct`() {
+        // 명조가 있는 기기의 판정 쪽. 한글 모양이 다른 폰트를 넣으면 "다르다" 가 나와야 한다.
+        assertTrue(FontCatalog.hasDistinctKorean(TestFonts.regular, android.graphics.Typeface.SANS_SERIF))
+        assertFalse(FontCatalog.hasDistinctKorean(android.graphics.Typeface.SERIF, android.graphics.Typeface.SANS_SERIF))
+    }
+
+    @Test
+    fun `a font without a bold file draws bold by thickening`() {
+        // 사용자 폰트는 굵은 파일이 없는 경우가 많다. 굵게가 보통과 똑같이 그려지면 강조가 사라진다.
+        val m = AndroidTextMeasurer(TestFonts.regular, bold = null, baseSizePx = 42f)
+        assertTrue(m.paintFor(TextStyle(bold = true)).isFakeBoldText)
+        assertFalse(m.paintFor(TextStyle.Default).isFakeBoldText)
+        val withBold = AndroidTextMeasurer(TestFonts.regular, TestFonts.bold, baseSizePx = 42f)
+        assertFalse(withBold.paintFor(TextStyle(bold = true)).isFakeBoldText, "굵은 파일이 있으면 합성하지 않는다")
     }
 
     // ── 실제 조판 ───────────────────────────────────────────────────
@@ -179,9 +208,9 @@ class AndroidTextMeasurerTest {
         // FakeMeasurer 기준 골든과 값이 다른 건 당연하다. 여기서 보는 것은 실제 글꼴로
         // 조판해도 페이지가 무너지지 않는가 — 글자가 지면 밖으로 나가지 않고, 빈 페이지
         // 없이 본문 전체를 빈틈없이 덮는가 — 뿐이다.
-        for (font in ReaderFont.entries) {
+        for (font in keys) {
             val spec = spec(font)
-            val m = AndroidTextMeasurer.forSpec(context, spec)
+            val m = AndroidTextMeasurer.forSpec(fonts, spec)
             val pages = paginate(font)
             val left = spec.margin.left
             val right = spec.viewportWidthPx - spec.margin.right
@@ -215,9 +244,9 @@ class AndroidTextMeasurerTest {
     @Test
     fun `justified lines end flush with the right margin`() {
         // 잰 폭과 조판기가 합한 폭이 어긋나면 양쪽정렬된 줄 끝이 들쭉날쭉해진다.
-        for (font in ReaderFont.entries) {
+        for (font in keys) {
             val spec = spec(font)
-            val m = AndroidTextMeasurer.forSpec(context, spec)
+            val m = AndroidTextMeasurer.forSpec(fonts, spec)
             val right = spec.viewportWidthPx - spec.margin.right
             val lines = paginate(font).flatMap { page -> page.runs.groupBy { page.index to it.baselineYPx }.values }
 
@@ -239,9 +268,9 @@ class AndroidTextMeasurerTest {
         }
     }
 
-    private fun paginate(font: ReaderFont): List<Page> {
+    private fun paginate(font: String): List<Page> {
         val spec = spec(font)
-        return Paginator(spec, AndroidTextMeasurer.forSpec(context, spec)).paginate(CHAPTER, blocks()).toList()
+        return Paginator(spec, AndroidTextMeasurer.forSpec(fonts, spec)).paginate(CHAPTER, blocks()).toList()
     }
 
     private fun blocks(): List<Block> {

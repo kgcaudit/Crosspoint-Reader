@@ -40,7 +40,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.dp
@@ -49,7 +48,7 @@ import io.github.kgcaudit.reader.document.TocEntry
 import io.github.kgcaudit.reader.layout.Insets
 import io.github.kgcaudit.reader.layout.PlacedImage
 import io.github.kgcaudit.reader.text.AndroidTextMeasurer
-import io.github.kgcaudit.reader.text.ReaderFont
+import io.github.kgcaudit.reader.text.FontCatalog
 import io.github.kgcaudit.reader.ui.design.CpButton
 import io.github.kgcaudit.reader.ui.design.CpChoice
 import io.github.kgcaudit.reader.ui.design.CpHeader
@@ -88,7 +87,6 @@ fun ReaderScreen(
 ) {
     val state by reader.state.collectAsState()
     val scope = rememberCoroutineScope()
-    val context = LocalContext.current
     val density = LocalDensity.current
     val direction = LocalLayoutDirection.current
     val colors = CpTheme.colors
@@ -120,14 +118,16 @@ fun ReaderScreen(
         // 1sp 가 몇 px 인가. 시스템 글자 크기 설정(fontScale)을 따른다.
         val pxPerSp = density.density * density.fontScale
         val pxPerDp = density.density
-        val spec = remember(widthPx, heightPx, margin, prefs, pxPerSp, pxPerDp) {
-            prefs.toSpec(widthPx, heightPx, margin, pxPerSp, pxPerDp)
+        // 글꼴 ID 는 글자를 재서 만든다(지문). 설정이 바뀔 때만 다시 잰다.
+        val fontId = remember(prefs.font) { reader.fonts.layoutFontId(prefs.font) }
+        val spec = remember(widthPx, heightPx, margin, prefs, pxPerSp, pxPerDp, fontId) {
+            prefs.toSpec(widthPx, heightPx, margin, pxPerSp, pxPerDp, fontId)
         }
         LaunchedEffect(spec) { runCatching { reader.layOut(spec) } }
 
         // 그리기 전용 측정기. 조판에 쓴 설정(state.spec)으로 만든다 — 새 설정으로 조판이
         // 끝나기 전까지는 옛 페이지를 옛 글꼴로 그려야 한다.
-        val painter = remember(state.spec) { state.spec?.let { AndroidTextMeasurer.forSpec(context, it) } }
+        val painter = remember(state.spec) { state.spec?.let { AndroidTextMeasurer.forSpec(reader.fonts, it) } }
         val images = remember(state.page) { mutableStateMapOf<PlacedImage, ImageBitmap>() }
         LaunchedEffect(state.page) {
             val page = state.page ?: return@LaunchedEffect
@@ -265,7 +265,7 @@ private fun ReaderBar(
                 .windowInsetsPadding(WindowInsets.navigationBars),
         ) {
             if (showView) {
-                ViewSettings(prefs, onPrefsChange)
+                ViewSettings(reader.fonts, prefs, onPrefsChange)
                 Spacer(Modifier.height(4.dp))
             }
             val shown = dragging ?: (state.percent / 100f)
@@ -399,11 +399,16 @@ private fun BookmarkList(marks: List<Bookmark>?, onOpen: (Bookmark) -> Unit, onR
 }
 
 @Composable
-private fun ViewSettings(prefs: ReaderPrefs, onChange: (ReaderPrefs) -> Unit) {
+private fun ViewSettings(catalog: FontCatalog, prefs: ReaderPrefs, onChange: (ReaderPrefs) -> Unit) {
     Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
         CpStepper("글자 크기", "${prefs.fontSizeSp}", { onChange(prefs.withSize(-1)) }, { onChange(prefs.withSize(+1)) })
-        val fonts = ReaderFont.entries
-        CpChoice("글꼴", fonts.map { it.label }, fonts.indexOf(prefs.font), { onChange(prefs.copy(font = fonts[it])) })
+        // 고른 값이 목록에 없으면(지운 사용자 글꼴, 명조가 없는 기기로 옮긴 설정) 실제로 쓰이는
+        // 글꼴에 불이 들어와야 한다. 아무 것도 선택되지 않은 줄은 "무슨 글꼴로 보고 있나" 를 숨긴다.
+        val fonts = remember(catalog) { catalog.options() }
+        val current = catalog.effectiveKey(prefs.font)
+        CpChoice("글꼴", fonts.map { it.label }, fonts.indexOfFirst { it.key == current }, {
+            onChange(prefs.copy(font = fonts[it].key))
+        })
         val spacings = ReaderPrefs.LineSpacing.entries
         CpChoice("줄 간격", spacings.map { it.label }, spacings.indexOf(prefs.lineSpacing), {
             onChange(prefs.copy(lineSpacing = spacings[it]))
@@ -417,13 +422,6 @@ private fun Empty(message: String) {
         CpText(message, CpTheme.type.subtitle, CpTheme.colors.textMuted, maxLines = 3)
     }
 }
-
-/** 한글 표시 이름. 설정 저장은 [ReaderFont.key] 로 한다. */
-val ReaderFont.label: String
-    get() = when (this) {
-        ReaderFont.Batang -> "바탕"
-        ReaderFont.Gothic -> "고딕"
-    }
 
 /**
  * 동작 하나를 띄운다. 실패는 [BookReader.state] 의 error 로 화면에 가고, 여기서는 로그만

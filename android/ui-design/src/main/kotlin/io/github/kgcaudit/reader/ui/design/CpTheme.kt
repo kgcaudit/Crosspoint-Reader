@@ -7,13 +7,11 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.github.kgcaudit.reader.text.R as TextR
 
 /**
  * 색 토큰 — **OLO 디자인 시스템**을 따른다.
@@ -159,21 +157,23 @@ data class CpType(
     val label: TextStyle,
 )
 
-private val Pretendard = FontFamily(
-    Font(TextR.font.pretendard_regular, FontWeight.Normal),
-    Font(TextR.font.pretendard_bold, FontWeight.Bold),
-)
+/**
+ * 화면 글자는 시스템 글꼴이다. 한때 Pretendard 를 실었지만 본문 글꼴을 시스템으로 돌리면서
+ * 뺐다 — UI 만을 위해 수 MB 를 싣는 건 과하고, 삼성 "글꼴 스타일" 을 바꾼 사람에게는 앱만
+ * 다른 글꼴로 보이는 게 오히려 어색하다.
+ */
+private val UiFont = FontFamily.Default
 
 /**
  * 글자 크기. OLO 처럼 **제목만 줄이고** 본문은 Material 크기를 쓴다 — 화면 제목이 너무 크면
  * 확인 팝업이 주변보다 두 배 큰 글자로 뜬다.
  */
 private val DefaultType = CpType(
-    title = TextStyle(fontFamily = Pretendard, fontWeight = FontWeight.Bold, fontSize = 19.sp, lineHeight = 25.sp),
-    subtitle = TextStyle(fontFamily = Pretendard, fontSize = 14.sp, lineHeight = 20.sp),
-    body = TextStyle(fontFamily = Pretendard, fontSize = 16.sp, lineHeight = 24.sp),
-    caption = TextStyle(fontFamily = Pretendard, fontSize = 12.sp, lineHeight = 16.sp),
-    label = TextStyle(fontFamily = Pretendard, fontWeight = FontWeight.Bold, fontSize = 14.sp, lineHeight = 20.sp),
+    title = TextStyle(fontFamily = UiFont, fontWeight = FontWeight.Bold, fontSize = 19.sp, lineHeight = 25.sp),
+    subtitle = TextStyle(fontFamily = UiFont, fontSize = 14.sp, lineHeight = 20.sp),
+    body = TextStyle(fontFamily = UiFont, fontSize = 16.sp, lineHeight = 24.sp),
+    caption = TextStyle(fontFamily = UiFont, fontSize = 12.sp, lineHeight = 16.sp),
+    label = TextStyle(fontFamily = UiFont, fontWeight = FontWeight.Bold, fontSize = 14.sp, lineHeight = 20.sp),
 )
 
 private val LocalCpColors = staticCompositionLocalOf { LightColors }

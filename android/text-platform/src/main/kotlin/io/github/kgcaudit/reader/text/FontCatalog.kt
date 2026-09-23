@@ -1,0 +1,94 @@
+package io.github.kgcaudit.reader.text
+
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.RectF
+import android.graphics.Typeface
+
+/** 글꼴 목록의 한 줄. [key] 가 설정에 저장되는 값이다. */
+data class FontOption(val key: String, val label: String, val kind: Kind) {
+    enum class Kind { System, User }
+}
+
+/** 한 글꼴의 보통·굵게. 굵게 파일이 없으면 [bold] 는 null 이고 측정기가 합성한다. */
+data class FontPair(val regular: Typeface, val bold: Typeface?)
+
+/**
+ * 본문 글꼴의 출처.
+ *
+ * **번들 폰트를 쓰지 않는다**(2026-09-23 결정, B2 번복). 번들의 근거는 "시스템 폰트는 기기마다
+ * 조판이 다르다" 였지만, 위치를 글자 오프셋으로 저장하고 캐시를 기기마다 따로 만들므로 그
+ * 차이는 사용자에게 드러나지 않는다. 반면 번들은 APK 12MB 중 11MB 였고, 책이 이미 같은
+ * 폰트를 내장한 경우가 많았다(올려 받은 세 권 모두 KoPub 을 내장).
+ *
+ * 안드로이드의 한국어: 고딕은 Noto Sans CJK(모든 기기), 명조는 Noto Serif CJK 가 **대체
+ * 글꼴로만, 보통 굵기 하나** 들어 있다(AOSP fonts.xml). 제조사가 빼기도 하므로 명조가 정말
+ * 있는지는 [hasKoreanSerif] 로 재 본다.
+ */
+open class FontCatalog {
+
+    /** 기기에 한국어 명조가 따로 있는가. 없으면 명조를 목록에서 뺀다 — 골라도 고딕이 나온다. */
+    open val hasKoreanSerif: Boolean by lazy { hasDistinctKorean(Typeface.SERIF, Typeface.SANS_SERIF) }
+
+    /** 처음 쓰는 사람의 본문 글꼴. 책은 명조로 읽는 게 익숙하므로 있으면 명조. */
+    val defaultKey: String get() = if (hasKoreanSerif) SERIF else SANS
+
+    open fun options(): List<FontOption> = buildList {
+        if (hasKoreanSerif) add(FontOption(SERIF, "명조", FontOption.Kind.System))
+        add(FontOption(SANS, "고딕", FontOption.Kind.System))
+    }
+
+    /** 설정 값(없거나 모르는 값 포함)을 실제로 쓸 글꼴 키로. 모르면 기본값 — 책은 열려야 한다. */
+    fun effectiveKey(key: String?): String =
+        key?.takeIf { k -> options().any { it.key == k } } ?: defaultKey
+
+    /**
+     * `LayoutSpec.fontId` 에 넣는 값: 키 + **글자 폭 지문**.
+     *
+     * 시스템 폰트는 OS 업데이트나 삼성 "글꼴 스타일" 변경으로 바뀐다. 이름만 캐시 키에 넣으면
+     * 옛 폭으로 조판한 페이지를 새 폰트로 그리게 된다(양쪽정렬이 어긋난다). 기준 문자열을 실제로
+     * 재서 키에 넣으면, 폰트가 바뀌는 순간 다른 캐시가 된다.
+     */
+    fun layoutFontId(key: String?): String {
+        val effective = effectiveKey(key)
+        return "$effective@${fingerprint(pair(effective).regular)}"
+    }
+
+    /** [layoutFontId] 가 가리키는 글꼴. 지문은 무시한다(지금 기기의 폰트가 곧 답이다). */
+    fun resolve(layoutFontId: String): FontPair = pair(effectiveKey(layoutFontId.substringBefore('@')))
+
+    protected open fun pair(key: String): FontPair = when (key) {
+        SERIF -> FontPair(Typeface.SERIF, Typeface.create(Typeface.SERIF, Typeface.BOLD))
+        else -> FontPair(Typeface.SANS_SERIF, Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD))
+    }
+
+    companion object {
+        const val SANS = "system-sans"
+        const val SERIF = "system-serif"
+
+        private const val PROBE = "가나다라 漢字 ABCabc 0123 ,.「」"
+
+        /** 두 글꼴이 한글을 **다른 모양**으로 그리는가. 같으면 한쪽이 다른 쪽으로 대체된 것이다. */
+        fun hasDistinctKorean(a: Typeface, b: Typeface): Boolean = outline(a) != outline(b)
+
+        private fun outline(typeface: Typeface): String {
+            val paint = Paint(AndroidTextMeasurer.PAINT_FLAGS).apply { this.typeface = typeface; textSize = 100f }
+            val path = Path()
+            paint.getTextPath("가나다", 0, 3, 0f, 0f, path)
+            val bounds = RectF()
+            path.computeBounds(bounds, true)
+            return "${paint.measureText("가나다")}|$bounds"
+        }
+
+        /** 기준 문자열의 폭으로 만든 짧은 지문. 같은 폰트면 언제나 같다. */
+        fun fingerprint(typeface: Typeface): String {
+            val paint = Paint(AndroidTextMeasurer.PAINT_FLAGS).apply { this.typeface = typeface; textSize = 100f }
+            var hash = 0x811C9DC5.toInt()
+            for (i in PROBE.indices) {
+                val w = (paint.measureText(PROBE, i, i + 1) * 64).toInt()
+                hash = (hash xor w) * 0x01000193
+            }
+            return (hash.toLong() and 0xFFFFFFFFL).toString(16)
+        }
+    }
+}

@@ -1,6 +1,5 @@
 package io.github.kgcaudit.reader.text
 
-import android.content.Context
 import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.Typeface
@@ -21,7 +20,8 @@ import io.github.kgcaudit.reader.layout.TextStyle
  */
 class AndroidTextMeasurer(
     private val regular: Typeface,
-    private val bold: Typeface,
+    /** null 이면 굵게를 합성한다(굵은 파일이 없는 사용자 글꼴·시스템 명조). */
+    private val bold: Typeface?,
     override val baseSizePx: Float,
 ) : TextMeasurer {
 
@@ -82,7 +82,10 @@ class AndroidTextMeasurer(
      */
     private fun newPaint(key: Key): TextPaint =
         TextPaint(PAINT_FLAGS).apply {
-            typeface = if (key.bold) bold else regular
+            typeface = if (key.bold && bold != null) bold else regular
+            // 굵은 파일이 없으면 획을 두껍게 그린다. 합성 굵게는 폭을 조금 넓히므로 잴 때도
+            // 같은 플래그여야 한다 — 그래서 그리기와 재기가 같은 이 Paint 를 쓴다.
+            isFakeBoldText = key.bold && bold == null
             textSize = baseSizePx * key.sizeScale
             // 한글 글꼴에는 기울임꼴이 없다. 기울이기는 폭을 바꾸지 않으므로 조판과
             // 무관하고, 그리는 쪽도 이 Paint 를 쓰니 같은 모양이 나온다.
@@ -124,12 +127,12 @@ class AndroidTextMeasurer(
          * 조판 설정에서 측정기를 만든다. **이 경로로만 만드는 것을 권한다.**
          *
          * 글꼴과 기준 크기를 [LayoutSpec] 에서 꺼내므로, 캐시 키와 실제로 잰 글꼴이
-         * 갈라질 수 없다. 따로 넘기면 "설정은 고딕인데 바탕으로 잰 페이지가 고딕 캐시에
+         * 갈라질 수 없다. 따로 넘기면 "설정은 고딕인데 명조로 잰 페이지가 고딕 캐시에
          * 들어가는" 일이 생긴다.
          */
-        fun forSpec(context: Context, spec: LayoutSpec): AndroidTextMeasurer {
-            val (regular, bold) = ReaderFont.of(spec.fontId).load(context)
-            return AndroidTextMeasurer(regular, bold, spec.baseSizePx)
+        fun forSpec(fonts: FontCatalog, spec: LayoutSpec): AndroidTextMeasurer {
+            val pair = fonts.resolve(spec.fontId)
+            return AndroidTextMeasurer(pair.regular, pair.bold, spec.baseSizePx)
         }
 
         internal fun glyphTopEm(typeface: Typeface): Float {
