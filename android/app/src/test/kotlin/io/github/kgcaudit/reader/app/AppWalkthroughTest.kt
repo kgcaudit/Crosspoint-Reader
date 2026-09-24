@@ -204,6 +204,12 @@ class AppWalkthroughTest {
         pickFont("글꼴/올로.ttf")
         waitFor(hasText("Olo Test Sans"))
         shot("14-fonts-added")
+        // 넣은 글꼴은 "사용자 글꼴" 의 자식으로 들여 쓴다: 이름이 머리 글자보다 한 단(38dp) 안쪽, 휴대폰
+        // 글꼴(같은 모양의 동그라미 줄)보다도 한 단 안쪽이다. 나란하면 네 번째 선택지로 읽힌다.
+        val density = compose.activity.resources.displayMetrics.density
+        fun left(text: String) = node(hasText(text)).fetchSemanticsNode().boundsInRoot.left / density
+        assertEquals(left("사용자 글꼴") + 38f, left("Olo Test Sans"), 1f)
+        assertEquals(left("휴대폰 글꼴") + 38f, left("Olo Test Sans"), 1f)
         val key = container.prefs.load().font
         assertEquals("user:olo test sans", key, "넣은 글꼴로 바로 바뀌어야 한다")
 
