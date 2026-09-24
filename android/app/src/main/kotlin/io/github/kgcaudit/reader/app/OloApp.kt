@@ -23,7 +23,9 @@ import io.github.kgcaudit.reader.text.UserFonts
 import io.github.kgcaudit.reader.ui.design.Footer
 import io.github.kgcaudit.reader.ui.design.FooterItem
 import io.github.kgcaudit.reader.ui.design.KeepScreenOn
+import io.github.kgcaudit.reader.ui.design.PageTurn
 import io.github.kgcaudit.reader.ui.design.PaperTheme
+import io.github.kgcaudit.reader.ui.design.ReadingSpeed
 import io.github.kgcaudit.reader.ui.design.ScreenPrefs
 import io.github.kgcaudit.reader.ui.design.ScreenRotation
 import io.github.kgcaudit.reader.ui.design.TouchZones
@@ -234,6 +236,8 @@ class PrefsStore(context: Context) {
             twoPagesLandscape = sp.getBoolean(KEY_TWO_PAGES_LANDSCAPE, true),
             twoPagesPortrait = sp.getBoolean(KEY_TWO_PAGES_PORTRAIT, false),
             pdfCoverAlone = sp.getBoolean(KEY_PDF_COVER_ALONE, true),
+            pageTurn = enumOf(KEY_PAGE_TURN, PageTurn.None),
+            brightnessGesture = sp.getBoolean(KEY_BRIGHTNESS_GESTURE, true),
         ),
     )
 
@@ -263,7 +267,22 @@ class PrefsStore(context: Context) {
             .putBoolean(KEY_TWO_PAGES_LANDSCAPE, prefs.screen.twoPagesLandscape)
             .putBoolean(KEY_TWO_PAGES_PORTRAIT, prefs.screen.twoPagesPortrait)
             .putBoolean(KEY_PDF_COVER_ALONE, prefs.screen.pdfCoverAlone)
+            .putString(KEY_PAGE_TURN, prefs.screen.pageTurn.name)
+            .putBoolean(KEY_BRIGHTNESS_GESTURE, prefs.screen.brightnessGesture)
             .apply()
+    }
+
+    /**
+     * 읽는 속도(남은 시간, E5). 글자(EPUB · TXT)와 쪽(PDF)을 따로 둔다 — 단위가 달라 섞으면 둘 다 틀린다.
+     * 책을 닫아도 남아야 다음 책에서 처음부터 다시 재지 않는다.
+     */
+    fun loadSpeed(kind: String): ReadingSpeed {
+        val value = sp.getFloat("speed.$kind", -1f)
+        return ReadingSpeed(value.takeIf { it > 0f }?.toDouble(), sp.getInt("speed.$kind.samples", 0))
+    }
+
+    fun saveSpeed(kind: String, speed: ReadingSpeed) {
+        sp.edit().putFloat("speed.$kind", speed.unitsPerMinute?.toFloat() ?: -1f).putInt("speed.$kind.samples", speed.samples).apply()
     }
 
     companion object {
@@ -297,5 +316,7 @@ class PrefsStore(context: Context) {
         private const val KEY_TWO_PAGES_LANDSCAPE = "twoPagesLandscape"
         private const val KEY_TWO_PAGES_PORTRAIT = "twoPagesPortrait"
         private const val KEY_PDF_COVER_ALONE = "pdfCoverAlone"
+        private const val KEY_PAGE_TURN = "pageTurn"
+        private const val KEY_BRIGHTNESS_GESTURE = "brightnessGesture"
     }
 }

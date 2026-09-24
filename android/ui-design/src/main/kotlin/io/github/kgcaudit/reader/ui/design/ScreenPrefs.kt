@@ -25,6 +25,10 @@ data class ScreenPrefs(
     val twoPagesPortrait: Boolean = false,
     /** PDF 두쪽보기에서 표지(1쪽)를 따로 한 장으로(T4). 잡지의 양면 기사 · 광고가 제짝으로 맞붙는다. */
     val pdfCoverAlone: Boolean = true,
+    /** 쪽 넘김 효과(E7). 기본 없음 — e-ink 원형에는 효과가 없었고, 지금까지의 모양이다. */
+    val pageTurn: PageTurn = PageTurn.None,
+    /** 왼쪽 끝을 위아래로 밀어 밝기(E6). 기본 켬(리디와 같다). 옆으로 미는 넘김과는 방향으로 가른다. */
+    val brightnessGesture: Boolean = true,
 ) {
     /**
      * 지금 화면에서 두 쪽을 펼칠지. 세로 두쪽은 기기의 가장 짧은 폭이 [WIDE_SCREEN_DP] 이상일 때만 — 휴대폰
@@ -97,6 +101,12 @@ fun TouchZones.actionAt(x: Float, y: Float, width: Float, cornerPx: Float): TapA
 }
 
 /** 하단 정보 한 자리에 보일 것. */
+enum class PageTurn(val label: String) {
+    None("없음"),
+    Fade("서서히"),
+    Slide("밀기"),
+}
+
 enum class FooterItem(val label: String) {
     None("없음"),
     BookTitle("책 제목"),
@@ -106,6 +116,9 @@ enum class FooterItem(val label: String) {
     Page("쪽"),
     Percent("진행률(%)"),
     ChapterLeft("이 장 남은 쪽"),
+    /** 읽는 속도(기기에서 잰다)로 센 남은 시간(E5). 속도를 모르는 동안은 빈칸. */
+    ChapterTime("이 장 남은 시간"),
+    BookTime("책 남은 시간"),
 }
 
 /**

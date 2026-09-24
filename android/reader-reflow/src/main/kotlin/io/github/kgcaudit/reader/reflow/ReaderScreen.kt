@@ -53,7 +53,14 @@ import io.github.kgcaudit.reader.ui.design.CpLinkRow
 import io.github.kgcaudit.reader.ui.design.CpListRow
 import io.github.kgcaudit.reader.ui.design.CpPopup
 import io.github.kgcaudit.reader.ui.design.CpReaderBar
+import io.github.kgcaudit.reader.layout.book.LinkTarget
+import io.github.kgcaudit.reader.layout.html.Link
+import io.github.kgcaudit.reader.ui.design.CpBrightnessOverlay
 import io.github.kgcaudit.reader.ui.design.CpBrightnessRow
+import io.github.kgcaudit.reader.ui.design.CpPageTurn
+import io.github.kgcaudit.reader.ui.design.ReadingSpeed
+import io.github.kgcaudit.reader.ui.design.brightnessEdge
+import io.github.kgcaudit.reader.ui.design.systemBrightness
 import io.github.kgcaudit.reader.ui.design.CpReadingFooter
 import io.github.kgcaudit.reader.ui.design.CpRibbon
 import io.github.kgcaudit.reader.ui.design.CpThemeSwatches
@@ -90,6 +97,9 @@ fun ReaderScreen(
     onPrefsChange: (ReaderPrefs) -> Unit,
     onClose: () -> Unit,
     onChrome: (Boolean) -> Unit,
+    /** 읽는 속도(글자/분). 남은 시간을 센다(E5). 앱이 저장해 두어 책을 닫아도 남는다. */
+    speed: ReadingSpeed = remember { ReadingSpeed() },
+    onSpeedChange: (ReadingSpeed) -> Unit = {},
 ) {
     val state by reader.state.collectAsState()
     val scope = rememberCoroutineScope()
@@ -104,8 +114,17 @@ fun ReaderScreen(
     // 하단 정보의 "장 제목". 목차는 책마다 한 번 읽는다.
     var toc by remember { mutableStateOf<List<TocEntry>>(emptyList()) }
     LaunchedEffect(reader) { toc = runCatching { reader.outline() }.getOrDefault(emptyList()) }
+    val search = remember(reader) { SearchSession() }
+    // 각주 판(F3) · 브라우저 확인(F6).
+    var note by remember { mutableStateOf<Pair<String, LinkTarget.Footnote>?>(null) }
+    var external by remember { mutableStateOf<String?>(null) }
+    // 왼쪽 끝을 미는 동안의 밝기(E6). 손을 떼면 설정으로 저장한다.
+    var dragBrightness by remember { mutableStateOf<Float?>(null) }
+    val latestPrefs by androidx.compose.runtime.rememberUpdatedState(prefs)
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var speedRevision by remember { mutableStateOf(0) }
 
-    ReadingWindow(prefs.screen, activity = state.position)
+    ReadingWindow(prefs.screen.copy(brightness = dragBrightness ?: prefs.screen.brightness), activity = state.position)
     VolumeKeyPaging(enabled = prefs.screen.volumeKeys && panel == Panel.None) { forward ->
         scope.go { if (forward) reader.next() else reader.previous() }
     }
@@ -115,18 +134,67 @@ fun ReaderScreen(
         toastCount++
     }
 
+    fun openLink(link: Link) = scope.go {
+        val label = state.text.let { t -> t.substring(link.start.coerceIn(0, t.length), link.endExclusive.coerceIn(0, t.length)) }.trim()
+        when (val target = reader.resolve(link)) {
+            is LinkTarget.Footnote -> note = "각주 $label".trim() to target
+            is LinkTarget.Jump -> reader.jumpTo(target.spine, target.anchor)
+            is LinkTarget.External -> external = target.url
+            LinkTarget.Missing -> {
+                toast = if (link.isFootnote(state.text)) "이 각주의 내용을 책에서 찾지 못했습니다" else "링크가 가리키는 곳을 책에서 찾지 못했습니다"
+                toastCount++
+            }
+        }
+    }
+
+    fun openHit(index: Int) {
+        val found = search.results.getOrNull(index) ?: return
+        search.current = index
+        panel = Panel.None
+        scope.go { reader.goTo(found.hit) }
+    }
+
+    // 읽는 속도: 앞으로 넘길 때마다 방금 읽은 쪽(두쪽이면 두 쪽)의 글자 수와 머문 시간으로 잰다.
+    val turn = remember { TurnClock() }
+    LaunchedEffect(state.position?.spineIndex, state.position?.pageIndex) {
+        val p = state.position ?: return@LaunchedEffect
+        val now = System.currentTimeMillis()
+        val here = p.spineIndex to p.pageIndex
+        val before = turn.key
+        if (before != null && isAfter(here, before) && speed.record(turn.chars.toDouble(), now - turn.at)) {
+            onSpeedChange(speed)
+            speedRevision++
+        }
+        turn.key = here
+        turn.at = now
+        turn.chars = listOfNotNull(state.page, state.rightPage).sumOf { it.endCharExclusive - it.startChar }
+    }
+
     LaunchedEffect(panel) { onChrome(panel != Panel.None) }
     BackHandler {
         panel = when (panel) {
             Panel.None -> { onClose(); Panel.None }
             // 목록에서 뒤로 가면 도구줄로 돌아온다 — 바로 닫히면 목록을 다시 열 길이 멀어진다.
-            Panel.Contents, Panel.Bookmarks, Panel.View -> Panel.Bar
+            Panel.Contents, Panel.Bookmarks, Panel.View, Panel.Search -> Panel.Bar
             Panel.Fonts, Panel.Settings -> Panel.View
             Panel.Bar -> Panel.None
         }
     }
 
-    BoxWithConstraints(Modifier.fillMaxSize().background(colors.paper)) {
+    BoxWithConstraints(
+        Modifier.fillMaxSize().background(colors.paper).brightnessEdge(
+            enabled = prefs.screen.brightnessGesture && panel == Panel.None,
+            current = { latestPrefs.screen.brightness ?: systemBrightness(context) },
+            onDrag = { value ->
+                if (value != null) {
+                    dragBrightness = value
+                } else {
+                    dragBrightness?.let { v -> onPrefsChange(latestPrefs.copy(screen = latestPrefs.screen.copy(brightness = v))) }
+                    dragBrightness = null
+                }
+            },
+        ),
+    ) {
         val widthPx = constraints.maxWidth.toFloat()
         val heightPx = constraints.maxHeight.toFloat()
         val cutout = WindowInsets.displayCutout
@@ -178,21 +246,85 @@ fun ReaderScreen(
             }
         }
 
-        Canvas(
+        // 각주 표시는 강조색(F1), 찾은 말은 글자 뒤 색(E3).
+        val accent = colors.accent
+        val noteMarks = remember(state.links, state.text) {
+            state.links.filter { it.isFootnote(state.text) }.map { it.start until it.endExclusive }
+        }
+        val marks = PageMarks(
+            highlight = state.highlight?.let { it.start until it.endExclusive },
+            highlightColor = accent.copy(alpha = 0.3f),
+            accent = noteMarks,
+            accentColor = accent,
+        )
+        val frame = PageFrame(state.page, state.rightPage, state.text, state.spread, marks, images, rightImages, painter)
+        val frameKey = state.position?.let { Triple(it.spineIndex, it.pageIndex, state.spread) }
+        // 최근 쪽 셋. 넘기는 동안 옛 쪽(나가는 쪽)을 그릴 내용이 남아 있어야 한다.
+        val frames = remember {
+            object : LinkedHashMap<Triple<Int, Int, Boolean>?, PageFrame>() {
+                override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Triple<Int, Int, Boolean>?, PageFrame>?) = size > 3
+            }
+        }
+        frames[frameKey] = frame
+        // 넘김 효과(E7): 쪽이 바뀔 때만. 그리는 것만 움직이고 누르기 · 밀기는 아래의 고정된 층이 받는다.
+        CpPageTurn(frameKey, prefs.screen.pageTurn, forward = { from, to -> from == null || to == null || isAfter(to.first to to.second, from.first to from.second) }) { key ->
+            val shown = frames[key] ?: frame
+            Canvas(Modifier.fillMaxSize().background(colors.paper)) {
+                val page = shown.page
+                val paint = shown.painter
+                if (page != null && paint != null) {
+                    drawPage(page, shown.text, paint, colors.ink, shown.images, shown.marks)
+                    if (shown.spread) {
+                        val half = size.width / 2f
+                        // 책등: 옅은 선 한 줄. 그림자까지 그리면 e-ink 원형과 멀고 글자 옆이 탁해 보인다.
+                        drawLine(
+                            colors.ink.copy(alpha = 0.13f),
+                            androidx.compose.ui.geometry.Offset(half, CORNER.toPx() * 0.5f),
+                            androidx.compose.ui.geometry.Offset(half, size.height - margin.bottom),
+                            strokeWidth = 1.dp.toPx(),
+                        )
+                        shown.right?.let { right ->
+                            translate(left = half) {
+                                drawPage(right, shown.text, paint, colors.ink, shown.rightImages, shown.marks)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Box(
             Modifier
                 .fillMaxSize()
                 .pointerInput(reader, prefs.screen.touch) {
                     val corner = CORNER.toPx()
+                    val touch = 48.dp.toPx()
                     detectTapGestures { offset ->
                         if (panel != Panel.None) {
                             panel = Panel.None
                             return@detectTapGestures
                         }
-                        when (prefs.screen.touch.actionAt(offset.x, offset.y, size.width.toFloat(), corner)) {
+                        val action = prefs.screen.touch.actionAt(offset.x, offset.y, size.width.toFloat(), corner)
+                        if (action == TapAction.Bookmark) {
+                            toggleBookmark()
+                            return@detectTapGestures
+                        }
+                        // 링크(각주 표시)가 먼저 — 그 자리가 "다음 쪽" 자리여도 넘기지 않는다(F2).
+                        val current = reader.state.value
+                        val paint = painter
+                        val onRight = current.spread && offset.x > size.width / 2f
+                        val page = if (onRight) current.rightPage else current.page
+                        val x = if (onRight) offset.x - size.width / 2f else offset.x
+                        val link = if (page != null && paint != null) linkAt(page, current.text, paint, current.links, x, offset.y, touch) else null
+                        if (link != null) {
+                            openLink(link)
+                            return@detectTapGestures
+                        }
+                        when (action) {
                             TapAction.Previous -> scope.go { reader.previous() }
                             TapAction.Next -> scope.go { reader.next() }
                             TapAction.Menu -> panel = Panel.Bar
-                            TapAction.Bookmark -> toggleBookmark()
+                            TapAction.Bookmark -> Unit
                         }
                     }
                 }
@@ -208,27 +340,7 @@ fun ReaderScreen(
                         },
                     ) { _, amount -> dragged += amount }
                 },
-        ) {
-            val page = state.page
-            if (page != null && painter != null) {
-                drawPage(page, state.text, painter, colors.ink, images)
-                if (state.spread) {
-                    val half = size.width / 2f
-                    // 책등: 옅은 선 한 줄. 그림자까지 그리면 e-ink 원형과 멀고 글자 옆이 탁해 보인다.
-                    drawLine(
-                        colors.ink.copy(alpha = 0.13f),
-                        androidx.compose.ui.geometry.Offset(half, CORNER.toPx() * 0.5f),
-                        androidx.compose.ui.geometry.Offset(half, size.height - margin.bottom),
-                        strokeWidth = 1.dp.toPx(),
-                    )
-                    state.rightPage?.let { right ->
-                        translate(left = half) {
-                            drawPage(right, state.text, painter, colors.ink, rightImages)
-                        }
-                    }
-                }
-            }
-        }
+        )
 
         // 윗여백(34dp) 안에서 끝나 글자를 가리지 않는다. 노치가 있으면 그 아래로.
         if (state.bookmarked && state.page != null) {
@@ -248,12 +360,38 @@ fun ReaderScreen(
                 },
                 percent = state.percent,
                 chapterPagesLeft = position?.let { it.pageCount - it.pageIndex - 1 - (if (state.rightPage != null) 1 else 0) },
+                // 남은 시간(E5): 이 장에서 보이는 쪽 뒤로 남은 글자 ÷ 읽는 속도. 속도를 모르면 빈칸.
+                chapterMinutesLeft = speedRevision.let { _ ->
+                    (state.rightPage ?: state.page)?.let { shown -> speed.minutesFor((state.chapterLength - shown.endCharExclusive).toDouble()) }
+                },
+                bookMinutesLeft = speedRevision.let { _ ->
+                    (state.rightPage ?: state.page)?.let { shown ->
+                        speed.minutesFor((state.chapterLength - shown.endCharExclusive).toDouble() + state.charsAfterChapter)
+                    }
+                },
             ),
             footer = prefs.screen.footer,
             color = colors.inkMuted,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp).windowInsetsPadding(cutout),
         )
         CpToast(toast, onDone = { toast = null }, Modifier.align(Alignment.BottomCenter), key = toastCount)
+
+        if (panel == Panel.None) {
+            if (search.current >= 0 && search.results.isNotEmpty()) {
+                SearchResultBar(
+                    index = search.current,
+                    total = search.results.size,
+                    onPrevious = { if (search.current > 0) openHit(search.current - 1) },
+                    onNext = { if (search.current < search.results.size - 1) openHit(search.current + 1) },
+                    onList = { panel = Panel.Search },
+                    onClose = { search.current = -1; scope.go { reader.clearHighlight() } },
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 64.dp),
+                )
+            } else if (state.canReturn) {
+                ReturnChip({ scope.go { reader.returnBack() } }, Modifier.align(Alignment.BottomCenter).padding(bottom = 64.dp))
+            }
+        }
+        CpBrightnessOverlay(dragBrightness, Modifier.align(Alignment.CenterStart))
 
         when (panel) {
             Panel.None -> Unit
@@ -266,7 +404,15 @@ fun ReaderScreen(
                 onClose = onClose,
                 onPanel = { panel = it },
                 onBookmark = ::toggleBookmark,
+                onSearch = { panel = Panel.Search },
                 scope = scope,
+            )
+            Panel.Search -> SearchScreen(
+                session = search,
+                toc = toc,
+                onSearch = { search.start(reader, scope) },
+                onOpen = ::openHit,
+                onBack = { panel = Panel.Bar },
             )
             Panel.Settings -> CpViewSettingsScreen(
                 prefs = prefs.screen,
@@ -291,6 +437,22 @@ fun ReaderScreen(
             )
         }
 
+        note?.let { (title, target) ->
+            NoteSheet(
+                title = title,
+                text = target.text,
+                onGoTo = {
+                    note = null
+                    scope.go { reader.jumpTo(target.spine, target.anchor, markLength = target.text.length) }
+                },
+                onClose = { note = null },
+            )
+        }
+        external?.let { url ->
+            val opener = androidx.compose.ui.platform.LocalUriHandler.current
+            ExternalLinkPopup(url, onOpen = { external = null; runCatching { opener.openUri(url) } }, onDismiss = { external = null })
+        }
+
         if (state.busy && state.page == null) CpPopup(title = "책을 펼치는 중…", progress = null)
         state.error?.let { message ->
             if (state.page == null) {
@@ -310,7 +472,30 @@ fun ReaderScreen(
  * 이제 누르면 **얇은 도구줄**만 뜨고 지면은 거의 그대로 보인다. 목차·책갈피는 볼 때만
  * 전체 화면으로 연다(Play 북·리디와 같은 구성).
  */
-private enum class Panel { None, Bar, View, Fonts, Settings, Contents, Bookmarks }
+private enum class Panel { None, Bar, View, Fonts, Settings, Search, Contents, Bookmarks }
+
+/** 한 번 그린 쪽. 넘김 효과가 옛 쪽을 새 쪽과 함께 그리는 동안 옛 쪽의 내용을 쥐고 있다. */
+private data class PageFrame(
+    val page: io.github.kgcaudit.reader.layout.Page?,
+    val right: io.github.kgcaudit.reader.layout.Page?,
+    val text: String,
+    val spread: Boolean,
+    val marks: PageMarks,
+    val images: Map<PlacedImage, ImageBitmap>,
+    val rightImages: Map<PlacedImage, ImageBitmap>,
+    val painter: io.github.kgcaudit.reader.text.AndroidTextMeasurer?,
+)
+
+/** 마지막으로 쪽이 바뀐 때 · 그 쪽 · 그 쪽의 글자 수. */
+private class TurnClock {
+    var at = 0L
+    var key: Pair<Int, Int>? = null
+    var chars = 0
+}
+
+/** (장, 쪽) 이 [other] 보다 뒤인가. */
+private fun isAfter(here: Pair<Int, Int>, other: Pair<Int, Int>): Boolean =
+    here.first > other.first || (here.first == other.first && here.second > other.second)
 
 /** 오른쪽 위 모서리의 책갈피 네모. 리본(22dp)보다 넉넉하되 "다음 쪽" 자리를 많이 빼앗지 않는 크기. */
 private val CORNER = 56.dp
@@ -325,6 +510,7 @@ private fun ReaderBar(
     onClose: () -> Unit,
     onPanel: (Panel) -> Unit,
     onBookmark: () -> Unit,
+    onSearch: () -> Unit,
     scope: CoroutineScope,
 ) {
     val position = state.position
@@ -333,6 +519,7 @@ private fun ReaderBar(
         subtitle = if (position != null) "${position.spineIndex + 1} / ${state.chapterCount} 장" else null,
         bookmarked = state.bookmarked,
         onBookmark = onBookmark,
+        onSearch = onSearch,
         onBack = onClose,
         onDismiss = { onPanel(Panel.None) },
         progress = state.percent / 100f,

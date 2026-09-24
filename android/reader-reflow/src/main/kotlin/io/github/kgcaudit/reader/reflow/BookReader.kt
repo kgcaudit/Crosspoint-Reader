@@ -20,6 +20,9 @@ import io.github.kgcaudit.reader.text.AndroidTextMeasurer
 import io.github.kgcaudit.reader.text.BookTypefaces
 import io.github.kgcaudit.reader.text.FontCatalog
 import io.github.kgcaudit.reader.layout.book.BookFontTable
+import io.github.kgcaudit.reader.layout.book.LinkTarget
+import io.github.kgcaudit.reader.layout.book.SearchHit
+import io.github.kgcaudit.reader.layout.html.Link
 import java.io.File
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -51,6 +54,15 @@ data class ReaderState(
      */
     val rightPage: Page? = null,
     val spread: Boolean = false,
+    /** 이 장의 링크(각주 표시 칠하기 · 누르기). */
+    val links: List<Link> = emptyList(),
+    /** 찾기 결과로 왔을 때 칠할 자리. 다른 장이면 칠하지 않는다. */
+    val highlight: SearchHit? = null,
+    /** 링크로 건너왔다 — "읽던 곳으로" 단추를 띄운다(F4 · F5). */
+    val canReturn: Boolean = false,
+    /** 이 장의 글자 수 · 뒤 장들의 글자 수(추정). 남은 시간을 센다(E5). */
+    val chapterLength: Int = 0,
+    val charsAfterChapter: Long = 0,
 )
 
 /**
@@ -92,6 +104,13 @@ class BookReader(
      */
     private var shownLocator: Locator.Reflow? = null
     private val texts = HashMap<Int, String>()
+    private var highlight: SearchHit? = null
+    private var returnTo: Locator.Reflow? = null
+
+    /** 목차 · 책갈피 · 진행 막대 · 찾기로 다른 곳에 가면 "읽던 곳으로" 는 뜻을 잃는다. */
+    private fun forgetReturn() {
+        returnTo = null
+    }
     private val images = LruCache<String, ImageBitmap>(8)
 
     val title: String get() = document.meta.title
@@ -173,19 +192,79 @@ class BookReader(
 
     suspend fun goTo(bookmark: Bookmark) = run {
         val position = requireSession().goTo(bookmark) ?: return@run
+        forgetReturn()
         show(position)
     }
 
     suspend fun goTo(entry: TocEntry) = run {
         val spine = (entry.locator as? Locator.Reflow)?.spine ?: return@run
         val l = requireLayout()
+        forgetReturn()
         show(l.resolve(l.locatorForAnchor(spine, entry.anchor)))
     }
 
     /** 진행 막대로 옮긴다. [fraction] 은 0~1. */
     suspend fun seek(fraction: Float) = run {
         val l = requireLayout()
+        forgetReturn()
         show(l.resolve(l.locatorAtPercent(fraction * 100f)))
+    }
+
+    // ── 찾기(E2 · E3) ───────────────────────────────────────────────
+
+    /** 장 수. 찾기가 "2 / 3 장" 을 보이는 데 쓴다. */
+    suspend fun chapterCount(): Int = run { requireLayout().spine().size }
+
+    /** 장 하나에서 찾는다. 장마다 따로 조판 스레드를 잡았다 놓는다 — 찾는 동안에도 쪽을 넘길 수 있다. */
+    suspend fun searchChapter(spineIndex: Int, query: String): List<SearchHit> =
+        run { requireLayout().searchChapter(spineIndex, query) }
+
+    /** 찾은 자리가 책의 몇 %. */
+    suspend fun percentOf(hit: SearchHit): Float = run { requireLayout().percentAt(hit.spine, hit.start) }
+
+    /** 찾은 자리로 가서 칠한다. 두쪽이면 그 자리가 든 펼침. */
+    suspend fun goTo(hit: SearchHit) = run {
+        val l = requireLayout()
+        forgetReturn()
+        highlight = hit
+        show(l.resolve(Locator.Reflow(hit.spine, hit.start)))
+    }
+
+    /** 찾기를 끝냈다 — 칠한 것을 지운다. */
+    suspend fun clearHighlight() = run {
+        highlight = null
+        _state.value = _state.value.copy(highlight = null)
+    }
+
+    // ── 링크 · 각주(F1–F6) ──────────────────────────────────────────
+
+    /** 누른 링크가 어디로 가는가. 각주면 내용까지 뽑아 준다. */
+    suspend fun resolve(link: Link): LinkTarget = run {
+        val spine = _state.value.position?.spineIndex ?: return@run LinkTarget.Missing
+        requireLayout().resolveLink(spine, link)
+    }
+
+    /**
+     * 링크가 가리키는 자리로 건너간다(각주 자리로 가기 · 본문 속 링크). 지금 보던 글자를 기억해 두어
+     * [returnBack] 으로 돌아온다 — 건너뛴 뒤 쪽을 몇 장 넘겨도 "읽던 곳" 은 건너뛰기 전 그 자리다.
+     */
+    suspend fun jumpTo(spineIndex: Int, anchor: String?, markLength: Int = 0) = run {
+        val l = requireLayout()
+        if (returnTo == null) returnTo = shownLocator
+        // 각주 자리로 가면 그 각주를 칠한다(F4) — 주석 장에는 비슷한 문단이 줄지어 있어 어느 것인지 찾아야 한다.
+        if (markLength > 0) {
+            val at = l.anchorOffset(spineIndex, anchor)
+            highlight = SearchHit(spineIndex, at, at + markLength, "", 0)
+        }
+        show(l.resolve(l.locatorForAnchor(spineIndex, anchor)))
+    }
+
+    /** 건너뛰기 전 읽던 곳으로. */
+    suspend fun returnBack() = run {
+        val back = returnTo ?: return@run
+        returnTo = null
+        highlight = null
+        show(requireLayout().resolve(back))
     }
 
     /** 이 페이지의 책갈피를 꽂거나 뺀다. */
@@ -269,6 +348,9 @@ class BookReader(
         texts.keys.retainAll { kotlin.math.abs(it - position.spineIndex) <= 1 }
 
         val s = requireSession()
+        val links = l.links(position.spineIndex)
+        val length = l.chapterLength(position.spineIndex)
+        val after = l.charsAfterChapter(position.spineIndex)
         val saved = s.saveProgress(position)
         shownLocator = l.locatorAt(position.spineIndex, position.pageIndex)
         _state.value = ReaderState(
@@ -283,6 +365,11 @@ class BookReader(
             spec = spec,
             rightPage = right,
             spread = spread,
+            links = links,
+            highlight = highlight?.takeIf { it.spine == position.spineIndex },
+            canReturn = returnTo != null,
+            chapterLength = length,
+            charsAfterChapter = after,
         )
     }
 

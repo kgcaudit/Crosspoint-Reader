@@ -203,6 +203,75 @@ class BookLayoutTest {
         }
     }
 
+    // ── 링크 · 각주 · 검색 ─────────────────────────────────────────
+
+    /** 본문 두 장 + 주석 장. 각주 · 본문 속 링크 · 인터넷 링크 · 깨진 링크가 섞였다. */
+    private fun notesEpub(): ByteArray {
+        val opf = """
+            <package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+              <metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>각주 책</dc:title></metadata>
+              <manifest>
+                <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>
+                <item id="c2" href="Text/ch2.xhtml" media-type="application/xhtml+xml"/>
+                <item id="n" href="Text/notes.xhtml" media-type="application/xhtml+xml"/>
+              </manifest>
+              <spine><itemref idref="c1"/><itemref idref="c2"/><itemref idref="n"/></spine>
+            </package>
+        """.trimIndent()
+        val ch1 = """<html><body><p>보아 구렁이<sup><a href="notes.xhtml#n1">1</a></sup> 그림. <a href="ch2.xhtml#rose">장미 이야기</a>로.
+            <a href="https://example.com">누리집</a> <a href="notes.xhtml#none">9</a> <a href="gone.xhtml#x">없는 파일</a></p></body></html>"""
+        val ch2 = """<html><body><p>앞 문단.</p><p id="rose">장미 한 송이.</p></body></html>"""
+        val notes = """<html><body><h1>주석</h1>
+            <p id="n1">1) 보아 구렁이: 큰 뱀. <a href="ch1.xhtml">↩</a></p>
+            <p id="n2">2) 체험한 이야기: 어린이 책.</p></body></html>"""
+        val out = ByteArrayOutputStream()
+        ZipOutputStream(out).use { zip ->
+            mapOf(
+                "META-INF/container.xml" to """<container><rootfiles><rootfile full-path="OEBPS/content.opf"/></rootfiles></container>""",
+                "OEBPS/content.opf" to opf,
+                "OEBPS/Text/ch1.xhtml" to ch1,
+                "OEBPS/Text/ch2.xhtml" to ch2,
+                "OEBPS/Text/notes.xhtml" to notes,
+            ).forEach { (name, body) -> zip.putNextEntry(ZipEntry(name)); zip.write(body.toByteArray()); zip.closeEntry() }
+        }
+        return out.toByteArray()
+    }
+
+    @Test
+    fun `each kind of link goes where a reader expects`() = runTest {
+        EpubDocument.open(BookId("notes"), "notes.epub", SeekableSource.of(notesEpub())).use { doc ->
+            val book = layout(doc)
+            val links = book.links(0)
+            val text = book.chapterText(0)!!
+            fun target(label: String) = kotlinx.coroutines.runBlocking {
+                book.resolveLink(0, links.single { text.substring(it.start, it.endExclusive) == label })
+            }
+            // 각주: 판에 띄울 내용은 그 각주 하나(다음 각주 · 되돌아가기 표시 없이).
+            val note = target("1") as LinkTarget.Footnote
+            assertEquals("1) 보아 구렁이: 큰 뱀.", note.text)
+            assertEquals(2, note.spine)
+            // 본문 속 링크: 그 장의 그 자리로.
+            assertEquals(LinkTarget.Jump(1, "rose"), target("장미 이야기"))
+            // 책 밖.
+            assertEquals(LinkTarget.External("https://example.com"), target("누리집"))
+            // 깨진 링크(없는 id · 없는 파일): 책을 닫지 않고 "못 찾음".
+            assertEquals(LinkTarget.Missing, target("9"))
+            assertEquals(LinkTarget.Missing, target("없는 파일"))
+        }
+    }
+
+    @Test
+    fun `searching the whole book reports each chapter in order`() = runTest {
+        openEpub().use { doc ->
+            val book = layout(doc)
+            val seen = ArrayList<Int>()
+            var total = 0
+            book.search("어린 왕자는") { spine, hits -> seen.add(spine); total += hits.size }
+            assertEquals(listOf(0, 1, 2), seen)
+            assertEquals(6 + 10, total, "제1장 6문단 + 제3장 10문단에 한 번씩")
+        }
+    }
+
     // ── 두쪽보기 ────────────────────────────────────────────────────
 
     @Test

@@ -57,7 +57,12 @@ import io.github.kgcaudit.reader.ui.design.CpIcons
 import io.github.kgcaudit.reader.ui.design.CpListRow
 import io.github.kgcaudit.reader.ui.design.CpPopup
 import io.github.kgcaudit.reader.ui.design.CpReaderBar
+import io.github.kgcaudit.reader.ui.design.CpBrightnessOverlay
 import io.github.kgcaudit.reader.ui.design.CpBrightnessRow
+import io.github.kgcaudit.reader.ui.design.CpPageTurn
+import io.github.kgcaudit.reader.ui.design.ReadingSpeed
+import io.github.kgcaudit.reader.ui.design.brightnessEdge
+import io.github.kgcaudit.reader.ui.design.systemBrightness
 import io.github.kgcaudit.reader.ui.design.CpLinkRow
 import io.github.kgcaudit.reader.ui.design.CpReadingFooter
 import io.github.kgcaudit.reader.ui.design.CpRibbon
@@ -97,6 +102,9 @@ fun PdfScreen(
     onChrome: (Boolean) -> Unit,
     prefs: ScreenPrefs = ScreenPrefs(),
     onPrefsChange: (ScreenPrefs) -> Unit = {},
+    /** 읽는 속도(쪽/분). 남은 시간을 센다(E5). */
+    speed: ReadingSpeed = remember { ReadingSpeed() },
+    onSpeedChange: (ReadingSpeed) -> Unit = {},
 ) {
     val state by reader.state.collectAsState()
     val scope = rememberCoroutineScope()
@@ -108,7 +116,26 @@ fun PdfScreen(
     var contents by remember { mutableStateOf<List<TocEntry>>(emptyList()) }
     LaunchedEffect(reader) { contents = runCatching { reader.outline() }.getOrDefault(emptyList()) }
 
-    ReadingWindow(prefs, activity = state.page)
+    // 왼쪽 끝을 미는 동안의 밝기(E6). 손을 떼면 설정으로 저장한다.
+    var dragBrightness by remember { mutableStateOf<Float?>(null) }
+    val latestPrefs by androidx.compose.runtime.rememberUpdatedState(prefs)
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var speedRevision by remember { mutableStateOf(0) }
+    // 읽는 속도: 앞으로 넘길 때마다 방금 본 쪽 수와 머문 시간으로 잰다.
+    val turn = remember { longArrayOf(0L, -1L, 0L) } // [시각, 첫 쪽, 쪽 수]
+    LaunchedEffect(state.page) {
+        if (!state.ready) return@LaunchedEffect
+        val now = System.currentTimeMillis()
+        if (turn[1] >= 0 && state.page > turn[1] && speed.record(turn[2].toDouble(), now - turn[0])) {
+            onSpeedChange(speed)
+            speedRevision++
+        }
+        turn[0] = now
+        turn[1] = state.page.toLong()
+        turn[2] = state.shown.size.toLong()
+    }
+
+    ReadingWindow(prefs.copy(brightness = dragBrightness ?: prefs.brightness), activity = state.page)
     VolumeKeyPaging(enabled = prefs.volumeKeys && panel == PdfPanel.None) { forward ->
         scope.go { if (forward) reader.next() else reader.previous() }
     }
@@ -129,7 +156,20 @@ fun PdfScreen(
         }
     }
 
-    Box(Modifier.fillMaxSize()) {
+    Box(
+        Modifier.fillMaxSize().brightnessEdge(
+            enabled = prefs.brightnessGesture && panel == PdfPanel.None,
+            current = { latestPrefs.brightness ?: systemBrightness(context) },
+            onDrag = { value ->
+                if (value != null) {
+                    dragBrightness = value
+                } else {
+                    dragBrightness?.let { v -> onPrefsChange(latestPrefs.copy(brightness = v)) }
+                    dragBrightness = null
+                }
+            },
+        ),
+    ) {
         Column(Modifier.fillMaxSize().background(colors.paper)) {
             // 상태 막대 자리를 뺀 곳에 쪽을 놓는다. 겹치면 세로로 긴 쪽의 마지막 줄이 막대에 가린다.
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().windowInsetsPadding(WindowInsets.displayCutout)) {
@@ -152,17 +192,24 @@ fun PdfScreen(
                     }
                 }
                 val onSwipe: (Boolean) -> Unit = { forward -> scope.go { if (forward) reader.next() else reader.previous() } }
-                if (state.ready && state.pageCount > 0 && viewW > 0f && viewH > 0f && twoPages) {
-                    SpreadView(reader, state.shown, viewW, viewH, onTap, onSwipe)
-                } else if (state.ready && state.pageCount > 0 && viewW > 0f && viewH > 0f) {
-                    PageView(
-                        reader = reader,
-                        page = state.page,
-                        viewW = viewW,
-                        viewH = viewH,
-                        onTap = onTap,
-                        onSwipe = onSwipe,
-                    )
+                // 넘김 효과(E7): 보이는 쪽(들)이 바뀔 때.
+                if (state.ready && state.pageCount > 0 && viewW > 0f && viewH > 0f) CpPageTurn(
+                    key = state.shown,
+                    effect = prefs.pageTurn,
+                    forward = { from, to -> (to.firstOrNull() ?: 0) > (from.firstOrNull() ?: 0) },
+                ) { shown ->
+                    if (twoPages) {
+                        SpreadView(reader, shown, viewW, viewH, onTap, onSwipe)
+                    } else {
+                        PageView(
+                            reader = reader,
+                            page = shown.first(),
+                            viewW = viewW,
+                            viewH = viewH,
+                            onTap = onTap,
+                            onSwipe = onSwipe,
+                        )
+                    }
                 }
             }
             CpReadingFooter(
@@ -185,6 +232,17 @@ fun PdfScreen(
                     } else {
                         null
                     },
+                    // 남은 시간(E5): PDF 는 쪽 단위로 잰다(글자를 읽을 수 없다).
+                    chapterMinutesLeft = speedRevision.let { _ ->
+                        if (state.pageCount > 0) {
+                            speed.minutesFor(pagesLeftInSection(contents, state.shown.maxOrNull() ?: state.page, state.pageCount).toDouble())
+                        } else {
+                            null
+                        }
+                    },
+                    bookMinutesLeft = speedRevision.let { _ ->
+                        speed.minutesFor((state.pageCount - 1 - (state.shown.maxOrNull() ?: state.page)).toDouble())
+                    },
                 ),
                 footer = prefs.footer,
                 color = colors.inkMuted,
@@ -197,6 +255,7 @@ fun PdfScreen(
             CpRibbon(Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.displayCutout).padding(end = 20.dp))
         }
         CpToast(toast, onDone = { toast = null }, Modifier.align(Alignment.BottomCenter), key = toastCount)
+        CpBrightnessOverlay(dragBrightness, Modifier.align(Alignment.CenterStart))
     }
 
     when (panel) {

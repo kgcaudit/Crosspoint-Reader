@@ -31,8 +31,16 @@ fun DrawScope.drawPage(
     measurer: AndroidTextMeasurer,
     ink: Color,
     images: Map<PlacedImage, ImageBitmap>,
+    marks: PageMarks = PageMarks.NONE,
 ) {
     val argb = ink.toArgb()
+
+    // 찾은 말: 글자 뒤에 칠한다(글자보다 먼저 그려야 글자가 가려지지 않는다).
+    marks.highlight?.let { range ->
+        for (box in rangeBoxes(page, text, measurer, range.first, range.last + 1)) {
+            drawRect(marks.highlightColor, Offset(box.left, box.top), Size(box.width, box.height))
+        }
+    }
 
     drawIntoCanvas { canvas ->
         val native = canvas.nativeCanvas
@@ -53,7 +61,22 @@ fun DrawScope.drawPage(
                 VerticalAlign.Baseline -> 0f
             }
             val y = run.baselineYPx + shift
-            native.drawText(text, start, end, run.xPx, y, paint)
+            if (marks.accent.none { it.first < end && it.last + 1 > start }) {
+                native.drawText(text, start, end, run.xPx, y, paint)
+            } else {
+                // 각주 표시가 든 조각: 표시 부분만 강조색으로(F1). 나눈 자리의 x 는 앞 글자 폭을 더해 구한다 — 조각
+                // 안에는 양쪽정렬의 벌림이 없다.
+                var from = start
+                val cuts = marks.accent.flatMap { listOf(it.first, it.last + 1) }.filter { it in (start + 1) until end }.sorted()
+                for (cut in cuts + end) {
+                    if (cut <= from) continue
+                    val accent = marks.accent.any { from >= it.first && from <= it.last }
+                    paint.color = if (accent) marks.accentColor.toArgb() else argb
+                    native.drawText(text, from, cut, run.xPx + measurer.advance(text, start, from, run.style), y, paint)
+                    from = cut
+                }
+                paint.color = argb
+            }
 
             if (run.style.underline || run.style.strikethrough) {
                 val width = paint.measureText(text, start, end)
@@ -87,5 +110,21 @@ fun DrawScope.drawPage(
             dstOffset = IntOffset((placed.xPx + (placed.widthPx - w) / 2f).toInt(), (placed.yPx + (placed.heightPx - h) / 2f).toInt()),
             dstSize = IntSize(w.toInt(), h.toInt()),
         )
+    }
+}
+
+
+/**
+ * 쪽 위에 얹는 표시: 찾은 말([highlight], 글자 뒤 색)과 각주 표시([accent], 강조색 글자). 둘 다 이 장 텍스트의
+ * 글자 구간이다.
+ */
+data class PageMarks(
+    val highlight: IntRange? = null,
+    val highlightColor: Color = Color.Transparent,
+    val accent: List<IntRange> = emptyList(),
+    val accentColor: Color = Color.Unspecified,
+) {
+    companion object {
+        val NONE = PageMarks()
     }
 }

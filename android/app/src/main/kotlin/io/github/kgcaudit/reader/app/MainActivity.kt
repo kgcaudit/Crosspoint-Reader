@@ -132,6 +132,8 @@ private fun OloApp(
     var reader by remember { mutableStateOf<OpenedBook?>(null) }
     var failure by remember { mutableStateOf<String?>(null) }
     var prefs by remember { mutableStateOf(container.prefs.load()) }
+    val charSpeed = remember { container.prefs.loadSpeed("chars") }
+    val pageSpeed = remember { container.prefs.loadSpeed("pages") }
     // 라이브러리에서도 같은 방향이다 — 책을 닫을 때마다 방향이 튀지 않게.
     LaunchedEffect(prefs.screen.rotation) { rotate(prefs.screen.rotation) }
     // 이번 실행에서 폴더를 훑었는가. 화면(액티비티)이 새로 만들어지면 다시 훑는다.
@@ -242,6 +244,8 @@ private fun OloApp(
                     onPrefsChange = { prefs = it; container.prefs.save(it) },
                     onClose = ::close,
                     onChrome = { showing -> hideSystemBars(!showing) },
+                    speed = charSpeed,
+                    onSpeedChange = { container.prefs.saveSpeed("chars", it) },
                 )
             }
         }
@@ -255,6 +259,8 @@ private fun OloApp(
                     onChrome = { showing -> hideSystemBars(!showing) },
                     prefs = prefs.screen,
                     onPrefsChange = { prefs = prefs.copy(screen = it); container.prefs.save(prefs) },
+                    speed = pageSpeed,
+                    onSpeedChange = { container.prefs.saveSpeed("pages", it) },
                 )
             }
         }

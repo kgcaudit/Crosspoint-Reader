@@ -14,12 +14,16 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -41,6 +45,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
@@ -104,6 +109,9 @@ data class FooterInfo(
     val page: String,
     val percent: Float,
     val chapterPagesLeft: Int?,
+    /** 이 장 · 책을 다 읽는 데 남은 분(읽는 속도로 셈). 모르면 null — 빈칸으로 둔다. */
+    val chapterMinutesLeft: Int? = null,
+    val bookMinutesLeft: Int? = null,
 )
 
 /** 하단 한 줄: 진행 막대 + 왼쪽 · 가운데 · 오른쪽. CrossPoint `drawStatusBar` 의 자리. */
@@ -125,6 +133,8 @@ fun CpReadingFooter(info: FooterInfo, footer: Footer, color: Color, modifier: Mo
             0 -> "이 장 마지막 쪽"
             else -> "이 장 ${left}쪽 남음"
         }
+        FooterItem.ChapterTime -> info.chapterMinutesLeft?.let { "이 장 ${minutesText(it)} 남음" }.orEmpty()
+        FooterItem.BookTime -> info.bookMinutesLeft?.let { "책 ${minutesText(it)} 남음" }.orEmpty()
     }
     Column(modifier.fillMaxWidth().padding(horizontal = CpTheme.metrics.gutter)) {
         CpProgressBar(info.percent / 100f, weight = CpBarWeight.Thin)
@@ -138,6 +148,14 @@ fun CpReadingFooter(info: FooterInfo, footer: Footer, color: Color, modifier: Mo
 }
 
 private val Footer.slots: List<FooterItem> get() = listOf(left, center, right)
+
+/** 4 → "4분", 130 → "2시간 10분", 0 → "1분 미만". */
+internal fun minutesText(minutes: Int): String = when {
+    minutes <= 0 -> "1분 미만"
+    minutes < 60 -> "${minutes}분"
+    minutes % 60 == 0 -> "${minutes / 60}시간"
+    else -> "${minutes / 60}시간 ${minutes % 60}분"
+}
 
 /** 분이 바뀔 때마다 새 값. 초 단위로 돌리면 읽는 내내 화면을 다시 그린다. */
 @Composable
@@ -344,6 +362,10 @@ fun CpViewSettingsScreen(
                 CpChoice("볼륨키로 넘기기", listOf("켬", "끔"), if (prefs.volumeKeys) 0 else 1, {
                     onChange(prefs.copy(volumeKeys = it == 0))
                 }, child)
+                val turns = PageTurn.entries
+                CpChoice("넘김 효과", turns.map { it.label }, turns.indexOf(prefs.pageTurn), {
+                    onChange(prefs.copy(pageTurn = turns[it]))
+                }, child)
                 CpSectionLabel("화면")
                 val rotations = ScreenRotation.entries
                 CpChoice("화면 회전", rotations.map { it.label }, rotations.indexOf(prefs.rotation), {
@@ -376,6 +398,9 @@ fun CpViewSettingsScreen(
                     onChange(prefs.copy(keepScreenOn = keep[it]))
                 }, child)
                 CpLinkRow("하단 정보", prefs.footer.summary, { sub = SettingsPage.Footer }, child)
+                CpChoice("왼쪽 끝 밀어 밝기", listOf("켬", "끔"), if (prefs.brightnessGesture) 0 else 1, {
+                    onChange(prefs.copy(brightnessGesture = it == 0))
+                }, child)
                 if (pdf) {
                     CpSectionLabel("PDF")
                     CpChoice("두쪽보기에서 표지", listOf("따로", "함께"), if (prefs.pdfCoverAlone) 0 else 1, {
@@ -476,3 +501,103 @@ private fun FooterSettings(footer: Footer, onChange: (Footer) -> Unit, onBack: (
         names.forEachIndexed { i, name -> CpLinkRow(name, values[i].label, { slot = i }) }
     }
 }
+
+
+// ── 밝기 밀기(E6) ──────────────────────────────────────────────────
+
+/**
+ * 왼쪽 끝([EDGE])에서 위아래로 밀면 밝기가 바뀐다. 위로 밀면 밝게.
+ *
+ * 가장 먼저(Initial 단계) 받아서, 세로로 움직였다고 판단한 순간부터는 이 손가락을 먹는다 — 그래야 지면의
+ * 누르기(다음 쪽) · 옆으로 밀기(넘김)가 같은 손가락에 반응하지 않는다. 옆으로 먼저 움직이면 놓아준다(넘김).
+ * 휴대폰의 "뒤로" 제스처(가장자리에서 옆으로)와도 방향이 달라 겹치지 않는다.
+ *
+ * @param current 밀기 시작할 때의 밝기(시스템 밝기면 그 값을 읽어 온다).
+ * @param onDrag 미는 동안의 새 밝기. null 이면 손을 뗐다.
+ */
+fun Modifier.brightnessEdge(
+    enabled: Boolean,
+    current: () -> Float,
+    onDrag: (Float?) -> Unit,
+): Modifier = if (!enabled) this else this.pointerInput(Unit) {
+    val edge = EDGE.toPx()
+    val slop = viewConfiguration.touchSlop
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false, pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+        if (down.position.x > edge) return@awaitEachGesture
+        val start = current()
+        var claimed = false
+        var travel = androidx.compose.ui.geometry.Offset.Zero
+        while (true) {
+            val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+            if (!change.pressed) break
+            travel += change.position - change.previousPosition
+            if (!claimed) {
+                if (kotlin.math.abs(travel.x) > slop && kotlin.math.abs(travel.x) > kotlin.math.abs(travel.y)) return@awaitEachGesture
+                if (kotlin.math.abs(travel.y) > slop) claimed = true
+            }
+            if (claimed) {
+                change.consume()
+                // 화면 높이의 60% 를 밀면 끝에서 끝까지.
+                onDrag((start - travel.y / (size.height * 0.6f)).coerceIn(0.02f, 1f))
+            }
+        }
+        if (claimed) onDrag(null)
+    }
+}
+
+private val EDGE = 32.dp
+
+/** 미는 동안 뜨는 밝기 표시(해 · 막대 · %). */
+@Composable
+fun CpBrightnessOverlay(value: Float?, modifier: Modifier = Modifier) {
+    if (value == null) return
+    Column(
+        modifier.padding(start = 40.dp).clip(RoundedCornerShape(20.dp)).background(Color(0xE6302A24))
+            .padding(horizontal = 14.dp, vertical = 16.dp)
+            .semantics { contentDescription = "밝기 ${(value * 100).toInt()}%" },
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        CpIcon(CpIcons.Sun, Color.White, size = 22.dp)
+        Box(Modifier.padding(vertical = 10.dp).size(width = 6.dp, height = 140.dp).clip(RoundedCornerShape(50)).background(Color(0x55FFFFFF))) {
+            Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(140.dp * value).clip(RoundedCornerShape(50)).background(Color.White))
+        }
+        CpText("${(value * 100).toInt()}%", CpTheme.type.label, Color.White)
+    }
+}
+
+/** 지금 창의 밝기(0..1). 앱이 정하지 않았으면 휴대폰 밝기 설정을 읽는다 — 읽기에는 권한이 필요 없다. */
+fun systemBrightness(context: Context): Float = runCatching {
+    android.provider.Settings.System.getInt(context.contentResolver, android.provider.Settings.System.SCREEN_BRIGHTNESS) / 255f
+}.getOrDefault(0.5f).coerceIn(0.02f, 1f)
+
+// ── 넘김 효과(E7) ─────────────────────────────────────────────────
+
+/**
+ * 쪽이 바뀔 때의 효과. [key] 가 바뀌면 옛 쪽에서 새 쪽으로 — 서서히(겹쳐 사라짐) 또는 밀기(옆으로 빠짐).
+ * [forward] 는 앞으로 넘겼는지(밀기의 방향). [PageTurn.None] 이면 그대로 바꿔 그린다(지금까지와 같다).
+ */
+@Composable
+fun <K> CpPageTurn(key: K, effect: PageTurn, forward: (from: K, to: K) -> Boolean, content: @Composable (K) -> Unit) {
+    if (effect == PageTurn.None) {
+        content(key)
+        return
+    }
+    androidx.compose.animation.AnimatedContent(
+        targetState = key,
+        transitionSpec = {
+            val ahead = forward(initialState, targetState)
+            when (effect) {
+                PageTurn.Fade -> androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(TURN_MS)) togetherWith
+                    androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(TURN_MS))
+                else -> androidx.compose.animation.slideInHorizontally(androidx.compose.animation.core.tween(TURN_MS)) { w -> if (ahead) w else -w } togetherWith
+                    androidx.compose.animation.slideOutHorizontally(androidx.compose.animation.core.tween(TURN_MS)) { w -> if (ahead) -w else w }
+            }
+        },
+        label = "page turn",
+    ) { content(it) }
+}
+
+/** 넘김 효과의 길이. 길면 빠르게 넘기는 사람을 붙잡는다. */
+private const val TURN_MS = 220

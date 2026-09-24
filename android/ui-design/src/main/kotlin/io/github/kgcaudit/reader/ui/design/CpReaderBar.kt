@@ -49,6 +49,8 @@ fun CpReaderBar(
     progressLabel: (Float) -> String,
     onSeek: (Float) -> Unit,
     above: @Composable ColumnScope.() -> Unit = {},
+    /** 본문에서 찾기(E1: 위쪽 돋보기). PDF 처럼 찾을 수 없으면 null — 단추가 없다. */
+    onSearch: (() -> Unit)? = null,
     tools: @Composable RowScope.() -> Unit,
 ) {
     val colors = CpTheme.colors
@@ -61,6 +63,7 @@ fun CpReaderBar(
         Column(Modifier.fillMaxSize()) {
             Column(Modifier.fillMaxWidth().background(colors.surface).windowInsetsPadding(WindowInsets.statusBars)) {
                 CpHeader(title = title, subtitle = subtitle, onBack = onBack) {
+                    if (onSearch != null) CpIconButton(CpIcons.Search, "본문에서 찾기", onClick = onSearch)
                     CpIconButton(
                         if (bookmarked) CpIcons.BookmarkFilled else CpIcons.Bookmark,
                         if (bookmarked) "책갈피 빼기" else "책갈피 꽂기",

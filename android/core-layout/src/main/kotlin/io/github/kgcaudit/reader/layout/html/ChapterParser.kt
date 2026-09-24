@@ -28,6 +28,10 @@ data class Chapter(
     val blocks: List<Block>,
     /** `id` 속성 → 글자 오프셋. 목차의 `#fragment` 가 가리키는 자리다. */
     val anchors: Map<String, Int> = emptyMap(),
+    /** 본문의 링크(`<a href>`). 글자 구간과 가리키는 곳. 각주 표시도 여기 있다. */
+    val links: List<Link> = emptyList(),
+    /** 각주 · 미주 내용으로 표시된 요소의 id(`epub:type="footnote"` · `<aside>` 등). */
+    val noteIds: Set<String> = emptySet(),
 ) {
     companion object {
         val EMPTY: Chapter = Chapter("", emptyList())
@@ -73,6 +77,8 @@ class ChapterParser(
         private val text = StringBuilder()
         private val blocks = ArrayList<Block>()
         private val anchors = LinkedHashMap<String, Int>()
+        private val links = ArrayList<Link>()
+        private val noteIds = LinkedHashSet<String>()
 
         /** 여는 요소 하나마다 한 칸. CSS 후손 셀렉터가 이 목록을 본다. */
         private val elements = ArrayList<ElementInfo>()
@@ -108,7 +114,7 @@ class ChapterParser(
                 }
             }
             flushParagraph()
-            return Chapter(text.toString(), blocks.toList(), anchors)
+            return Chapter(text.toString(), blocks.toList(), anchors, links.toList(), noteIds.toSet())
         }
 
         // ── 요소 ────────────────────────────────────────────────────
@@ -153,7 +159,8 @@ class ChapterParser(
 
             val inherited = resolver.inherit(current(), declarations)
             val isBlock = tag in TagDefaults.BLOCK_TAGS
-            frames.add(Frame(tag, inherited, isBlock, blockStyle))
+            frames.add(Frame(tag, inherited, isBlock, blockStyle, link = openLink(tag, event, inherited)))
+            noteTarget(tag, event)
 
             if (isBlock) {
                 flushParagraph()
@@ -196,11 +203,42 @@ class ChapterParser(
 
             val frame = frames.removeAt(frames.size - 1)
             if (elements.isNotEmpty()) elements.removeAt(elements.size - 1)
+            frame.link?.let { closeLink(it) }
             if (frame.tag in TagDefaults.PREFORMATTED_TAGS && preDepth > 0) preDepth--
             if (frame.isBlock) {
                 flushParagraph()
                 blockStyle = frame.restoreStyle
             }
+        }
+
+        /**
+         * `<a href>` 를 연다. 시작 자리는 **다음에 붙을 글자**의 자리다 — 앞에 접힌 공백이 한 칸 붙을
+         * 예정이면 그 뒤. 공백까지 링크로 잡으면 누르는 칸 · 칠하는 칸이 한 칸 앞으로 삐져나온다.
+         */
+        private fun openLink(tag: String, event: XmlEvent.StartElement, inherited: InheritedStyle): OpenLink? {
+            if (tag != "a") return null
+            val href = (event.attribute("href") ?: event.attribute("xlink", "href"))?.trim()
+            if (href.isNullOrEmpty()) return null
+            val types = listOfNotNull(event.attribute("epub", "type"), event.attribute("role")).joinToString(" ")
+            val lead = if (pendingSpace && text.length > paragraphStart) 1 else 0
+            return OpenLink(
+                href = href,
+                start = text.length + lead,
+                noteRef = types.split(' ').any { it == "noteref" || it == "doc-noteref" },
+                superscript = inherited.text.vertical == io.github.kgcaudit.reader.layout.VerticalAlign.Superscript,
+            )
+        }
+
+        private fun closeLink(open: OpenLink) {
+            val end = text.length
+            if (end > open.start) links.add(Link(open.start, end, open.href, open.noteRef, open.superscript))
+        }
+
+        /** 각주 · 미주 내용으로 표시된 요소. 링크가 짧은 숫자가 아니어도 이 id 를 가리키면 각주다. */
+        private fun noteTarget(tag: String, event: XmlEvent.StartElement) {
+            val id = event.attribute("id")?.takeIf { it.isNotBlank() } ?: return
+            val types = listOfNotNull(event.attribute("epub", "type"), event.attribute("role")).joinToString(" ").split(' ')
+            if (tag == "aside" || types.any { it in NOTE_TYPES }) noteIds.add(id)
         }
 
         private fun recordAnchor(event: XmlEvent.StartElement) {
@@ -383,10 +421,17 @@ class ChapterParser(
         val isBlock: Boolean,
         /** 이 블록이 닫힐 때 되돌릴 바깥 블록의 서식. */
         val restoreStyle: BlockStyle,
+        /** 이 요소가 연 링크(`<a href>`). 닫힐 때 구간이 정해진다. */
+        val link: OpenLink? = null,
     )
+
+    private class OpenLink(val href: String, val start: Int, val noteRef: Boolean, val superscript: Boolean)
 
     private companion object {
         const val OBJECT_REPLACEMENT = '￼'
+
+        /** EPUB 3 구조 어휘(epub:type)와 DPUB-ARIA(role)의 각주 · 미주 내용. */
+        val NOTE_TYPES = setOf("footnote", "endnote", "rearnote", "note", "doc-footnote", "doc-endnote")
 
         /** 줄바꿈으로 접히는 공백. NBSP 는 **접지 않는다** — 붙여 두려고 쓴 글자다. */
         fun isCollapsible(ch: Char): Boolean =

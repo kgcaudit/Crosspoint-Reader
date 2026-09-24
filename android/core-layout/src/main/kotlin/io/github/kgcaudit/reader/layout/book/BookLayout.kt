@@ -142,6 +142,102 @@ class BookLayout(
         return ReadingPosition(previousChapter, (count - 1).coerceAtLeast(0), count)
     }
 
+    // ── 링크 · 각주 · 검색 ─────────────────────────────────────────
+
+    /**
+     * 최근에 읽은 챕터 몇 개. 링크를 누르거나 각주를 찾을 때마다 XHTML 을 다시 해석하지 않게 둔다. 조판
+     * 스레드 하나에서만 쓴다(BookReader).
+     */
+    private val recent = object : LinkedHashMap<Int, io.github.kgcaudit.reader.layout.html.Chapter>(4, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, io.github.kgcaudit.reader.layout.html.Chapter>?) = size > 3
+    }
+
+    private suspend fun chapter(spineIndex: Int) = recent[spineIndex] ?: loader.load(spineIndex).also { recent[spineIndex] = it }
+
+    /** [anchor] 가 가리키는 글자 자리(없으면 장 처음). */
+    suspend fun anchorOffset(spineIndex: Int, anchor: String?): Int =
+        anchor?.let { runCatching { chapter(spineIndex).anchors[it] }.getOrNull() } ?: 0
+
+    /** 이 장의 링크. 각주 표시를 칠하고 누른 자리를 찾는 데 쓴다. */
+    suspend fun links(spineIndex: Int): List<io.github.kgcaudit.reader.layout.html.Link> =
+        runCatching { chapter(spineIndex).links }.getOrDefault(emptyList())
+
+    /**
+     * [spineIndex] 장의 [link] 를 누르면 어디로 가는가.
+     *
+     * 규칙 6: 가리키는 파일 · id 가 없으면 [LinkTarget.Missing] — 책을 닫거나 엉뚱한 곳으로 가지 않는다.
+     */
+    suspend fun resolveLink(spineIndex: Int, link: io.github.kgcaudit.reader.layout.html.Link): LinkTarget {
+        if (link.isExternal) return LinkTarget.External(link.href)
+        val items = spine()
+        val path = link.href.substringBefore('#')
+        val anchor = link.href.substringAfter('#', "").takeIf { it.isNotEmpty() }
+        val target = if (path.isEmpty()) {
+            spineIndex
+        } else {
+            val from = items.getOrNull(spineIndex)?.href.orEmpty()
+            val resolved = document.resolveHref(from, decode(path))
+            items.indexOfFirst { it.href == resolved || decode(it.href) == resolved }.takeIf { it >= 0 }
+                ?: return LinkTarget.Missing
+        }
+        val here = runCatching { chapter(spineIndex) }.getOrNull() ?: return LinkTarget.Missing
+        val there = runCatching { chapter(target) }.getOrNull() ?: return LinkTarget.Missing
+        if (anchor != null && anchor !in there.anchors) return LinkTarget.Missing
+        val footnote = anchor != null && link.isFootnote(here.text, targetIsNote = anchor in there.noteIds)
+        if (!footnote) return LinkTarget.Jump(target, anchor)
+        val offset = there.anchors.getValue(anchor!!)
+        val text = noteText(there.text, there.blocks, there.anchors.values, offset)
+        return if (text.isBlank()) LinkTarget.Jump(target, anchor) else LinkTarget.Footnote(text, target, anchor)
+    }
+
+    private fun decode(path: String): String = runCatching { java.net.URLDecoder.decode(path.replace("+", "%2B"), "UTF-8") }.getOrDefault(path)
+
+    /**
+     * 책 전체에서 [query] 를 찾는다. 장마다 찾는 대로 [onChapter] 로 알린다 — 큰 책에서 끝까지 기다리지 않고
+     * 앞 장의 결과부터 목록에 보인다(E2). 조판하지 않는다(글자만 읽는다) — 검색 때문에 모든 장을 쪽으로
+     * 나누면 몇 분이 걸린다.
+     */
+    suspend fun search(query: String, onChapter: suspend (spineIndex: Int, hits: List<SearchHit>) -> Unit) {
+        for (i in spine().indices) {
+            val text = runCatching { chapter(i).text }.getOrNull() ?: continue
+            onChapter(i, findAll(text, query, i))
+        }
+    }
+
+    /** 장 하나에서 찾기. 리더가 장마다 따로 불러, 찾는 동안에도 쪽을 넘길 수 있게 한다. */
+    suspend fun searchChapter(spineIndex: Int, query: String): List<SearchHit> =
+        runCatching {
+            val c = chapter(spineIndex)
+            val starts = c.blocks.mapNotNull { (it as? io.github.kgcaudit.reader.layout.Block.Paragraph)?.runs?.firstOrNull()?.start }.toHashSet()
+            findAll(c.text, query, spineIndex, starts)
+        }.getOrDefault(emptyList())
+
+    /** 장 [spineIndex] 의 [offset] 자리가 책의 몇 % 인가(조판 전에도 — 찾기 결과 목록에 보인다). */
+    suspend fun percentAt(spineIndex: Int, offset: Int): Float {
+        val items = spine()
+        if (items.isEmpty()) return 0f
+        val weights = items.map { it.sizeBytes.coerceAtLeast(1L).toDouble() }
+        val index = spineIndex.coerceIn(0, items.size - 1)
+        val length = chapterLength(index).coerceAtLeast(1)
+        val within = (offset.toDouble() / length).coerceIn(0.0, 1.0)
+        return ((weights.take(index).sum() + within * weights[index]) / weights.sum() * 100.0).toFloat()
+    }
+
+    /** 장의 글자 수(조판 전에도). 남은 시간을 셀 때 쓴다. */
+    suspend fun chapterLength(spineIndex: Int): Int =
+        cache(spineIndex).readIndex()?.textLength ?: runCatching { chapter(spineIndex).text.length }.getOrDefault(0)
+
+    /**
+     * 책에서 [spineIndex] 장 뒤에 남은 글자 수(추정). 뒤 장들은 파일 크기에 이 장의 "바이트당 글자" 를 곱한다 —
+     * 진도 막대와 같은 무게다. 모든 장을 읽어 세면 정확하지만 큰 책에서 몇 초가 걸린다.
+     */
+    suspend fun charsAfterChapter(spineIndex: Int): Long {
+        val items = spine()
+        val here = items.getOrNull(spineIndex) ?: return 0
+        val perByte = chapterLength(spineIndex).toDouble() / here.sizeBytes.coerceAtLeast(1L)
+        return items.drop(spineIndex + 1).sumOf { (it.sizeBytes * perByte).toLong() }
+    }
+
     // ── 두쪽보기 ────────────────────────────────────────────────────
 
     /**
