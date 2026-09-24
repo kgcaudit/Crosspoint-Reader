@@ -230,6 +230,18 @@ class PdfReaderTest {
     }
 
     @Test
+    fun `the pages left in a section count up to the next entry that starts later`() {
+        fun entry(page: Int) = TocEntry("p$page", Locator.FixedPage(page))
+        // 잡지 목차는 쪽 순서가 뒤섞여 있다(특집 40쪽을 맨 앞에 적음). "목록의 다음 항목" 으로 세면 10쪽에서
+        // 40쪽 특집 다음 항목(12쪽)을 보고 1쪽이 아니라 엉뚱한 값을 낸다 — 뒤에서 가장 가까운 시작을 쓴다.
+        val entries = listOf(entry(40), entry(2), entry(12), entry(30))
+        assertEquals(1, pagesLeftInSection(entries, 10, 84), "12쪽 앞까지 11 하나")
+        assertEquals(0, pagesLeftInSection(entries, 11, 84), "다음 쪽이 새 항목이면 마지막 쪽")
+        assertEquals(43, pagesLeftInSection(entries, 40, 84), "마지막 항목은 파일 끝까지")
+        assertEquals(83, pagesLeftInSection(emptyList(), 0, 84), "목차가 없으면 파일 끝까지")
+    }
+
+    @Test
     fun `closing the reader closes the file`() = runTest {
         val source = FakeSource(1)
         reader(source).close()

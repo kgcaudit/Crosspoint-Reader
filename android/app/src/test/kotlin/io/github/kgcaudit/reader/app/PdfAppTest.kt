@@ -156,6 +156,57 @@ class PdfAppTest {
     }
 
     @Test
+    fun `pdf shares the paper colour, corner bookmark and footer with epub but has no paragraph settings`() {
+        // 배경 · 하단 정보는 EPUB 과 한 벌이다(저장도 한 곳). 장 제목은 PDF 목차에서 온다.
+        val container = compose.activity.container
+        container.prefs.save(
+            io.github.kgcaudit.reader.reflow.ReaderPrefs(
+                screen = io.github.kgcaudit.reader.ui.design.ScreenPrefs(
+                    footer = io.github.kgcaudit.reader.ui.design.Footer(
+                        right = io.github.kgcaudit.reader.ui.design.FooterItem.ChapterTitle,
+                    ),
+                ),
+            ),
+        )
+        compose.activityRule.scenario.recreate()
+        waitFor(hasText("설명서.pdf"))
+        node(hasText("설명서.pdf")).performClick()
+        waitFor(hasText("1 / 6"))
+        waitFor(hasText("1장 시작하기"))
+
+        // 오른쪽 위 모서리: 책갈피 + 리본(화면 모서리). 넘어가지 않는다.
+        val density = compose.activity.resources.displayMetrics.density
+        compose.onRoot().performTouchInput { click(androidx.compose.ui.geometry.Offset(width - 20 * density, 20 * density)) }
+        compose.mainClock.advanceTimeBy(1_000)
+        waitFor(hasContentDescription("책갈피 꽂힌 쪽"))
+        waitFor(hasText("1 / 6"))
+        shot("48-pdf-ribbon")
+
+        // 보기 판: 배경 · 밝기 · 화면 회전 · 모든 보기 설정. 여백(글자를 다시 앉히는 설정)은 없다.
+        compose.onRoot().performTouchInput { click(center) }
+        // PDF 는 두 번 누르기(확대)를 기다리느라 한 번 누르기가 조금 늦다.
+        waitFor(hasText("보기"))
+        node(hasText("보기")).performClick()
+        waitFor(hasText("모든 보기 설정"))
+        check(compose.onAllNodes(hasText("여백"), useUnmergedTree = true).fetchSemanticsNodes().isEmpty()) { "PDF 판에 여백이 있다" }
+        node(hasContentDescription("배경 검정")).performClick()
+        shot("49-pdf-view-panel")
+        node(hasText("모든 보기 설정")).performClick()
+        waitFor(hasText("넘기기"))
+        check(compose.onAllNodes(hasText("문단"), useUnmergedTree = true).fetchSemanticsNodes().isEmpty()) { "PDF 설정에 문단 묶음이 있다" }
+        compose.activity.onBackPressedDispatcher.onBackPressed()
+        compose.activity.onBackPressedDispatcher.onBackPressed()
+        compose.activity.onBackPressedDispatcher.onBackPressed()
+        compose.waitForIdle()
+        val view = compose.activity.window.decorView
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        compose.runOnUiThread { view.draw(Canvas(bitmap)) }
+        // 쪽 둘레(지면)가 검정 지면색. 쪽 그림 자체는 PDF 의 색 그대로다.
+        kotlin.test.assertEquals(0xFF121110.toInt(), bitmap.getPixel(4, view.height - (4 * density).toInt()))
+        kotlin.test.assertEquals(io.github.kgcaudit.reader.ui.design.PaperTheme.Black, container.prefs.load().screen.theme)
+    }
+
+    @Test
     fun `a locked or broken pdf says why instead of opening a blank page`() {
         val container = compose.activity.container
         container.pdfEngine = { it.close(); throw SecurityException("password required or incorrect password") }

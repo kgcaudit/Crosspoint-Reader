@@ -45,6 +45,18 @@ class ContrastTest {
     }
 
     @Test
+    fun `every paper colour keeps the page and the status line readable`() {
+        // 고르는 지면색마다 본문 7:1, 상태바(하단 정보) 4.5:1. 아이보리의 보조 글자를 눈으로 고른 값
+        // (#7A6A58, 4.3:1)으로 두었으면 여기서 걸린다.
+        for (theme in PaperTheme.entries) {
+            val paper = theme.paper ?: continue
+            assertAtLeast(7.0, paper.ink, paper.paper, "${theme.label}: 지면 위 본문")
+            assertAtLeast(4.5, paper.inkMuted, paper.paper, "${theme.label}: 지면 위 상태바")
+        }
+        assertTrue(contrast(Color(0xFF7A6A58), Color(0xFFF4ECD8)) < 4.5, "검사가 옅은 아이보리 보조색을 통과시켰다")
+    }
+
+    @Test
     fun `white glyphs stand out on every tile`() {
         // 타일의 흰 글리프는 글자가 아니라 그림이라 3:1 이 기준이다(WCAG 1.4.11).
         for ((name, c) in themes) {

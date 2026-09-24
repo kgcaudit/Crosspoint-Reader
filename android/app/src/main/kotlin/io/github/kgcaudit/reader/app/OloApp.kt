@@ -20,7 +20,13 @@ import io.github.kgcaudit.reader.reflow.BookReader
 import io.github.kgcaudit.reader.reflow.ReaderPrefs
 import io.github.kgcaudit.reader.text.FontCatalog
 import io.github.kgcaudit.reader.text.UserFonts
+import io.github.kgcaudit.reader.ui.design.Footer
+import io.github.kgcaudit.reader.ui.design.FooterItem
+import io.github.kgcaudit.reader.ui.design.KeepScreenOn
+import io.github.kgcaudit.reader.ui.design.PaperTheme
+import io.github.kgcaudit.reader.ui.design.ScreenPrefs
 import io.github.kgcaudit.reader.ui.design.ScreenRotation
+import io.github.kgcaudit.reader.ui.design.TouchZones
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -194,7 +200,7 @@ fun describeOpenFailure(error: Throwable, format: BookFormat?): String = when {
 /**
  * 보기 설정 저장.
  *
- * DataStore 대신 SharedPreferences 를 쓴다. 값이 세 개뿐이고, 리더를 여는 순간 동기로
+ * DataStore 대신 SharedPreferences 를 쓴다. 값이 작고, 리더를 여는 순간 동기로
  * 읽어야 첫 조판을 옛 설정으로 한 번 더 하지 않는다. DataStore 는 비동기라 첫 값이
  * 오기 전에 기본값으로 조판이 시작된다.
  */
@@ -208,8 +214,29 @@ class PrefsStore(context: Context) {
         lineSpacing = ReaderPrefs.LineSpacing.entries.firstOrNull { it.name == sp.getString(KEY_SPACING, null) }
             ?: ReaderPrefs.LineSpacing.Normal,
         publisherFonts = sp.getBoolean(KEY_PUBLISHER_FONTS, true),
-        rotation = ScreenRotation.entries.firstOrNull { it.name == sp.getString(KEY_ROTATION, null) } ?: ScreenRotation.Auto,
+        margin = enumOf(KEY_MARGIN, ReaderPrefs.Margin.Normal),
+        align = enumOf(KEY_ALIGN, ReaderPrefs.ParagraphAlign.Original),
+        indent = enumOf(KEY_INDENT, ReaderPrefs.Indent.Original),
+        paragraphSpacing = enumOf(KEY_PARAGRAPH_SPACING, ReaderPrefs.ParagraphSpacing.Tight),
+        screen = ScreenPrefs(
+            theme = enumOf(KEY_THEME, PaperTheme.System),
+            // 음수는 "시스템 밝기"(저장하지 않은 것과 같다).
+            brightness = sp.getFloat(KEY_BRIGHTNESS, -1f).takeIf { it >= 0f }?.coerceAtMost(1f),
+            keepScreenOn = enumOf(KEY_KEEP_ON, KeepScreenOn.System),
+            volumeKeys = sp.getBoolean(KEY_VOLUME_KEYS, false),
+            touch = enumOf(KEY_TOUCH, TouchZones.Default),
+            footer = Footer(
+                left = enumOf(KEY_FOOTER_LEFT, FooterItem.BookTitle),
+                center = enumOf(KEY_FOOTER_CENTER, FooterItem.Page),
+                right = enumOf(KEY_FOOTER_RIGHT, FooterItem.Percent),
+            ),
+            rotation = enumOf(KEY_ROTATION, ScreenRotation.Auto),
+        ),
     )
+
+    /** 저장된 이름의 값. 모르는 이름(나중 판에서 빠진 것)이면 기본값 — 옛 설정 때문에 책이 안 열리면 안 된다. */
+    private inline fun <reified E : Enum<E>> enumOf(key: String, default: E): E =
+        enumValues<E>().firstOrNull { it.name == sp.getString(key, null) } ?: default
 
     fun save(prefs: ReaderPrefs) {
         sp.edit()
@@ -217,7 +244,19 @@ class PrefsStore(context: Context) {
             .putString(KEY_FONT, prefs.font)
             .putString(KEY_SPACING, prefs.lineSpacing.name)
             .putBoolean(KEY_PUBLISHER_FONTS, prefs.publisherFonts)
-            .putString(KEY_ROTATION, prefs.rotation.name)
+            .putString(KEY_MARGIN, prefs.margin.name)
+            .putString(KEY_ALIGN, prefs.align.name)
+            .putString(KEY_INDENT, prefs.indent.name)
+            .putString(KEY_PARAGRAPH_SPACING, prefs.paragraphSpacing.name)
+            .putString(KEY_THEME, prefs.screen.theme.name)
+            .putFloat(KEY_BRIGHTNESS, prefs.screen.brightness ?: -1f)
+            .putString(KEY_KEEP_ON, prefs.screen.keepScreenOn.name)
+            .putBoolean(KEY_VOLUME_KEYS, prefs.screen.volumeKeys)
+            .putString(KEY_TOUCH, prefs.screen.touch.name)
+            .putString(KEY_FOOTER_LEFT, prefs.screen.footer.left.name)
+            .putString(KEY_FOOTER_CENTER, prefs.screen.footer.center.name)
+            .putString(KEY_FOOTER_RIGHT, prefs.screen.footer.right.name)
+            .putString(KEY_ROTATION, prefs.screen.rotation.name)
             .apply()
     }
 
@@ -237,5 +276,17 @@ class PrefsStore(context: Context) {
         private const val KEY_SPACING = "lineSpacing"
         private const val KEY_PUBLISHER_FONTS = "publisherFonts"
         private const val KEY_ROTATION = "rotation"
+        private const val KEY_MARGIN = "margin"
+        private const val KEY_ALIGN = "align"
+        private const val KEY_INDENT = "indent"
+        private const val KEY_PARAGRAPH_SPACING = "paragraphSpacing"
+        private const val KEY_THEME = "theme"
+        private const val KEY_BRIGHTNESS = "brightness"
+        private const val KEY_KEEP_ON = "keepScreenOn"
+        private const val KEY_VOLUME_KEYS = "volumeKeys"
+        private const val KEY_TOUCH = "touchZones"
+        private const val KEY_FOOTER_LEFT = "footerLeft"
+        private const val KEY_FOOTER_CENTER = "footerCenter"
+        private const val KEY_FOOTER_RIGHT = "footerRight"
     }
 }

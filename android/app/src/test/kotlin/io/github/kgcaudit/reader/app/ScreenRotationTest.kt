@@ -57,13 +57,15 @@ class ScreenRotationTest {
         // 기본은 FULL_SENSOR: 휴대폰의 잠금을 따르는 UNSPECIFIED 였을 때는 잠금을 켠 사람에게 앱이 돌지 않았다.
         compose.waitUntil(5_000) { orientation() == ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR }
 
-        // 보기 › 화면 회전 › 세로: 누워서 읽을 때 돌지 않게. 창에 곧바로 걸리고 저장된다.
+        // 보기 › 모든 보기 설정 › 화면 회전 › 세로: 누워서 읽을 때 돌지 않게. 창에 곧바로 걸리고 저장된다.
+        // (0.12.0 부터 EPUB 보기 판은 자주 바꾸는 것만 둔다 — 회전은 모든 보기 설정의 "화면" 묶음에 있다.)
         openBook()
         compose.onRoot().performTouchInput { click(center) }
         node(hasText("보기")).performClick()
+        node(hasText("모든 보기 설정")).performClick()
         node(hasText("세로")).performClick()
         compose.waitUntil(5_000) { orientation() == ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT }
-        assertEquals(ScreenRotation.Portrait, compose.activity.container.prefs.load().rotation)
+        assertEquals(ScreenRotation.Portrait, compose.activity.container.prefs.load().screen.rotation)
         node(hasText("가로")).performClick()
         compose.waitUntil(5_000) { orientation() == ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE }
         node(hasText("자동")).performClick()

@@ -67,6 +67,18 @@ data class LayoutSpec(
      * 나머지는 [fontId] 다. 글꼴이 바뀌면 폭이 바뀌므로 캐시 키에 들어가야 한다.
      */
     val useBookFonts: Boolean = false,
+    /**
+     * 본문 정렬을 사용자가 **정했다**(null = 원본: 책이 정한 곳은 책대로, 안 정한 곳만 [align]).
+     *
+     * 책이 양쪽·왼쪽으로 정한 문단에만 덮어쓴다. 가운데·오른쪽 정렬(시, 제목, 서명)까지 덮으면 "왼쪽" 을
+     * 고른 순간 표제지와 시가 모두 왼쪽으로 쏠린다 — 사용자가 바꾸려던 것은 본문이지 그것들이 아니다.
+     */
+    val alignOverride: TextAlign? = null,
+    /**
+     * 첫 줄 들여쓰기를 끈다(책이 정했어도). 음수(내어쓰기)는 남긴다 — 목록·대화문의 내어쓰기를 0 으로
+     * 만들면 둘째 줄부터 글자가 번호 밑으로 파고든다.
+     */
+    val indentOff: Boolean = false,
 ) {
     init {
         require(viewportWidthPx > 0f && viewportHeightPx > 0f) { "viewport must be positive" }
@@ -100,6 +112,9 @@ data class LayoutSpec(
         append(usePublisherStyles).append('|').append(fontId).append('|').append(cssPxScale)
         // 끈 상태(기본)의 키는 예전과 같게 둔다. 안 그러면 책 글꼴 없는 책까지 한 번씩 다시 조판한다.
         if (useBookFonts) append("|bookfonts")
+        // 새 칸도 기본값이면 키에 넣지 않는다 — 판을 올릴 때 모든 책이 다시 조판되지 않게.
+        if (alignOverride != null) append("|align=").append(alignOverride.name)
+        if (indentOff) append("|noindent")
     }
 
     companion object {

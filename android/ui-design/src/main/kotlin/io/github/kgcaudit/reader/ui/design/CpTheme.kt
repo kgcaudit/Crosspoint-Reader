@@ -184,6 +184,9 @@ private val DefaultType = CpType(
 )
 
 private val LocalCpColors = staticCompositionLocalOf { LightColors }
+
+internal fun CpColors.withPaper(paper: CpPaper?): CpColors =
+    if (paper == null) this else copy(paper = paper.paper, ink = paper.ink, inkMuted = paper.inkMuted)
 private val LocalCpMetrics = staticCompositionLocalOf { CpMetrics() }
 private val LocalCpType = staticCompositionLocalOf { DefaultType }
 
@@ -197,6 +200,24 @@ object CpTheme {
 fun CpTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
     CompositionLocalProvider(
         LocalCpColors provides if (dark) DarkColors else LightColors,
+        LocalCpMetrics provides CpMetrics(),
+        LocalCpType provides DefaultType,
+        content = content,
+    )
+}
+
+/**
+ * 리더의 테마: 고른 지면색([PaperTheme])을 깔고, 메뉴도 그 밝기를 따른다. [PaperTheme.System] 이면 [CpTheme]
+ * 과 같다.
+ *
+ * 라이브러리 화면에는 쓰지 않는다 — 지면색은 책을 읽을 때의 선택이다(리디도 뷰어 안에서만 바뀐다).
+ */
+@Composable
+fun CpReaderTheme(theme: PaperTheme, content: @Composable () -> Unit) {
+    val paper = theme.paper
+    val base = if (paper?.dark ?: isSystemInDarkTheme()) DarkColors else LightColors
+    CompositionLocalProvider(
+        LocalCpColors provides base.withPaper(paper),
         LocalCpMetrics provides CpMetrics(),
         LocalCpType provides DefaultType,
         content = content,

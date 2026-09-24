@@ -44,11 +44,11 @@ class PrefsStoreTest {
     @Test
     fun `the screen rotation choice survives a restart and defaults to auto`() {
         // 처음 쓰는 사람은 "자동"(잠금과 상관없이 돈다). 모르는 값(나중 판에서 빠진 이름)도 자동으로.
-        assertEquals(ScreenRotation.Auto, PrefsStore(context).load().rotation)
-        PrefsStore(context).save(ReaderPrefs(rotation = ScreenRotation.Portrait))
-        assertEquals(ScreenRotation.Portrait, PrefsStore(context).load().rotation)
+        assertEquals(ScreenRotation.Auto, PrefsStore(context).load().screen.rotation)
+        PrefsStore(context).save(ReaderPrefs(screen = io.github.kgcaudit.reader.ui.design.ScreenPrefs(rotation = ScreenRotation.Portrait)))
+        assertEquals(ScreenRotation.Portrait, PrefsStore(context).load().screen.rotation)
         context.getSharedPreferences("reader", Context.MODE_PRIVATE).edit().putString("rotation", "Sideways").commit()
-        assertEquals(ScreenRotation.Auto, PrefsStore(context).load().rotation)
+        assertEquals(ScreenRotation.Auto, PrefsStore(context).load().screen.rotation)
     }
 
     @Test
@@ -58,5 +58,50 @@ class PrefsStoreTest {
         val loaded = PrefsStore(context).load()
         assertEquals(FontCatalog.SANS, loaded.font)
         assertEquals(20, loaded.fontSizeSp)
+    }
+
+    @Test
+    fun `every reading setting survives a restart and a fresh install keeps the old look`() {
+        // 처음 쓰는 사람(또는 0.11.0 에서 올린 사람)은 0.11.0 과 같은 모양: 보통 여백 · 원본 정렬 · 좁은 문단 간격 ·
+        // 시스템 배경 · 시스템 밝기 · 책 제목/쪽/%.
+        val fresh = PrefsStore(context).load()
+        assertEquals(ReaderPrefs(), fresh)
+
+        val chosen = ReaderPrefs(
+            margin = ReaderPrefs.Margin.Wide,
+            align = ReaderPrefs.ParagraphAlign.Left,
+            indent = ReaderPrefs.Indent.Off,
+            paragraphSpacing = ReaderPrefs.ParagraphSpacing.Loose,
+            screen = io.github.kgcaudit.reader.ui.design.ScreenPrefs(
+                theme = io.github.kgcaudit.reader.ui.design.PaperTheme.Ivory,
+                brightness = 0.4f,
+                keepScreenOn = io.github.kgcaudit.reader.ui.design.KeepScreenOn.Always,
+                volumeKeys = true,
+                touch = io.github.kgcaudit.reader.ui.design.TouchZones.OneHand,
+                footer = io.github.kgcaudit.reader.ui.design.Footer(
+                    io.github.kgcaudit.reader.ui.design.FooterItem.Clock,
+                    io.github.kgcaudit.reader.ui.design.FooterItem.None,
+                    io.github.kgcaudit.reader.ui.design.FooterItem.Battery,
+                ),
+                rotation = ScreenRotation.Landscape,
+            ),
+        )
+        PrefsStore(context).save(chosen)
+        assertEquals(chosen, PrefsStore(context).load())
+
+        // "시스템 밝기" 로 돌리면 저장된 값도 지운다 — 남기면 다음에 열 때 어두운 채로 뜬다.
+        PrefsStore(context).save(chosen.copy(screen = chosen.screen.copy(brightness = null)))
+        assertNull(PrefsStore(context).load().screen.brightness)
+    }
+
+    @Test
+    fun `a value from a later version falls back to the default instead of failing`() {
+        // 나중 판에서 없어진 이름이 남아 있어도 책은 열려야 한다(규칙 6).
+        context.getSharedPreferences("reader", Context.MODE_PRIVATE).edit()
+            .putString("theme", "Sepia").putString("footerLeft", "Weather").putString("margin", "Huge").commit()
+        val loaded = PrefsStore(context).load()
+        assertEquals(io.github.kgcaudit.reader.ui.design.PaperTheme.System, loaded.screen.theme)
+        assertEquals(io.github.kgcaudit.reader.ui.design.FooterItem.BookTitle, loaded.screen.footer.left)
+        assertEquals(ReaderPrefs.Margin.Normal, loaded.margin)
     }
 }

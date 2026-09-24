@@ -33,6 +33,18 @@ fun currentContentsIndex(entries: List<TocEntry>, page: Int): Int {
     return best
 }
 
+/**
+ * 지금 목차 항목 안에서 [page] 뒤로 남은 쪽 수(하단 정보의 "이 장 남은 쪽"). 다음 항목이 시작하는 쪽 앞까지다.
+ * 목차가 없거나 마지막 항목이면 파일 끝까지.
+ *
+ * 다음 항목을 "목록에서 바로 다음 것" 으로 잡으면 안 된다 — 잡지 목차는 쪽 순서가 뒤섞여 있어(특집을 앞에
+ * 적는다) 남은 쪽이 음수나 수십 쪽으로 튄다. 지금 쪽보다 뒤에서 시작하는 항목 중 가장 가까운 것을 쓴다.
+ */
+fun pagesLeftInSection(entries: List<TocEntry>, page: Int, pageCount: Int): Int {
+    val next = entries.mapNotNull { (it.locator as? Locator.FixedPage)?.page }.filter { it > page }.minOrNull() ?: pageCount
+    return (next - page - 1).coerceAtLeast(0)
+}
+
 /** 화면이 그리는 데 필요한 전부. */
 data class PdfState(
     /** 0부터 센 쪽. */

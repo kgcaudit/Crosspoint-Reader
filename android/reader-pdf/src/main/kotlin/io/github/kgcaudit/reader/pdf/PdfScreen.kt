@@ -56,7 +56,19 @@ import io.github.kgcaudit.reader.ui.design.CpIcons
 import io.github.kgcaudit.reader.ui.design.CpListRow
 import io.github.kgcaudit.reader.ui.design.CpPopup
 import io.github.kgcaudit.reader.ui.design.CpReaderBar
-import io.github.kgcaudit.reader.ui.design.CpStatusBar
+import io.github.kgcaudit.reader.ui.design.CpBrightnessRow
+import io.github.kgcaudit.reader.ui.design.CpLinkRow
+import io.github.kgcaudit.reader.ui.design.CpReadingFooter
+import io.github.kgcaudit.reader.ui.design.CpRibbon
+import io.github.kgcaudit.reader.ui.design.CpThemeSwatches
+import io.github.kgcaudit.reader.ui.design.CpToast
+import io.github.kgcaudit.reader.ui.design.CpViewSettingsScreen
+import io.github.kgcaudit.reader.ui.design.FooterInfo
+import io.github.kgcaudit.reader.ui.design.ReadingWindow
+import io.github.kgcaudit.reader.ui.design.ScreenPrefs
+import io.github.kgcaudit.reader.ui.design.TapAction
+import io.github.kgcaudit.reader.ui.design.VolumeKeyPaging
+import io.github.kgcaudit.reader.ui.design.actionAt
 import io.github.kgcaudit.reader.ui.design.CpTabBar
 import io.github.kgcaudit.reader.ui.design.CpText
 import io.github.kgcaudit.reader.ui.design.CpTheme
@@ -82,13 +94,28 @@ fun PdfScreen(
     reader: PdfReader,
     onClose: () -> Unit,
     onChrome: (Boolean) -> Unit,
-    rotation: ScreenRotation = ScreenRotation.Auto,
-    onRotationChange: (ScreenRotation) -> Unit = {},
+    prefs: ScreenPrefs = ScreenPrefs(),
+    onPrefsChange: (ScreenPrefs) -> Unit = {},
 ) {
     val state by reader.state.collectAsState()
     val scope = rememberCoroutineScope()
     val colors = CpTheme.colors
     var panel by remember { mutableStateOf(PdfPanel.None) }
+    var toast by remember { mutableStateOf<String?>(null) }
+    var toastCount by remember { mutableStateOf(0) }
+    // 하단 정보의 "장 제목" · "이 장 남은 쪽". 목차는 파일마다 한 번 읽는다.
+    var contents by remember { mutableStateOf<List<TocEntry>>(emptyList()) }
+    LaunchedEffect(reader) { contents = runCatching { reader.outline() }.getOrDefault(emptyList()) }
+
+    ReadingWindow(prefs, activity = state.page)
+    VolumeKeyPaging(enabled = prefs.volumeKeys && panel == PdfPanel.None) { forward ->
+        scope.go { if (forward) reader.next() else reader.previous() }
+    }
+    fun toggleBookmark() = scope.go {
+        reader.toggleBookmark()
+        toast = if (reader.state.value.bookmarked) "책갈피를 꽂았습니다" else "책갈피를 뺐습니다"
+        toastCount++
+    }
 
     LaunchedEffect(panel) { onChrome(panel != PdfPanel.None) }
     BackHandler {
@@ -96,47 +123,64 @@ fun PdfScreen(
             PdfPanel.None -> { onClose(); PdfPanel.None }
             PdfPanel.Contents, PdfPanel.Bookmarks -> PdfPanel.Bar
             PdfPanel.View -> PdfPanel.Bar
+            PdfPanel.Settings -> PdfPanel.View
             PdfPanel.Bar -> PdfPanel.None
         }
     }
 
-    Column(Modifier.fillMaxSize().background(colors.paper)) {
-        // 상태 막대 자리를 뺀 곳에 쪽을 놓는다. 겹치면 세로로 긴 쪽의 마지막 줄이 막대에 가린다.
-        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().windowInsetsPadding(WindowInsets.displayCutout)) {
-            val viewW = constraints.maxWidth.toFloat()
-            val viewH = constraints.maxHeight.toFloat()
-            if (state.ready && state.pageCount > 0 && viewW > 0f && viewH > 0f) {
-                PageView(
-                    reader = reader,
-                    page = state.page,
-                    viewW = viewW,
-                    viewH = viewH,
-                    onTap = { x ->
-                        when {
-                            panel != PdfPanel.None -> panel = PdfPanel.None
-                            x < viewW * 0.3f -> scope.go { reader.previous() }
-                            x > viewW * 0.7f -> scope.go { reader.next() }
-                            else -> panel = PdfPanel.Bar
-                        }
-                    },
-                    onSwipe = { forward -> scope.go { if (forward) reader.next() else reader.previous() } },
-                )
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().background(colors.paper)) {
+            // 상태 막대 자리를 뺀 곳에 쪽을 놓는다. 겹치면 세로로 긴 쪽의 마지막 줄이 막대에 가린다.
+            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().windowInsetsPadding(WindowInsets.displayCutout)) {
+                val viewW = constraints.maxWidth.toFloat()
+                val viewH = constraints.maxHeight.toFloat()
+                if (state.ready && state.pageCount > 0 && viewW > 0f && viewH > 0f) {
+                    PageView(
+                        reader = reader,
+                        page = state.page,
+                        viewW = viewW,
+                        viewH = viewH,
+                        onTap = { at, corner ->
+                            if (panel != PdfPanel.None) {
+                                panel = PdfPanel.None
+                            } else {
+                                when (prefs.touch.actionAt(at.x, at.y, viewW, corner)) {
+                                    TapAction.Previous -> scope.go { reader.previous() }
+                                    TapAction.Next -> scope.go { reader.next() }
+                                    TapAction.Menu -> panel = PdfPanel.Bar
+                                    TapAction.Bookmark -> toggleBookmark()
+                                }
+                            }
+                        },
+                        onSwipe = { forward -> scope.go { if (forward) reader.next() else reader.previous() } },
+                    )
+                }
             }
+            CpReadingFooter(
+                info = FooterInfo(
+                    bookTitle = reader.title,
+                    chapterTitle = contents.getOrNull(currentContentsIndex(contents, state.page))?.label,
+                    // 인쇄된 쪽 번호가 파일 순서와 다르면(로마 숫자 머리말 등) 앞에 함께 적는다: "iv · 4 / 230".
+                    page = if (state.pageCount > 0) {
+                        val position = "${state.page + 1} / ${state.pageCount}"
+                        reader.book.pageLabel(state.page)?.let { "$it · $position" } ?: position
+                    } else {
+                        ""
+                    },
+                    percent = state.percent,
+                    chapterPagesLeft = if (state.pageCount > 0) pagesLeftInSection(contents, state.page, state.pageCount) else null,
+                ),
+                footer = prefs.footer,
+                color = colors.inkMuted,
+                modifier = Modifier.padding(top = 8.dp, bottom = 14.dp).windowInsetsPadding(WindowInsets.displayCutout),
+            )
         }
-        CpStatusBar(
-            title = reader.title,
-            // 인쇄된 쪽 번호가 파일 순서와 다르면(로마 숫자 머리말 등) 앞에 함께 적는다: "iv · 4 / 230".
-            page = if (state.pageCount > 0) {
-                val position = "${state.page + 1} / ${state.pageCount}"
-                reader.book.pageLabel(state.page)?.let { "$it · $position" } ?: position
-            } else {
-                ""
-            },
-            percent = "${state.percent.roundToInt()}%",
-            progress = state.percent / 100f,
-            color = colors.inkMuted,
-            modifier = Modifier.padding(top = 8.dp, bottom = 14.dp).windowInsetsPadding(WindowInsets.displayCutout),
-        )
+        // PDF 는 쪽이 화면을 채우는 일이 많아 리본을 쪽 위가 아니라 화면 모서리에 둔다. 쪽 안에 두면 표지·그림을
+        // 가린다(구상안 ⑥).
+        if (state.bookmarked && state.pageCount > 0) {
+            CpRibbon(Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.displayCutout).padding(end = 20.dp))
+        }
+        CpToast(toast, onDone = { toast = null }, Modifier.align(Alignment.BottomCenter), key = toastCount)
     }
 
     when (panel) {
@@ -145,18 +189,25 @@ fun PdfScreen(
             title = reader.title,
             subtitle = "${state.page + 1} / ${state.pageCount} 쪽",
             bookmarked = state.bookmarked,
-            onBookmark = { scope.go { reader.toggleBookmark() } },
+            onBookmark = ::toggleBookmark,
             onBack = onClose,
             onDismiss = { panel = PdfPanel.None },
             progress = if (state.pageCount > 1) state.page / (state.pageCount - 1f) else 1f,
             progressLabel = { pageAt(it, state.pageCount).let { p -> "${reader.book.pageLabel(p) ?: (p + 1)}쪽" } },
             onSeek = { target -> scope.go { reader.seek(target) } },
             above = {
-                // EPUB 의 보기 판과 같은 자리. PDF 는 글자 크기·글꼴이 없어 화면 회전만 있다 — 잡지·도면은
-                // 가로로 돌려 보는 일이 많아 PDF 에서 가장 먼저 찾는 설정이다.
+                // EPUB 의 보기 판과 같은 자리. PDF 는 글자 크기·글꼴·여백이 없어 배경 · 밝기 · 화면 회전이다 —
+                // 잡지·도면은 가로로 돌려 보는 일이 많아 회전을 판에 둔다.
                 if (panel == PdfPanel.View) {
-                    val rotations = ScreenRotation.entries
-                    CpChoice("화면 회전", rotations.map { it.label }, rotations.indexOf(rotation), { onRotationChange(rotations[it]) })
+                    Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                        CpThemeSwatches(prefs.theme, { onPrefsChange(prefs.copy(theme = it)) })
+                        CpBrightnessRow(prefs.brightness, { onPrefsChange(prefs.copy(brightness = it)) })
+                        val rotations = ScreenRotation.entries
+                        CpChoice("화면 회전", rotations.map { it.label }, rotations.indexOf(prefs.rotation), {
+                            onPrefsChange(prefs.copy(rotation = rotations[it]))
+                        })
+                        CpLinkRow("모든 보기 설정", "", { panel = PdfPanel.Settings })
+                    }
                     Spacer(Modifier.height(4.dp))
                 }
             },
@@ -172,6 +223,7 @@ fun PdfScreen(
                 selected = panel == PdfPanel.View,
             )
         }
+        PdfPanel.Settings -> CpViewSettingsScreen(prefs, onPrefsChange, onBack = { panel = PdfPanel.View })
         PdfPanel.Contents, PdfPanel.Bookmarks -> PdfLists(
             reader = reader,
             page = state.page,
@@ -189,7 +241,10 @@ fun PdfScreen(
     }
 }
 
-private enum class PdfPanel { None, Bar, View, Contents, Bookmarks }
+private enum class PdfPanel { None, Bar, View, Settings, Contents, Bookmarks }
+
+/** 오른쪽 위 모서리의 책갈피 네모(EPUB 과 같다). */
+private val CORNER = 56.dp
 
 /** 진행 막대의 0..1 → 쪽(0부터). [PdfReader.seek] 과 같은 셈이라야 막대 위 숫자와 가는 곳이 같다. */
 internal fun pageAt(fraction: Float, pageCount: Int): Int =
@@ -204,7 +259,8 @@ private fun PageView(
     page: Int,
     viewW: Float,
     viewH: Float,
-    onTap: (Float) -> Unit,
+    /** 누른 자리와 책갈피 모서리의 크기(px). */
+    onTap: (Offset, Float) -> Unit,
     onSwipe: (forward: Boolean) -> Unit,
 ) {
     // 크기를 모르면 그리지 않는다. A 판형으로 먼저 그렸다가 가로 쪽으로 바뀌면 한 번 출렁인다. 앞뒤 쪽은
@@ -254,7 +310,7 @@ private fun PageView(
                     // 두 번 누르기를 기다리느라 한 번 누르기가 조금(약 0.3초) 늦다. PDF 는 글자가 작아
                     // 확대를 자주 하므로 받아들인다.
                     onDoubleTap = { at -> viewport = viewport.toggleZoom(at.x, at.y) },
-                    onTap = { at -> onTap(at.x) },
+                    onTap = { at -> onTap(at, CORNER.toPx()) },
                 )
             }
             .pointerInput(page, viewW, viewH, pageAspect) {

@@ -27,6 +27,8 @@ dependencies {
     api(platform(libs.compose.bom))
     api(libs.compose.foundation)
     api(libs.compose.ui)
+    // 보기 설정 화면이 안쪽 화면(터치 영역 · 하단 정보)에서 뒤로 가기를 받는다.
+    implementation(libs.androidx.activity.compose)
 
     testImplementation(libs.junit4)
     testImplementation(libs.kotlin.test)

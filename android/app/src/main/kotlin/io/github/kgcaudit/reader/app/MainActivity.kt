@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
@@ -30,7 +31,10 @@ import io.github.kgcaudit.reader.pdf.PdfScreen
 import io.github.kgcaudit.reader.reflow.ReaderScreen
 import io.github.kgcaudit.reader.ui.design.CpButton
 import io.github.kgcaudit.reader.ui.design.CpPopup
+import io.github.kgcaudit.reader.ui.design.CpReaderTheme
 import io.github.kgcaudit.reader.ui.design.CpTheme
+import io.github.kgcaudit.reader.ui.design.LocalVolumeKeys
+import io.github.kgcaudit.reader.ui.design.VolumeKeyRouter
 import io.github.kgcaudit.reader.ui.design.ScreenRotation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
@@ -40,6 +44,9 @@ class MainActivity : ComponentActivity() {
     /** 다른 앱이 "연결 프로그램" 으로 보낸 인텐트. 화면이 처리하면 null 로 되돌린다. */
     private val incoming = mutableStateOf<Intent?>(null)
 
+    /** 음량 단추 → 리더(설정에서 켰을 때만). */
+    private val volumeKeys = VolumeKeyRouter()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -47,9 +54,21 @@ class MainActivity : ComponentActivity() {
         // 책은 rememberSaveable 이 되돌린다 — 처리하면 읽던 자리 대신 처음부터 다시 연다.
         if (savedInstanceState == null) incoming.value = intent
         setContent {
-            CpTheme { OloApp(incoming, hideSystemBars = ::hideSystemBars, leave = ::leaveToCaller, rotate = ::applyRotation) }
+            CompositionLocalProvider(LocalVolumeKeys provides volumeKeys) {
+                CpTheme { OloApp(incoming, hideSystemBars = ::hideSystemBars, leave = ::leaveToCaller, rotate = ::applyRotation) }
+            }
         }
     }
+
+    /**
+     * 리더가 볼륨키 넘김을 켜 두었으면 음량 단추를 가져간다. 화면(컴포즈)이 먹지 않은 키가 여기로 온다 — 지면에는
+     * 초점을 가진 곳이 없어 컴포즈의 키 처리로는 받을 수 없다. 떼는 것도 먹어야 시스템 음량 판이 뜨지 않는다.
+     */
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean =
+        volumeKeys.dispatch(event) || super.onKeyDown(keyCode, event)
+
+    override fun onKeyUp(keyCode: Int, event: android.view.KeyEvent): Boolean =
+        volumeKeys.dispatch(event) || super.onKeyUp(keyCode, event)
 
     /** 다른 앱에서 연 책을 닫았다. 그 앱으로 돌아간다(이 앱은 뒤로 물러날 뿐 끝나지 않는다). */
     internal fun leaveToCaller() {
@@ -114,7 +133,7 @@ private fun OloApp(
     var failure by remember { mutableStateOf<String?>(null) }
     var prefs by remember { mutableStateOf(container.prefs.load()) }
     // 라이브러리에서도 같은 방향이다 — 책을 닫을 때마다 방향이 튀지 않게.
-    LaunchedEffect(prefs.rotation) { rotate(prefs.rotation) }
+    LaunchedEffect(prefs.screen.rotation) { rotate(prefs.screen.rotation) }
     // 이번 실행에서 폴더를 훑었는가. 화면(액티비티)이 새로 만들어지면 다시 훑는다.
     var scanned by remember { mutableStateOf(false) }
     // 다른 앱이 넘긴 파일의 URI. 라이브러리 id 와 따로 두는 이유: 라이브러리에 없는 파일이라
@@ -216,23 +235,28 @@ private fun OloApp(
         )
         is OpenedBook.Reflow -> {
             LaunchedEffect(current) { hideSystemBars(true) }
-            ReaderScreen(
-                reader = current.reader,
-                prefs = prefs,
-                onPrefsChange = { prefs = it; container.prefs.save(it) },
-                onClose = ::close,
-                onChrome = { showing -> hideSystemBars(!showing) },
-            )
+            CpReaderTheme(prefs.screen.theme) {
+                ReaderScreen(
+                    reader = current.reader,
+                    prefs = prefs,
+                    onPrefsChange = { prefs = it; container.prefs.save(it) },
+                    onClose = ::close,
+                    onChrome = { showing -> hideSystemBars(!showing) },
+                )
+            }
         }
         is OpenedBook.Pdf -> {
             LaunchedEffect(current) { hideSystemBars(true) }
-            PdfScreen(
-                reader = current.reader,
-                onClose = ::close,
-                onChrome = { showing -> hideSystemBars(!showing) },
-                rotation = prefs.rotation,
-                onRotationChange = { prefs = prefs.copy(rotation = it); container.prefs.save(prefs) },
-            )
+            // 배경 · 밝기 · 터치 영역 … 은 EPUB 과 한 벌이다. PDF 에서 고른 배경이 EPUB 을 열 때 풀리면 안 된다.
+            CpReaderTheme(prefs.screen.theme) {
+                PdfScreen(
+                    reader = current.reader,
+                    onClose = ::close,
+                    onChrome = { showing -> hideSystemBars(!showing) },
+                    prefs = prefs.screen,
+                    onPrefsChange = { prefs = prefs.copy(screen = it); container.prefs.save(prefs) },
+                )
+            }
         }
     }
 

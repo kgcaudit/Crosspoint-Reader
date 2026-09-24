@@ -3,12 +3,13 @@ package io.github.kgcaudit.reader.reflow
 import io.github.kgcaudit.reader.layout.Insets
 import io.github.kgcaudit.reader.layout.LayoutSpec
 import io.github.kgcaudit.reader.layout.TextAlign
-import io.github.kgcaudit.reader.ui.design.ScreenRotation
+import io.github.kgcaudit.reader.ui.design.ScreenPrefs
 
 /**
  * 사용자가 고르는 보기 설정.
  *
- * 화면 방향([rotation])을 뺀 전부가 조판 결과를 바꾸므로 [toSpec] 을 거쳐 [LayoutSpec] 에 들어간다(규칙 4).
+ * [screen](배경 · 밝기 · 터치 영역 · 화면 방향 …)을 뺀 전부가 조판 결과를 바꾸므로 [toSpec] 을 거쳐
+ * [LayoutSpec] 에 들어간다(규칙 4). [screen] 은 PDF 리더와 함께 쓴다.
  */
 data class ReaderPrefs(
     val fontSizeSp: Int = DEFAULT_SIZE_SP,
@@ -22,16 +23,54 @@ data class ReaderPrefs(
      * 다음 책에서 또 출판사 글꼴이 나오면 매번 끄게 된다.
      */
     val publisherFonts: Boolean = true,
+    /** 좌우 여백(문단 너비). */
+    val margin: Margin = Margin.Normal,
+    val align: ParagraphAlign = ParagraphAlign.Original,
+    val indent: Indent = Indent.Original,
+    val paragraphSpacing: ParagraphSpacing = ParagraphSpacing.Tight,
     /**
-     * 화면 방향. 조판 설정([LayoutSpec])에는 넣지 않는다 — 방향이 바뀌면 화면 크기가 바뀌고, 크기는 이미
-     * 조판 설정에 들어 있다(같은 방향이면 같은 조판이다).
+     * 조판과 상관없는 설정. 화면 방향도 여기다 — 방향이 바뀌면 화면 크기가 바뀌고, 크기는 이미 조판 설정에
+     * 들어 있다(같은 방향이면 같은 조판이다).
      */
-    val rotation: ScreenRotation = ScreenRotation.Auto,
+    val screen: ScreenPrefs = ScreenPrefs(),
 ) {
     enum class LineSpacing(val multiplier: Float, val label: String) {
         Tight(1.4f, "좁게"),
         Normal(1.65f, "보통"),
         Loose(1.9f, "넓게"),
+    }
+
+    /** 좌우 여백(dp). 보통이 0.11.0 까지의 고정값이다. */
+    enum class Margin(val dp: Int, val label: String) {
+        Narrow(16, "좁게"),
+        Normal(24, "보통"),
+        Wide(36, "넓게"),
+    }
+
+    /**
+     * 본문 정렬. [Original] 은 책이 정한 곳은 책대로, 정하지 않은 곳은 양쪽(0.11.0 까지와 같다).
+     * 양쪽 · 왼쪽을 고르면 책이 정한 본문 정렬도 덮는다 — 가운데 · 오른쪽(시 · 제목)은 그대로.
+     */
+    enum class ParagraphAlign(val label: String, internal val forced: TextAlign?) {
+        Original("원본", null),
+        Justify("양쪽", TextAlign.Justify),
+        Left("왼쪽", TextAlign.Start),
+    }
+
+    /** 첫 줄 들여쓰기. [Original] 은 책이 정한 곳은 책대로, 정하지 않은 곳은 1em. */
+    enum class Indent(val label: String) {
+        Original("원본"),
+        Off("끔"),
+    }
+
+    /**
+     * 문단 사이 간격(em). 좁게가 0.11.0 까지의 고정값(0.25em)이다 — 기본값을 바꾸면 판을 올린 날 모든 책의
+     * 쪽 수가 달라진다. 책이 문단 여백을 정했으면 둘 중 큰 쪽이다(여백 상쇄).
+     */
+    enum class ParagraphSpacing(val em: Float, val label: String) {
+        Tight(0.25f, "좁게"),
+        Normal(0.6f, "보통"),
+        Loose(1f, "넓게"),
     }
 
     fun withSize(delta: Int) = copy(fontSizeSp = (fontSizeSp + delta).coerceIn(MIN_SIZE_SP, MAX_SIZE_SP))
@@ -55,8 +94,8 @@ data class ReaderPrefs(
 /**
  * 화면 크기와 보기 설정에서 조판 설정을 만든다.
  *
- * 여백은 px 로 받는다(밀도 환산은 화면 쪽 일). 아래 여백은 상태바 자리를 포함한다 —
- * 본문이 상태바 밑으로 들어가면 마지막 줄이 가려진다.
+ * 여백은 px 로 받는다(밀도 환산은 화면 쪽 일 — 좌우 폭은 [ReaderPrefs.margin] 을 화면이 dp 로 바꿔 넣는다).
+ * 아래 여백은 상태바 자리를 포함한다 — 본문이 상태바 밑으로 들어가면 마지막 줄이 가려진다.
  */
 fun ReaderPrefs.toSpec(
     widthPx: Float,
@@ -77,7 +116,9 @@ fun ReaderPrefs.toSpec(
     lineHeightMultiplier = lineSpacing.multiplier,
     align = TextAlign.Justify,
     paragraphIndentEm = 1f,
-    paragraphSpacingEm = 0.25f,
+    paragraphSpacingEm = paragraphSpacing.em,
+    alignOverride = align.forced,
+    indentOff = indent == ReaderPrefs.Indent.Off,
     fontId = fontId,
     cssPxScale = pxPerDp,
     useBookFonts = useBookFonts,

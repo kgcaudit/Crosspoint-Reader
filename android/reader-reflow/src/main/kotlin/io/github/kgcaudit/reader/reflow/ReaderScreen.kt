@@ -52,13 +52,22 @@ import io.github.kgcaudit.reader.ui.design.CpLinkRow
 import io.github.kgcaudit.reader.ui.design.CpListRow
 import io.github.kgcaudit.reader.ui.design.CpPopup
 import io.github.kgcaudit.reader.ui.design.CpReaderBar
-import io.github.kgcaudit.reader.ui.design.CpStatusBar
+import io.github.kgcaudit.reader.ui.design.CpBrightnessRow
+import io.github.kgcaudit.reader.ui.design.CpReadingFooter
+import io.github.kgcaudit.reader.ui.design.CpRibbon
+import io.github.kgcaudit.reader.ui.design.CpThemeSwatches
+import io.github.kgcaudit.reader.ui.design.CpToast
+import io.github.kgcaudit.reader.ui.design.CpViewSettingsScreen
+import io.github.kgcaudit.reader.ui.design.FooterInfo
+import io.github.kgcaudit.reader.ui.design.ReadingWindow
+import io.github.kgcaudit.reader.ui.design.TapAction
+import io.github.kgcaudit.reader.ui.design.VolumeKeyPaging
+import io.github.kgcaudit.reader.ui.design.actionAt
 import io.github.kgcaudit.reader.ui.design.CpStepper
 import io.github.kgcaudit.reader.ui.design.CpTabBar
 import io.github.kgcaudit.reader.ui.design.CpText
 import io.github.kgcaudit.reader.ui.design.CpTheme
 import io.github.kgcaudit.reader.ui.design.CpToolButton
-import io.github.kgcaudit.reader.ui.design.ScreenRotation
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -68,8 +77,8 @@ import kotlin.math.roundToInt
  * 리플로우 리더.
  *
  * 화면 전체가 지면이다. 왼쪽 3분의 1 을 누르면 앞 장, 오른쪽 3분의 1 은 다음 장,
- * 가운데는 메뉴. 옆으로 밀어도 넘어간다. CrossPoint 의 물리 버튼 자리를 그대로 터치
- * 영역으로 옮겼다.
+ * 가운데는 메뉴(좌우는 터치 영역 설정으로 바꾼다). 옆으로 밀어도 넘어간다. CrossPoint 의 물리
+ * 버튼 자리를 그대로 터치 영역으로 옮겼다. 오른쪽 위 모서리는 책갈피 꽂기 · 빼기다.
  *
  * @param onChrome 메뉴가 열리고 닫힐 때. 앱이 시스템 바를 보이고 숨기는 데 쓴다.
  */
@@ -89,6 +98,21 @@ fun ReaderScreen(
     var panel by remember { mutableStateOf(Panel.None) }
     // 글꼴을 넣거나 뺀 횟수. 같은 설정 값이라도 굵은 파일이 더해지면 글꼴 ID 가 바뀐다.
     var fontsRevision by remember { mutableStateOf(0) }
+    var toast by remember { mutableStateOf<String?>(null) }
+    var toastCount by remember { mutableStateOf(0) }
+    // 하단 정보의 "장 제목". 목차는 책마다 한 번 읽는다.
+    var toc by remember { mutableStateOf<List<TocEntry>>(emptyList()) }
+    LaunchedEffect(reader) { toc = runCatching { reader.outline() }.getOrDefault(emptyList()) }
+
+    ReadingWindow(prefs.screen, activity = state.position)
+    VolumeKeyPaging(enabled = prefs.screen.volumeKeys && panel == Panel.None) { forward ->
+        scope.go { if (forward) reader.next() else reader.previous() }
+    }
+    fun toggleBookmark() = scope.go {
+        reader.toggleBookmark()
+        toast = if (reader.state.value.bookmarked) "책갈피를 꽂았습니다" else "책갈피를 뺐습니다"
+        toastCount++
+    }
 
     LaunchedEffect(panel) { onChrome(panel != Panel.None) }
     BackHandler {
@@ -96,7 +120,7 @@ fun ReaderScreen(
             Panel.None -> { onClose(); Panel.None }
             // 목록에서 뒤로 가면 도구줄로 돌아온다 — 바로 닫히면 목록을 다시 열 길이 멀어진다.
             Panel.Contents, Panel.Bookmarks, Panel.View -> Panel.Bar
-            Panel.Fonts -> Panel.View
+            Panel.Fonts, Panel.Settings -> Panel.View
             Panel.Bar -> Panel.None
         }
     }
@@ -107,9 +131,9 @@ fun ReaderScreen(
         val cutout = WindowInsets.displayCutout
         val margin = with(density) {
             Insets(
-                left = 24.dp.toPx() + cutout.getLeft(this, direction),
+                left = prefs.margin.dp.dp.toPx() + cutout.getLeft(this, direction),
                 top = 34.dp.toPx() + cutout.getTop(this),
-                right = 24.dp.toPx() + cutout.getRight(this, direction),
+                right = prefs.margin.dp.dp.toPx() + cutout.getRight(this, direction),
                 // 상태바 + 숨 쉴 틈. 본문이 상태바 밑으로 들어가면 마지막 줄이 가려진다.
                 bottom = (CpTheme.metrics.statusBarHeight + 28.dp).toPx() + cutout.getBottom(this),
             )
@@ -148,13 +172,18 @@ fun ReaderScreen(
         Canvas(
             Modifier
                 .fillMaxSize()
-                .pointerInput(reader) {
+                .pointerInput(reader, prefs.screen.touch) {
+                    val corner = CORNER.toPx()
                     detectTapGestures { offset ->
-                        when {
-                            panel != Panel.None -> panel = Panel.None
-                            offset.x < size.width * 0.3f -> scope.go { reader.previous() }
-                            offset.x > size.width * 0.7f -> scope.go { reader.next() }
-                            else -> panel = Panel.Bar
+                        if (panel != Panel.None) {
+                            panel = Panel.None
+                            return@detectTapGestures
+                        }
+                        when (prefs.screen.touch.actionAt(offset.x, offset.y, size.width.toFloat(), corner)) {
+                            TapAction.Previous -> scope.go { reader.previous() }
+                            TapAction.Next -> scope.go { reader.next() }
+                            TapAction.Menu -> panel = Panel.Bar
+                            TapAction.Bookmark -> toggleBookmark()
                         }
                     }
                 }
@@ -175,15 +204,25 @@ fun ReaderScreen(
             if (page != null && painter != null) drawPage(page, state.text, painter, colors.ink, images)
         }
 
+        // 윗여백(34dp) 안에서 끝나 글자를 가리지 않는다. 노치가 있으면 그 아래로.
+        if (state.bookmarked && state.page != null) {
+            CpRibbon(Modifier.align(Alignment.TopEnd).windowInsetsPadding(cutout).padding(end = 20.dp))
+        }
+
         val position = state.position
-        CpStatusBar(
-            title = reader.title,
-            page = if (position != null) "${position.pageIndex + 1} / ${position.pageCount}" else "",
-            percent = "${state.percent.roundToInt()}%",
-            progress = state.percent / 100f,
+        CpReadingFooter(
+            info = FooterInfo(
+                bookTitle = reader.title,
+                chapterTitle = position?.let { p -> toc.getOrNull(currentTocIndex(toc, p.spineIndex))?.label },
+                page = if (position != null) "${position.pageIndex + 1} / ${position.pageCount}" else "",
+                percent = state.percent,
+                chapterPagesLeft = position?.let { it.pageCount - it.pageIndex - 1 },
+            ),
+            footer = prefs.screen.footer,
             color = colors.inkMuted,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp).windowInsetsPadding(cutout),
         )
+        CpToast(toast, onDone = { toast = null }, Modifier.align(Alignment.BottomCenter), key = toastCount)
 
         when (panel) {
             Panel.None -> Unit
@@ -195,7 +234,14 @@ fun ReaderScreen(
                 showView = panel == Panel.View,
                 onClose = onClose,
                 onPanel = { panel = it },
+                onBookmark = ::toggleBookmark,
                 scope = scope,
+            )
+            Panel.Settings -> CpViewSettingsScreen(
+                prefs = prefs.screen,
+                onChange = { onPrefsChange(prefs.copy(screen = it)) },
+                onBack = { panel = Panel.View },
+                paragraph = { child -> ParagraphSettings(prefs, onPrefsChange, child) },
             )
             Panel.Fonts -> FontsPanel(
                 catalog = reader.fonts,
@@ -233,7 +279,10 @@ fun ReaderScreen(
  * 이제 누르면 **얇은 도구줄**만 뜨고 지면은 거의 그대로 보인다. 목차·책갈피는 볼 때만
  * 전체 화면으로 연다(Play 북·리디와 같은 구성).
  */
-private enum class Panel { None, Bar, View, Fonts, Contents, Bookmarks }
+private enum class Panel { None, Bar, View, Fonts, Settings, Contents, Bookmarks }
+
+/** 오른쪽 위 모서리의 책갈피 네모. 리본(22dp)보다 넉넉하되 "다음 쪽" 자리를 많이 빼앗지 않는 크기. */
+private val CORNER = 56.dp
 
 @Composable
 private fun ReaderBar(
@@ -244,6 +293,7 @@ private fun ReaderBar(
     showView: Boolean,
     onClose: () -> Unit,
     onPanel: (Panel) -> Unit,
+    onBookmark: () -> Unit,
     scope: CoroutineScope,
 ) {
     val position = state.position
@@ -251,7 +301,7 @@ private fun ReaderBar(
         title = reader.title,
         subtitle = if (position != null) "${position.spineIndex + 1} / ${state.chapterCount} 장" else null,
         bookmarked = state.bookmarked,
-        onBookmark = { scope.go { reader.toggleBookmark() } },
+        onBookmark = onBookmark,
         onBack = onClose,
         onDismiss = { onPanel(Panel.None) },
         progress = state.percent / 100f,
@@ -259,7 +309,7 @@ private fun ReaderBar(
         onSeek = { target -> scope.go { reader.seek(target) } },
         above = {
             if (showView) {
-                ViewSettings(reader, prefs, onPrefsChange, onFonts = { onPanel(Panel.Fonts) })
+                ViewSettings(reader, prefs, onPrefsChange, onFonts = { onPanel(Panel.Fonts) }, onAll = { onPanel(Panel.Settings) })
                 Spacer(Modifier.height(4.dp))
             }
         },
@@ -356,10 +406,22 @@ private fun BookmarkList(marks: List<Bookmark>?, onOpen: (Bookmark) -> Unit, onR
     }
 }
 
+/**
+ * 보기 판(A안): 자주 바꾸는 것만 — 배경 · 밝기 · 글자 크기 · 글꼴 · 줄 간격 · 여백. 나머지는 "모든 보기 설정".
+ * 판에 전부 두면 열두 줄이 되어 바꾸는 결과(지면)를 가린다.
+ */
 @Composable
-private fun ViewSettings(reader: BookReader, prefs: ReaderPrefs, onChange: (ReaderPrefs) -> Unit, onFonts: () -> Unit) {
+private fun ViewSettings(
+    reader: BookReader,
+    prefs: ReaderPrefs,
+    onChange: (ReaderPrefs) -> Unit,
+    onFonts: () -> Unit,
+    onAll: () -> Unit,
+) {
     val catalog = reader.fonts
     Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+        CpThemeSwatches(prefs.screen.theme, { onChange(prefs.copy(screen = prefs.screen.copy(theme = it))) })
+        CpBrightnessRow(prefs.screen.brightness, { onChange(prefs.copy(screen = prefs.screen.copy(brightness = it))) })
         CpStepper("글자 크기", "${prefs.fontSizeSp}", { onChange(prefs.withSize(-1)) }, { onChange(prefs.withSize(+1)) })
         // 고른 값이 목록에 없으면(지운 사용자 글꼴, 없어진 옛 설정) 실제로 쓰이는 글꼴 이름을 보인다.
         // 사용자 글꼴이 몇 개일지 모르므로 단추를 늘어놓지 않고 목록을 연다.
@@ -374,11 +436,25 @@ private fun ViewSettings(reader: BookReader, prefs: ReaderPrefs, onChange: (Read
         CpChoice("줄 간격", spacings.map { it.label }, spacings.indexOf(prefs.lineSpacing), {
             onChange(prefs.copy(lineSpacing = spacings[it]))
         })
-        val rotations = ScreenRotation.entries
-        CpChoice("화면 회전", rotations.map { it.label }, rotations.indexOf(prefs.rotation), {
-            onChange(prefs.copy(rotation = rotations[it]))
+        val margins = ReaderPrefs.Margin.entries
+        CpChoice("여백", margins.map { it.label }, margins.indexOf(prefs.margin), {
+            onChange(prefs.copy(margin = margins[it]))
         })
+        CpLinkRow("모든 보기 설정", "", onAll)
     }
+}
+
+/** 모든 보기 설정의 문단 묶음. 셋 다 조판을 바꾼다(LayoutSpec). */
+@Composable
+private fun ParagraphSettings(prefs: ReaderPrefs, onChange: (ReaderPrefs) -> Unit, child: Modifier) {
+    val aligns = ReaderPrefs.ParagraphAlign.entries
+    CpChoice("정렬", aligns.map { it.label }, aligns.indexOf(prefs.align), { onChange(prefs.copy(align = aligns[it])) }, child)
+    val indents = ReaderPrefs.Indent.entries
+    CpChoice("첫 줄 들여쓰기", indents.map { it.label }, indents.indexOf(prefs.indent), { onChange(prefs.copy(indent = indents[it])) }, child)
+    val gaps = ReaderPrefs.ParagraphSpacing.entries
+    CpChoice("문단 간격", gaps.map { it.label }, gaps.indexOf(prefs.paragraphSpacing), {
+        onChange(prefs.copy(paragraphSpacing = gaps[it]))
+    }, child)
 }
 
 @Composable
