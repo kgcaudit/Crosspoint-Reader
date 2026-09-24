@@ -17,7 +17,7 @@
 PDF 는 쪽 그대로 보이고 두 손가락·두 번 누르기로 확대한다. 목차·제목·저자는 파일 구조에서 직접 읽는다.
 
 ```bash
-cd android && ./gradlew check                 # 774개 + lint
+cd android && ./gradlew check                 # 821개 + lint
 ./gradlew :app:assembleRelease                # → app/build/outputs/apk/release/OLO-eBook-0.15.0-release.apk
 ./gradlew :app:testDebugUnitTest              # → app/build/screenshots/*.png (화면 확인용)
 # SDK 없음: :document + :core-layout 366개 (기존과 같다)
