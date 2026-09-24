@@ -152,7 +152,8 @@ internal fun FontsPanel(
                     catalog,
                     option,
                     option.key == current,
-                    modifier = Modifier.padding(start = USER_FONT_INDENT),
+                    // 넣은 글꼴은 "사용자 글꼴" 의 자식 — 위계 규칙(CpMetrics.childIndent). 나란하면 네 번째 선택지로 읽힌다.
+                    modifier = Modifier.padding(start = CpTheme.metrics.childIndent),
                     subtitle = if (option.hasHangul) null else "한글 없음 · 한글은 휴대폰 글꼴로 보입니다",
                     onRemove = { removing = option },
                 ) { onPrefsChange(prefs.copy(font = option.key, publisherFonts = false)) }
@@ -215,15 +216,6 @@ private fun FontRow(
         }
     }
 }
-
-/**
- * 넣은 글꼴은 "사용자 글꼴" 의 자식이다. 들여 쓰지 않으면 출판사 · 휴대폰 글꼴과 나란한 네 번째 선택지로
- * 읽혀, 목록이 세 갈래라는 구조가 사라진다.
- *
- * 폭은 머리의 글자가 시작하는 자리다(아이콘 24dp + 간격 14dp = 38dp). 자식의 동그라미가 부모 글자 아래에
- * 오고, 동그라미 22dp + 간격 16dp 도 38dp 라 자식의 글자도 한 칸 안쪽에서 같은 간격으로 맞는다.
- */
-internal val USER_FONT_INDENT = 38.dp
 
 private fun systemNote(option: FontOption): String? = when (option.key) {
     FontCatalog.SANS -> "휴대폰 설정의 글꼴 스타일을 따릅니다"

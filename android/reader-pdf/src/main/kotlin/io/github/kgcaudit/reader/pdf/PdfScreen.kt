@@ -354,7 +354,7 @@ private fun ContentsList(entries: List<TocEntry>?, page: Int, labelOf: (Int) -> 
                     CpListRow(
                         title = entry.label,
                         onClick = { onOpen(entry) },
-                        modifier = Modifier.padding(start = (entry.depth * 16).dp),
+                        modifier = Modifier.padding(start = CpTheme.metrics.levelIndent * entry.depth),
                         // 쪽 번호는 책에 인쇄된 번호(쪽 이름표), 없으면 1부터 센 번호. 종이책 목차와 같은 숫자다.
                         value = labelOf(entry.locator.fixedPage),
                         selected = i == current,

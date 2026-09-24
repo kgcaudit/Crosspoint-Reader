@@ -322,7 +322,7 @@ private fun TocList(entries: List<TocEntry>?, state: ReaderState, onOpen: (TocEn
                     CpListRow(
                         title = entry.label,
                         onClick = { onOpen(entry) },
-                        modifier = Modifier.padding(start = (entry.depth * 16).dp),
+                        modifier = Modifier.padding(start = CpTheme.metrics.levelIndent * entry.depth),
                         selected = i == current,
                         compact = true,
                     )

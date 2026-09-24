@@ -143,6 +143,16 @@ data class CpMetrics(
     val cornerDialog: Dp = 20.dp,
     val tileSize: Dp = 40.dp,
     val tileCorner: Dp = 12.dp,
+    /**
+     * **위계 규칙** — 어떤 목록의 자식 행은 **부모 행의 글자가 시작하는 자리**에서 시작한다(CLAUDE.md "UI 규칙").
+     * 나란히 두면 자식이 부모와 같은 급의 선택지로 읽힌다(글꼴 목록에서 넣은 글꼴이 네 번째 선택지로 보였다).
+     *
+     * 앞머리(아이콘 24dp + 간격 14dp, 동그라미 22dp + 간격 16dp)가 있는 행의 자식: 38dp. 두 앞머리 폭이
+     * 같아서 자식의 동그라미 · 아이콘이 부모 글자 아래에 오고 자식의 글자도 한 단 안쪽에서 맞는다.
+     */
+    val childIndent: Dp = 38.dp,
+    /** 앞머리 없이 글자만 있는 행(목차)의 한 단. 부모 글자가 여백에서 시작하므로 한 단씩 이만큼 들인다. */
+    val levelIndent: Dp = 16.dp,
 )
 
 @Immutable

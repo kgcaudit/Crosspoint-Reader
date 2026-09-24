@@ -102,6 +102,11 @@ class PdfAppTest {
         node(hasText("목차")).performClick()
         waitFor(hasText("3장 문제 해결"))
         check(compose.onAllNodes(hasText("2-1 확대하기"), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty())
+        // 위계 규칙(CLAUDE.md "UI 규칙"): 절은 장의 글자보다 한 단(16dp) 안쪽, 같은 급의 장끼리는 나란히.
+        val density = compose.activity.resources.displayMetrics.density
+        fun left(text: String) = node(hasText(text)).fetchSemanticsNode().boundsInRoot.left / density
+        kotlin.test.assertEquals(left("2장 넘기기") + 16f, left("2-1 확대하기"), 1f)
+        kotlin.test.assertEquals(left("2장 넘기기"), left("3장 문제 해결"), 1f)
         shot("25-pdf-contents")
         node(hasText("3장 문제 해결")).performClick()
         waitFor(hasText("6 / 6"))
