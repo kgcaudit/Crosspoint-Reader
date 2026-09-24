@@ -127,14 +127,14 @@ class ReadingSettingsTest {
     fun `the margin setting moves where the lines start`() {
         openWith()
         val normal = leftmostInk(page())
-        assertEquals(24 * density, normal.toFloat(), 3f, "보통 여백(24dp)에서 글자가 시작하지 않는다")
+        assertEquals(36 * density, normal.toFloat(), 3f, "보통 여백(36dp)에서 글자가 시작하지 않는다")
 
         openView()
         // "넓게" 는 줄 간격에도 있다 — 판에서 둘째 것이 여백이다.
         compose.onAllNodes(hasText("넓게"), useUnmergedTree = true)[1].performClick()
         backToPage()
         compose.waitUntil(10_000) { leftmostInk(page()) > normal + 10 }
-        assertEquals(36 * density, leftmostInk(page()).toFloat(), 3f, "넓게(36dp)에서 글자가 시작하지 않는다")
+        assertEquals(48 * density, leftmostInk(page()).toFloat(), 3f, "넓게(48dp)에서 글자가 시작하지 않는다")
         assertEquals(ReaderPrefs.Margin.Wide, app.container.prefs.load().margin)
     }
 
