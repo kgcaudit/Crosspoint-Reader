@@ -119,6 +119,8 @@ class AppWalkthroughTest {
         waitFor(hasText("제2장 사막의 아침"))
         shot("06-contents")
         // 책갈피는 독서노트 탭에 모인다(N5). 탭 이름에 모인 수가 붙는다.
+        // 모인 수는 조판 스레드에서 늦게 붙는다 — 붙은 뒤에 누른다.
+        waitFor(hasText("독서노트 1"))
         node(hasText("독서노트 1")).performClick()
         // 미리보기는 책갈피를 꽂은 페이지(2쪽)의 첫 글자부터다.
         waitFor(hasText("그 책에는", substring = true))
