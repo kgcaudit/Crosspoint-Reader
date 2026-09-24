@@ -36,6 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -324,6 +325,8 @@ fun CpViewSettingsScreen(
     onChange: (ScreenPrefs) -> Unit,
     onBack: () -> Unit,
     paragraph: (@Composable (child: Modifier) -> Unit)? = null,
+    /** PDF 에서 열었을 때만 "PDF" 묶음(두쪽보기의 표지)을 보인다. EPUB 에서 보이면 무엇을 바꾸는지 알 수 없다. */
+    pdf: Boolean = false,
 ) {
     var sub by remember { mutableStateOf(SettingsPage.Main) }
     androidx.activity.compose.BackHandler(enabled = sub != SettingsPage.Main) { sub = SettingsPage.Main }
@@ -346,11 +349,39 @@ fun CpViewSettingsScreen(
                 CpChoice("화면 회전", rotations.map { it.label }, rotations.indexOf(prefs.rotation), {
                     onChange(prefs.copy(rotation = rotations[it]))
                 }, child)
+                CpChoice("가로에서 두쪽보기", listOf("켬", "끔"), if (prefs.twoPagesLandscape) 0 else 1, {
+                    onChange(prefs.copy(twoPagesLandscape = it == 0))
+                }, child)
+                // 휴대폰에서는 흐리게 두고 까닭을 적는다. 줄을 빼 버리면 태블릿에서 본 설정을 휴대폰에서 찾아 헤맨다.
+                val wide = androidx.compose.ui.platform.LocalConfiguration.current.smallestScreenWidthDp >= ScreenPrefs.WIDE_SCREEN_DP
+                Column(child) {
+                    CpChoice(
+                        "세로에서 두쪽보기",
+                        listOf("켬", "끔"),
+                        if (prefs.twoPagesPortrait) 0 else 1,
+                        { if (wide) onChange(prefs.copy(twoPagesPortrait = it == 0)) },
+                        if (wide) Modifier else Modifier.alpha(0.45f),
+                    )
+                    if (!wide) {
+                        CpText(
+                            "넓은 화면(태블릿 · 폴더블)에서만 쓸 수 있습니다",
+                            CpTheme.type.caption,
+                            CpTheme.colors.textMuted,
+                            Modifier.padding(start = CpTheme.metrics.gutter, bottom = 6.dp),
+                        )
+                    }
+                }
                 val keep = KeepScreenOn.entries
                 CpChoice("화면 켜짐 유지", keep.map { it.label }, keep.indexOf(prefs.keepScreenOn), {
                     onChange(prefs.copy(keepScreenOn = keep[it]))
                 }, child)
                 CpLinkRow("하단 정보", prefs.footer.summary, { sub = SettingsPage.Footer }, child)
+                if (pdf) {
+                    CpSectionLabel("PDF")
+                    CpChoice("두쪽보기에서 표지", listOf("따로", "함께"), if (prefs.pdfCoverAlone) 0 else 1, {
+                        onChange(prefs.copy(pdfCoverAlone = it == 0))
+                    }, child)
+                }
             }
         }
         SettingsPage.Touch -> TouchZonePicker(prefs.touch, { onChange(prefs.copy(touch = it)); sub = SettingsPage.Main }) {

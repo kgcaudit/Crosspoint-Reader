@@ -45,6 +45,12 @@ data class ReaderState(
     val error: String? = null,
     /** 이 상태를 만든 조판 설정. 그리는 쪽이 같은 글꼴·크기의 Paint 를 쓰는 근거다. */
     val spec: LayoutSpec? = null,
+    /**
+     * 두쪽보기의 오른쪽 쪽([page] 와 같은 장, 다음 쪽). 한 쪽 보기이거나 장이 홀수 쪽으로 끝나 비었으면 null.
+     * 두쪽보기에서 [page] · [position] 은 왼쪽 쪽이다 — 진도 · 책갈피도 왼쪽 쪽으로 한다.
+     */
+    val rightPage: Page? = null,
+    val spread: Boolean = false,
 )
 
 /**
@@ -75,6 +81,7 @@ class BookReader(
     private var layout: BookLayout? = null
     private var session: ReadingSession? = null
     private var spec: LayoutSpec? = null
+    private var spread = false
 
     /**
      * 지금 화면에 보이는 페이지의 첫 글자. 설정을 바꿀 때 여기로 돌아온다.
@@ -116,8 +123,14 @@ class BookReader(
      * 설정이 바뀌면 **읽던 글자**로 돌아간다. 페이지 번호로 돌아가면 글자 크기를 키운
      * 순간 몇 장 앞으로 튄다.
      */
-    suspend fun layOut(newSpec: LayoutSpec) = run {
-        if (newSpec == spec) return@run
+    suspend fun layOut(newSpec: LayoutSpec, twoPages: Boolean = false) = run {
+        if (newSpec == spec && twoPages == spread) return@run
+        spread = twoPages
+        if (newSpec == spec) {
+            // 조판은 그대로이고 한 쪽 ↔ 두 쪽만 바뀌었다(같은 폭). 펼침만 다시 맞춘다.
+            _state.value.position?.let { show(it) }
+            return@run
+        }
         val anchor = shownLocator
         _state.value = _state.value.copy(busy = _state.value.page == null)
 
@@ -142,13 +155,21 @@ class BookReader(
 
         val position = if (anchor != null) built.resolve(anchor) else newSession.restore()
         show(position)
+        // 보인 쪽(두쪽이면 펼침)에는 읽던 글자가 들어 있다. 기준을 그 글자로 남긴다 — 펼침의 왼쪽 쪽 시작으로
+        // 바꾸면 가로(두 쪽)로 돌렸다 세로로 돌아올 때마다 한 쪽씩 뒤로 밀린다(ScreenRotationTest 에서 발견).
+        if (anchor != null) shownLocator = anchor
         // 옛 설정의 캐시는 다시 쓰일 일이 드물다. 남겨 두면 글자 크기를 바꿀 때마다 쌓인다.
         built.pruneStaleCaches()
     }
 
-    suspend fun next() = run { move { it.next(requireNotNull(_state.value.position)) } }
+    /** 다음 쪽. 두쪽보기면 다음 펼침(두 쪽). */
+    suspend fun next() = run {
+        move { if (spread) it.nextSpread(requireNotNull(_state.value.position)) else it.next(requireNotNull(_state.value.position)) }
+    }
 
-    suspend fun previous() = run { move { it.previous(requireNotNull(_state.value.position)) } }
+    suspend fun previous() = run {
+        move { if (spread) it.previousSpread(requireNotNull(_state.value.position)) else it.previous(requireNotNull(_state.value.position)) }
+    }
 
     suspend fun goTo(bookmark: Bookmark) = run {
         val position = requireSession().goTo(bookmark) ?: return@run
@@ -237,9 +258,12 @@ class BookReader(
         show(next)
     }
 
-    private suspend fun show(position: ReadingPosition) {
+    private suspend fun show(target: ReadingPosition) {
         val l = requireLayout()
+        // 두쪽보기면 이 쪽이 든 펼침의 왼쪽부터 — 목차 · 책갈피가 오른쪽 쪽을 가리켜도 그 펼침이 보인다.
+        val position = if (spread) l.spreadStart(target) else target
         val page = l.page(position.spineIndex, position.pageIndex)
+        val right = if (spread) l.spreadRight(position)?.let { l.page(it.spineIndex, it.pageIndex) } else null
         val text = texts.getOrPut(position.spineIndex) { l.chapterText(position.spineIndex).orEmpty() }
         // 앞뒤 챕터 캐시가 너무 쌓이지 않게 지금 챕터 근처만 들고 있는다.
         texts.keys.retainAll { kotlin.math.abs(it - position.spineIndex) <= 1 }
@@ -257,6 +281,8 @@ class BookReader(
             busy = false,
             error = null,
             spec = spec,
+            rightPage = right,
+            spread = spread,
         )
     }
 

@@ -34,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -145,12 +146,17 @@ fun ReaderScreen(
         // 글꼴 ID 는 글자를 재서 만든다(지문). 설정이 바뀔 때만 다시 잰다.
         val bodyFont = prefs.bodyFont(useBookFonts)
         val fontId = remember(bodyFont, fontsRevision) { reader.fonts.layoutFontId(bodyFont) }
-        val spec = remember(widthPx, heightPx, margin, prefs, pxPerSp, pxPerDp, fontId, useBookFonts) {
-            prefs.toSpec(widthPx, heightPx, margin, pxPerSp, pxPerDp, fontId, useBookFonts)
+        // 두쪽보기: 한 쪽 폭(화면의 절반)으로 조판하고 같은 장의 두 쪽을 나란히 놓는다. 여백은 쪽마다 따로 —
+        // 가운데(책등)에도 여백이 있어야 두 쪽의 글자가 붙지 않는다.
+        val smallestWidthDp = androidx.compose.ui.platform.LocalConfiguration.current.smallestScreenWidthDp
+        val twoPages = prefs.screen.twoPages(widthPx / pxPerDp, heightPx / pxPerDp, smallestWidthDp)
+        val pageWidthPx = if (twoPages) widthPx / 2f else widthPx
+        val spec = remember(pageWidthPx, heightPx, margin, prefs, pxPerSp, pxPerDp, fontId, useBookFonts) {
+            prefs.toSpec(pageWidthPx, heightPx, margin, pxPerSp, pxPerDp, fontId, useBookFonts)
         }
-        LaunchedEffect(spec) {
+        LaunchedEffect(spec, twoPages) {
             // 실패는 reader.state.error 로 화면에 간다. 여기서는 로그만 — 흔적 없이 삼키면 기기에서 원인을 못 찾는다.
-            runCatching { reader.layOut(spec) }.onFailure {
+            runCatching { reader.layOut(spec, twoPages) }.onFailure {
                 if (it is kotlinx.coroutines.CancellationException) throw it
                 Log.w(TAG, "layout failed", it)
             }
@@ -160,12 +166,15 @@ fun ReaderScreen(
         // 끝나기 전까지는 옛 페이지를 옛 글꼴로 그려야 한다.
         val painter = remember(state.spec) { state.spec?.let(reader::measurer) }
         val images = remember(state.page) { mutableStateMapOf<PlacedImage, ImageBitmap>() }
-        LaunchedEffect(state.page) {
-            val page = state.page ?: return@LaunchedEffect
+        // 오른쪽 쪽의 그림은 따로 둔다 — 두 쪽에 같은 자리 · 같은 파일의 그림이 있으면 한 표에서 서로 덮는다.
+        val rightImages = remember(state.rightPage) { mutableStateMapOf<PlacedImage, ImageBitmap>() }
+        LaunchedEffect(state.page, state.rightPage) {
             val spine = state.position?.spineIndex ?: return@LaunchedEffect
-            for (placed in page.images) {
-                reader.image(spine, placed.href, placed.widthPx.roundToInt(), placed.heightPx.roundToInt())
-                    ?.let { images[placed] = it }
+            for ((page, into) in listOf(state.page to images, state.rightPage to rightImages)) {
+                for (placed in page?.images.orEmpty()) {
+                    reader.image(spine, placed.href, placed.widthPx.roundToInt(), placed.heightPx.roundToInt())
+                        ?.let { into[placed] = it }
+                }
             }
         }
 
@@ -201,7 +210,24 @@ fun ReaderScreen(
                 },
         ) {
             val page = state.page
-            if (page != null && painter != null) drawPage(page, state.text, painter, colors.ink, images)
+            if (page != null && painter != null) {
+                drawPage(page, state.text, painter, colors.ink, images)
+                if (state.spread) {
+                    val half = size.width / 2f
+                    // 책등: 옅은 선 한 줄. 그림자까지 그리면 e-ink 원형과 멀고 글자 옆이 탁해 보인다.
+                    drawLine(
+                        colors.ink.copy(alpha = 0.13f),
+                        androidx.compose.ui.geometry.Offset(half, CORNER.toPx() * 0.5f),
+                        androidx.compose.ui.geometry.Offset(half, size.height - margin.bottom),
+                        strokeWidth = 1.dp.toPx(),
+                    )
+                    state.rightPage?.let { right ->
+                        translate(left = half) {
+                            drawPage(right, state.text, painter, colors.ink, rightImages)
+                        }
+                    }
+                }
+            }
         }
 
         // 윗여백(34dp) 안에서 끝나 글자를 가리지 않는다. 노치가 있으면 그 아래로.
@@ -214,9 +240,14 @@ fun ReaderScreen(
             info = FooterInfo(
                 bookTitle = reader.title,
                 chapterTitle = position?.let { p -> toc.getOrNull(currentTocIndex(toc, p.spineIndex))?.label },
-                page = if (position != null) "${position.pageIndex + 1} / ${position.pageCount}" else "",
+                // 두쪽이면 두 쪽을 묶어 "5–6 / 12"(T5). 오른쪽이 빈 펼침은 한 쪽 번호만.
+                page = when {
+                    position == null -> ""
+                    state.rightPage != null -> "${position.pageIndex + 1}–${position.pageIndex + 2} / ${position.pageCount}"
+                    else -> "${position.pageIndex + 1} / ${position.pageCount}"
+                },
                 percent = state.percent,
-                chapterPagesLeft = position?.let { it.pageCount - it.pageIndex - 1 },
+                chapterPagesLeft = position?.let { it.pageCount - it.pageIndex - 1 - (if (state.rightPage != null) 1 else 0) },
             ),
             footer = prefs.screen.footer,
             color = colors.inkMuted,

@@ -142,6 +142,43 @@ class BookLayout(
         return ReadingPosition(previousChapter, (count - 1).coerceAtLeast(0), count)
     }
 
+    // ── 두쪽보기 ────────────────────────────────────────────────────
+
+    /**
+     * 두쪽보기에서 [position] 이 들어 있는 펼침의 왼쪽 쪽. 장마다 0 · 2 · 4 … 쪽이 왼쪽이다.
+     *
+     * 짝을 책 전체가 아니라 **장마다** 센다 — 새 장은 언제나 왼쪽에서 시작하고, 홀수 쪽으로 끝난 장은 오른쪽이
+     * 빈다(종이책과 같다). 책 전체로 세면 장 경계를 넘을 때마다 짝이 한 칸씩 밀려, 같은 쪽이 글자 크기에 따라
+     * 왼쪽에 왔다 오른쪽에 왔다 한다.
+     */
+    fun spreadStart(position: ReadingPosition): ReadingPosition =
+        position.copy(pageIndex = position.pageIndex - position.pageIndex % 2)
+
+    /** 펼침의 오른쪽 쪽. 장이 홀수 쪽으로 끝나 비어 있으면 null. */
+    fun spreadRight(position: ReadingPosition): ReadingPosition? {
+        val left = spreadStart(position)
+        return if (left.pageIndex + 1 < left.pageCount) left.copy(pageIndex = left.pageIndex + 1) else null
+    }
+
+    /** 다음 펼침(두 쪽 넘김). 장 끝이면 다음 장의 첫 펼침. 책 끝이면 null. */
+    suspend fun nextSpread(position: ReadingPosition): ReadingPosition? {
+        val left = spreadStart(position)
+        if (left.pageIndex + 2 < left.pageCount) return left.copy(pageIndex = left.pageIndex + 2)
+        val nextChapter = position.spineIndex + 1
+        if (nextChapter >= spine().size) return null
+        return ReadingPosition(nextChapter, 0, pageCount(nextChapter))
+    }
+
+    /** 앞 펼침. 장 처음이면 앞 장의 마지막 펼침(그 장이 홀수 쪽이면 마지막 쪽 하나). 책 처음이면 null. */
+    suspend fun previousSpread(position: ReadingPosition): ReadingPosition? {
+        val left = spreadStart(position)
+        if (left.pageIndex >= 2) return left.copy(pageIndex = left.pageIndex - 2)
+        val previousChapter = position.spineIndex - 1
+        if (previousChapter < 0) return null
+        val count = pageCount(previousChapter)
+        return spreadStart(ReadingPosition(previousChapter, (count - 1).coerceAtLeast(0), count))
+    }
+
     /**
      * 목차 항목이 가리키는 위치. 앵커(`#절2`)가 있으면 그 자리까지 찾아간다.
      *

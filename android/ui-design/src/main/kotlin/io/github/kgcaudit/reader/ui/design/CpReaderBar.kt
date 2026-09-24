@@ -2,6 +2,8 @@ package io.github.kgcaudit.reader.ui.design
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,6 +13,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
@@ -53,48 +56,55 @@ fun CpReaderBar(
     // 조판·렌더가 줄줄이 쌓여 손을 뗀 뒤에도 한참 페이지가 바뀐다.
     var dragging by remember { mutableStateOf<Float?>(null) }
 
-    Column(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxWidth().background(colors.surface).windowInsetsPadding(WindowInsets.statusBars)) {
-            CpHeader(title = title, subtitle = subtitle, onBack = onBack) {
-                CpIconButton(
-                    if (bookmarked) CpIcons.BookmarkFilled else CpIcons.Bookmark,
-                    if (bookmarked) "책갈피 빼기" else "책갈피 꽂기",
-                    onClick = onBookmark,
-                    tint = if (bookmarked) colors.accent else colors.text,
-                )
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+        val maxPanel = maxHeight * 0.55f
+        Column(Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxWidth().background(colors.surface).windowInsetsPadding(WindowInsets.statusBars)) {
+                CpHeader(title = title, subtitle = subtitle, onBack = onBack) {
+                    CpIconButton(
+                        if (bookmarked) CpIcons.BookmarkFilled else CpIcons.Bookmark,
+                        if (bookmarked) "책갈피 빼기" else "책갈피 꽂기",
+                        onClick = onBookmark,
+                        tint = if (bookmarked) colors.accent else colors.text,
+                    )
+                }
             }
-        }
-        // 가운데: 지면이 보이는 곳. 누르면 닫힌다.
-        Box(
-            Modifier.weight(1f).fillMaxWidth()
-                .clickable(indication = null, interactionSource = null, onClick = onDismiss),
-        )
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .background(colors.surface)
-                .windowInsetsPadding(WindowInsets.navigationBars),
-        ) {
-            above()
-            val shown = dragging ?: progress
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                CpSlider(
-                    value = shown,
-                    onChange = { dragging = it },
-                    onCommit = { target ->
-                        onSeek(target)
-                        dragging = null
-                    },
-                    modifier = Modifier.weight(1f),
-                    description = "읽은 위치",
-                )
-                CpText(progressLabel(shown), CpTheme.type.label, colors.text, Modifier.padding(start = 12.dp))
-            }
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                content = tools,
+            // 가운데: 지면이 보이는 곳. 누르면 닫힌다.
+            Box(
+                Modifier.weight(1f).fillMaxWidth()
+                    .clickable(indication = null, interactionSource = null, onClick = onDismiss),
             )
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .background(colors.surface)
+                    .windowInsetsPadding(WindowInsets.navigationBars),
+            ) {
+                // 판은 화면 높이의 55% 까지만, 넘으면 스크롤한다. 가로 화면(높이 393dp)에서는 일곱 줄 판이 화면을 넘어
+                // 아래 줄("모든 보기 설정")이 잘려 누를 수 없었다. 진행 막대 · 도구 단추는 늘 보인다.
+                // 남는 높이를 weight(fill = false) 로 나눠 주는 방식은 가로에서 끝없이 다시 재는 고리에 빠졌다
+                // (TwoPageTest 에서 "Compose did not get idle") — 높이의 상한을 숫자로 준다.
+                Column(Modifier.heightIn(max = maxPanel).verticalScroll(rememberScrollState())) { above() }
+                val shown = dragging ?: progress
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    CpSlider(
+                        value = shown,
+                        onChange = { dragging = it },
+                        onCommit = { target ->
+                            onSeek(target)
+                            dragging = null
+                        },
+                        modifier = Modifier.weight(1f),
+                        description = "읽은 위치",
+                    )
+                    CpText(progressLabel(shown), CpTheme.type.label, colors.text, Modifier.padding(start = 12.dp))
+                }
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    content = tools,
+                )
+            }
         }
     }
 }

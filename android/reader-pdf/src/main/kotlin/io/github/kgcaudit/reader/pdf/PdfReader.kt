@@ -45,6 +45,22 @@ fun pagesLeftInSection(entries: List<TocEntry>, page: Int, pageCount: Int): Int 
     return (next - page - 1).coerceAtLeast(0)
 }
 
+/**
+ * 두쪽보기에서 [page] 가 든 펼침의 첫(왼쪽) 쪽.
+ *
+ * [coverAlone] 이면 표지(0)는 혼자이고 1–2 · 3–4 … 가 짝이다(T4) — 잡지는 표지 다음 쪽부터 양면을 한 판으로
+ * 짠다. 0–1 · 2–3 으로 짝지으면 양면 기사 · 광고가 모두 한 쪽씩 어긋나 반쪽끼리 붙는다.
+ */
+fun spreadStart(page: Int, coverAlone: Boolean): Int = when {
+    page <= 0 -> 0
+    coverAlone -> page - (page - 1) % 2
+    else -> page - page % 2
+}
+
+/** [left] 에서 시작하는 펼침의 쪽들(한 쪽 또는 두 쪽). 마지막 쪽이 혼자 남으면 한 쪽이다. */
+fun spreadPages(left: Int, pageCount: Int, coverAlone: Boolean): List<Int> =
+    if (coverAlone && left == 0) listOf(0) else listOf(left, left + 1).filter { it < pageCount }
+
 /** 화면이 그리는 데 필요한 전부. */
 data class PdfState(
     /** 0부터 센 쪽. */
@@ -53,9 +69,11 @@ data class PdfState(
     val bookmarked: Boolean = false,
     /** 처음 위치를 되찾기 전. 그동안은 첫 쪽을 잠깐 그렸다 옮기는 깜빡임을 막으려고 그리지 않는다. */
     val ready: Boolean = false,
+    /** 보이는 쪽들. 한 쪽 보기면 [page] 하나, 두쪽보기면 펼침(왼쪽이 [page]). */
+    val shown: List<Int> = listOf(page),
 ) {
-    /** 진도(0~100). 마지막 쪽을 펴면 100. */
-    val percent: Float get() = if (pageCount <= 0) 0f else (page + 1) * 100f / pageCount
+    /** 진도(0~100). 마지막 쪽을 펴면 100 — 두쪽이면 오른쪽 쪽까지 읽은 것으로 센다. */
+    val percent: Float get() = if (pageCount <= 0) 0f else ((shown.maxOrNull() ?: page) + 1) * 100f / pageCount
 }
 
 /**
@@ -81,9 +99,10 @@ class PdfReader(
 
     /**
      * 화면 크기로 그린 쪽. 지금 쪽과 앞뒤 한 쪽씩이면 넘길 때 기다리지 않는다. 쪽 하나가 화면 크기
-     * 비트맵(1080×2400 이면 약 10MB)이라 세 장까지만 둔다.
+     * 비트맵(1080×2400 이면 약 10MB)이라 여섯 장까지만 둔다 — 두쪽보기의 지금 · 다음 · 앞 펼침(쪽마다 화면의
+     * 절반이라 합이 한 쪽 보기의 세 장과 비슷하다).
      */
-    private val pages = LruCache<Triple<Int, Int, Int>, Bitmap>(3)
+    private val pages = LruCache<Triple<Int, Int, Int>, Bitmap>(6)
 
     /** 저장된 자리로 간다. 없거나 범위를 벗어났으면(파일이 바뀜) 첫 쪽. */
     suspend fun open() {
@@ -91,9 +110,25 @@ class PdfReader(
         show(saved?.page ?: 0, save = false)
     }
 
-    suspend fun next() = show(_state.value.page + 1)
+    /** 두쪽보기. null 이면 한 쪽. 값은 표지를 따로 둘지(T4). */
+    private var spread: Boolean? = null
 
-    suspend fun previous() = show(_state.value.page - 1)
+    /** 한 쪽 ↔ 두 쪽을 바꾼다(가로로 돌리거나 설정을 바꿀 때). 보던 쪽이 든 펼침으로 간다. */
+    suspend fun setSpread(coverAlone: Boolean?) {
+        if (spread == coverAlone) return
+        spread = coverAlone
+        if (_state.value.ready) show(_state.value.page, save = false)
+    }
+
+    suspend fun next() {
+        val last = _state.value.shown.maxOrNull() ?: _state.value.page
+        if (last + 1 < book.pageCount) show(last + 1)
+    }
+
+    suspend fun previous() {
+        val first = _state.value.page
+        if (first > 0) show(first - 1)
+    }
 
     suspend fun goTo(page: Int) = show(page)
 
@@ -174,8 +209,12 @@ class PdfReader(
             _state.value = _state.value.copy(ready = true)
             return
         }
-        val target = page.coerceIn(0, count - 1)
-        _state.value = _state.value.copy(page = target, pageCount = count, ready = true)
+        val cover = spread
+        val wanted = page.coerceIn(0, count - 1)
+        // 두쪽이면 이 쪽이 든 펼침의 왼쪽부터 — 목차 · 책갈피가 오른쪽 쪽을 가리켜도 그 펼침이 보인다.
+        val target = if (cover != null) spreadStart(wanted, cover) else wanted
+        val shown = if (cover != null) spreadPages(target, count, cover) else listOf(target)
+        _state.value = _state.value.copy(page = target, pageCount = count, ready = true, shown = shown)
         refreshBookmarked()
         if (save) {
             runCatching {

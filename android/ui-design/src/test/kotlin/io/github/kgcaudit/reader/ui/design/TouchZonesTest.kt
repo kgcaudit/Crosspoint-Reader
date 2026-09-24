@@ -49,4 +49,19 @@ class TouchZonesTest {
         assertEquals("시계 · 배터리", Footer(FooterItem.Clock, FooterItem.None, FooterItem.Battery).summary)
         assertEquals("없음", Footer(FooterItem.None, FooterItem.None, FooterItem.None).summary)
     }
+
+    @Test
+    fun `two pages open in landscape by default and in portrait only on a wide screen`() {
+        val prefs = ScreenPrefs()
+        // 휴대폰 가로(851×393): 기본 켬. 휴대폰 세로: 끔.
+        assertEquals(true, prefs.twoPages(851f, 393f, smallestWidthDp = 393))
+        assertEquals(false, prefs.twoPages(393f, 851f, smallestWidthDp = 393))
+        // 세로 두쪽을 켜도 휴대폰에서는 한 쪽이다(한 쪽 170dp 남짓 — 한 줄에 여덟 글자).
+        val portrait = prefs.copy(twoPagesPortrait = true)
+        assertEquals(false, portrait.twoPages(393f, 851f, smallestWidthDp = 393))
+        // 태블릿 세로에서는 두 쪽.
+        assertEquals(true, portrait.twoPages(820f, 1180f, smallestWidthDp = 820))
+        // 가로 두쪽을 끄면 가로도 한 쪽.
+        assertEquals(false, prefs.copy(twoPagesLandscape = false).twoPages(851f, 393f, smallestWidthDp = 393))
+    }
 }

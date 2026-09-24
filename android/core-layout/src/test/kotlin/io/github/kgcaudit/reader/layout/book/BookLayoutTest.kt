@@ -203,6 +203,57 @@ class BookLayoutTest {
         }
     }
 
+    // ── 두쪽보기 ────────────────────────────────────────────────────
+
+    @Test
+    fun `two page spreads show every page exactly once and start each chapter on the left`() = runTest {
+        openEpub().use { doc ->
+            val book = layout(doc)
+            var left: ReadingPosition? = book.resolve(Locator.Reflow(0, 0))
+            val shown = ArrayList<Pair<Int, Int>>()
+            val lefts = ArrayList<ReadingPosition>()
+            var guard = 0
+            while (left != null && guard++ < 500) {
+                lefts.add(left)
+                shown.add(left.spineIndex to left.pageIndex)
+                book.spreadRight(left)?.let { shown.add(it.spineIndex to it.pageIndex) }
+                left = book.nextSpread(left)
+            }
+            // 빠짐도 겹침도 없다 — 한 쪽이라도 빠지면 두쪽으로 읽는 사람은 그 쪽을 영영 못 본다.
+            val all = (0 until 3).flatMap { spine -> (0 until book.pageCount(spine)).map { spine to it } }
+            assertEquals(all, shown)
+            // 왼쪽은 언제나 장 안의 짝수 쪽이고, 새 장은 왼쪽에서 시작한다.
+            assertTrue(lefts.all { it.pageIndex % 2 == 0 })
+            for (spine in 0 until 3) assertTrue(lefts.any { it.spineIndex == spine && it.pageIndex == 0 })
+            // 홀수 쪽으로 끝난 장의 마지막 펼침은 오른쪽이 빈다.
+            for (spine in 0 until 3) {
+                val count = book.pageCount(spine)
+                val last = lefts.last { it.spineIndex == spine }
+                assertEquals(count % 2 == 1, book.spreadRight(last) == null, "장 ${spine + 1}($count 쪽)의 마지막 펼침")
+            }
+            assertTrue((0 until 3).any { book.pageCount(it) % 2 == 1 }, "홀수 쪽 장이 없어 빈 오른쪽을 시험하지 못한다")
+
+            // 뒤로 넘기면 같은 펼침을 거꾸로 지난다(앞 장 끝이 홀수여도 마지막 쪽 하나로 돌아온다).
+            var back: ReadingPosition? = lefts.last()
+            val backwards = ArrayList<ReadingPosition>()
+            while (back != null) { backwards.add(back); back = book.previousSpread(back) }
+            assertEquals(lefts.reversed(), backwards)
+        }
+    }
+
+    @Test
+    fun `a position on a right hand page opens the spread it belongs to`() = runTest {
+        // 한 쪽 보기에서 3쪽(0부터)을 읽다 가로로 돌리면 2–3쪽 펼침이다. 4–5쪽으로 가면 3쪽을 건너뛴다.
+        openEpub().use { doc ->
+            val book = layout(doc)
+            val chapter = book.resolve(Locator.Reflow(2, 0))
+            assertTrue(chapter.pageCount >= 4, "3장이 4쪽이 안 돼 시험할 수 없다")
+            val third = chapter.copy(pageIndex = 3)
+            assertEquals(2, book.spreadStart(third).pageIndex)
+            assertEquals(3, book.spreadRight(third)?.pageIndex)
+        }
+    }
+
     @Test
     fun `paging backward returns to the last page of the previous chapter`() = runTest {
         openEpub().use { doc ->

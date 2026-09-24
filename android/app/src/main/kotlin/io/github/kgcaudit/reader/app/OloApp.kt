@@ -231,6 +231,9 @@ class PrefsStore(context: Context) {
                 right = enumOf(KEY_FOOTER_RIGHT, FooterItem.Percent),
             ),
             rotation = enumOf(KEY_ROTATION, ScreenRotation.Auto),
+            twoPagesLandscape = sp.getBoolean(KEY_TWO_PAGES_LANDSCAPE, true),
+            twoPagesPortrait = sp.getBoolean(KEY_TWO_PAGES_PORTRAIT, false),
+            pdfCoverAlone = sp.getBoolean(KEY_PDF_COVER_ALONE, true),
         ),
     )
 
@@ -257,6 +260,9 @@ class PrefsStore(context: Context) {
             .putString(KEY_FOOTER_CENTER, prefs.screen.footer.center.name)
             .putString(KEY_FOOTER_RIGHT, prefs.screen.footer.right.name)
             .putString(KEY_ROTATION, prefs.screen.rotation.name)
+            .putBoolean(KEY_TWO_PAGES_LANDSCAPE, prefs.screen.twoPagesLandscape)
+            .putBoolean(KEY_TWO_PAGES_PORTRAIT, prefs.screen.twoPagesPortrait)
+            .putBoolean(KEY_PDF_COVER_ALONE, prefs.screen.pdfCoverAlone)
             .apply()
     }
 
@@ -288,5 +294,8 @@ class PrefsStore(context: Context) {
         private const val KEY_FOOTER_LEFT = "footerLeft"
         private const val KEY_FOOTER_CENTER = "footerCenter"
         private const val KEY_FOOTER_RIGHT = "footerRight"
+        private const val KEY_TWO_PAGES_LANDSCAPE = "twoPagesLandscape"
+        private const val KEY_TWO_PAGES_PORTRAIT = "twoPagesPortrait"
+        private const val KEY_PDF_COVER_ALONE = "pdfCoverAlone"
     }
 }

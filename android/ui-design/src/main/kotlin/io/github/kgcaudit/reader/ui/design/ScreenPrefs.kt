@@ -19,7 +19,25 @@ data class ScreenPrefs(
     val touch: TouchZones = TouchZones.Default,
     val footer: Footer = Footer(),
     val rotation: ScreenRotation = ScreenRotation.Auto,
-)
+    /** 가로에서 두쪽보기. 기본 켬(T1) — 가로 한 쪽은 한 줄이 50자 안팎이라 읽기 힘들다. */
+    val twoPagesLandscape: Boolean = true,
+    /** 세로에서 두쪽보기. 넓은 화면(태블릿 · 폴더블)에서만 듣는다(T2). */
+    val twoPagesPortrait: Boolean = false,
+    /** PDF 두쪽보기에서 표지(1쪽)를 따로 한 장으로(T4). 잡지의 양면 기사 · 광고가 제짝으로 맞붙는다. */
+    val pdfCoverAlone: Boolean = true,
+) {
+    /**
+     * 지금 화면에서 두 쪽을 펼칠지. 세로 두쪽은 기기의 가장 짧은 폭이 [WIDE_SCREEN_DP] 이상일 때만 — 휴대폰
+     * 세로에 두 쪽을 놓으면 한 쪽이 170dp 남짓이라 한 줄에 여덟 글자다.
+     */
+    fun twoPages(widthDp: Float, heightDp: Float, smallestWidthDp: Int): Boolean =
+        if (widthDp > heightDp) twoPagesLandscape else twoPagesPortrait && smallestWidthDp >= WIDE_SCREEN_DP
+
+    companion object {
+        /** 태블릿 · 펼친 폴더블. 안드로이드가 "넓은 화면" 으로 보는 경계(sw600dp)와 같다. */
+        const val WIDE_SCREEN_DP = 600
+    }
+}
 
 /**
  * 지면 색. [System] 은 휴대폰의 다크 모드를 따른다(기본).

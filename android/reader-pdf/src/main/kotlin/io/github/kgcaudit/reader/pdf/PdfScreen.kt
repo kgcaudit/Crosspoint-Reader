@@ -10,6 +10,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -134,25 +135,33 @@ fun PdfScreen(
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().windowInsetsPadding(WindowInsets.displayCutout)) {
                 val viewW = constraints.maxWidth.toFloat()
                 val viewH = constraints.maxHeight.toFloat()
-                if (state.ready && state.pageCount > 0 && viewW > 0f && viewH > 0f) {
+                val density = androidx.compose.ui.platform.LocalDensity.current.density
+                val smallest = androidx.compose.ui.platform.LocalConfiguration.current.smallestScreenWidthDp
+                val twoPages = prefs.twoPages(viewW / density, viewH / density, smallest)
+                LaunchedEffect(twoPages, prefs.pdfCoverAlone) { reader.setSpread(if (twoPages) prefs.pdfCoverAlone else null) }
+                val onTap: (Offset, Float) -> Unit = { at, corner ->
+                    if (panel != PdfPanel.None) {
+                        panel = PdfPanel.None
+                    } else {
+                        when (prefs.touch.actionAt(at.x, at.y, viewW, corner)) {
+                            TapAction.Previous -> scope.go { reader.previous() }
+                            TapAction.Next -> scope.go { reader.next() }
+                            TapAction.Menu -> panel = PdfPanel.Bar
+                            TapAction.Bookmark -> toggleBookmark()
+                        }
+                    }
+                }
+                val onSwipe: (Boolean) -> Unit = { forward -> scope.go { if (forward) reader.next() else reader.previous() } }
+                if (state.ready && state.pageCount > 0 && viewW > 0f && viewH > 0f && twoPages) {
+                    SpreadView(reader, state.shown, viewW, viewH, onTap, onSwipe)
+                } else if (state.ready && state.pageCount > 0 && viewW > 0f && viewH > 0f) {
                     PageView(
                         reader = reader,
                         page = state.page,
                         viewW = viewW,
                         viewH = viewH,
-                        onTap = { at, corner ->
-                            if (panel != PdfPanel.None) {
-                                panel = PdfPanel.None
-                            } else {
-                                when (prefs.touch.actionAt(at.x, at.y, viewW, corner)) {
-                                    TapAction.Previous -> scope.go { reader.previous() }
-                                    TapAction.Next -> scope.go { reader.next() }
-                                    TapAction.Menu -> panel = PdfPanel.Bar
-                                    TapAction.Bookmark -> toggleBookmark()
-                                }
-                            }
-                        },
-                        onSwipe = { forward -> scope.go { if (forward) reader.next() else reader.previous() } },
+                        onTap = onTap,
+                        onSwipe = onSwipe,
                     )
                 }
             }
@@ -161,14 +170,21 @@ fun PdfScreen(
                     bookTitle = reader.title,
                     chapterTitle = contents.getOrNull(currentContentsIndex(contents, state.page))?.label,
                     // 인쇄된 쪽 번호가 파일 순서와 다르면(로마 숫자 머리말 등) 앞에 함께 적는다: "iv · 4 / 230".
+                    // 두쪽이면 두 쪽을 묶어 "2–3 / 84"(T5).
                     page = if (state.pageCount > 0) {
-                        val position = "${state.page + 1} / ${state.pageCount}"
+                        val last = state.shown.maxOrNull() ?: state.page
+                        val numbers = if (last > state.page) "${state.page + 1}–${last + 1}" else "${state.page + 1}"
+                        val position = "$numbers / ${state.pageCount}"
                         reader.book.pageLabel(state.page)?.let { "$it · $position" } ?: position
                     } else {
                         ""
                     },
                     percent = state.percent,
-                    chapterPagesLeft = if (state.pageCount > 0) pagesLeftInSection(contents, state.page, state.pageCount) else null,
+                    chapterPagesLeft = if (state.pageCount > 0) {
+                        pagesLeftInSection(contents, state.shown.maxOrNull() ?: state.page, state.pageCount)
+                    } else {
+                        null
+                    },
                 ),
                 footer = prefs.footer,
                 color = colors.inkMuted,
@@ -223,7 +239,7 @@ fun PdfScreen(
                 selected = panel == PdfPanel.View,
             )
         }
-        PdfPanel.Settings -> CpViewSettingsScreen(prefs, onPrefsChange, onBack = { panel = PdfPanel.View })
+        PdfPanel.Settings -> CpViewSettingsScreen(prefs, onPrefsChange, onBack = { panel = PdfPanel.View }, pdf = true)
         PdfPanel.Contents, PdfPanel.Bookmarks -> PdfLists(
             reader = reader,
             page = state.page,
@@ -375,6 +391,86 @@ private fun PageView(
                 CpTheme.colors.inkMuted,
                 Modifier.align(Alignment.Center),
             )
+        }
+    }
+}
+
+/**
+ * 두쪽보기: 펼침의 쪽들을 가운데(책등)에 붙여 나란히 놓는다. 쪽마다 화면 절반 × 전체 높이에 맞춘다. 표지처럼
+ * 혼자인 쪽은 가운데에 둔다.
+ *
+ * 확대는 없다 — 두 쪽을 한 판으로 확대하려면 두 쪽에 걸친 구역을 그려야 한다. 작은 글자는 세로로 돌려 한 쪽
+ * 보기에서 확대한다.
+ */
+@Composable
+private fun SpreadView(
+    reader: PdfReader,
+    pages: List<Int>,
+    viewW: Float,
+    viewH: Float,
+    onTap: (Offset, Float) -> Unit,
+    onSwipe: (forward: Boolean) -> Unit,
+) {
+    val half = viewW / 2f
+    // 쪽 비율을 모르면 그리지 않는다(PageView 와 같다). 앞뒤 쪽은 미리 재 두므로 넘길 때는 바로 안다.
+    // 펼침이 바뀌면 값을 새로 시작한다(remember 의 열쇠) — 넘기는 순간 옛 펼침(쪽 하나)의 비율로 새 펼침(쪽 둘)을
+    // 그리면 칸 수가 달라 죽는다(처음 쓴 판에서 표지 → 2–3쪽으로 넘길 때 났다).
+    var aspects by remember(pages) {
+        mutableStateOf(pages.map { reader.book.knownAspectRatio(it) }.takeIf { it.all { a -> a != null } }?.map { it!! })
+    }
+    LaunchedEffect(pages) { if (aspects == null) aspects = pages.map { reader.book.pageAspectRatio(it) } }
+    val fits = aspects?.map { a ->
+        val w = half.coerceAtMost(viewH * a).roundToInt()
+        w to (w / a).roundToInt()
+    }
+    var bitmaps by remember(pages, fits) {
+        mutableStateOf(fits?.let { f -> pages.mapIndexed { i, p -> reader.cachedPage(p, f[i].first, f[i].second) } })
+    }
+    LaunchedEffect(pages, fits) {
+        val f = fits ?: return@LaunchedEffect
+        bitmaps = pages.mapIndexed { i, p -> reader.page(p, f[i].first, f[i].second) }
+        // 다음 펼침을 미리 그려 둔다 — 넘길 때 빈 종이가 번쩍이지 않게.
+        val next = (pages.maxOrNull() ?: 0) + 1
+        for (p in next..next + 1) {
+            if (p >= reader.book.pageCount) break
+            val a = reader.book.pageAspectRatio(p)
+            val w = half.coerceAtMost(viewH * a).roundToInt()
+            reader.page(p, w, (w / a).roundToInt())
+        }
+    }
+    Box(
+        Modifier
+            .fillMaxSize()
+            .pointerInput(pages, viewW, viewH) {
+                detectTapGestures(onTap = { at -> onTap(at, CORNER.toPx()) })
+            }
+            .pointerInput(pages, viewW, viewH) {
+                val threshold = 48.dp.toPx()
+                var dragged = 0f
+                detectHorizontalDragGestures(
+                    onDragStart = { dragged = 0f },
+                    onDragEnd = { if (abs(dragged) > threshold) onSwipe(dragged < 0) },
+                ) { _, amount -> dragged += amount }
+            },
+    ) {
+        Canvas(Modifier.fillMaxSize()) {
+            val f = fits ?: return@Canvas
+            val shown = bitmaps ?: return@Canvas
+            val total = f.sumOf { it.first }
+            // 두 쪽이면 책등이 화면 가운데, 한 쪽이면 그 쪽이 가운데.
+            var x = if (f.size == 2) half - f[0].first else (viewW - total) / 2f
+            f.forEachIndexed { i, (w, h) ->
+                val top = (viewH - h) / 2f
+                shown.getOrNull(i)?.let { bitmap ->
+                    drawImage(
+                        bitmap.asImageBitmap(),
+                        dstOffset = IntOffset(x.roundToInt(), top.roundToInt()),
+                        dstSize = IntSize(w, h),
+                        filterQuality = FilterQuality.Medium,
+                    )
+                }
+                x += w
+            }
         }
     }
 }

@@ -230,6 +230,41 @@ class PdfReaderTest {
     }
 
     @Test
+    fun `spreads keep the cover alone so that magazine facing pages stay together`() {
+        // 표지 따로(T4): 1 → 2–3 → 4–5 → 6 (0부터 세면 [0] [1,2] [3,4] [5]). 오른쪽 쪽을 가리켜도 그 펼침.
+        assertEquals(listOf(0, 1, 1, 3, 3, 5), (0..5).map { spreadStart(it, coverAlone = true) })
+        assertEquals(listOf(0), spreadPages(0, 6, coverAlone = true))
+        assertEquals(listOf(1, 2), spreadPages(1, 6, coverAlone = true))
+        assertEquals(listOf(5), spreadPages(5, 6, coverAlone = true), "마지막 쪽이 혼자 남으면 한 쪽")
+        // 함께: 1–2 → 3–4 → 5–6.
+        assertEquals(listOf(0, 0, 2, 2, 4, 4), (0..5).map { spreadStart(it, coverAlone = false) })
+        assertEquals(listOf(0, 1), spreadPages(0, 6, coverAlone = false))
+    }
+
+    @Test
+    fun `in two page view pages turn a spread at a time and the last spread reaches the end`() = runTest {
+        val r = reader(FakeSource(6))
+        r.open()
+        r.goTo(2) // 한 쪽 보기로 3쪽을 읽다가
+        r.setSpread(coverAlone = true) // 가로로 돌렸다 → 3쪽이 든 2–3쪽 펼침
+        assertEquals(listOf(1, 2), r.state.value.shown)
+        r.next()
+        assertEquals(listOf(3, 4), r.state.value.shown)
+        r.next()
+        assertEquals(listOf(5), r.state.value.shown)
+        assertEquals(100f, r.state.value.percent, "마지막 쪽을 폈으면 100%")
+        r.next()
+        assertEquals(listOf(5), r.state.value.shown, "끝에서 더 넘기지 않는다")
+        r.previous(); r.previous(); r.previous()
+        assertEquals(listOf(0), r.state.value.shown, "표지는 혼자")
+        // 진도는 왼쪽 쪽으로 저장한다 — 세로(한 쪽)로 돌아오면 그 쪽부터.
+        r.goTo(4)
+        assertEquals(Locator.FixedPage(3), progress.get(id)?.locator)
+        r.setSpread(null)
+        assertEquals(listOf(3), r.state.value.shown)
+    }
+
+    @Test
     fun `the pages left in a section count up to the next entry that starts later`() {
         fun entry(page: Int) = TocEntry("p$page", Locator.FixedPage(page))
         // 잡지 목차는 쪽 순서가 뒤섞여 있다(특집 40쪽을 맨 앞에 적음). "목록의 다음 항목" 으로 세면 10쪽에서

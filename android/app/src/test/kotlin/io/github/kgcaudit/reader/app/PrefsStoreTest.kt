@@ -84,6 +84,9 @@ class PrefsStoreTest {
                     io.github.kgcaudit.reader.ui.design.FooterItem.Battery,
                 ),
                 rotation = ScreenRotation.Landscape,
+                twoPagesLandscape = false,
+                twoPagesPortrait = true,
+                pdfCoverAlone = false,
             ),
         )
         PrefsStore(context).save(chosen)
