@@ -4,6 +4,15 @@
     <!-- 권한이 없다. 책은 사용자가 SAF 로 고른 폴더에서만 읽는다(저장소 전체 권한 불필요).
          인터넷도 쓰지 않는다. -->
 
+    <!-- 사전(N4): 고른 말을 휴대폰에 깔린 사전 · 번역 앱에 넘긴다(ACTION_PROCESS_TEXT). 안드로이드 11 부터는
+         무엇을 찾는지 밝히지 않으면 그런 앱이 깔려 있어도 "없음" 으로 보인다. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT" />
+            <data android:mimeType="text/plain" />
+        </intent>
+    </queries>
+
     <application
         android:name=".OloApp"
         android:allowBackup="true"

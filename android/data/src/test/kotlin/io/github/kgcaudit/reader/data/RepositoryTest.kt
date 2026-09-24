@@ -3,10 +3,13 @@ package io.github.kgcaudit.reader.data
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import io.github.kgcaudit.reader.data.db.AnnotationEntity
 import io.github.kgcaudit.reader.data.db.BookmarkEntity
 import io.github.kgcaudit.reader.data.db.ProgressEntity
 import io.github.kgcaudit.reader.data.db.ReaderDatabase
+import io.github.kgcaudit.reader.document.Annotation
 import io.github.kgcaudit.reader.document.BookId
+import io.github.kgcaudit.reader.document.HighlightColor
 import io.github.kgcaudit.reader.document.Bookmark
 import io.github.kgcaudit.reader.document.Locator
 import io.github.kgcaudit.reader.document.ReadingProgress
@@ -36,6 +39,7 @@ class RepositoryTest {
     private var db = Room.inMemoryDatabaseBuilder(context, ReaderDatabase::class.java).build()
     private val bookmarks get() = RoomBookmarkRepository(db.bookmarks())
     private val progress get() = RoomProgressRepository(db.progress())
+    private val notes get() = RoomAnnotationRepository(db.annotations())
 
     private val book = BookId("content://books/tree/root/document/root%2Fa.epub")
     private val other = BookId("content://books/tree/root/document/root%2Fb.epub")
@@ -119,6 +123,56 @@ class RepositoryTest {
             listOf(Locator.Reflow(0, 10), Locator.Reflow(0, 30)),
             bookmarks.forBook(book).map { it.locator },
         )
+    }
+
+    // ── 형광펜 · 메모 ───────────────────────────────────────────────
+
+    private fun pen(spine: Int, from: Int, to: Int, color: HighlightColor = HighlightColor.Yellow, note: String? = null) =
+        Annotation(Annotation.NO_ID, book, Locator.Reflow(spine, from), Locator.Reflow(spine, to), color, note, "글$from", 1L)
+
+    @Test
+    fun `highlights come back in reading order across chapters`() = runTest {
+        // 독서노트가 책 순서로 보인다(N6). 10장이 2장보다 먼저 나오면 안 된다.
+        notes.add(pen(10, 5, 9))
+        notes.add(pen(2, 900, 910))
+        notes.add(pen(2, 20, 30))
+
+        assertEquals(listOf(2 to 20, 2 to 900, 10 to 5), notes.forBook(book).map { it.start.spine to it.start.charOffset })
+    }
+
+    @Test
+    fun `changing color and memo keeps the place and the other highlights`() = runTest {
+        val first = notes.add(pen(1, 10, 20))
+        val second = notes.add(pen(1, 30, 40))
+
+        notes.update(first.copy(color = HighlightColor.Pink).withNote("  고친 메모  "))
+        val back = notes.forBook(book)
+        assertEquals(HighlightColor.Pink, back[0].color)
+        assertEquals("고친 메모", back[0].note)
+        assertEquals(Locator.Reflow(1, 10), back[0].start)
+        assertEquals(second, back[1])
+
+        // 메모 칸을 비우고 저장하면 메모가 없어진다 — 빈 메모 상자가 남지 않는다.
+        notes.update(back[0].withNote("   "))
+        assertNull(notes.forBook(book)[0].note)
+
+        notes.remove(first.id)
+        assertEquals(listOf(second), notes.forBook(book))
+    }
+
+    @Test
+    fun `a broken highlight row is skipped and an unknown color still shows`() = runTest {
+        // 상한 행 하나 때문에 독서노트 전체가 안 열리면 안 된다. 모르는 색은 메모를 살리려고 노랑으로 읽는다.
+        notes.add(pen(0, 1, 5))
+        db.annotations().insert(AnnotationEntity(0, book.value, "r:oops", "r:0:9", 0, 2, "Yellow", null, "x", 1L))
+        db.annotations().insert(AnnotationEntity(0, book.value, "r:0:9", "r:0:3", 0, 3, "Yellow", null, "x", 1L))
+        db.annotations().insert(AnnotationEntity(0, book.value, "p:1:0:0", "p:1:0:0", 0, 4, "Yellow", null, "x", 1L))
+        db.annotations().insert(AnnotationEntity(0, book.value, "r:0:20", "r:0:25", 0, 20, "Violet", "남은 메모", "y", 1L))
+
+        val back = notes.forBook(book)
+        assertEquals(listOf(1, 20), back.map { it.start.charOffset })
+        assertEquals(HighlightColor.Yellow, back[1].color)
+        assertEquals("남은 메모", back[1].note)
     }
 
     // ── 진도 ────────────────────────────────────────────────────────

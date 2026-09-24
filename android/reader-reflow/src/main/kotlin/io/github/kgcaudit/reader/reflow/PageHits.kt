@@ -49,3 +49,56 @@ fun linkAt(page: Page, text: CharSequence, measurer: TextMeasurer, links: List<L
     }
     return best
 }
+
+/**
+ * 누른 자리([x], [y])에 가장 가까운 글자의 오프셋(고르기 · 손잡이 끌기).
+ *
+ * 먼저 [y] 가 든 줄(없으면 세로로 가장 가까운 줄)을 고르고, 그 줄에서 [x] 가 든 글자를 찾는다. 줄 끝 바깥을
+ * 누르면 그 줄 마지막 글자 — 손잡이를 여백까지 끌어도 선택이 사라지지 않게. [after] 면 글자 오른쪽 반을 누를
+ * 때 다음 오프셋을 준다(끝 손잡이는 "이 글자까지" 이므로 끝 자리가 글자 뒤여야 한다).
+ */
+fun charAt(page: Page, text: CharSequence, measurer: TextMeasurer, x: Float, y: Float, after: Boolean = false): Int? {
+    val lines = page.runs.filter { it.start < it.endExclusive && it.start < text.length }.groupBy { it.baselineYPx }
+    if (lines.isEmpty()) return null
+    fun top(r: io.github.kgcaudit.reader.layout.PlacedRun) = r.baselineYPx - measurer.ascent(r.style)
+    fun bottom(r: io.github.kgcaudit.reader.layout.PlacedRun) = top(r) + measurer.lineHeight(r.style)
+    val line = lines.values.minBy { runs ->
+        val t = runs.minOf { top(it) }
+        val b = runs.maxOf { bottom(it) }
+        when {
+            y < t -> t - y
+            y > b -> y - b
+            else -> 0f
+        }
+    }.sortedBy { it.xPx }
+    val run = line.firstOrNull { x < it.xPx + measurer.advance(text, it.start, it.endExclusive.coerceAtMost(text.length), it.style) }
+        ?: return line.last().endExclusive.coerceAtMost(text.length).let { if (after) it else it - 1 }
+    if (x <= run.xPx) return run.start
+    val end = run.endExclusive.coerceAtMost(text.length)
+    var i = run.start
+    var left = run.xPx
+    while (i < end) {
+        val next = if (i + 1 < end && Character.isHighSurrogate(text[i])) i + 2 else i + 1
+        val right = run.xPx + measurer.advance(text, run.start, next, run.style)
+        if (x < right) return if (after && x > (left + right) / 2) next else i
+        left = right
+        i = next
+    }
+    return if (after) end else end - 1
+}
+
+/**
+ * [offset] 이 든 낱말(길게 눌렀을 때 처음 고르는 구간). 띄어쓰기 · 문장부호에서 끊는다 — 한국어는 어절 하나.
+ * 공백을 눌렀으면 그 한 글자만(빈 구간을 돌려주면 메뉴가 뜰 자리가 없다).
+ */
+fun wordAt(text: CharSequence, offset: Int): IntRange {
+    if (text.isEmpty()) return IntRange.EMPTY
+    val at = offset.coerceIn(0, text.length - 1)
+    fun inWord(c: Char) = c.isLetterOrDigit() || c == '\'' || c == '’' || c == '-'
+    if (!inWord(text[at])) return at..at
+    var s = at
+    while (s > 0 && inWord(text[s - 1])) s--
+    var e = at
+    while (e < text.length - 1 && inWord(text[e + 1])) e++
+    return s..e
+}

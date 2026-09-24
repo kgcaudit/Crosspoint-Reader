@@ -35,7 +35,17 @@ fun DrawScope.drawPage(
 ) {
     val argb = ink.toArgb()
 
-    // 찾은 말: 글자 뒤에 칠한다(글자보다 먼저 그려야 글자가 가려지지 않는다).
+    // 형광펜 · 고른 구간 · 찾은 말: 모두 글자 뒤에 칠한다(글자보다 먼저 그려야 글자가 가려지지 않는다).
+    for (tint in marks.tints) {
+        for (box in rangeBoxes(page, text, measurer, tint.range.first, tint.range.last + 1)) {
+            drawRect(tint.color, Offset(box.left, box.top), Size(box.width, box.height))
+        }
+    }
+    marks.selection?.let { range ->
+        for (box in rangeBoxes(page, text, measurer, range.first, range.last + 1)) {
+            drawRect(marks.selectionColor, Offset(box.left, box.top), Size(box.width, box.height))
+        }
+    }
     marks.highlight?.let { range ->
         for (box in rangeBoxes(page, text, measurer, range.first, range.last + 1)) {
             drawRect(marks.highlightColor, Offset(box.left, box.top), Size(box.width, box.height))
@@ -93,6 +103,13 @@ fun DrawScope.drawPage(
         }
     }
 
+    // 메모 쪽지(N3): 칠한 끝 글자의 오른쪽 위에 작게. 조판에 자리를 넣지 않는다 — 넣으면 메모를 달 때마다
+    // 그 뒤 줄바꿈이 바뀌어 쪽 경계가 움직이고, 저장된 책갈피 · 진도의 쪽이 달라진다.
+    for (memo in marks.memos) {
+        val box = rangeBoxes(page, text, measurer, memo.endExclusive - 1, memo.endExclusive).lastOrNull() ?: continue
+        drawMemoGlyph(Offset(box.right, box.top), (box.height * 0.55f).coerceAtLeast(6f), memo.color)
+    }
+
     for (rule in page.rules) {
         drawRect(ink.copy(alpha = 0.5f), Offset(rule.xPx, rule.yPx), Size(rule.widthPx, rule.thicknessPx.coerceAtLeast(1f)))
     }
@@ -114,8 +131,31 @@ fun DrawScope.drawPage(
 }
 
 
+/** 칠한 구간 하나와 그 색. */
+data class Tint(val range: IntRange, val color: Color)
+
+/** 메모가 달린 칠의 끝(쪽지를 그릴 자리). */
+data class MemoMark(val endExclusive: Int, val color: Color)
+
 /**
- * 쪽 위에 얹는 표시: 찾은 말([highlight], 글자 뒤 색)과 각주 표시([accent], 강조색 글자). 둘 다 이 장 텍스트의
+ * 메모 쪽지: 접힌 귀가 있는 작은 종이에 흰 줄 둘. [at] 은 칠한 끝 글자의 오른쪽 위 — 쪽지는 그 자리에서
+ * 4분의 3 쯤 위로 올라가 줄 사이(행간)에 걸친다. 줄 안에 두면 다음 글자의 머리를 덮는다.
+ */
+private fun DrawScope.drawMemoGlyph(at: Offset, size: Float, color: Color) {
+    val x = at.x + size * 0.1f
+    val y = at.y - size * 0.75f
+    val fold = size * 0.32f
+    val body = androidx.compose.ui.graphics.Path().apply {
+        moveTo(x, y); lineTo(x + size, y); lineTo(x + size, y + size - fold); lineTo(x + size - fold, y + size); lineTo(x, y + size); close()
+    }
+    drawPath(body, color)
+    val stroke = (size * 0.1f).coerceAtLeast(1f)
+    drawLine(Color.White, Offset(x + size * 0.2f, y + size * 0.32f), Offset(x + size * 0.8f, y + size * 0.32f), stroke)
+    drawLine(Color.White, Offset(x + size * 0.2f, y + size * 0.56f), Offset(x + size * 0.6f, y + size * 0.56f), stroke)
+}
+
+/**
+ * 쪽 위에 얹는 표시: 형광펜([tints] · [memos]), 고른 구간([selection]), 찾은 말([highlight], 글자 뒤 색)과 각주 표시([accent], 강조색 글자). 둘 다 이 장 텍스트의
  * 글자 구간이다.
  */
 data class PageMarks(
@@ -123,6 +163,10 @@ data class PageMarks(
     val highlightColor: Color = Color.Transparent,
     val accent: List<IntRange> = emptyList(),
     val accentColor: Color = Color.Unspecified,
+    val tints: List<Tint> = emptyList(),
+    val memos: List<MemoMark> = emptyList(),
+    val selection: IntRange? = null,
+    val selectionColor: Color = Color.Transparent,
 ) {
     companion object {
         val NONE = PageMarks()

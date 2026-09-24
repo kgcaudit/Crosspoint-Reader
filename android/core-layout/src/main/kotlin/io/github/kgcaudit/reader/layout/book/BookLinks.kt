@@ -89,3 +89,23 @@ private const val MAX_CHARS = 1500
 private const val CONTEXT = 28
 private val BACKLINKS = Regex("[↩↑⤴]|\\^\\s*$")
 private val WHITESPACE = Regex("\\s+")
+
+/**
+ * 장 텍스트의 [from]..[to] 를 목록 한 줄로 읽히게 뜬다(책갈피 미리보기 · 칠한 글).
+ *
+ * 장 텍스트는 문단을 구분자 없이 잇는다. 그대로 뜨면 "삼킨다.어른들은" 처럼 두 문단이 한 낱말로 붙는다 — 문단이
+ * 시작하는 자리([paragraphStarts])마다 한 칸을 넣는다. 제어 문자 · 그림 자리 글자(U+FFFC)도 한 칸으로.
+ */
+internal fun excerpt(text: String, from: Int, to: Int, paragraphStarts: Set<Int>): String {
+    val start = from.coerceIn(0, text.length)
+    val end = to.coerceIn(start, text.length)
+    val out = StringBuilder(end - start + 8)
+    for (i in start until end) {
+        if (i > start && i in paragraphStarts) out.append(' ')
+        val c = text[i]
+        out.append(if (c < ' ' || c == '￼') ' ' else c)
+    }
+    return out.toString().replace(EXCERPT_SPACE, " ").trim()
+}
+
+private val EXCERPT_SPACE = Regex("\\s+")

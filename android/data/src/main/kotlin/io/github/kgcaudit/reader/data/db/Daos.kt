@@ -76,3 +76,19 @@ interface RecentDao {
     )
     fun observe(limit: Int): Flow<List<BookEntity>>
 }
+
+@Dao
+interface AnnotationDao {
+
+    @Query("SELECT * FROM annotations WHERE bookId = :bookId ORDER BY orderMajor, orderMinor, id")
+    suspend fun forBook(bookId: String): List<AnnotationEntity>
+
+    @Insert
+    suspend fun insert(annotation: AnnotationEntity): Long
+
+    @Query("UPDATE annotations SET color = :color, note = :note WHERE id = :id")
+    suspend fun update(id: Long, color: String, note: String?)
+
+    @Query("DELETE FROM annotations WHERE id = :id")
+    suspend fun delete(id: Long)
+}

@@ -4,6 +4,19 @@ import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.drag
+import androidx.compose.ui.draw.clip
+import io.github.kgcaudit.reader.document.Annotation
+import io.github.kgcaudit.reader.ui.design.CpReadingNotesList
+import io.github.kgcaudit.reader.ui.design.NoteFilter
+import io.github.kgcaudit.reader.ui.design.NoteItem
+import io.github.kgcaudit.reader.ui.design.Pen
+import io.github.kgcaudit.reader.ui.design.darkPaper
+import io.github.kgcaudit.reader.ui.design.exportNotes
+import io.github.kgcaudit.reader.ui.design.noteWhere
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
@@ -123,6 +136,20 @@ fun ReaderScreen(
     val latestPrefs by androidx.compose.runtime.rememberUpdatedState(prefs)
     val context = androidx.compose.ui.platform.LocalContext.current
     var speedRevision by remember { mutableStateOf(0) }
+    // 독서노트(N1–N4): 고른 구간 · 누른 형광펜 · 쓰는 중인 메모. 마지막에 고른 색을 다음 메모의 색으로.
+    var selection by remember { mutableStateOf<Selection?>(null) }
+    var tapped by remember { mutableStateOf<io.github.kgcaudit.reader.document.Annotation?>(null) }
+    var memo by remember { mutableStateOf<MemoDraft?>(null) }
+    var lastPen by remember { mutableStateOf(Pen.Yellow) }
+    // 쪽이 바뀌면 고르기를 푼다(한 쪽 안에서만 고른다 — N9).
+    LaunchedEffect(state.position?.spineIndex, state.position?.pageIndex, state.spread) {
+        selection = null
+        tapped = null
+    }
+    fun say(message: String) {
+        toast = message
+        toastCount++
+    }
 
     ReadingWindow(prefs.screen.copy(brightness = dragBrightness ?: prefs.screen.brightness), activity = state.position)
     VolumeKeyPaging(enabled = prefs.screen.volumeKeys && panel == Panel.None) { forward ->
@@ -172,10 +199,15 @@ fun ReaderScreen(
 
     LaunchedEffect(panel) { onChrome(panel != Panel.None) }
     BackHandler {
+        if (selection != null || tapped != null) {
+            selection = null
+            tapped = null
+            return@BackHandler
+        }
         panel = when (panel) {
             Panel.None -> { onClose(); Panel.None }
             // 목록에서 뒤로 가면 도구줄로 돌아온다 — 바로 닫히면 목록을 다시 열 길이 멀어진다.
-            Panel.Contents, Panel.Bookmarks, Panel.View, Panel.Search -> Panel.Bar
+            Panel.Contents, Panel.Notes, Panel.View, Panel.Search -> Panel.Bar
             Panel.Fonts, Panel.Settings -> Panel.View
             Panel.Bar -> Panel.None
         }
@@ -251,11 +283,16 @@ fun ReaderScreen(
         val noteMarks = remember(state.links, state.text) {
             state.links.filter { it.isFootnote(state.text) }.map { it.start until it.endExclusive }
         }
+        val dark = colors.darkPaper
         val marks = PageMarks(
             highlight = state.highlight?.let { it.start until it.endExclusive },
             highlightColor = accent.copy(alpha = 0.3f),
             accent = noteMarks,
             accentColor = accent,
+            tints = state.annotations.map { Tint(it.start.charOffset until it.end.charOffset, it.color.pen.fill(dark)) },
+            memos = state.annotations.filter { it.note != null }.map { MemoMark(it.end.charOffset, it.color.pen.mark(dark)) },
+            selection = selection?.range,
+            selectionColor = accent.copy(alpha = 0.28f),
         )
         val frame = PageFrame(state.page, state.rightPage, state.text, state.spread, marks, images, rightImages, painter)
         val frameKey = state.position?.let { Triple(it.spineIndex, it.pageIndex, state.spread) }
@@ -293,15 +330,44 @@ fun ReaderScreen(
             }
         }
 
+        // 제스처는 조판이 바뀌어도 다시 달지 않는다 — 그리기 측정기는 늘 최신 것을 읽는다(옛 글자 크기로 재면
+        // 글자를 크게 한 뒤 누른 자리와 고른 글자가 어긋난다).
+        val latestPainter by androidx.compose.runtime.rememberUpdatedState(painter)
+        fun boxesOf(start: Int, end: Int): List<androidx.compose.ui.geometry.Rect> {
+            val current = reader.state.value
+            val paint = latestPainter ?: return emptyList()
+            return screenBoxes(current.page, current.rightPage, current.text, paint, start, end, if (current.spread) widthPx / 2f else Float.MAX_VALUE)
+        }
+        fun charAtScreen(x: Float, y: Float, after: Boolean): Int? {
+            val current = reader.state.value
+            val paint = latestPainter ?: return null
+            val right = if (current.spread) current.rightPage else null
+            return screenCharAt(current.page, right, current.text, paint, x, y, widthPx / 2f, after)
+        }
         Box(
             Modifier
                 .fillMaxSize()
                 .pointerInput(reader, prefs.screen.touch) {
                     val corner = CORNER.toPx()
                     val touch = 48.dp.toPx()
-                    detectTapGestures { offset ->
+                    detectTapGestures(
+                        onLongPress = { offset ->
+                            // 길게 누르면 그 낱말을 고른다(N4). 메뉴가 떠 있으면 먼저 닫는다.
+                            if (panel != Panel.None) return@detectTapGestures
+                            tapped = null
+                            val at = charAtScreen(offset.x, offset.y, after = false) ?: return@detectTapGestures
+                            val word = wordAt(reader.state.value.text, at)
+                            if (!word.isEmpty()) selection = Selection(word.first, word.last + 1)
+                        },
+                    ) { offset ->
                         if (panel != Panel.None) {
                             panel = Panel.None
+                            return@detectTapGestures
+                        }
+                        // 고르는 중 · 칠한 곳 메뉴가 떠 있으면 그것만 닫는다 — 쪽이 넘어가면 고른 것을 잃는다.
+                        if (selection != null || tapped != null) {
+                            selection = null
+                            tapped = null
                             return@detectTapGestures
                         }
                         val action = prefs.screen.touch.actionAt(offset.x, offset.y, size.width.toFloat(), corner)
@@ -311,11 +377,20 @@ fun ReaderScreen(
                         }
                         // 링크(각주 표시)가 먼저 — 그 자리가 "다음 쪽" 자리여도 넘기지 않는다(F2).
                         val current = reader.state.value
-                        val paint = painter
+                        val paint = latestPainter
                         val onRight = current.spread && offset.x > size.width / 2f
                         val page = if (onRight) current.rightPage else current.page
                         val x = if (onRight) offset.x - size.width / 2f else offset.x
                         val link = if (page != null && paint != null) linkAt(page, current.text, paint, current.links, x, offset.y, touch) else null
+                        // 칠한 곳을 누르면 그 칠의 메뉴(N4). 다만 링크 글자 바로 위를 눌렀으면 링크가 먼저 — 각주 표시가
+                        // 칠 안에 있어도 열린다. 링크의 넉넉한 누름 자리(48dp)보다는 칠한 글자가 앞선다.
+                        val onLinkText = link != null && boxesOf(link.start, link.endExclusive).any { it.contains(offset) }
+                        if (!onLinkText) {
+                            annotationAt({ boxesOf(it.start.charOffset, it.end.charOffset) }, current.annotations, offset.x, offset.y)?.let {
+                                tapped = it
+                                return@detectTapGestures
+                            }
+                        }
                         if (link != null) {
                             openLink(link)
                             return@detectTapGestures
@@ -339,8 +414,88 @@ fun ReaderScreen(
                             }
                         },
                     ) { _, amount -> dragged += amount }
+                }
+                // 손잡이 끌기. 맨 안쪽에 달아 누름을 먼저 받는다 — 손잡이를 잡았으면 소비해서 넘기기 · 누르기가
+                // 끼어들지 않게 한다. 손잡이 밖이면 건드리지 않고 흘려보낸다.
+                .pointerInput(reader) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val now = selection ?: return@awaitEachGesture
+                        val boxes = boxesOf(now.start, now.endExclusive)
+                        if (boxes.isEmpty()) return@awaitEachGesture
+                        val r = HANDLE_RADIUS.toPx()
+                        val (a, b) = handleCentres(boxes.first(), boxes.last(), r)
+                        val reach = 24.dp.toPx()
+                        val da = (down.position - a).getDistance()
+                        val db = (down.position - b).getDistance()
+                        if (minOf(da, db) > reach) return@awaitEachGesture
+                        val isStart = da < db
+                        // 손가락은 물방울을 잡고 있지만 고를 글자는 그 위의 줄이다. 잡은 순간의 높이 차를 끝까지 유지한다.
+                        val grabbed = if (isStart) boxes.first() else boxes.last()
+                        val lift = down.position.y - grabbed.center.y
+                        down.consume()
+                        drag(down.id) { change ->
+                            change.consume()
+                            val current = selection ?: return@drag
+                            selection = dragHandle(current, isStart, charAtScreen(change.position.x, change.position.y - lift, after = !isStart))
+                        }
+                    }
                 },
         )
+
+        // 고른 구간: 손잡이와 메뉴(N4).
+        selection?.let { sel ->
+            val boxes = boxesOf(sel.start, sel.endExclusive)
+            if (boxes.isNotEmpty()) {
+                SelectionHandles(boxes.first(), boxes.last(), accent)
+                // 메모 판이 떠 있는 동안에는 메뉴를 숨긴다. 고른 칠 · 손잡이는 남겨 "무엇에 대한 메모인지" 보이게 하되,
+                // 판 뒤에 같은 색 단추가 한 벌 더 있으면 어느 것이 판의 것인지 헷갈린다.
+                if (memo == null) FloatingMenu(
+                    anchor = boxes.bounds(),
+                    current = null,
+                    words = listOf("메모", "복사", "공유", "사전"),
+                    onPen = { pen ->
+                        lastPen = pen
+                        selection = null
+                        scope.go { reader.highlight(sel.start, sel.endExclusive, pen.color) }
+                    },
+                    onWord = { word ->
+                        val quote = snippetOf(state.text, sel.start, sel.endExclusive, state.paragraphStarts)
+                        when (word) {
+                            "메모" -> memo = MemoDraft(null, sel, quote, lastPen)
+                            "복사" -> if (!copyText(context, quote)) say("복사했습니다")
+                            "공유" -> shareOut(context, shareText(quote, null, reader.title))
+                            "사전" -> if (!lookUp(context, quote)) say("낱말을 찾아 줄 사전 앱이 없습니다")
+                        }
+                        if (word != "메모") selection = null
+                    },
+                )
+            }
+        }
+        tapped?.let { note ->
+            val boxes = boxesOf(note.start.charOffset, note.end.charOffset)
+            if (boxes.isNotEmpty()) {
+                FloatingMenu(
+                    anchor = boxes.bounds(),
+                    current = note.color.pen,
+                    words = listOf("메모", "복사", "공유", "지우기"),
+                    onPen = { pen ->
+                        lastPen = pen
+                        tapped = null
+                        scope.go { reader.update(note.copy(color = pen.color)) }
+                    },
+                    onWord = { word ->
+                        tapped = null
+                        when (word) {
+                            "메모" -> memo = MemoDraft(note, null, note.snippet, note.color.pen)
+                            "복사" -> if (!copyText(context, note.snippet)) say("복사했습니다")
+                            "공유" -> shareOut(context, shareText(note.snippet, note.note, reader.title))
+                            "지우기" -> scope.go { reader.remove(note); say("형광펜을 지웠습니다") }
+                        }
+                    },
+                )
+            }
+        }
 
         // 윗여백(34dp) 안에서 끝나 글자를 가리지 않는다. 노치가 있으면 그 아래로.
         if (state.bookmarked && state.page != null) {
@@ -428,12 +583,35 @@ fun ReaderScreen(
                 onFontsChanged = { fontsRevision++ },
                 onBack = { panel = Panel.View },
             )
-            Panel.Contents, Panel.Bookmarks -> ReaderLists(
+            Panel.Contents, Panel.Notes -> ReaderLists(
                 reader = reader,
                 state = state,
-                showBookmarks = panel == Panel.Bookmarks,
+                showNotes = panel == Panel.Notes,
                 onPanel = { panel = it },
+                onMemo = { memo = it },
+                onShare = { shareOut(context, it) },
                 scope = scope,
+            )
+        }
+
+        // 메모 판은 독서노트 목록 위에서도 뜬다("메모 고치기").
+        memo?.let { draft ->
+            MemoSheet(
+                draft = draft,
+                onSave = { text, pen ->
+                    memo = null
+                    selection = null
+                    lastPen = pen
+                    scope.go {
+                        val sel = draft.selection
+                        if (draft.annotation != null) {
+                            reader.update(draft.annotation.copy(color = pen.color).withNote(text))
+                        } else if (sel != null) {
+                            reader.highlight(sel.start, sel.endExclusive, pen.color, text)
+                        }
+                    }
+                },
+                onCancel = { memo = null },
             )
         }
 
@@ -472,7 +650,7 @@ fun ReaderScreen(
  * 이제 누르면 **얇은 도구줄**만 뜨고 지면은 거의 그대로 보인다. 목차·책갈피는 볼 때만
  * 전체 화면으로 연다(Play 북·리디와 같은 구성).
  */
-private enum class Panel { None, Bar, View, Fonts, Settings, Search, Contents, Bookmarks }
+private enum class Panel { None, Bar, View, Fonts, Settings, Search, Contents, Notes }
 
 /** 한 번 그린 쪽. 넘김 효과가 옛 쪽을 새 쪽과 함께 그리는 동안 옛 쪽의 내용을 쥐고 있다. */
 private data class PageFrame(
@@ -533,46 +711,121 @@ private fun ReaderBar(
         },
     ) {
         CpToolButton(CpIcons.Toc, "목차", { onPanel(Panel.Contents) })
-        CpToolButton(CpIcons.Bookmark, "책갈피", { onPanel(Panel.Bookmarks) })
+        // 책갈피 도구는 독서노트에 합쳤다(N5). 꽂기는 위쪽 책갈피 단추 · 오른쪽 위 모서리 누르기 그대로.
+        CpToolButton(CpIcons.Note, "독서노트", { onPanel(Panel.Notes) })
         CpToolButton(CpIcons.TextSize, "보기", { onPanel(if (showView) Panel.Bar else Panel.View) }, selected = showView)
     }
 }
 
-/** 목차·책갈피 전체 화면. 한 줄 48dp, 열면 지금 위치로 스크롤한다. */
+/** 목차 · 독서노트 전체 화면. 목차는 한 줄 48dp, 열면 지금 위치로 스크롤한다. */
 @Composable
 private fun ReaderLists(
     reader: BookReader,
     state: ReaderState,
-    showBookmarks: Boolean,
+    showNotes: Boolean,
     onPanel: (Panel) -> Unit,
+    onMemo: (MemoDraft) -> Unit,
+    onShare: (String) -> Unit,
     scope: CoroutineScope,
 ) {
     var toc by remember { mutableStateOf<List<TocEntry>?>(null) }
-    var marks by remember { mutableStateOf<List<Bookmark>?>(null) }
+    var notes by remember { mutableStateOf<ReadingNotes?>(null) }
+    var filter by remember { mutableStateOf(NoteFilter.All) }
     LaunchedEffect(Unit) { toc = runCatching { reader.outline() }.getOrDefault(emptyList()) }
-    LaunchedEffect(showBookmarks) {
-        if (showBookmarks) marks = runCatching { reader.bookmarks() }.getOrDefault(emptyList())
+    // 칠을 고치면(메모 판 · ⋮ 메뉴) notesVersion 이 는다 — 그때 목록도 다시 모은다.
+    LaunchedEffect(toc, state.notesVersion) {
+        val entries = toc ?: return@LaunchedEffect
+        notes = runCatching { readingNotes(reader, entries) }.getOrNull() ?: ReadingNotes(emptyList(), emptyMap())
     }
 
     CpFullScreen {
-        CpHeader(title = reader.title, onBack = { onPanel(Panel.Bar) })
+        CpHeader(title = reader.title, subtitle = reader.document.meta.author, onBack = { onPanel(Panel.Bar) }) {
+            if (showNotes && !notes?.items.isNullOrEmpty()) {
+                CpText(
+                    "내보내기", CpTheme.type.label, CpTheme.colors.accent,
+                    Modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                        .clickable { notes?.let { onShare(exportNotes(reader.title, reader.document.meta.author, it.items)) } }
+                        .padding(horizontal = 12.dp, vertical = 12.dp),
+                )
+            }
+        }
         CpTabBar(
-            listOf("목차", "책갈피"),
-            if (showBookmarks) 1 else 0,
-            { onPanel(if (it == 1) Panel.Bookmarks else Panel.Contents) },
+            listOf("목차", notes?.let { "독서노트 ${it.items.size}" } ?: "독서노트"),
+            if (showNotes) 1 else 0,
+            { onPanel(if (it == 1) Panel.Notes else Panel.Contents) },
         )
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            if (showBookmarks) {
-                BookmarkList(
-                    marks,
-                    onOpen = { mark -> scope.go { reader.goTo(mark) }; onPanel(Panel.None) },
-                    onRemove = { mark -> scope.go { reader.removeBookmark(mark); marks = reader.bookmarks() } },
+            if (showNotes) {
+                val shown = notes
+                CpReadingNotesList(
+                    items = shown?.items,
+                    filter = filter,
+                    onFilter = { filter = it },
+                    onOpen = { item ->
+                        when (val source = shown?.sources?.get(item.key)) {
+                            is Bookmark -> scope.go { reader.goTo(source) }
+                            is Annotation -> scope.go { reader.goTo(source) }
+                        }
+                        onPanel(Panel.None)
+                    },
+                    onRemove = { item ->
+                        when (val source = shown?.sources?.get(item.key)) {
+                            is Bookmark -> scope.go { reader.removeBookmark(source); notes = readingNotes(reader, toc.orEmpty()) }
+                            is Annotation -> scope.go { reader.remove(source) }
+                        }
+                    },
+                    onMemo = { item ->
+                        (shown?.sources?.get(item.key) as? Annotation)?.let { onMemo(MemoDraft(it, null, it.snippet, it.color.pen)) }
+                    },
+                    onRecolor = { item, pen ->
+                        (shown?.sources?.get(item.key) as? Annotation)?.let { a -> scope.go { reader.update(a.copy(color = pen.color)) } }
+                    },
+                    onShare = { item ->
+                        (shown?.sources?.get(item.key) as? Annotation)?.let { onShare(shareText(it.snippet, it.note, reader.title)) }
+                    },
                 )
             } else {
                 TocList(toc, state) { entry -> scope.go { reader.goTo(entry) }; onPanel(Panel.None) }
             }
         }
     }
+}
+
+/** 독서노트 목록과, 항목 열쇠 → 원래 것(책갈피 · 형광펜). */
+private class ReadingNotes(val items: List<NoteItem>, val sources: Map<String, Any>)
+
+/**
+ * 책갈피와 형광펜을 한 목록으로: 책 순서(N6) · 장별 묶음 · "3% · 날짜"(N7). 같은 자리면 책갈피가 먼저 — 쪽의
+ * 머리에 꽂은 것이 그 쪽 안의 칠보다 앞에 읽힌다.
+ */
+private suspend fun readingNotes(reader: BookReader, toc: List<TocEntry>): ReadingNotes {
+    fun section(spine: Int) = toc.getOrNull(currentTocIndex(toc, spine))?.label ?: "${spine + 1}장"
+    val rows = ArrayList<Triple<Triple<Int, Int, Int>, NoteItem, Any>>()
+    for (mark in reader.bookmarks()) {
+        val at = mark.locator as? io.github.kgcaudit.reader.document.Locator.Reflow ?: continue
+        val item = NoteItem(
+            key = "b${mark.id}",
+            section = section(at.spine),
+            text = mark.snippet?.takeIf { it.isNotBlank() } ?: "(내용 없음)",
+            pen = null,
+            memo = null,
+            where = noteWhere(reader.percentOf(at), mark.createdAtEpochMs),
+        )
+        rows += Triple(Triple(at.spine, at.charOffset, 0), item, mark)
+    }
+    for (note in reader.annotations()) {
+        val item = NoteItem(
+            key = "a${note.id}",
+            section = section(note.start.spine),
+            text = note.snippet,
+            pen = note.color.pen,
+            memo = note.note,
+            where = noteWhere(reader.percentOf(note.start), note.createdAtEpochMs),
+        )
+        rows += Triple(Triple(note.start.spine, note.start.charOffset, 1), item, note)
+    }
+    rows.sortWith(compareBy({ it.first.first }, { it.first.second }, { it.first.third }))
+    return ReadingNotes(rows.map { it.second }, rows.associate { it.second.key to it.third })
 }
 
 @Composable
@@ -595,29 +848,6 @@ private fun TocList(entries: List<TocEntry>?, state: ReaderState, onOpen: (TocEn
                         selected = i == current,
                         compact = true,
                     )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun BookmarkList(marks: List<Bookmark>?, onOpen: (Bookmark) -> Unit, onRemove: (Bookmark) -> Unit) {
-    when {
-        marks == null -> Unit
-        marks.isEmpty() -> Empty("책갈피가 없습니다. 페이지 가운데를 누르고 위쪽 책갈피 단추로 꽂을 수 있습니다")
-        else -> LazyColumn(Modifier.fillMaxSize()) {
-            items(marks, key = { it.id }) { mark ->
-                val where = (mark.locator as? io.github.kgcaudit.reader.document.Locator.Reflow)?.let { "${it.spine + 1}장" }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    CpListRow(
-                        title = mark.snippet ?: "(내용 없음)",
-                        subtitle = where,
-                        icon = CpIcons.Bookmark,
-                        onClick = { onOpen(mark) },
-                        modifier = Modifier.weight(1f),
-                    )
-                    CpIconButton(CpIcons.Close, "책갈피 지우기", { onRemove(mark) }, tint = CpTheme.colors.textMuted)
                 }
             }
         }

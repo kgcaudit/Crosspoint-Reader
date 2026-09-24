@@ -4,7 +4,10 @@ import android.graphics.BitmapFactory
 import android.util.LruCache
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import io.github.kgcaudit.reader.document.Annotation
+import io.github.kgcaudit.reader.document.AnnotationRepository
 import io.github.kgcaudit.reader.document.Bookmark
+import io.github.kgcaudit.reader.document.HighlightColor
 import io.github.kgcaudit.reader.document.BookmarkRepository
 import io.github.kgcaudit.reader.document.Locator
 import io.github.kgcaudit.reader.document.ProgressRepository
@@ -63,6 +66,15 @@ data class ReaderState(
     /** 이 장의 글자 수 · 뒤 장들의 글자 수(추정). 남은 시간을 센다(E5). */
     val chapterLength: Int = 0,
     val charsAfterChapter: Long = 0,
+    /** 이 장의 형광펜(N2). 칠하기 · 누르기가 이 장 텍스트의 글자 구간으로 쓴다. */
+    val annotations: List<Annotation> = emptyList(),
+    /**
+     * 형광펜을 고칠 때마다 는다. 독서노트 목록이 이 값으로 다시 모은다 — [annotations] 는 지금 장 것뿐이라, 다른
+     * 장의 칠을 목록에서 지우거나 색을 바꾸면 값이 그대로여서 목록이 옛것으로 남는다.
+     */
+    val notesVersion: Int = 0,
+    /** 이 장의 문단 시작 자리. 고른 글을 뜰 때 문단 사이를 한 칸 띄운다(붙으면 "삼킨다.어른들은"). */
+    val paragraphStarts: Set<Int> = emptySet(),
 )
 
 /**
@@ -84,6 +96,8 @@ class BookReader(
     private val store: PageStore,
     private val bookmarkRepository: BookmarkRepository,
     private val progressRepository: ProgressRepository,
+    private val annotationRepository: AnnotationRepository = InMemoryAnnotations(),
+    private val clock: () -> Long = System::currentTimeMillis,
     private val layoutThread: CoroutineDispatcher = Dispatchers.Default.limitedParallelism(1),
 ) {
     private val _state = MutableStateFlow(ReaderState())
@@ -106,6 +120,9 @@ class BookReader(
     private val texts = HashMap<Int, String>()
     private var highlight: SearchHit? = null
     private var returnTo: Locator.Reflow? = null
+
+    /** 이 책의 형광펜 전부(읽는 순서). 처음 쪽을 보일 때 한 번 읽고, 고칠 때마다 보관소와 함께 고친다. */
+    private var notes: List<Annotation>? = null
 
     /** 목차 · 책갈피 · 진행 막대 · 찾기로 다른 곳에 가면 "읽던 곳으로" 는 뜻을 잃는다. */
     private fun forgetReturn() {
@@ -288,6 +305,80 @@ class BookReader(
         _state.value.position?.let { _state.value = _state.value.copy(bookmarked = requireSession().isBookmarked(it)) }
     }
 
+    // ── 형광펜 · 메모(N1–N4) ────────────────────────────────────────
+
+    /** 이 책의 형광펜 전부. 독서노트가 쓴다. */
+    suspend fun annotations(): List<Annotation> = run { loadNotes() }
+
+    /**
+     * 지금 장의 [start]..[end] 를 칠한다. 칠한 글은 장 텍스트에서 떠 둔다(목록 · 내보내기용).
+     *
+     * 똑같은 구간이 이미 칠해져 있으면 새로 만들지 않고 색 · 메모만 바꾼다 — 같은 곳을 두 번 칠하면 목록에
+     * 똑같은 줄이 둘 생기고, 하나를 지워도 칠이 남아 "지웠는데 안 지워진다" 로 보인다.
+     */
+    suspend fun highlight(start: Int, end: Int, color: HighlightColor, note: String? = null): Annotation? = run {
+        val spine = _state.value.position?.spineIndex ?: return@run null
+        val text = _state.value.text
+        val from = start.coerceIn(0, text.length)
+        val to = end.coerceIn(from, text.length)
+        if (from >= to) return@run null
+        val same = loadNotes().firstOrNull { it.start == Locator.Reflow(spine, from) && it.end == Locator.Reflow(spine, to) }
+        val saved = if (same != null) {
+            val changed = same.copy(color = color).withNote(note ?: same.note)
+            annotationRepository.update(changed)
+            changed
+        } else {
+            annotationRepository.add(
+                Annotation(
+                    id = Annotation.NO_ID,
+                    bookId = requireLayout().bookId,
+                    start = Locator.Reflow(spine, from),
+                    end = Locator.Reflow(spine, to),
+                    color = color,
+                    note = note,
+                    snippet = snippetOf(text, from, to, _state.value.paragraphStarts),
+                    createdAtEpochMs = clock(),
+                ).withNote(note),
+            )
+        }
+        notes = null
+        refreshNotes()
+        saved
+    }
+
+    /** 색 · 메모를 바꾼다. */
+    suspend fun update(annotation: Annotation) = run {
+        annotationRepository.update(annotation)
+        notes = null
+        refreshNotes()
+    }
+
+    suspend fun remove(annotation: Annotation) = run {
+        annotationRepository.remove(annotation.id)
+        notes = null
+        refreshNotes()
+    }
+
+    /** 칠한 곳으로 간다(독서노트에서 누름). */
+    suspend fun goTo(annotation: Annotation) = run {
+        forgetReturn()
+        show(requireLayout().resolve(annotation.start))
+    }
+
+    /** 이 자리가 책의 몇 %(독서노트의 "3%"). */
+    suspend fun percentOf(locator: Locator.Reflow): Float = run { requireLayout().percentAt(locator.spine, locator.charOffset) }
+
+    private suspend fun loadNotes(): List<Annotation> =
+        notes ?: runCatching { annotationRepository.forBook(requireLayout().bookId) }.getOrDefault(emptyList()).also { notes = it }
+
+    private suspend fun refreshNotes() {
+        val spine = _state.value.position?.spineIndex ?: return
+        _state.value = _state.value.copy(
+            annotations = loadNotes().filter { it.start.spine == spine },
+            notesVersion = _state.value.notesVersion + 1,
+        )
+    }
+
     suspend fun outline(): List<TocEntry> = run { document.outline() }
 
     /**
@@ -370,9 +461,48 @@ class BookReader(
             canReturn = returnTo != null,
             chapterLength = length,
             charsAfterChapter = after,
+            annotations = loadNotes().filter { it.start.spine == position.spineIndex },
+            notesVersion = _state.value.notesVersion,
+            paragraphStarts = l.paragraphStarts(position.spineIndex),
         )
     }
 
     private fun requireLayout() = checkNotNull(layout) { "layOut() first" }
     private fun requireSession() = checkNotNull(session) { "layOut() first" }
+}
+
+/**
+ * 칠한 글 토막. 문단 사이는 한 칸([paragraphStarts]), 줄바꿈 · 겹친 공백도 한 칸으로(목록에서 한 줄로 읽히게),
+ * 너무 길면 자른다 — 한 쪽 전체를 칠해도 목록 한 줄이 화면을 덮지 않게.
+ */
+internal fun snippetOf(text: String, start: Int, end: Int, paragraphStarts: Set<Int> = emptySet(), max: Int = 400): String {
+    val from = start.coerceIn(0, text.length)
+    val to = end.coerceIn(from, text.length)
+    val raw = StringBuilder(to - from + 8)
+    for (i in from until to) {
+        if (i > from && i in paragraphStarts) raw.append(' ')
+        raw.append(text[i])
+    }
+    val flat = raw.replace(Regex("\\s+"), " ").trim()
+    return if (flat.length <= max) flat else flat.take(max).trimEnd() + "…"
+}
+
+/** 보관소를 주지 않았을 때(시험 · 미리보기). 앱은 Room 보관소를 준다. */
+internal class InMemoryAnnotations : AnnotationRepository {
+    private val rows = ArrayList<Annotation>()
+    private var next = 1L
+
+    override suspend fun forBook(bookId: io.github.kgcaudit.reader.document.BookId): List<Annotation> =
+        rows.filter { it.bookId == bookId }.sortedWith(compareBy({ it.start.spine }, { it.start.charOffset }, { it.id }))
+
+    override suspend fun add(annotation: Annotation): Annotation = annotation.copy(id = next++).also { rows.add(it) }
+
+    override suspend fun update(annotation: Annotation) {
+        val i = rows.indexOfFirst { it.id == annotation.id }
+        if (i >= 0) rows[i] = rows[i].copy(color = annotation.color, note = annotation.note)
+    }
+
+    override suspend fun remove(id: Long) {
+        rows.removeAll { it.id == id }
+    }
 }

@@ -147,6 +147,7 @@ class AppContainer(private val app: Application) {
             store = pages,
             bookmarkRepository = data.bookmarks,
             progressRepository = data.progress,
+            annotationRepository = data.annotations,
         )
     }
 

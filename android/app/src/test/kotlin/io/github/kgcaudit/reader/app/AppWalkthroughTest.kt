@@ -118,7 +118,8 @@ class AppWalkthroughTest {
         node(hasText("목차")).performClick()
         waitFor(hasText("제2장 사막의 아침"))
         shot("06-contents")
-        node(hasText("책갈피")).performClick()
+        // 책갈피는 독서노트 탭에 모인다(N5). 탭 이름에 모인 수가 붙는다.
+        node(hasText("독서노트 1")).performClick()
         // 미리보기는 책갈피를 꽂은 페이지(2쪽)의 첫 글자부터다.
         waitFor(hasText("그 책에는", substring = true))
         shot("07-bookmarks")

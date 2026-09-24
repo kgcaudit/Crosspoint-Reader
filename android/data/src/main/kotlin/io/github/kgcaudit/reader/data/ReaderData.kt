@@ -9,6 +9,7 @@ import io.github.kgcaudit.reader.data.library.ScanResult
 import io.github.kgcaudit.reader.data.saf.LibraryFolders
 import io.github.kgcaudit.reader.data.saf.SafDocumentTree
 import io.github.kgcaudit.reader.data.saf.UriSources
+import io.github.kgcaudit.reader.document.AnnotationRepository
 import io.github.kgcaudit.reader.document.BookmarkRepository
 import io.github.kgcaudit.reader.document.ProgressRepository
 import kotlinx.coroutines.CoroutineDispatcher
@@ -32,6 +33,7 @@ class ReaderData(
 
     val bookmarks: BookmarkRepository = RoomBookmarkRepository(database.bookmarks())
     val progress: ProgressRepository = RoomProgressRepository(database.progress())
+    val annotations: AnnotationRepository = RoomAnnotationRepository(database.annotations())
     val library: Library = Library(database)
     val folders: LibraryFolders = LibraryFolders(resolver)
     val sources: UriSources = UriSources(resolver, File(context.cacheDir, "spool"))

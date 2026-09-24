@@ -11,14 +11,14 @@
 
 ## 1. 지금 상태
 
-**OLO eBook 0.14.0 이 나왔다**(0.2.0: OLO 디자인 시스템 · 0.3.0: 그림 크기 · 리더 메뉴 · 폴더 단추 · 0.4.0: 번들 폰트 제거, 시스템 글꼴 · 0.5.0: 사용자 글꼴 넣기 · 0.5.1: 파일 관리자의 "연결 프로그램" 으로 열기 · 0.6.0: 출판사 글꼴 · 0.7.0: 가변 폰트 · 0.7.1: 글꼴 목록을 세 갈래로 · 0.8.0: PDF 리더 · 0.9.0: PDF 목차 · 0.10.0: 암호화된 PDF 목차 · 쪽 이름표 · 0.10.1: 출판사 글꼴의 빈 곳은 휴대폰 글꼴 · 0.10.2: 넣은 글꼴 들여쓰기 · 0.11.0: 화면 회전 · 0.12.0: 읽기 환경 1단계 · 0.13.0: 두쪽보기 · 0.13.1: 여백 한 칸 넓힘 · 0.14.0: 찾기 · 각주 · 남은 시간 · 밝기 밀기 · 넘김 효과). 폴더 등록 → 라이브러리 → EPUB/TXT/PDF 열기 → 페이지
-넘김 → 목차·책갈피 → 글꼴·크기 바꾸기까지 된다. 앱 전체를 Robolectric 으로 실제로 띄워
+**OLO eBook 0.15.0 이 나왔다**(0.2.0: OLO 디자인 시스템 · 0.3.0: 그림 크기 · 리더 메뉴 · 폴더 단추 · 0.4.0: 번들 폰트 제거, 시스템 글꼴 · 0.5.0: 사용자 글꼴 넣기 · 0.5.1: 파일 관리자의 "연결 프로그램" 으로 열기 · 0.6.0: 출판사 글꼴 · 0.7.0: 가변 폰트 · 0.7.1: 글꼴 목록을 세 갈래로 · 0.8.0: PDF 리더 · 0.9.0: PDF 목차 · 0.10.0: 암호화된 PDF 목차 · 쪽 이름표 · 0.10.1: 출판사 글꼴의 빈 곳은 휴대폰 글꼴 · 0.10.2: 넣은 글꼴 들여쓰기 · 0.11.0: 화면 회전 · 0.12.0: 읽기 환경 1단계 · 0.13.0: 두쪽보기 · 0.13.1: 여백 한 칸 넓힘 · 0.14.0: 찾기 · 각주 · 남은 시간 · 밝기 밀기 · 넘김 효과 · 0.15.0: 독서노트 — 형광펜 · 메모). 폴더 등록 → 라이브러리 → EPUB/TXT/PDF 열기 → 페이지
+넘김 → 목차·독서노트(책갈피 · 형광펜 · 메모) → 글꼴·크기 바꾸기까지 된다. 앱 전체를 Robolectric 으로 실제로 띄워
 사람이 쓰는 순서대로 한 바퀴 도는 테스트가 있고, 화면을 스크린샷으로 남긴다.
 PDF 는 쪽 그대로 보이고 두 손가락·두 번 누르기로 확대한다. 목차·제목·저자는 파일 구조에서 직접 읽는다.
 
 ```bash
 cd android && ./gradlew check                 # 774개 + lint
-./gradlew :app:assembleRelease                # → app/build/outputs/apk/release/OLO-eBook-0.14.0-release.apk
+./gradlew :app:assembleRelease                # → app/build/outputs/apk/release/OLO-eBook-0.15.0-release.apk
 ./gradlew :app:testDebugUnitTest              # → app/build/screenshots/*.png (화면 확인용)
 # SDK 없음: :document + :core-layout 366개 (기존과 같다)
 ```
@@ -35,7 +35,7 @@ cd android && ./gradlew check                 # 774개 + lint
 | `:core-layout` | `BookLayout`(페이지 이동 · 위치 복원 · 진도) · `ReadingSession`(책갈피 · 이어읽기) |
 | `:core-layout` | `MeasurerConformance` — 안드로이드 `TextMeasurer` 구현이 통과해야 할 검사 |
 | `:text-platform` | `AndroidTextMeasurer`(`Paint`) · `FontCatalog`(휴대폰 글꼴 + 사용자 글꼴, 글자 폭 지문) · `UserFonts` · `SfntReader`(폰트 머리 판독, 순수 Kotlin) — conformance 통과 |
-| `:data` | Room(`books` `progress` `bookmarks` `recent`) 보관소 · SAF 폴더 등록·재귀 스캔 · `Uri` → `SeekableSource`/`ByteSource` · `ReaderData`(묶음) |
+| `:data` | Room(`books` `progress` `bookmarks` `recent` `annotations`, 스키마 2) 보관소 · SAF 폴더 등록·재귀 스캔 · `Uri` → `SeekableSource`/`ByteSource` · `ReaderData`(묶음) |
 | `:ui-design` | `CpTheme`(색·치수·글꼴 토큰, 라이트/다크) · `CpHeader` `CpListRow` `CpTabBar` `CpStatusBar` `CpProgressBar` `CpPopup` `CpButton` `CpStepper` `CpChoice` · 선 아이콘 12종. Material 없음 |
 | `:reader-reflow` | `BookReader`(조판 스레드·넘김·책갈피·목차·설정 변경 시 읽던 글자로 복귀) · `drawPage` · `ReaderScreen`(탭·스와이프·메뉴) |
 | `:app` | `OloApp`·`AppContainer`(수동 DI) · `LibraryScreen` · `MainActivity` · 앱 아이콘 · 개발용 서명 키 |
@@ -43,8 +43,8 @@ cd android && ./gradlew check                 # 774개 + lint
 ### 다음 기능 계획 — `docs/READER_FEATURE_PLAN.md`
 
 단면 보기 기준으로 리디 · 예스24 · 교보 · 밀리 · Play 북을 조사해 4단계로 묶었다(1 읽기 환경 · 2 찾기/이동 ·
-3 독서 기록 · 4 듣기). **1단계는 0.12.0, 두쪽보기는 0.13.0, 2단계는 0.14.0 으로 끝났다.** 다음은 3단계.
-3단계(독서노트)는 구상안 N1–N9 결정 대기.
+3 독서 기록 · 4 듣기). **1단계는 0.12.0, 두쪽보기는 0.13.0, 2단계는 0.14.0, 3단계(독서노트)는 0.15.0 으로 끝났다.**
+3단계에서 남은 것: 쪽을 넘어 "이어서 선택"(N9 — 뒤로 미룸), 형광펜 보기 켬/끔(3-5). 다음은 4단계(듣기) 구상안.
 
 작업 순서는 CLAUDE.md 대로 **구상안 → 결정 → 확정 → 코딩**이다. 구상안 코드는 저장소에 넣지 않는다.
 
@@ -255,6 +255,38 @@ ReadingSession(layout, data.bookmarks, data.progress)
 - 앱 테스트는 파일 선택기에 Robolectric 으로 답해서 "글꼴 추가 → 고름 → 조판" 을 실제로 돈다
   (`AppWalkthroughTest`). 테스트 폰트는 `:text-platform` 의 `olo-test-fonts/` 를 함께 쓴다 — 폴더
   이름을 `fonts/` 로 하면 Robolectric 이 자기 시스템 폰트 대신 이걸 읽어 죽는다.
+
+**0.15.0 — 3단계 독서노트** (2026-09-24, 결정 N1–N9 권고안대로)
+
+- 저장: `:document` 에 `Annotation`(시작 · 끝 `Locator.Reflow`, 색 `HighlightColor`, 메모, 칠한 글, 시각) ·
+  `AnnotationRepository`. `:data` 에 `annotations` 표 — DB 스키마 1 → 2 는 Room 자동 마이그레이션(표를 더하기만
+  한다; 손으로 쓴 CREATE 문은 한 글자만 어긋나도 열 때 스키마 검사에 걸린다). `schemas/…/2.json` 커밋.
+  색 이름을 모르면(다음 버전의 색) 노랑으로, 자리가 상한 행은 그 줄만 버린다. 빈 메모 = 메모 없음.
+- 본문(N1–N4, N9): 길게 누르면 어절 하나를 고르고(`wordAt`), 물방울 손잡이 둘로 넓힌다. 손잡이 끌기는 지면의
+  제스처 층 맨 안쪽에서 받는다 — 손잡이 자체에 제스처를 달면 끄는 동안 손잡이가 옮겨 가며 손가락과의 거리가
+  어긋난다. 누른 자리 → 글자는 `PageHits.charAt`(줄을 먼저, 줄 끝 밖이면 마지막 글자). 고른 곳 위(자리가 없으면
+  아래)에 어두운 알약: 4색 · 메모 · 복사 · 공유 · 사전. 칠한 곳을 누르면 4색(지금 색에 고리) · 메모 · 복사 ·
+  공유 · 지우기. 링크 글자 바로 위를 누르면 링크가 먼저(칠 안의 각주 표시도 열린다). 한 쪽(펼침) 안에서만 고른다.
+- 칠은 글자 뒤 반투명(밝은 지면 0.45 · 어두운 지면 0.38). 메모 쪽지는 칠한 끝 글자 오른쪽 위, 행간에 걸쳐 그린다 —
+  조판에 자리를 넣으면 메모를 달 때마다 줄바꿈 · 쪽 경계가 움직인다(구상안은 글줄 안의 쪽지였는데 이 까닭으로
+  행간으로 올렸다). 쪽지 색은 진한 같은 색.
+- 사전은 `ACTION_PROCESS_TEXT` 로 깔린 앱에 넘긴다. 안드로이드 11+ 은 매니페스트 `<queries>` 가 없으면 앱이
+  있어도 "없음" 이다. 없으면 알린다. 복사는 13+ 에서 시스템이 알리므로 토스트를 띄우지 않는다.
+- 독서노트(N5–N8): 도구줄 목차 · 독서노트 · 보기(책갈피 도구는 합침 — 꽂기는 위쪽 단추 · 모서리 그대로).
+  목록은 `:ui-design` 의 `CpReadingNotesList`(EPUB · PDF 공용) — 칩 전체/책갈피/형광펜/메모(형광펜 = 메모 없는 칠,
+  합이 전체), 장별 묶음, 책 순서, "3% · 2026.09.24.", ⋮ 메뉴(메모 고치기 · 색 바꾸기 · 공유 · 지우기),
+  내보내기는 공유 시트로 글(`exportNotes`). 위계: 앞머리 gutter+levelIndent, 글자는 거기서 childIndent, 메모
+  상자는 칠한 글의 글자 시작선 — 좌표 시험. PDF 는 책갈피만(칩 대신 한 줄 설명), 위치는 날짜만.
+- 찾은 결함: ① 책갈피 미리보기가 "삼킨다.어른들은" 처럼 문단을 붙여 떴다(장 텍스트는 문단을 구분자 없이
+  잇는다) — `BookLayout.excerpt` 로 문단 사이에 한 칸. 칠한 글 · 복사 글도 같다. ② 메모 판 뒤에 알약 메뉴가 남아
+  같은 색 단추가 두 벌 — 판이 떠 있으면 알약을 숨긴다. ③ 다른 장의 칠을 목록에서 지워도 목록이 그대로였다(지금
+  장의 칠 목록만 봤다) — `ReaderState.notesVersion`. ④ 지면 제스처가 옛 그리기 측정기를 쥐고 있었다(글자
+  크기를 바꾼 뒤 링크 누름 자리가 어긋날 수 있었다) — 최신 측정기를 읽는다.
+- 시험: `ReadingNotesAppTest`(고르기 · 칠 · 다시 열어도 남음 · 손잡이 · 복사 · 메모 · 취소 · 칠 누르기 · 색 바꾸기 ·
+  지우기 · 사전 있음/없음 · 공유 · 독서노트 순서 · 칩 · ⋮ 메뉴 · 내보내기 · 위계 좌표 · 장 밖을 가리키는 칠 · 검정
+  지면), `MigrationTest`(1.json 의 SQL 로 만든 옛 DB), `RepositoryTest` 형광펜 셋, `SelectionTest`, `ReadingNotesTest`,
+  `BookLinksTest` 발췌. 일부러 망가뜨려 잡히는지 본 것: 목록 새로 고침 · 메모 상자 들여쓰기 · 손잡이 누름 소비 ·
+  마이그레이션 · 메모 취소 · 쪽지 그리기 · 어두운 지면 옅기.
 
 **0.14.0 — 2단계 찾기 · 이동** (2026-09-24, 결정 E1–E7 · F1–F6 권고안대로)
 

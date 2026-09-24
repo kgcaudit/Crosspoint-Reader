@@ -205,11 +205,23 @@ class BookLayout(
     }
 
     /** 장 하나에서 찾기. 리더가 장마다 따로 불러, 찾는 동안에도 쪽을 넘길 수 있게 한다. */
+    /** 장의 [from]..[to] 를 한 줄 글로(문단 사이 한 칸). 장을 읽지 못하면 빈 문자열. */
+    suspend fun excerpt(spineIndex: Int, from: Int, to: Int): String =
+        runCatching {
+            val c = chapter(spineIndex)
+            excerpt(c.text, from, to, paragraphStarts(c))
+        }.getOrDefault("")
+
+    /** 장의 문단이 시작하는 글자 자리들. 고른 글을 복사 · 공유할 때 문단 사이를 띄운다. */
+    suspend fun paragraphStarts(spineIndex: Int): Set<Int> = runCatching { paragraphStarts(chapter(spineIndex)) }.getOrDefault(emptySet())
+
+    private fun paragraphStarts(c: io.github.kgcaudit.reader.layout.html.Chapter): Set<Int> =
+        c.blocks.mapNotNull { (it as? io.github.kgcaudit.reader.layout.Block.Paragraph)?.runs?.firstOrNull()?.start }.toHashSet()
+
     suspend fun searchChapter(spineIndex: Int, query: String): List<SearchHit> =
         runCatching {
             val c = chapter(spineIndex)
-            val starts = c.blocks.mapNotNull { (it as? io.github.kgcaudit.reader.layout.Block.Paragraph)?.runs?.firstOrNull()?.start }.toHashSet()
-            findAll(c.text, query, spineIndex, starts)
+            findAll(c.text, query, spineIndex, paragraphStarts(c))
         }.getOrDefault(emptyList())
 
     /** 장 [spineIndex] 의 [offset] 자리가 책의 몇 % 인가(조판 전에도 — 찾기 결과 목록에 보인다). */

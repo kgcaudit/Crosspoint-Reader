@@ -66,4 +66,15 @@ class BookLinksTest {
         // 정규식 글자를 그대로 찾는다 — "(" 하나로 앱이 죽으면 안 된다.
         assertEquals(1, findAll("괄호 (열림 만", "(열림", 0).size)
     }
+
+    @Test
+    fun `an excerpt keeps paragraphs apart and stays on one line`() {
+        // 장 텍스트는 문단을 구분자 없이 잇는다. 책갈피 미리보기 · 칠한 글이 "삼킨다.어른들은" 로 붙으면 안 된다.
+        val text = "보아구렁이는 삼킨다.어른들은\n숫자를\uFFFC좋아한다."
+        assertEquals("보아구렁이는 삼킨다. 어른들은 숫자를 좋아한다.", excerpt(text, 0, text.length, setOf(11)))
+        // 문단 첫 글자에서 시작하면 앞에 칸을 넣지 않는다.
+        assertEquals("어른들은", excerpt(text, 11, 15, setOf(11)))
+        // 범위가 텍스트 밖이어도 죽지 않는다(상한 자리).
+        assertEquals("", excerpt(text, 500, 900, emptySet()))
+    }
 }

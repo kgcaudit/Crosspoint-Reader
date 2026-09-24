@@ -137,8 +137,10 @@ class PdfAppTest {
         waitFor(hasContentDescription("책갈피 꽂기"))
         node(hasContentDescription("책갈피 꽂기")).performClick()
         waitFor(hasContentDescription("책갈피 빼기"))
-        node(hasText("책갈피")).performClick()
+        // 도구줄의 책갈피 단추는 독서노트로 합쳤다(N5). PDF 독서노트는 책갈피만 모인다.
+        node(hasText("독서노트")).performClick()
         waitFor(hasText("4쪽"))
+        waitFor(hasText("PDF 는 글자를 고를 수 없어 책갈피만 모입니다"))
         shot("23-pdf-bookmarks")
 
         // 목록에서 책갈피를 누르면 그 쪽으로. 한 쪽 더 넘긴 뒤 닫고 다시 열면 넘긴 쪽(5쪽)이다.

@@ -66,3 +66,25 @@ data class RecentEntity(
     @PrimaryKey val bookId: String,
     val openedAtEpochMs: Long,
 )
+
+/**
+ * 형광펜 · 메모.
+ *
+ * 책갈피처럼 읽는 순서를 숫자로 따로 둔다(시작 위치 기준). [color] 는 `HighlightColor` 이름이다 — 모르는
+ * 값(다음 버전이 더한 색을 옛 버전이 읽음)이면 그 행을 버리지 않고 노랑으로 보인다. 칠한 자리와 메모는
+ * 멀쩡한데 색 하나 때문에 메모가 사라지면 안 된다.
+ */
+@Entity(tableName = "annotations", indices = [Index("bookId")])
+data class AnnotationEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long,
+    val bookId: String,
+    /** `Locator.encode` 형식. */
+    val start: String,
+    val end: String,
+    val orderMajor: Int,
+    val orderMinor: Int,
+    val color: String,
+    val note: String?,
+    val snippet: String,
+    val createdAtEpochMs: Long,
+)
