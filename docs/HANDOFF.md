@@ -11,14 +11,14 @@
 
 ## 1. 지금 상태
 
-**OLO eBook 0.8.0 이 나왔다**(0.2.0: OLO 디자인 시스템 · 0.3.0: 그림 크기 · 리더 메뉴 · 폴더 단추 · 0.4.0: 번들 폰트 제거, 시스템 글꼴 · 0.5.0: 사용자 글꼴 넣기 · 0.5.1: 파일 관리자의 "연결 프로그램" 으로 열기 · 0.6.0: 출판사 글꼴 · 0.7.0: 가변 폰트 · 0.7.1: 글꼴 목록을 세 갈래로 · 0.8.0: PDF 리더). 폴더 등록 → 라이브러리 → EPUB/TXT/PDF 열기 → 페이지
+**OLO eBook 0.9.0 이 나왔다**(0.2.0: OLO 디자인 시스템 · 0.3.0: 그림 크기 · 리더 메뉴 · 폴더 단추 · 0.4.0: 번들 폰트 제거, 시스템 글꼴 · 0.5.0: 사용자 글꼴 넣기 · 0.5.1: 파일 관리자의 "연결 프로그램" 으로 열기 · 0.6.0: 출판사 글꼴 · 0.7.0: 가변 폰트 · 0.7.1: 글꼴 목록을 세 갈래로 · 0.8.0: PDF 리더 · 0.9.0: PDF 목차). 폴더 등록 → 라이브러리 → EPUB/TXT/PDF 열기 → 페이지
 넘김 → 목차·책갈피 → 글꼴·크기 바꾸기까지 된다. 앱 전체를 Robolectric 으로 실제로 띄워
 사람이 쓰는 순서대로 한 바퀴 도는 테스트가 있고, 화면을 스크린샷으로 남긴다.
-PDF 는 쪽 그대로 보이고 두 손가락·두 번 누르기로 확대한다(목차는 없다 — P1 ①의 한계).
+PDF 는 쪽 그대로 보이고 두 손가락·두 번 누르기로 확대한다. 목차·제목·저자는 파일 구조에서 직접 읽는다.
 
 ```bash
-cd android && ./gradlew check                 # 511개 + lint
-./gradlew :app:assembleRelease                # → app/build/outputs/apk/release/OLO-eBook-0.8.0-release.apk
+cd android && ./gradlew check                 # 543개 + lint
+./gradlew :app:assembleRelease                # → app/build/outputs/apk/release/OLO-eBook-0.9.0-release.apk
 ./gradlew :app:testDebugUnitTest              # → app/build/screenshots/*.png (화면 확인용)
 # SDK 없음: :document + :core-layout 366개 (기존과 같다)
 ```
@@ -248,6 +248,28 @@ ReadingSession(layout, data.bookmarks, data.progress)
   (`AppWalkthroughTest`). 테스트 폰트는 `:text-platform` 의 `olo-test-fonts/` 를 함께 쓴다 — 폴더
   이름을 `fonts/` 로 하면 Robolectric 이 자기 시스템 폰트 대신 이걸 읽어 죽는다.
 
+**0.9.0 — PDF 목차 · 제목 · 저자** (2026-09-24, 사용자 요청 "PDF 도 목차 메뉴를 활성화")
+
+- PdfRenderer 는 목차를 주지 않는다. 목차는 파일 구조에 적힌 나무라 **엔진 없이 읽을 수 있다** —
+  `:document` 의 `pdf/` 에 순수 Kotlin 으로 읽개를 두었다(`PdfSyntax` 문법 · `PdfFile` 객체 찾기 ·
+  `PdfStructureReader` 목차·문서 정보). APK 는 그대로, 엔진(P1 ①)도 그대로다.
+- 받는 모양: 옛 상호 참조표 + `/Prev`(덧붙여 고친 파일), PDF 1.5 상호 참조 스트림 · 객체 스트림
+  (FlateDecode + PNG 예측자), 섞은 파일(`/XRefStm`). 목적지는 쪽 배열 · `/Dests` 이름 · `/Names`
+  이름 나무 · GoTo 동작. 쪽 없는 머리("제1부")는 첫 자식의 쪽.
+- 상호 참조가 **틀렸을 때만** 파일을 훑어 되살린다. 끊긴 참조 하나마다 훑으면 큰 파일이 몇 초씩 걸린다
+  (처음 짠 것이 그랬고, 일부러 망가뜨린 시험이 못 잡아서 찾았다 — 훑기가 다른 버그를 덮고 있었다).
+- 사용자가 올린 두 권으로 확인: 휴남동 서점(옛 표, 쪽 직접, 42항목, 53ms) · 소년이 온다(명명 목적지,
+  ExifTool 덧붙임, 10항목, 11ms). 쪽 번호가 다른 뷰어의 목차와 같다. 파일은 커밋하지 않았다 —
+  같은 구조를 `TestPdf`(`:document` 테스트 픽스처)로 지어 시험한다.
+- 실제 책에서 본 함정: UTF-16 제목의 0x08 바이트는 `\b` 로 적힌다('절'·'눈'). 틀리면 "거졢", "뉢동자".
+  저자 "한강" 의 0x5C 는 `\\`.
+- 암호화된 PDF 는 목차를 주지 않는다(문자열이 암호화돼 있다 — 빈 목차가 깨진 글자보다 낫다). 빈 암호로
+  잠근 파일(열기는 되는 것)의 목차는 v2(RC4/AES 복호화가 필요).
+- 목차를 **엔진에 넘기기 전에** 읽는다. 디스크립터를 복제해 읽고 복제본을 닫으면 환경에 따라 원본까지
+  닫혔다(시험에서 걸림) — 지금은 원본을 빌려 위치 지정 읽기(pread)만 하고 닫지 않는다.
+- 화면: 도구줄에 목차 단추(EPUB 과 같은 자리), 목차 · 책갈피 탭, 쪽 번호(1부터), 지금 장에 불.
+  라이브러리는 파일에 제목이 적혀 있으면 그 제목 · 저자를 보인다("Microsoft Word - …" 같은 것은 다듬거나 버린다).
+
 **0.8.0 — PDF 리더** (2026-09-23, 결정 P1 ① 확정: 플랫폼 `PdfRenderer`, APK 증가 0)
 
 - `:reader-pdf`. 엔진은 `PdfSource` 인터페이스 뒤에 있다 — 구현은 `PlatformPdfSource`(PdfRenderer)
@@ -259,8 +281,7 @@ ReadingSession(layout, data.bookmarks, data.progress)
 - 확대 1 은 **쪽 전체가 보이는 크기**(폭 맞춤이 아니다). 넘길 때마다 한 장이 온전히 보여야 한다.
 - 위치는 `Locator.FixedPage`(쪽 번호). 쪽 수가 줄어든 파일이면 마지막 쪽으로 연다. 앞뒤 쪽을 미리
   그려 두어(3장 LRU) 넘길 때 빈 종이가 번쩍이지 않는다.
-- 목차 단추는 없다. PdfRenderer 는 PDF 목차를 읽지 못한다 — 늘 빈 목록인 단추는 없는 편이 낫다.
-  제목도 못 읽어 파일 이름(확장자 뺀 것)을 쓴다.
+- (0.8.0 에서는 목차 단추가 없었다. 0.9.0 에서 파일 구조를 직접 읽어 더했다.)
 - 파이프로 오는 파일(일부 클라우드·메일 첨부)은 PdfRenderer 가 거절한다. `UriSources.seekableDescriptor`
   가 캐시로 옮긴 뒤 열자마자 사본을 지운다(디스크립터가 닫힐 때 공간이 돌아온다).
 - 암호 PDF(SecurityException "password")·깨진 PDF(IOException)는 각각 이유를 말한다.
@@ -408,7 +429,7 @@ ReadingSession(layout, data.bookmarks, data.progress)
 | 결정 | 근거 |
 |---|---|
 | **B1: 앱 이름 OLO eBook · 아이콘 컨셉 · OLO 디자인 시스템** (2026-09-23 사용자 결정) | 표시 이름 "OLO eBook", `applicationId` `io.github.kgcaudit.oloebook`. 아이콘은 OLO Explorer 와 바탕색 통일·도형 그레이·찢는 느낌. 배포 후 `applicationId` 를 바꾸면 다른 앱이 되어 데이터가 끊긴다 |
-| **P1: PDF 는 플랫폼 `PdfRenderer`** (2026-09-23 사용자 결정 ①) | APK 증가 0, 넘기기·확대·책갈피에 충분. 목차·검색·암호 PDF 가 필요해지면 `PdfSource` 뒤에서 Pdfium 으로 바꾼다(+3~6MB/ABI) |
+| **P1: PDF 는 플랫폼 `PdfRenderer`** (2026-09-23 사용자 결정 ①) | APK 증가 0, 넘기기·확대·책갈피에 충분. 목차·제목은 0.9.0 부터 `:document` 가 파일 구조에서 직접 읽는다. 검색·암호 PDF 가 필요해지면 `PdfSource` 뒤에서 Pdfium 으로 바꾼다(+3~6MB/ABI) |
 | **B2 (번복): 폰트를 싣지 않는다 — 시스템 글꼴 + 사용자 글꼴 + 책 내장 글꼴** (2026-09-23 사용자 결정 "권장대로") | 아래 옛 B2 의 근거("기기마다 조판이 다르다")는 위치를 글자 오프셋으로 저장하고 캐시를 기기마다 만드는 구조에서 사용자에게 드러나지 않는다. 번들은 APK 12MB 중 11MB 였고, 올려 받은 책 세 권이 모두 KoPub 을 **내장**하고 있었다. 한국어 명조는 AOSP 에 대체 글꼴(Noto Serif CJK, 보통 굵기 하나)로만 있고 제조사가 빼기도 해서 **있는지 재 보고**(`FontCatalog.hasKoreanSerif`) 없으면 목록에서 뺀다. 순서: P1 시스템 글꼴(0.4.0, 끝남) → P2 사용자 글꼴 추가(0.5.0, 끝남 — SAF, TTF/OTF/TTC) → P3 출판사 내장 글꼴(0.6.0, 끝남 — `@font-face`, 내장 글꼴이 있는 책은 그것으로 시작) → P4 추천 글꼴 받기(0.7.0 에 넣었다가 0.7.1 에서 사용자 요청으로 뺐다). 시스템 명조도 0.7.1 에서 뺐다 — 목록은 출판사 · 휴대폰 · 사용자 글꼴 세 갈래 |
 | ~~B2: KoPubWorld 바탕 + Pretendard 번들~~ (위 결정으로 대체) | 시스템 글꼴은 기기마다 조판이 달라진다. KoPub 구판이 아니라 **KoPubWorld** 인 이유: 구판에는 `—`(U+2014)가 없고 한자가 4,620자뿐이다(World 는 6,007자). 두 글꼴 모두 한글 11,172자 전부. 라이선스: Pretendard 는 OFL, **KoPubWorld 는 OFL 이 아니라 KOPUS 약관**(무료 재배포 가능 · 유료 판매 금지 · 약관 동봉 의무 · 수정본에 "KoPub" 이름 금지) — 그래서 서브셋하지 않고 원본을 넣었다. 저장소 +21.5MB, APK +11MB(압축) |
 | C++ 를 옮기지 않는다. GUI 구성만 참고 | 사용자 명시: "crosspoint 의 GUI 구성이 마음에 들었을 뿐이라, 코드 구조는 어떤 것이든 상관없어". 원본의 60~70% 는 ESP32 제약 때문의 코드다 |

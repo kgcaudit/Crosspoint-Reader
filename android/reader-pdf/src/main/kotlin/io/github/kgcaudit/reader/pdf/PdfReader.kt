@@ -7,6 +7,7 @@ import io.github.kgcaudit.reader.document.BookmarkRepository
 import io.github.kgcaudit.reader.document.Locator
 import io.github.kgcaudit.reader.document.ProgressRepository
 import io.github.kgcaudit.reader.document.ReadingProgress
+import io.github.kgcaudit.reader.document.TocEntry
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -14,6 +15,23 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+
+/**
+ * 지금 쪽이 속한 목차 항목의 번호: 지금 쪽 이전에 시작하는 항목 중 가장 늦게 시작하는 것(같으면 뒤의 것 —
+ * 더 깊은 절). 첫 항목보다 앞(표지)이면 -1.
+ */
+fun currentContentsIndex(entries: List<TocEntry>, page: Int): Int {
+    var best = -1
+    var bestPage = -1
+    entries.forEachIndexed { i, entry ->
+        val start = (entry.locator as? Locator.FixedPage)?.page ?: return@forEachIndexed
+        if (start in bestPage..page) {
+            best = i
+            bestPage = start
+        }
+    }
+    return best
+}
 
 /** 화면이 그리는 데 필요한 전부. */
 data class PdfState(
@@ -72,6 +90,13 @@ class PdfReader(
         val count = _state.value.pageCount
         if (count <= 0) return
         show(pageAt(fraction, count))
+    }
+
+    /** 목차. 파일에 없으면 빈 목록. */
+    suspend fun outline(): List<TocEntry> = book.outline()
+
+    suspend fun goTo(entry: TocEntry) {
+        (entry.locator as? Locator.FixedPage)?.let { show(it.page) }
     }
 
     suspend fun goTo(bookmark: Bookmark) {

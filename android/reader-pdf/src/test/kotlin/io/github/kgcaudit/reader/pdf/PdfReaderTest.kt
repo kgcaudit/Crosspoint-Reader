@@ -2,6 +2,7 @@ package io.github.kgcaudit.reader.pdf
 
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.os.ParcelFileDescriptor
 import io.github.kgcaudit.reader.document.BookFormat
 import io.github.kgcaudit.reader.document.BookId
 import io.github.kgcaudit.reader.document.BookMeta
@@ -10,12 +11,18 @@ import io.github.kgcaudit.reader.document.BookmarkRepository
 import io.github.kgcaudit.reader.document.Locator
 import io.github.kgcaudit.reader.document.ProgressRepository
 import io.github.kgcaudit.reader.document.ReadingProgress
+import io.github.kgcaudit.reader.document.TocEntry
+import io.github.kgcaudit.reader.document.pdf.TestPdf
+import io.github.kgcaudit.reader.document.pdf.TestPdf.Companion.pages
+import io.github.kgcaudit.reader.document.pdf.TestPdf.Companion.utf16
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import java.io.File
+import java.io.FileInputStream
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -147,11 +154,77 @@ class PdfReaderTest {
     }
 
     @Test
+    fun `a pdf opens with the contents, title and author written in the file`() = runTest {
+        // 쪽은 엔진이 그리지만 목차·제목은 파일 구조에서 먼저 읽는다. 읽은 뒤에도 엔진의 디스크립터는
+        // 열린 채 처음부터 읽을 수 있어야 한다(복제본만 닫는다).
+        val file = File.createTempFile("book", ".pdf").apply {
+            deleteOnExit()
+            writeBytes(outlinedPdf())
+        }
+        var engineSaw: ByteArray? = null
+        val book = PdfBook.open(id, "[한강] 소년이 온다.pdf", ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)) { pfd ->
+            engineSaw = FileInputStream(pfd.fileDescriptor).readNBytes(8)
+            FakeSource(6)
+        }
+
+        assertEquals("%PDF-1.4", engineSaw?.toString(Charsets.ISO_8859_1))
+        assertEquals("소년이 온다", book.meta.title)
+        assertEquals("한강", book.meta.author)
+        assertTrue(book.hasOwnTitle)
+        // 엔진이 센 쪽 수(6)를 넘는 항목("부록" → 8쪽)은 누르면 빈 화면이라 뺀다.
+        val contents = book.outline()
+        assertEquals(listOf("1장 어린 새" to 1, "2장 검은 숨" to 3, "2-1 새벽" to 4), contents.map { it.label to (it.locator as Locator.FixedPage).page })
+        assertEquals(listOf(0, 0, 1), contents.map { it.depth })
+
+        val r = PdfReader(book, bookmarks, progress, Dispatchers.Unconfined) { 1_000L }
+        r.open()
+        r.goTo(contents[1])
+        assertEquals(3, r.state.value.page)
+    }
+
+    @Test
+    fun `a pdf without contents or a title falls back to the file name`() = runTest {
+        val file = File.createTempFile("plain", ".pdf").apply {
+            deleteOnExit()
+            writeBytes(ByteArray(64) { 7 })
+        }
+        val book = PdfBook.open(id, "설명서.pdf", ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)) { FakeSource(2) }
+        assertEquals("설명서", book.meta.title)
+        assertFalse(book.hasOwnTitle)
+        assertTrue(book.outline().isEmpty())
+    }
+
+    @Test
+    fun `the contents highlight the chapter the page belongs to`() {
+        fun entry(page: Int) = TocEntry("p$page", Locator.FixedPage(page))
+        val entries = listOf(entry(2), entry(5), entry(5), entry(9))
+        assertEquals(-1, currentContentsIndex(entries, 0), "표지(첫 항목 앞)에는 불이 없다")
+        assertEquals(0, currentContentsIndex(entries, 2))
+        assertEquals(0, currentContentsIndex(entries, 4))
+        // 같은 쪽에서 시작하는 장과 절이면 더 깊은(뒤의) 절.
+        assertEquals(2, currentContentsIndex(entries, 7))
+        assertEquals(3, currentContentsIndex(entries, 100))
+    }
+
+    @Test
     fun `closing the reader closes the file`() = runTest {
         val source = FakeSource(1)
         reader(source).close()
         assertTrue(source.closed)
     }
+}
+
+/** 목차 · 문서 정보가 있는 PDF(쪽 8장). 엔진은 가짜라 쪽 내용은 없어도 된다. */
+private fun outlinedPdf(): ByteArray = TestPdf().run {
+    val p = pages(10, 8)
+    obj(1, "<< /Type /Catalog /Pages 10 0 R /Outlines 2 0 R >>")
+    obj(2, "<< /Type /Outlines /First 50 0 R >>")
+    obj(50, "<< /Title ${utf16("1장 어린 새")} /Next 51 0 R /Dest [${p[1]} 0 R /Fit] >>")
+    obj(51, "<< /Title ${utf16("2장 검은 숨")} /Next 52 0 R /First 53 0 R /Dest [${p[3]} 0 R /Fit] >>")
+    obj(53, "<< /Title ${utf16("2-1 새벽")} /Dest [${p[4]} 0 R /Fit] >>")
+    obj(52, "<< /Title ${utf16("부록")} /Dest [${p[7]} 0 R /Fit] >>")
+    obj(30, "<< /Title ${utf16("소년이 온다")} /Author ${utf16("한강")} >>")
+    classic(trailerExtra = "/Info 30 0 R")
 }
 
 /** 쪽 번호로 회색 농도를 정해 칠한다(0쪽은 검정). [broken] 쪽은 PdfRenderer 처럼 예외를 던진다. */

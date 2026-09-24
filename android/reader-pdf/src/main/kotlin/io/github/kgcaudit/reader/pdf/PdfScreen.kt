@@ -25,6 +25,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -44,6 +46,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import io.github.kgcaudit.reader.document.Bookmark
+import io.github.kgcaudit.reader.document.TocEntry
 import io.github.kgcaudit.reader.ui.design.CpButton
 import io.github.kgcaudit.reader.ui.design.CpFullScreen
 import io.github.kgcaudit.reader.ui.design.CpHeader
@@ -53,6 +56,7 @@ import io.github.kgcaudit.reader.ui.design.CpListRow
 import io.github.kgcaudit.reader.ui.design.CpPopup
 import io.github.kgcaudit.reader.ui.design.CpReaderBar
 import io.github.kgcaudit.reader.ui.design.CpStatusBar
+import io.github.kgcaudit.reader.ui.design.CpTabBar
 import io.github.kgcaudit.reader.ui.design.CpText
 import io.github.kgcaudit.reader.ui.design.CpTheme
 import io.github.kgcaudit.reader.ui.design.CpToolButton
@@ -82,7 +86,7 @@ fun PdfScreen(reader: PdfReader, onClose: () -> Unit, onChrome: (Boolean) -> Uni
     BackHandler {
         panel = when (panel) {
             PdfPanel.None -> { onClose(); PdfPanel.None }
-            PdfPanel.Bookmarks -> PdfPanel.Bar
+            PdfPanel.Contents, PdfPanel.Bookmarks -> PdfPanel.Bar
             PdfPanel.Bar -> PdfPanel.None
         }
     }
@@ -133,11 +137,18 @@ fun PdfScreen(reader: PdfReader, onClose: () -> Unit, onChrome: (Boolean) -> Uni
             progressLabel = { "${pageAt(it, state.pageCount) + 1}쪽" },
             onSeek = { target -> scope.go { reader.seek(target) } },
         ) {
-            // 목차 단추는 없다. PdfRenderer 는 PDF 의 목차를 읽지 못한다 — 눌러도 늘 빈 목록인 단추는
-            // 없는 편이 낫다.
+            // EPUB 리더와 같은 자리 · 같은 순서. 목차가 없는 PDF 도 단추는 둔다 — 열면 "목차가 없는
+            // 파일입니다" 라고 말해 준다(책마다 단추가 생겼다 없어졌다 하면 손이 헤맨다).
+            CpToolButton(CpIcons.Toc, "목차", { panel = PdfPanel.Contents })
             CpToolButton(CpIcons.Bookmark, "책갈피", { panel = PdfPanel.Bookmarks })
         }
-        PdfPanel.Bookmarks -> BookmarksPanel(reader, scope, onBack = { panel = PdfPanel.Bar }, onOpened = { panel = PdfPanel.None })
+        PdfPanel.Contents, PdfPanel.Bookmarks -> PdfLists(
+            reader = reader,
+            page = state.page,
+            showBookmarks = panel == PdfPanel.Bookmarks,
+            onPanel = { panel = it },
+            scope = scope,
+        )
     }
 
     if (state.ready && state.pageCount <= 0) {
@@ -148,7 +159,7 @@ fun PdfScreen(reader: PdfReader, onClose: () -> Unit, onChrome: (Boolean) -> Uni
     }
 }
 
-private enum class PdfPanel { None, Bar, Bookmarks }
+private enum class PdfPanel { None, Bar, Contents, Bookmarks }
 
 /** 진행 막대의 0..1 → 쪽(0부터). [PdfReader.seek] 과 같은 셈이라야 막대 위 숫자와 가는 곳이 같다. */
 internal fun pageAt(fraction: Float, pageCount: Int): Int =
@@ -282,42 +293,96 @@ private fun PageView(
     }
 }
 
+/** 목차·책갈피 전체 화면. EPUB 리더의 것과 같은 모양이다(탭 두 개, 지금 위치에 불). */
 @Composable
-private fun BookmarksPanel(reader: PdfReader, scope: CoroutineScope, onBack: () -> Unit, onOpened: () -> Unit) {
+private fun PdfLists(
+    reader: PdfReader,
+    page: Int,
+    showBookmarks: Boolean,
+    onPanel: (PdfPanel) -> Unit,
+    scope: CoroutineScope,
+) {
+    var contents by remember { mutableStateOf<List<TocEntry>?>(null) }
     var marks by remember { mutableStateOf<List<Bookmark>?>(null) }
-    LaunchedEffect(Unit) { marks = runCatching { reader.bookmarks() }.getOrDefault(emptyList()) }
+    LaunchedEffect(Unit) { contents = runCatching { reader.outline() }.getOrDefault(emptyList()) }
+    LaunchedEffect(showBookmarks) {
+        if (showBookmarks) marks = runCatching { reader.bookmarks() }.getOrDefault(emptyList())
+    }
     CpFullScreen {
-        CpHeader(title = "책갈피", subtitle = reader.title, onBack = onBack)
+        CpHeader(title = reader.title, onBack = { onPanel(PdfPanel.Bar) })
+        CpTabBar(
+            listOf("목차", "책갈피"),
+            if (showBookmarks) 1 else 0,
+            { onPanel(if (it == 1) PdfPanel.Bookmarks else PdfPanel.Contents) },
+        )
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            val list = marks
-            when {
-                list == null -> Unit
-                list.isEmpty() -> Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-                    CpText(
-                        "책갈피가 없습니다. 쪽 가운데를 누르고 위쪽 책갈피 단추로 꽂을 수 있습니다",
-                        CpTheme.type.subtitle,
-                        CpTheme.colors.textMuted,
-                        maxLines = 3,
+            if (showBookmarks) {
+                BookmarkList(
+                    marks,
+                    onOpen = { mark -> scope.go { reader.goTo(mark) }; onPanel(PdfPanel.None) },
+                    onRemove = { mark -> scope.go { reader.removeBookmark(mark); marks = reader.bookmarks() } },
+                )
+            } else {
+                ContentsList(contents, page) { entry -> scope.go { reader.goTo(entry) }; onPanel(PdfPanel.None) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContentsList(entries: List<TocEntry>?, page: Int, onOpen: (TocEntry) -> Unit) {
+    when {
+        entries == null -> Unit
+        entries.isEmpty() -> Empty("목차가 없는 파일입니다. 진행 막대로 원하는 쪽에 갈 수 있습니다")
+        else -> {
+            val current = currentContentsIndex(entries, page)
+            val list = rememberLazyListState()
+            // 지금 위치가 화면 위쪽 3분의 1 쯤 오게 연다. 맨 위에 붙이면 앞 항목이 안 보여 "어디쯤인지" 가
+            // 안 읽힌다(EPUB 목차와 같다).
+            LaunchedEffect(current) { if (current > 0) list.scrollToItem((current - 3).coerceAtLeast(0)) }
+            LazyColumn(Modifier.fillMaxSize(), state = list) {
+                itemsIndexed(entries) { i, entry ->
+                    CpListRow(
+                        title = entry.label,
+                        onClick = { onOpen(entry) },
+                        modifier = Modifier.padding(start = (entry.depth * 16).dp),
+                        // 쪽 번호는 사람이 세는 대로(1부터). 종이책 목차처럼 어디쯤인지 한눈에 보인다.
+                        value = "${entry.locator.fixedPage + 1}",
+                        selected = i == current,
+                        compact = true,
                     )
-                }
-                else -> LazyColumn(Modifier.fillMaxSize()) {
-                    // 보관소가 쪽 순서로 준다(BookmarkRepository.forBook).
-                    items(list, key = { it.id }) { mark ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            CpListRow(
-                                title = mark.snippet ?: "${mark.locator.fixedPage + 1}쪽",
-                                icon = CpIcons.Bookmark,
-                                onClick = { scope.go { reader.goTo(mark) }; onOpened() },
-                                modifier = Modifier.weight(1f),
-                            )
-                            CpIconButton(CpIcons.Close, "책갈피 지우기", {
-                                scope.go { reader.removeBookmark(mark); marks = reader.bookmarks() }
-                            }, tint = CpTheme.colors.textMuted)
-                        }
-                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun BookmarkList(marks: List<Bookmark>?, onOpen: (Bookmark) -> Unit, onRemove: (Bookmark) -> Unit) {
+    when {
+        marks == null -> Unit
+        marks.isEmpty() -> Empty("책갈피가 없습니다. 쪽 가운데를 누르고 위쪽 책갈피 단추로 꽂을 수 있습니다")
+        // 보관소가 쪽 순서로 준다(BookmarkRepository.forBook).
+        else -> LazyColumn(Modifier.fillMaxSize()) {
+            items(marks, key = { it.id }) { mark ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CpListRow(
+                        title = mark.snippet ?: "${mark.locator.fixedPage + 1}쪽",
+                        icon = CpIcons.Bookmark,
+                        onClick = { onOpen(mark) },
+                        modifier = Modifier.weight(1f),
+                    )
+                    CpIconButton(CpIcons.Close, "책갈피 지우기", { onRemove(mark) }, tint = CpTheme.colors.textMuted)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun Empty(message: String) {
+    Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+        CpText(message, CpTheme.type.subtitle, CpTheme.colors.textMuted, maxLines = 3)
     }
 }
 

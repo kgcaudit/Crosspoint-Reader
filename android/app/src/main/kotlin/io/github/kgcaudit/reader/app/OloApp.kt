@@ -7,7 +7,6 @@ import io.github.kgcaudit.reader.data.ReaderData
 import io.github.kgcaudit.reader.data.library.LibraryBook
 import io.github.kgcaudit.reader.document.BookFormat
 import io.github.kgcaudit.reader.document.BookId
-import io.github.kgcaudit.reader.document.BookMeta
 import io.github.kgcaudit.reader.document.ReflowDocument
 import io.github.kgcaudit.reader.document.TxtDocument
 import io.github.kgcaudit.reader.document.epub.EpubDocument
@@ -73,10 +72,13 @@ class AppContainer(private val app: Application) {
     suspend fun open(book: LibraryBook): OpenedBook = withContext(Dispatchers.IO) {
         val opened = read(book.id, book.displayName, book.format, Uri.parse(book.id.value))
         closingOnFailure(opened) {
-            // 목록이 파일 이름 대신 책 제목을 보여 주게 한다. TXT·PDF 는 제목이 곧 파일 이름이다.
-            if (opened is OpenedBook.Reflow && book.format == BookFormat.EPUB) {
-                val meta = opened.reader.document.meta
-                data.library.updateMetadata(book.id, meta.title, meta.author)
+            // 목록이 파일 이름 대신 책 제목·저자를 보여 주게 한다. TXT 는 제목이 곧 파일 이름이고, PDF 는
+            // 파일에 적혀 있을 때만(없으면 파일 이름 그대로 둔다).
+            when {
+                opened is OpenedBook.Reflow && book.format == BookFormat.EPUB ->
+                    opened.reader.document.meta.let { data.library.updateMetadata(book.id, it.title, it.author) }
+                opened is OpenedBook.Pdf && opened.reader.book.hasOwnTitle ->
+                    opened.reader.book.meta.let { data.library.updateMetadata(book.id, it.title, it.author) }
             }
             data.library.markOpened(book.id, System.currentTimeMillis())
             opened
@@ -153,9 +155,7 @@ class AppContainer(private val app: Application) {
         BookFormat.EPUB -> reflow(EpubDocument.open(id, name, data.sources.seekableSource(uri)))
         BookFormat.TXT -> reflow(TxtDocument.open(id, name, data.sources.byteSource(uri)))
         BookFormat.PDF -> {
-            // PdfRenderer 는 제목·저자를 읽지 못한다. 파일 이름에서 확장자만 떼어 제목으로 쓴다.
-            val meta = BookMeta(id, format, title = name.substringBeforeLast('.').ifBlank { name })
-            val book = PdfBook(meta, pdfEngine(data.sources.seekableDescriptor(uri)))
+            val book = PdfBook.open(id, name, data.sources.seekableDescriptor(uri), pdfEngine)
             closingOnFailure(book) {
                 val reader = PdfReader(book, data.bookmarks, data.progress)
                 reader.open()

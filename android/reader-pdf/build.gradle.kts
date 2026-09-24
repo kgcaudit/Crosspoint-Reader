@@ -27,6 +27,7 @@ dependencies {
     implementation(libs.androidx.activity.compose)
 
     testImplementation(libs.junit4)
+    testImplementation(testFixtures(project(":document")))
     testImplementation(libs.kotlin.test)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)

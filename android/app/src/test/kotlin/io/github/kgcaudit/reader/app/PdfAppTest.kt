@@ -14,6 +14,9 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeLeft
 import androidx.test.core.app.ApplicationProvider
+import io.github.kgcaudit.reader.document.pdf.TestPdf
+import io.github.kgcaudit.reader.document.pdf.TestPdf.Companion.pages
+import io.github.kgcaudit.reader.document.pdf.TestPdf.Companion.utf16
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -43,7 +46,7 @@ class PdfAppTest {
         val app = ApplicationProvider.getApplicationContext<OloApp>()
         val folder = FolderProvider.install(File(app.cacheDir, "sdcard").apply { deleteRecursively(); mkdirs() })
         File(folder, "문서").mkdirs()
-        File(folder, "문서/설명서.pdf").writeBytes(ByteArray(64))
+        File(folder, "문서/설명서.pdf").writeBytes(manual())
         app.container.pdfEngine = { DrawnPdf(it, pageCount = 6) }
         app.container.data.folders.register(FolderProvider.treeUri)
         compose.activityRule.scenario.recreate()
@@ -52,9 +55,10 @@ class PdfAppTest {
 
     @Test
     fun `a pdf opens, turns, zooms, keeps a bookmark and reopens where it was left`() {
-        // 목록에서 "준비 중" 이 사라지고 눌러 열린다. 제목은 확장자를 뗀 파일 이름.
+        // 목록에서 "준비 중" 이 사라지고 눌러 열린다. 제목은 파일에 적힌 것(문서 정보).
         node(hasText("설명서.pdf")).performClick()
         waitFor(hasText("1 / 6"))
+        waitFor(hasText("OLO 사용 설명서"))
         shot("20-pdf-first-page")
 
         // 넘기기는 EPUB 과 같다: 오른쪽을 누르거나 왼쪽으로 민다.
@@ -80,11 +84,29 @@ class PdfAppTest {
         compose.onRoot().performTouchInput { swipeLeft() }
         waitFor(hasText("4 / 6"))
 
-        // 가운데를 누르면 EPUB 과 같은 도구줄. 목차 단추는 없다(읽을 수 없는 목차).
+        // 가운데를 누르면 EPUB 과 같은 도구줄: 목차 · 책갈피.
         compose.onRoot().performTouchInput { click(center) }
         waitFor(hasContentDescription("책갈피 꽂기"))
-        check(compose.onAllNodes(hasText("목차"), useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
         shot("22-pdf-bar")
+
+        // 목차: 파일에 적힌 목차(장 · 절)가 쪽 번호와 함께 나온다. 누르면 그 쪽으로.
+        node(hasText("목차")).performClick()
+        waitFor(hasText("3장 문제 해결"))
+        check(compose.onAllNodes(hasText("2-1 확대하기"), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty())
+        shot("25-pdf-contents")
+        node(hasText("3장 문제 해결")).performClick()
+        waitFor(hasText("6 / 6"))
+        // 책갈피를 꽂으러 4쪽으로 돌아간다.
+        compose.onRoot().performTouchInput { click(center) }
+        waitFor(hasText("목차"))
+        node(hasText("목차")).performClick()
+        waitFor(hasText("2장 넘기기"))
+        node(hasText("2장 넘기기")).performClick()
+        waitFor(hasText("3 / 6"))
+        compose.onRoot().performTouchInput { click(centerRight.copy(x = width * 0.9f)) }
+        waitFor(hasText("4 / 6"))
+        compose.onRoot().performTouchInput { click(center) }
+        waitFor(hasContentDescription("책갈피 꽂기"))
         node(hasContentDescription("책갈피 꽂기")).performClick()
         waitFor(hasContentDescription("책갈피 빼기"))
         node(hasText("책갈피")).performClick()
@@ -97,8 +119,11 @@ class PdfAppTest {
         compose.onRoot().performTouchInput { click(centerRight.copy(x = width * 0.9f)) }
         waitFor(hasText("5 / 6"))
         compose.activity.onBackPressedDispatcher.onBackPressed()
-        waitFor(hasText("설명서.pdf"))
-        node(hasText("설명서.pdf")).performClick()
+        // 라이브러리도 이제 파일 이름 대신 파일에 적힌 제목 · 저자를 보인다.
+        waitFor(hasText("OLO 사용 설명서"))
+        waitFor(hasText("OLO 팀"))
+        shot("26-pdf-library-title")
+        node(hasText("OLO 사용 설명서")).performClick()
         waitFor(hasText("5 / 6"))
     }
 
@@ -114,6 +139,19 @@ class PdfAppTest {
         container.pdfEngine = { it.close(); throw java.io.IOException("file not in PDF format or corrupted") }
         node(hasText("설명서.pdf")).performClick()
         waitFor(hasText("PDF 파일이 손상됐거나", substring = true))
+    }
+
+    /** 쪽 6장, 목차(장 · 절), 문서 정보(제목 · 저자)가 있는 PDF. 쪽 그림은 가짜 엔진([DrawnPdf])이 그린다. */
+    private fun manual(): ByteArray = TestPdf().run {
+        val p = pages(10, 6)
+        obj(1, "<< /Type /Catalog /Pages 10 0 R /Outlines 2 0 R >>")
+        obj(2, "<< /Type /Outlines /First 50 0 R >>")
+        obj(50, "<< /Title ${utf16("1장 시작하기")} /Next 51 0 R /Dest [${p[0]} 0 R /Fit] >>")
+        obj(51, "<< /Title ${utf16("2장 넘기기")} /Next 52 0 R /First 53 0 R /Dest [${p[2]} 0 R /Fit] >>")
+        obj(53, "<< /Title ${utf16("2-1 확대하기")} /Dest [${p[4]} 0 R /Fit] >>")
+        obj(52, "<< /Title ${utf16("3장 문제 해결")} /Dest [${p[5]} 0 R /Fit] >>")
+        obj(30, "<< /Title ${utf16("OLO 사용 설명서")} /Author ${utf16("OLO 팀")} >>")
+        classic(trailerExtra = "/Info 30 0 R")
     }
 
     private fun node(matcher: SemanticsMatcher) =
