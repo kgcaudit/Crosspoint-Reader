@@ -116,9 +116,10 @@ fun ReaderScreen(
         // 1sp 가 몇 px 인가. 시스템 글자 크기 설정(fontScale)을 따른다.
         val pxPerSp = density.density * density.fontScale
         val pxPerDp = density.density
-        // 글꼴 ID 는 글자를 재서 만든다(지문). 설정이 바뀔 때만 다시 잰다.
-        val fontId = remember(prefs.font, fontsRevision) { reader.fonts.layoutFontId(prefs.font) }
         val useBookFonts = reader.usesBookFonts(prefs)
+        // 글꼴 ID 는 글자를 재서 만든다(지문). 설정이 바뀔 때만 다시 잰다.
+        val bodyFont = prefs.bodyFont(useBookFonts)
+        val fontId = remember(bodyFont, fontsRevision) { reader.fonts.layoutFontId(bodyFont) }
         val spec = remember(widthPx, heightPx, margin, prefs, pxPerSp, pxPerDp, fontId, useBookFonts) {
             prefs.toSpec(widthPx, heightPx, margin, pxPerSp, pxPerDp, fontId, useBookFonts)
         }

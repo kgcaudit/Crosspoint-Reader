@@ -66,8 +66,8 @@ internal fun FontsPanel(
     val scope = rememberCoroutineScope()
     var revision by remember { mutableStateOf(0) }
     val options = remember(revision) { catalog.options() }
-    // 출판사 글꼴이 켜져 있으면 그 줄에만 불이 들어온다. 본문 글꼴 줄까지 켜 두면 "둘 다 쓰인다"
-    // 는 사실(책이 정하지 않은 곳은 본문 글꼴)이 오히려 "무엇을 골랐나" 를 흐린다.
+    // 출판사 글꼴이 켜져 있으면 그 줄에만 불이 들어온다. 책이 정하지 않은 곳은 늘 휴대폰 글꼴이라
+    // (ReaderPrefs.bodyFont) 아래 줄에 따로 불을 켤 것이 없다 — 설명 한 줄로 충분하다.
     val publisherOn = publisher != null && prefs.publisherFonts
     val current = if (publisherOn) null else catalog.effectiveKey(prefs.font)
     // 진행 중인 일의 이름(글꼴 넣기). null 이면 한가하다.
@@ -124,7 +124,7 @@ internal fun FontsPanel(
                         title = PUBLISHER_LABEL,
                         selected = publisherOn,
                         onClick = { onPrefsChange(prefs.copy(publisherFonts = true)) },
-                        subtitle = "이 책에 든 글꼴 · 책이 정하지 않은 곳은 아래 고른 글꼴",
+                        subtitle = "이 책에 든 글꼴 · 책이 정하지 않은 곳은 휴대폰 글꼴",
                         titleStyle = if (family != null) CpTheme.type.body.copy(fontFamily = family) else CpTheme.type.body,
                     )
                 }

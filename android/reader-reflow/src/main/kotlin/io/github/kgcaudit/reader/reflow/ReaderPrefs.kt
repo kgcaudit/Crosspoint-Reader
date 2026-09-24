@@ -30,6 +30,15 @@ data class ReaderPrefs(
 
     fun withSize(delta: Int) = copy(fontSizeSp = (fontSizeSp + delta).coerceIn(MIN_SIZE_SP, MAX_SIZE_SP))
 
+    /**
+     * 조판에 쓸 본문 글꼴. 출판사 글꼴로 조판할 때는 **휴대폰 글꼴**(null) — 책이 글꼴을 정하지 않은 곳을
+     * 채우는 글꼴이다. 사용자 글꼴을 섞으면 한 쪽 안에 출판사 명조와 사용자 글꼴이 번갈아 나와 어느 쪽이
+     * 책의 모양인지 알 수 없다(0.10.0 까지는 마지막에 고른 글꼴이 들어갔는데, 화면 어디에도 보이지 않았다).
+     *
+     * [font] 는 지우지 않는다. 출판사 글꼴을 끄면 고른 사용자 글꼴로 돌아간다.
+     */
+    fun bodyFont(bookFontsInUse: Boolean): String? = if (bookFontsInUse) null else font
+
     companion object {
         const val DEFAULT_SIZE_SP = 18
         const val MIN_SIZE_SP = 12

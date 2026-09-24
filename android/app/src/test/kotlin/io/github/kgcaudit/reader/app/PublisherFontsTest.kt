@@ -11,6 +11,8 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.core.app.ApplicationProvider
+import io.github.kgcaudit.reader.reflow.ReaderPrefs
+import io.github.kgcaudit.reader.text.UserFonts
 import org.junit.Before
 import kotlinx.coroutines.test.StandardTestDispatcher
 import org.junit.Rule
@@ -97,6 +99,41 @@ class PublisherFontsTest {
     }
 
     @Test
+    fun `with publisher fonts on, text the book leaves unstyled is in the phone font even after picking a user font`() {
+        // 글꼴 목록의 약속: "책이 정하지 않은 곳은 휴대폰 글꼴". 이 책은 문단(p)만 글꼴을 정하고 제목(h1)은
+        // 정하지 않는다. 사용자 글꼴을 골라 둔 채 출판사 글꼴로 열어도 제목은 휴대폰 글꼴이어야 한다.
+        val container = compose.activity.container
+        val bold = File(app.cacheDir, "b.ttf").also { TestFonts.copy("olo-test-bold.ttf", it) }
+        val added = bold.inputStream().use { container.fonts.user!!.import(it) } as UserFonts.ImportResult.Added
+        container.prefs.save(ReaderPrefs(font = added.families.first().key, publisherFonts = true))
+        compose.activityRule.scenario.recreate()
+        waitFor(hasText("글꼴 책.epub"))
+        node(hasText("글꼴 책.epub")).performClick()
+        waitFor(hasText("1 / ", substring = true), timeoutMs = 30_000)
+        val withUserFontChosen = top()
+
+        // 휴대폰 글꼴을 고른 뒤 출판사 글꼴을 다시 켠다. 제목의 글꼴이 같으니 쪽도 같아야 한다.
+        compose.onRoot().performTouchInput { click(center) }
+        node(hasText("보기")).performClick()
+        node(hasText("출판사 글꼴")).performClick()
+        node(hasText("휴대폰 글꼴")).performClick()
+        node(hasText("출판사 글꼴")).performClick()
+        compose.waitUntil(5_000) { container.prefs.load().let { it.publisherFonts && it.font != added.families.first().key } }
+        node(hasContentDescription("뒤로")).performClick()
+        compose.onRoot().performTouchInput { click(topCenter.copy(y = height * 0.3f)) }
+        compose.waitUntil(15_000) { top().sameAs(withUserFontChosen) }
+
+        // 헛통과가 아니라는 확인: 사용자 글꼴로 바꾸면 쪽이 실제로 달라진다(이 폰트는 휴대폰 글꼴과 모양이 다르다).
+        compose.onRoot().performTouchInput { click(center) }
+        node(hasText("보기")).performClick()
+        node(hasText("출판사 글꼴")).performClick()
+        node(hasText(added.families.first().label)).performClick()
+        node(hasContentDescription("뒤로")).performClick()
+        compose.onRoot().performTouchInput { click(topCenter.copy(y = height * 0.3f)) }
+        compose.waitUntil(15_000) { !top().sameAs(withUserFontChosen) }
+    }
+
+    @Test
     fun `a book without fonts does not offer the publisher font`() {
         // 골라도 아무것도 바뀌지 않는 줄은 두지 않는다.
         node(hasText("어린 왕자.epub")).performClick()
@@ -119,6 +156,14 @@ class PublisherFontsTest {
 
     private fun waitFor(matcher: androidx.compose.ui.test.SemanticsMatcher, timeoutMs: Long = 15_000) {
         compose.waitUntil(timeoutMs) { compose.onAllNodes(matcher, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    /** 지면의 위쪽 절반. 제목(h1 — 책이 글꼴을 정하지 않은 곳)이 여기 있다. */
+    private fun top(): Bitmap {
+        val view = compose.activity.window.decorView
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        compose.runOnUiThread { view.draw(Canvas(bitmap)) }
+        return Bitmap.createBitmap(bitmap, 0, 0, view.width, view.height / 2)
     }
 
     /** 지면(상태바 위쪽 본문)만 잘라 온다. */
