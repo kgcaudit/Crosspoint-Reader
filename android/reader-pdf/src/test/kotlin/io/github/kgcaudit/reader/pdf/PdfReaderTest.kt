@@ -195,6 +195,29 @@ class PdfReaderTest {
     }
 
     @Test
+    fun `printed page numbers name the pages and the bookmarks`() = runTest {
+        // 머리말을 로마 숫자로 세는 책: 넷째 쪽의 책갈피는 "iv쪽", 다섯째는 "1쪽" 이라야 종이책과 맞는다.
+        val file = File.createTempFile("labelled", ".pdf").apply {
+            deleteOnExit()
+            writeBytes(
+                TestPdf().run {
+                    pages(10, 6)
+                    obj(1, "<< /Type /Catalog /Pages 10 0 R /PageLabels << /Nums [0 << /S /r >> 4 << /S /D >>] >> >>")
+                    classic()
+                },
+            )
+        }
+        val book = PdfBook.open(id, "책.pdf", ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)) { FakeSource(6) }
+        assertEquals(listOf("i", "ii", "iii", "iv", "1", "2"), (0 until 6).map { book.pageLabel(it) })
+
+        val r = PdfReader(book, bookmarks, progress, Dispatchers.Unconfined) { 1_000L }
+        r.open()
+        r.goTo(3)
+        r.toggleBookmark()
+        assertEquals("iv쪽", r.bookmarks().single().snippet)
+    }
+
+    @Test
     fun `the contents highlight the chapter the page belongs to`() {
         fun entry(page: Int) = TocEntry("p$page", Locator.FixedPage(page))
         val entries = listOf(entry(2), entry(5), entry(5), entry(9))

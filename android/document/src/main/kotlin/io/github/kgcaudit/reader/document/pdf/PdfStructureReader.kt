@@ -8,8 +8,17 @@ import java.nio.charset.CodingErrorAction
 /** PDF 목차 항목. [pageIndex] 는 0부터 센 쪽. */
 data class PdfOutlineItem(val label: String, val pageIndex: Int, val depth: Int)
 
-/** 파일에 적힌 제목·저자(문서 정보 `/Info`)와 목차. 없는 것은 null · 빈 목록. */
-data class PdfStructure(val title: String?, val author: String?, val outline: List<PdfOutlineItem>) {
+/**
+ * 파일에 적힌 제목·저자(문서 정보 `/Info`), 목차, 쪽 이름표. 없는 것은 null · 빈 목록.
+ *
+ * [pageLabels] 는 인쇄된 쪽 번호가 파일 순서와 **다를 때만** 있다(같으면 null — 보일 까닭이 없다).
+ */
+data class PdfStructure(
+    val title: String?,
+    val author: String?,
+    val outline: List<PdfOutlineItem>,
+    val pageLabels: PdfPageLabels? = null,
+) {
     companion object {
         val EMPTY = PdfStructure(null, null, emptyList())
     }
@@ -33,12 +42,19 @@ object PdfStructureReader {
 
     private fun readOrThrow(source: SeekableSource): PdfStructure {
         val file = PdfFile.open(source) ?: return PdfStructure.EMPTY
-        // 암호화된 파일은 문자열도 암호화돼 있다. 풀지 못하므로 깨진 글자 대신 아무것도 주지 않는다.
-        if (file.isEncrypted) return PdfStructure.EMPTY
+        // 암호화된 파일은 문자열도 암호화돼 있다. 빈 사용자 암호로 풀리면(소유자 암호만 걸린 잡지·전자책)
+        // 풀어서 읽고, 진짜 암호가 걸렸으면 깨진 글자 대신 아무것도 주지 않는다.
+        if (!file.isReadable) return PdfStructure.EMPTY
         val info = file.resolve(file.trailer["Info"]) as? PdfDict
         fun text(key: String) = (file.resolve(info?.get(key)) as? PdfString)?.let(::decodeTextString)?.let(::clean)
         val outline = runCatching { outline(file) }.getOrDefault(emptyList())
-        return PdfStructure(title = text("Title")?.let(::cleanTitle), author = text("Author"), outline = outline)
+        val labels = runCatching { PdfPageLabels.read(file, file.root?.get("PageLabels"), ::decodeTextString) }.getOrNull()
+        return PdfStructure(
+            title = text("Title")?.let(::cleanTitle),
+            author = text("Author")?.takeUnless { it.lowercase() in MEANINGLESS_AUTHORS },
+            outline = outline,
+            pageLabels = labels?.takeUnless { it.isPlainNumbering },
+        )
     }
 
     private fun outline(file: PdfFile): List<PdfOutlineItem> {
@@ -47,7 +63,17 @@ object PdfStructureReader {
         val context = Context(file, root)
         val raw = ArrayList<Raw>()
         context.walk(file.resolve(outlines["First"]), outlines["First"] as? PdfRef, depth = 0, out = raw)
-        return fillMissingPages(raw)
+        return liftSoleWrapper(fillMissingPages(raw))
+    }
+
+    /**
+     * 맨 위 항목이 **하나뿐이고** 나머지가 모두 그 아래에 있으면(잡지의 "목차", 책 제목 하나 아래 모든 장)
+     * 아래 항목들을 한 단계 올린다. 그대로 두면 목록 전체가 한 칸씩 들여 써져 머리 하나만 튀어나온다.
+     * 감싸던 항목은 그대로 첫 줄에 둔다 — 대개 그 자체도 갈 곳(목차 쪽, 표지)이다.
+     */
+    private fun liftSoleWrapper(items: List<PdfOutlineItem>): List<PdfOutlineItem> {
+        if (items.size < 2 || items.count { it.depth == 0 } != 1 || items[0].depth != 0) return items
+        return listOf(items[0]) + items.drop(1).map { it.copy(depth = it.depth - 1) }
     }
 
     /**
@@ -63,6 +89,11 @@ object PdfStructureReader {
     }
 
     private val MEANINGLESS_TITLES = setOf("untitled", "제목 없음", "제목없음", "무제", "unknown", "document")
+
+    /** 만든 컴퓨터의 계정 이름이 저자로 들어간 것들. 저자 자리에 "USER" 가 보이면 없느니만 못하다. */
+    private val MEANINGLESS_AUTHORS = setOf(
+        "user", "admin", "administrator", "owner", "unknown", "사용자", "windows 사용자", "관리자", "pc", "home",
+    )
 
     private class Raw(val label: String, val page: Int?, val depth: Int)
 
@@ -203,7 +234,25 @@ object PdfStructureReader {
 
     /** 제어 문자(줄바꿈 포함)는 빈칸 하나로, 앞뒤 빈칸은 뗀다. 빈 제목은 버린다(누를 수 없는 빈 줄). */
     private fun clean(text: String): String? =
-        text.replace(Regex("[\\u0000-\\u001F\\u007F\\s]+"), " ").trim().takeIf { it.isNotEmpty() }
+        decodeCodePointTags(text).replace(Regex("[\\u0000-\\u001F\\u007F\\s]+"), " ").trim().takeIf { it.isNotEmpty() }
+
+    /**
+     * `<C88B><C740>` 처럼 글자를 유니코드 번호로 적은 조각을 글자로("좋은"). 한글 자판이 없는 조판 프로그램이
+     * 문서 정보에 이렇게 넣는다(실제 잡지에서 봄: "2608 <C88B><C740><C0DD><AC01>" = "2608 좋은생각").
+     *
+     * 한글 · 한자 · 가나 범위일 때만 바꾼다. 아무 번호나 바꾸면 제목에 정말로 적힌 `<ABCD>` 가 엉뚱한 기호가 된다.
+     */
+    private fun decodeCodePointTags(text: String): String {
+        if ('<' !in text) return text
+        return CODE_POINT_TAG.replace(text) { m ->
+            val c = m.groupValues[1].toInt(16)
+            val cjk = c in 0xAC00..0xD7A3 || c in 0x1100..0x11FF || c in 0x3130..0x318F ||
+                c in 0x4E00..0x9FFF || c in 0x3400..0x4DBF || c in 0x3040..0x30FF
+            if (cjk) c.toChar().toString() else m.value
+        }
+    }
+
+    private val CODE_POINT_TAG = Regex("<([0-9A-Fa-f]{4})>")
 
     private val CP949: Charset? = runCatching { Charset.forName("x-windows-949") }.getOrNull()
         ?: runCatching { Charset.forName("MS949") }.getOrNull()

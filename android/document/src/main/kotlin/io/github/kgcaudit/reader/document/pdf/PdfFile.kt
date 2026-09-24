@@ -41,6 +41,15 @@ internal class PdfFile private constructor(private val source: SeekableSource) {
 
     val isEncrypted: Boolean get() = trailer["Encrypt"] != null
 
+    /** 암호화된 파일을 빈 사용자 암호로 열었다(소유자 암호만 걸린 파일). 암호화가 없으면 null. */
+    private var security: PdfSecurity? = null
+
+    /** 암호 사전의 객체 번호. 이 객체의 문자열은 암호화돼 있지 않다(명세). */
+    private var encryptNum = -1
+
+    /** 암호화되지 않았거나, 됐어도 빈 암호로 풀린다 — 문자열을 읽어도 된다. */
+    val isReadable: Boolean get() = !isEncrypted || security != null
+
     /** 값이 참조면 가리키는 객체를, 아니면 그대로. 없는 객체는 null(명세: null 객체와 같다). */
     fun resolve(value: PdfObject?): PdfObject? {
         var current = value
@@ -78,6 +87,11 @@ internal class PdfFile private constructor(private val source: SeekableSource) {
             else -> emptyList()
         }
         var data = raw
+        // 암호는 거르개보다 먼저 푼다(암호화가 압축 **뒤에** 걸렸다). 상호 참조 스트림은 암호화하지 않는다.
+        val sec = security
+        if (sec != null && stream.num >= 0 && stream.num != encryptNum && (stream.dict["Type"] as? PdfName)?.name != "XRef") {
+            data = sec.decryptStream(data, stream.num, stream.gen)
+        }
         for ((i, filter) in filters.withIndex()) {
             data = when (filter) {
                 "FlateDecode", "Fl" -> inflate(data) ?: return null
@@ -205,7 +219,39 @@ internal class PdfFile private constructor(private val source: SeekableSource) {
     private fun readObjectAt(offset: Long, expected: Int?): PdfObject? = withWindow(offset, 4096) { p ->
         val header = p.readObjectHeader() ?: return@withWindow null
         if (expected != null && header.first != expected) return@withWindow null
-        p.readObject()
+        val (num, gen) = header
+        val obj = when (val o = p.readObject()) {
+            is PdfStream -> o.copy(num = num, gen = gen)
+            else -> o
+        }
+        val sec = security
+        // 객체 스트림 **안의** 객체는 여기로 오지 않는다 — 스트림째 풀렸으니 문자열을 다시 풀면 안 된다.
+        if (sec == null || num == encryptNum) obj else decryptStrings(obj, num, gen, sec, 0)
+    }
+
+    private fun decryptStrings(obj: PdfObject, num: Int, gen: Int, sec: PdfSecurity, depth: Int): PdfObject {
+        if (depth > PdfParser.MAX_DEPTH) return obj
+        return when (obj) {
+            is PdfString -> PdfString(sec.decryptString(obj.bytes, num, gen))
+            is PdfArray -> PdfArray(obj.items.map { decryptStrings(it, num, gen, sec, depth + 1) })
+            is PdfDict -> PdfDict(obj.entries.mapValues { decryptStrings(it.value, num, gen, sec, depth + 1) })
+            is PdfStream -> obj.copy(dict = decryptStrings(obj.dict, num, gen, sec, depth + 1) as PdfDict)
+            else -> obj
+        }
+    }
+
+    /**
+     * 암호화된 파일이면 빈 사용자 암호로 열어 본다. 상호 참조를 다 읽은 **뒤에** 한다 — 암호 사전도
+     * 객체라 찾으려면 표가 있어야 한다. 그 전에 읽어 둔 객체(뿌리 등)는 풀지 않은 채라 버린다.
+     */
+    private fun openSecurity() {
+        val ref = trailer["Encrypt"] ?: return
+        encryptNum = (ref as? PdfRef)?.num ?: -1
+        val dict = resolve(ref) as? PdfDict ?: return
+        val firstId = ((trailer["ID"] as? PdfArray)?.items?.firstOrNull() as? PdfString)?.bytes
+        security = PdfSecurity.open(dict, firstId)
+        cache.clear()
+        objectStreams.clear()
     }
 
     /** 객체 스트림: 머리에 (번호, 위치) 쌍이 N 개, /First 부터 객체들. */
@@ -471,6 +517,7 @@ internal class PdfFile private constructor(private val source: SeekableSource) {
                 file.xrefComplete = false
                 file.scan()
             }
+            runCatching { file.openSecurity() }
             return file.takeIf { it.root != null }
         }
     }

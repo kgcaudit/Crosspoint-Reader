@@ -116,7 +116,13 @@ fun PdfScreen(reader: PdfReader, onClose: () -> Unit, onChrome: (Boolean) -> Uni
         }
         CpStatusBar(
             title = reader.title,
-            page = if (state.pageCount > 0) "${state.page + 1} / ${state.pageCount}" else "",
+            // 인쇄된 쪽 번호가 파일 순서와 다르면(로마 숫자 머리말 등) 앞에 함께 적는다: "iv · 4 / 230".
+            page = if (state.pageCount > 0) {
+                val position = "${state.page + 1} / ${state.pageCount}"
+                reader.book.pageLabel(state.page)?.let { "$it · $position" } ?: position
+            } else {
+                ""
+            },
             percent = "${state.percent.roundToInt()}%",
             progress = state.percent / 100f,
             color = colors.inkMuted,
@@ -134,7 +140,7 @@ fun PdfScreen(reader: PdfReader, onClose: () -> Unit, onChrome: (Boolean) -> Uni
             onBack = onClose,
             onDismiss = { panel = PdfPanel.None },
             progress = if (state.pageCount > 1) state.page / (state.pageCount - 1f) else 1f,
-            progressLabel = { "${pageAt(it, state.pageCount) + 1}쪽" },
+            progressLabel = { pageAt(it, state.pageCount).let { p -> "${reader.book.pageLabel(p) ?: (p + 1)}쪽" } },
             onSeek = { target -> scope.go { reader.seek(target) } },
         ) {
             // EPUB 리더와 같은 자리 · 같은 순서. 목차가 없는 PDF 도 단추는 둔다 — 열면 "목차가 없는
@@ -323,14 +329,17 @@ private fun PdfLists(
                     onRemove = { mark -> scope.go { reader.removeBookmark(mark); marks = reader.bookmarks() } },
                 )
             } else {
-                ContentsList(contents, page) { entry -> scope.go { reader.goTo(entry) }; onPanel(PdfPanel.None) }
+                ContentsList(contents, page, labelOf = { reader.book.pageLabel(it) ?: "${it + 1}" }) { entry ->
+                    scope.go { reader.goTo(entry) }
+                    onPanel(PdfPanel.None)
+                }
             }
         }
     }
 }
 
 @Composable
-private fun ContentsList(entries: List<TocEntry>?, page: Int, onOpen: (TocEntry) -> Unit) {
+private fun ContentsList(entries: List<TocEntry>?, page: Int, labelOf: (Int) -> String, onOpen: (TocEntry) -> Unit) {
     when {
         entries == null -> Unit
         entries.isEmpty() -> Empty("목차가 없는 파일입니다. 진행 막대로 원하는 쪽에 갈 수 있습니다")
@@ -346,8 +355,8 @@ private fun ContentsList(entries: List<TocEntry>?, page: Int, onOpen: (TocEntry)
                         title = entry.label,
                         onClick = { onOpen(entry) },
                         modifier = Modifier.padding(start = (entry.depth * 16).dp),
-                        // 쪽 번호는 사람이 세는 대로(1부터). 종이책 목차처럼 어디쯤인지 한눈에 보인다.
-                        value = "${entry.locator.fixedPage + 1}",
+                        // 쪽 번호는 책에 인쇄된 번호(쪽 이름표), 없으면 1부터 센 번호. 종이책 목차와 같은 숫자다.
+                        value = labelOf(entry.locator.fixedPage),
                         selected = i == current,
                         compact = true,
                     )

@@ -8,6 +8,7 @@ import io.github.kgcaudit.reader.document.Locator
 import io.github.kgcaudit.reader.document.PagedDocument
 import io.github.kgcaudit.reader.document.SeekableSource
 import io.github.kgcaudit.reader.document.TocEntry
+import io.github.kgcaudit.reader.document.pdf.PdfPageLabels
 import io.github.kgcaudit.reader.document.pdf.PdfStructure
 import io.github.kgcaudit.reader.document.pdf.PdfStructureReader
 import java.io.FileInputStream
@@ -24,7 +25,14 @@ class PdfBook(
     private val contents: List<TocEntry> = emptyList(),
     /** 제목이 파일에 적혀 있었다(아니면 [meta] 의 제목은 파일 이름에서 만든 것). */
     val hasOwnTitle: Boolean = false,
+    private val labels: PdfPageLabels? = null,
 ) : PagedDocument, AutoCloseable {
+
+    /**
+     * 책에 인쇄된 쪽 이름("iv", "12", "부록-3"). 인쇄 번호가 파일 순서와 같으면 null — 그때는 화면이
+     * 파일 순서 하나만 보인다(같은 숫자를 두 번 적을 까닭이 없다).
+     */
+    fun pageLabel(index: Int): String? = labels?.label(index)
 
     override val pageCount: Int get() = source.pageCount
 
@@ -72,7 +80,7 @@ class PdfBook(
                 author = structure.author,
             )
             val contents = structure.outline.map { TocEntry(it.label, Locator.FixedPage(it.pageIndex), it.depth) }
-            return PdfBook(meta, engine(descriptor), contents, hasOwnTitle = structure.title != null)
+            return PdfBook(meta, engine(descriptor), contents, hasOwnTitle = structure.title != null, labels = structure.pageLabels)
         }
     }
 }

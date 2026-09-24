@@ -33,8 +33,11 @@ internal data class PdfDict(val entries: Map<String, PdfObject>) : PdfObject {
 
 internal data class PdfRef(val num: Int, val gen: Int) : PdfObject
 
-/** 스트림. 데이터는 아직 읽지 않았다 — [dataOffset] 은 파일 안의 위치(또는 담긴 바이트 배열 안의 위치). */
-internal data class PdfStream(val dict: PdfDict, val dataOffset: Long) : PdfObject
+/**
+ * 스트림. 데이터는 아직 읽지 않았다 — [dataOffset] 은 파일 안의 위치. [num]·[gen] 은 담은 객체의 번호다
+ * (암호화된 파일은 스트림마다 그 번호로 만든 열쇠로 푼다). 모르면 -1.
+ */
+internal data class PdfStream(val dict: PdfDict, val dataOffset: Long, val num: Int = -1, val gen: Int = 0) : PdfObject
 
 /** 읽던 창(window)이 끝나 더 읽어야 한다. 파일 끝이 아니라 창 끝이다. */
 internal class NeedMoreBytes : RuntimeException(null, null, false, false)

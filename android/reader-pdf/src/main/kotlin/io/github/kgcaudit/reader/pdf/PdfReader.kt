@@ -116,7 +116,7 @@ class PdfReader(
         val here = bookmarks().filter { (it.locator as? Locator.FixedPage)?.page == page }
         if (here.isEmpty()) {
             bookmarkRepository.add(
-                Bookmark(Bookmark.NO_ID, book.meta.id, Locator.FixedPage(page), snippet = "${page + 1}쪽", createdAtEpochMs = clock()),
+                Bookmark(Bookmark.NO_ID, book.meta.id, Locator.FixedPage(page), snippet = "${book.pageLabel(page) ?: (page + 1)}쪽", createdAtEpochMs = clock()),
             )
         } else {
             here.forEach { bookmarkRepository.remove(it.id) }

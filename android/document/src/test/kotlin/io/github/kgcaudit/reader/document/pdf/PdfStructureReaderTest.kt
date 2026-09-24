@@ -100,10 +100,12 @@ class PdfStructureReaderTest {
             obj(51, "<< /Title (One) /Dest [${p[3]} 0 R /Fit] >>")
             // 없는 쪽을 가리키는 항목과 목적지가 아예 없는 항목은 누를 수 없으니 뺀다.
             obj(52, "<< /Title (Ghost) /Next 54 0 R /Dest [999 0 R /Fit] >>")
-            obj(54, "<< /Title (Nowhere) >>")
+            obj(54, "<< /Title (Nowhere) /Next 55 0 R >>")
+            // 최상위를 하나 더 둔다 — 하나만 남으면 "감싸는 항목" 으로 보고 한 단계 올린다(다른 시험).
+            obj(55, "<< /Title (Epilogue) /Dest [${p[7]} 0 R /Fit] >>")
         }).classic()
 
-        assertEquals(listOf("3:제1부", "  3:One"), read(pdf).summary())
+        assertEquals(listOf("3:제1부", "  3:One", "7:Epilogue"), read(pdf).summary())
         // 끊긴 참조 하나 때문에 파일 전체를 훑지 않는다(큰 파일은 몇 초가 걸린다).
         assertFalse(readThroughXref(pdf))
     }
@@ -179,6 +181,68 @@ class PdfStructureReaderTest {
     }
 
     private fun String.utf8() = toByteArray(Charsets.UTF_8)
+
+    @Test
+    fun `a sole wrapping entry does not push the whole contents one step in`() {
+        // 두 잡지(씨네21 · 좋은생각)의 모양: "목차" 하나 아래에 모든 기사가 있다. 그대로면 목록 전체가 한 칸
+        // 들여 써진다. 감싸던 항목은 첫 줄로 남기고(목차 쪽으로 가는 길) 나머지를 한 단계 올린다.
+        val pdf = book({ p ->
+            obj(2, "<< /Type /Outlines /First 50 0 R >>")
+            obj(50, "<< /Title ${utf16("목차")} /First 51 0 R /Dest [${p[1]} 0 R /Fit] >>")
+            obj(51, "<< /Title ${utf16("NEWS")} /Next 53 0 R /First 52 0 R /Dest [${p[2]} 0 R /Fit] >>")
+            obj(52, "<< /Title ${utf16("국내뉴스")} /Dest [${p[2]} 0 R /Fit] >>")
+            obj(53, "<< /Title ${utf16("REVIEW｜<오디세이>")} /Dest [${p[5]} 0 R /Fit] >>")
+        }).classic()
+        assertEquals(listOf("1:목차", "2:NEWS", "  2:국내뉴스", "5:REVIEW｜<오디세이>"), read(pdf).summary())
+
+        // 최상위가 둘 이상이면 손대지 않는다.
+        val two = book({ p ->
+            obj(2, "<< /Type /Outlines /First 50 0 R >>")
+            obj(50, "<< /Title (A) /Next 52 0 R /First 51 0 R /Dest [${p[0]} 0 R /Fit] >>")
+            obj(51, "<< /Title (A-1) /Dest [${p[1]} 0 R /Fit] >>")
+            obj(52, "<< /Title (B) /Dest [${p[2]} 0 R /Fit] >>")
+        }).classic()
+        assertEquals(listOf("0:A", "  1:A-1", "2:B"), read(two).summary())
+    }
+
+    @Test
+    fun `korean written as code point tags reads as korean and account names are not authors`() {
+        // 실제 잡지의 문서 정보: 제목 "2608 <C88B><C740><C0DD><AC01>", 저자 "USER". 조판 프로그램이 한글을
+        // 번호로 적었고, 저자 자리엔 컴퓨터 계정 이름이 들어갔다. 진짜 꺾쇠(<동궁>)와 한글 밖의 번호는 그대로.
+        val pdf = TestPdf().apply {
+            pages(10, 1)
+            obj(1, "<< /Type /Catalog /Pages 10 0 R >>")
+            raw(30, "<< /Title (2608 <C88B><C740><C0DD><AC01> <ABCD> <동궁>) /Author (USER) >>".utf8())
+        }.classic(trailerExtra = "/Info 30 0 R")
+        val book = PdfStructureReader.read(SeekableSource.of(pdf))
+        assertEquals("2608 좋은생각 <ABCD> <동궁>", book.title)
+        assertEquals(null, book.author)
+    }
+
+    @Test
+    fun `page labels give the numbers printed in the book`() {
+        // 머리말 i–iv, 본문 1–, 부록 "A-1"… 목차의 쪽 번호가 종이책 목차와 같아야 찾아갈 수 있다.
+        val labelled = book(
+            { p ->
+                obj(2, "<< /Type /Outlines /First 50 0 R >>")
+                obj(50, "<< /Title (One) /Dest [${p[4]} 0 R /Fit] >>")
+                // 번호 나무: 뿌리 → 잎 둘(/Kids).
+                obj(70, "<< /Kids [71 0 R 72 0 R] >>")
+                obj(71, "<< /Nums [0 << /S /r >> 4 << /S /D >>] >>")
+                obj(72, "<< /Nums [6 << /S /D /P (A-) /St 1 >> 7 << /P ${utf16("표지")} >>] >>")
+            },
+            catalogExtra = "/PageLabels 70 0 R",
+        ).classic()
+        val labels = PdfStructureReader.read(SeekableSource.of(labelled)).pageLabels!!
+        assertEquals(listOf("i", "ii", "iii", "iv", "1", "2", "A-1", "표지"), (0 until 8).map(labels::label))
+
+        // 1부터 세는 이름표(두 잡지가 이렇다)는 파일 순서와 같아 따로 보이지 않는다(null).
+        val plain = book({ p ->
+            obj(2, "<< /Type /Outlines /First 50 0 R >>")
+            obj(50, "<< /Title (One) /Dest [${p[0]} 0 R /Fit] >>")
+        }, catalogExtra = "/PageLabels << /Nums [0 << /S /D >>] >>").classic()
+        assertEquals(null, PdfStructureReader.read(SeekableSource.of(plain)).pageLabels)
+    }
 
     @Test
     fun `a looping outline is read once instead of forever`() {
