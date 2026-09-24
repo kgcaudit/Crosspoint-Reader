@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import io.github.kgcaudit.reader.document.Bookmark
 import io.github.kgcaudit.reader.document.TocEntry
 import io.github.kgcaudit.reader.ui.design.CpButton
+import io.github.kgcaudit.reader.ui.design.CpChoice
 import io.github.kgcaudit.reader.ui.design.CpFullScreen
 import io.github.kgcaudit.reader.ui.design.CpHeader
 import io.github.kgcaudit.reader.ui.design.CpIconButton
@@ -60,6 +61,7 @@ import io.github.kgcaudit.reader.ui.design.CpTabBar
 import io.github.kgcaudit.reader.ui.design.CpText
 import io.github.kgcaudit.reader.ui.design.CpTheme
 import io.github.kgcaudit.reader.ui.design.CpToolButton
+import io.github.kgcaudit.reader.ui.design.ScreenRotation
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -76,7 +78,13 @@ import kotlin.math.roundToInt
  * @param onChrome 메뉴가 열리고 닫힐 때. 앱이 시스템 바를 보이고 숨기는 데 쓴다.
  */
 @Composable
-fun PdfScreen(reader: PdfReader, onClose: () -> Unit, onChrome: (Boolean) -> Unit) {
+fun PdfScreen(
+    reader: PdfReader,
+    onClose: () -> Unit,
+    onChrome: (Boolean) -> Unit,
+    rotation: ScreenRotation = ScreenRotation.Auto,
+    onRotationChange: (ScreenRotation) -> Unit = {},
+) {
     val state by reader.state.collectAsState()
     val scope = rememberCoroutineScope()
     val colors = CpTheme.colors
@@ -87,6 +95,7 @@ fun PdfScreen(reader: PdfReader, onClose: () -> Unit, onChrome: (Boolean) -> Uni
         panel = when (panel) {
             PdfPanel.None -> { onClose(); PdfPanel.None }
             PdfPanel.Contents, PdfPanel.Bookmarks -> PdfPanel.Bar
+            PdfPanel.View -> PdfPanel.Bar
             PdfPanel.Bar -> PdfPanel.None
         }
     }
@@ -132,7 +141,7 @@ fun PdfScreen(reader: PdfReader, onClose: () -> Unit, onChrome: (Boolean) -> Uni
 
     when (panel) {
         PdfPanel.None -> Unit
-        PdfPanel.Bar -> CpReaderBar(
+        PdfPanel.Bar, PdfPanel.View -> CpReaderBar(
             title = reader.title,
             subtitle = "${state.page + 1} / ${state.pageCount} 쪽",
             bookmarked = state.bookmarked,
@@ -142,11 +151,26 @@ fun PdfScreen(reader: PdfReader, onClose: () -> Unit, onChrome: (Boolean) -> Uni
             progress = if (state.pageCount > 1) state.page / (state.pageCount - 1f) else 1f,
             progressLabel = { pageAt(it, state.pageCount).let { p -> "${reader.book.pageLabel(p) ?: (p + 1)}쪽" } },
             onSeek = { target -> scope.go { reader.seek(target) } },
+            above = {
+                // EPUB 의 보기 판과 같은 자리. PDF 는 글자 크기·글꼴이 없어 화면 회전만 있다 — 잡지·도면은
+                // 가로로 돌려 보는 일이 많아 PDF 에서 가장 먼저 찾는 설정이다.
+                if (panel == PdfPanel.View) {
+                    val rotations = ScreenRotation.entries
+                    CpChoice("화면 회전", rotations.map { it.label }, rotations.indexOf(rotation), { onRotationChange(rotations[it]) })
+                    Spacer(Modifier.height(4.dp))
+                }
+            },
         ) {
             // EPUB 리더와 같은 자리 · 같은 순서. 목차가 없는 PDF 도 단추는 둔다 — 열면 "목차가 없는
             // 파일입니다" 라고 말해 준다(책마다 단추가 생겼다 없어졌다 하면 손이 헤맨다).
             CpToolButton(CpIcons.Toc, "목차", { panel = PdfPanel.Contents })
             CpToolButton(CpIcons.Bookmark, "책갈피", { panel = PdfPanel.Bookmarks })
+            CpToolButton(
+                CpIcons.Rotate,
+                "보기",
+                { panel = if (panel == PdfPanel.View) PdfPanel.Bar else PdfPanel.View },
+                selected = panel == PdfPanel.View,
+            )
         }
         PdfPanel.Contents, PdfPanel.Bookmarks -> PdfLists(
             reader = reader,
@@ -165,7 +189,7 @@ fun PdfScreen(reader: PdfReader, onClose: () -> Unit, onChrome: (Boolean) -> Uni
     }
 }
 
-private enum class PdfPanel { None, Bar, Contents, Bookmarks }
+private enum class PdfPanel { None, Bar, View, Contents, Bookmarks }
 
 /** 진행 막대의 0..1 → 쪽(0부터). [PdfReader.seek] 과 같은 셈이라야 막대 위 숫자와 가는 곳이 같다. */
 internal fun pageAt(fraction: Float, pageCount: Int): Int =

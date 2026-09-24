@@ -98,6 +98,20 @@ class PdfAppTest {
         waitFor(hasContentDescription("책갈피 꽂기"))
         shot("22-pdf-bar")
 
+        // 보기: PDF 도 EPUB 과 같은 자리에서 화면 회전을 고른다(잡지는 가로로 돌려 보는 일이 많다).
+        node(hasText("보기")).performClick()
+        waitFor(hasText("화면 회전"))
+        shot("28-pdf-view-rotation")
+        node(hasText("가로")).performClick()
+        compose.waitUntil(5_000) {
+            compose.activity.requestedOrientation == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        }
+        node(hasText("자동")).performClick()
+        compose.waitUntil(5_000) {
+            compose.activity.requestedOrientation == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+        }
+        node(hasText("보기")).performClick()
+
         // 목차: 파일에 적힌 목차(장 · 절)가 쪽 번호와 함께 나온다. 누르면 그 쪽으로.
         node(hasText("목차")).performClick()
         waitFor(hasText("3장 문제 해결"))

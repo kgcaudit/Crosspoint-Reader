@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import io.github.kgcaudit.reader.reflow.ReaderPrefs
 import io.github.kgcaudit.reader.text.FontCatalog
+import io.github.kgcaudit.reader.ui.design.ScreenRotation
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -38,6 +39,16 @@ class PrefsStoreTest {
         assertNull(PrefsStore(context).load().font)
         saveRaw("user:abc")
         assertEquals("user:abc", PrefsStore(context).load().font)
+    }
+
+    @Test
+    fun `the screen rotation choice survives a restart and defaults to auto`() {
+        // 처음 쓰는 사람은 "자동"(잠금과 상관없이 돈다). 모르는 값(나중 판에서 빠진 이름)도 자동으로.
+        assertEquals(ScreenRotation.Auto, PrefsStore(context).load().rotation)
+        PrefsStore(context).save(ReaderPrefs(rotation = ScreenRotation.Portrait))
+        assertEquals(ScreenRotation.Portrait, PrefsStore(context).load().rotation)
+        context.getSharedPreferences("reader", Context.MODE_PRIVATE).edit().putString("rotation", "Sideways").commit()
+        assertEquals(ScreenRotation.Auto, PrefsStore(context).load().rotation)
     }
 
     @Test

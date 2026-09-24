@@ -11,14 +11,14 @@
 
 ## 1. 지금 상태
 
-**OLO eBook 0.10.2 이 나왔다**(0.2.0: OLO 디자인 시스템 · 0.3.0: 그림 크기 · 리더 메뉴 · 폴더 단추 · 0.4.0: 번들 폰트 제거, 시스템 글꼴 · 0.5.0: 사용자 글꼴 넣기 · 0.5.1: 파일 관리자의 "연결 프로그램" 으로 열기 · 0.6.0: 출판사 글꼴 · 0.7.0: 가변 폰트 · 0.7.1: 글꼴 목록을 세 갈래로 · 0.8.0: PDF 리더 · 0.9.0: PDF 목차 · 0.10.0: 암호화된 PDF 목차 · 쪽 이름표 · 0.10.1: 출판사 글꼴의 빈 곳은 휴대폰 글꼴 · 0.10.2: 넣은 글꼴 들여쓰기). 폴더 등록 → 라이브러리 → EPUB/TXT/PDF 열기 → 페이지
+**OLO eBook 0.11.0 이 나왔다**(0.2.0: OLO 디자인 시스템 · 0.3.0: 그림 크기 · 리더 메뉴 · 폴더 단추 · 0.4.0: 번들 폰트 제거, 시스템 글꼴 · 0.5.0: 사용자 글꼴 넣기 · 0.5.1: 파일 관리자의 "연결 프로그램" 으로 열기 · 0.6.0: 출판사 글꼴 · 0.7.0: 가변 폰트 · 0.7.1: 글꼴 목록을 세 갈래로 · 0.8.0: PDF 리더 · 0.9.0: PDF 목차 · 0.10.0: 암호화된 PDF 목차 · 쪽 이름표 · 0.10.1: 출판사 글꼴의 빈 곳은 휴대폰 글꼴 · 0.10.2: 넣은 글꼴 들여쓰기 · 0.11.0: 화면 회전). 폴더 등록 → 라이브러리 → EPUB/TXT/PDF 열기 → 페이지
 넘김 → 목차·책갈피 → 글꼴·크기 바꾸기까지 된다. 앱 전체를 Robolectric 으로 실제로 띄워
 사람이 쓰는 순서대로 한 바퀴 도는 테스트가 있고, 화면을 스크린샷으로 남긴다.
 PDF 는 쪽 그대로 보이고 두 손가락·두 번 누르기로 확대한다. 목차·제목·저자는 파일 구조에서 직접 읽는다.
 
 ```bash
 cd android && ./gradlew check                 # 550개 + lint
-./gradlew :app:assembleRelease                # → app/build/outputs/apk/release/OLO-eBook-0.10.2-release.apk
+./gradlew :app:assembleRelease                # → app/build/outputs/apk/release/OLO-eBook-0.11.0-release.apk
 ./gradlew :app:testDebugUnitTest              # → app/build/screenshots/*.png (화면 확인용)
 # SDK 없음: :document + :core-layout 366개 (기존과 같다)
 ```
@@ -247,6 +247,22 @@ ReadingSession(layout, data.bookmarks, data.progress)
 - 앱 테스트는 파일 선택기에 Robolectric 으로 답해서 "글꼴 추가 → 고름 → 조판" 을 실제로 돈다
   (`AppWalkthroughTest`). 테스트 폰트는 `:text-platform` 의 `olo-test-fonts/` 를 함께 쓴다 — 폴더
   이름을 `fonts/` 로 하면 Robolectric 이 자기 시스템 폰트 대신 이걸 읽어 죽는다.
+
+**0.11.0 — 화면 회전** (2026-09-24, 사용자 요청 "화면 자동 회전이 가능하게", 결정 "앱 안에 회전 설정")
+
+- 전에는 방향을 정하지 않아(UNSPECIFIED) 휴대폰의 회전 잠금을 따랐다 — 잠금을 켠 사람에게는 앱이 돌지
+  않았다. 이제 보기 › **화면 회전: 자동 · 세로 · 가로**. 기본 "자동" 은 FULL_SENSOR(잠금과 상관없이 네 방향).
+  고정은 SENSOR_PORTRAIT/LANDSCAPE 라 뒤집어 든 경우는 따라 돈다. 라이브러리 · EPUB · PDF 가 한 설정이다
+  (`ScreenRotation`, `ReaderPrefs.rotation` — 조판 설정에는 넣지 않는다: 방향이 바뀌면 화면 크기가 바뀌고,
+  크기는 이미 조판 설정에 있다).
+- PDF 도구줄에 "보기" 가 생겼다(EPUB 과 같은 자리). 지금은 화면 회전만 있다.
+- 돌려도 액티비티를 다시 만들지 않는다(configChanges) — 새 폭으로 다시 조판하고 읽던 글자로 돌아온다. 새
+  조판이 끝나기 전 잠깐은 옛 쪽이 그대로 보인다.
+- 시험: Robolectric 은 설정만 바꾸고 창 크기 · onConfigurationChanged 는 보내지 않는다. `ScreenRotationTest.turn`
+  이 둘을 흉내 낸다(ShadowViewRootImpl.callDispatchResized). "화면이 바뀌었나" 로 기다리면 조판 전의 옛 쪽을
+  찍는다 — "글자가 오른쪽 절반까지 찼나" 로 기다린다(처음 찍은 스크린샷에서 발견).
+- 가로에서 남은 것(사용자 판단 필요): EPUB 은 한 줄이 50자 안팎으로 길다(다른 리더는 가로에서 두 단). PDF 는
+  세로 쪽을 전체 맞춤으로 보여 가운데 작게 나온다(확대는 된다; 폭 맞춤 + 세로 이동은 v2 감).
 
 **0.10.0 — 암호화된 PDF 의 목차 · 쪽 이름표** (2026-09-24, 사용자 요청 "이 PDF 도 분석해서 목차 생성 로직을 고도화")
 

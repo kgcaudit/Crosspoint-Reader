@@ -3,11 +3,12 @@ package io.github.kgcaudit.reader.reflow
 import io.github.kgcaudit.reader.layout.Insets
 import io.github.kgcaudit.reader.layout.LayoutSpec
 import io.github.kgcaudit.reader.layout.TextAlign
+import io.github.kgcaudit.reader.ui.design.ScreenRotation
 
 /**
  * 사용자가 고르는 보기 설정.
  *
- * 전부 조판 결과를 바꾸므로 [toSpec] 을 거쳐 [LayoutSpec] 에 들어간다(규칙 4).
+ * 화면 방향([rotation])을 뺀 전부가 조판 결과를 바꾸므로 [toSpec] 을 거쳐 [LayoutSpec] 에 들어간다(규칙 4).
  */
 data class ReaderPrefs(
     val fontSizeSp: Int = DEFAULT_SIZE_SP,
@@ -21,6 +22,11 @@ data class ReaderPrefs(
      * 다음 책에서 또 출판사 글꼴이 나오면 매번 끄게 된다.
      */
     val publisherFonts: Boolean = true,
+    /**
+     * 화면 방향. 조판 설정([LayoutSpec])에는 넣지 않는다 — 방향이 바뀌면 화면 크기가 바뀌고, 크기는 이미
+     * 조판 설정에 들어 있다(같은 방향이면 같은 조판이다).
+     */
+    val rotation: ScreenRotation = ScreenRotation.Auto,
 ) {
     enum class LineSpacing(val multiplier: Float, val label: String) {
         Tight(1.4f, "좁게"),

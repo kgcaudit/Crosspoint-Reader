@@ -20,6 +20,7 @@ import io.github.kgcaudit.reader.reflow.BookReader
 import io.github.kgcaudit.reader.reflow.ReaderPrefs
 import io.github.kgcaudit.reader.text.FontCatalog
 import io.github.kgcaudit.reader.text.UserFonts
+import io.github.kgcaudit.reader.ui.design.ScreenRotation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -207,6 +208,7 @@ class PrefsStore(context: Context) {
         lineSpacing = ReaderPrefs.LineSpacing.entries.firstOrNull { it.name == sp.getString(KEY_SPACING, null) }
             ?: ReaderPrefs.LineSpacing.Normal,
         publisherFonts = sp.getBoolean(KEY_PUBLISHER_FONTS, true),
+        rotation = ScreenRotation.entries.firstOrNull { it.name == sp.getString(KEY_ROTATION, null) } ?: ScreenRotation.Auto,
     )
 
     fun save(prefs: ReaderPrefs) {
@@ -215,6 +217,7 @@ class PrefsStore(context: Context) {
             .putString(KEY_FONT, prefs.font)
             .putString(KEY_SPACING, prefs.lineSpacing.name)
             .putBoolean(KEY_PUBLISHER_FONTS, prefs.publisherFonts)
+            .putString(KEY_ROTATION, prefs.rotation.name)
             .apply()
     }
 
@@ -233,5 +236,6 @@ class PrefsStore(context: Context) {
         private const val KEY_FONT = "font"
         private const val KEY_SPACING = "lineSpacing"
         private const val KEY_PUBLISHER_FONTS = "publisherFonts"
+        private const val KEY_ROTATION = "rotation"
     }
 }

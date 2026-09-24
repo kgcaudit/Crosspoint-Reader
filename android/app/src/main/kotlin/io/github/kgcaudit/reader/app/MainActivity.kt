@@ -1,6 +1,7 @@
 package io.github.kgcaudit.reader.app
 
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -30,6 +31,7 @@ import io.github.kgcaudit.reader.reflow.ReaderScreen
 import io.github.kgcaudit.reader.ui.design.CpButton
 import io.github.kgcaudit.reader.ui.design.CpPopup
 import io.github.kgcaudit.reader.ui.design.CpTheme
+import io.github.kgcaudit.reader.ui.design.ScreenRotation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
@@ -44,7 +46,9 @@ class MainActivity : ComponentActivity() {
         // 되살아난 경우(savedInstanceState 있음)에는 같은 인텐트를 다시 처리하지 않는다. 읽던
         // 책은 rememberSaveable 이 되돌린다 — 처리하면 읽던 자리 대신 처음부터 다시 연다.
         if (savedInstanceState == null) incoming.value = intent
-        setContent { CpTheme { OloApp(incoming, hideSystemBars = ::hideSystemBars, leave = ::leaveToCaller) } }
+        setContent {
+            CpTheme { OloApp(incoming, hideSystemBars = ::hideSystemBars, leave = ::leaveToCaller, rotate = ::applyRotation) }
+        }
     }
 
     /** 다른 앱에서 연 책을 닫았다. 그 앱으로 돌아간다(이 앱은 뒤로 물러날 뿐 끝나지 않는다). */
@@ -68,6 +72,19 @@ class MainActivity : ComponentActivity() {
         incoming.value = intent
     }
 
+    /**
+     * 화면 방향을 창에 건다. 자동은 FULL_SENSOR — 휴대폰의 회전 잠금과 상관없이 네 방향 모두 돈다
+     * (기본값 UNSPECIFIED 는 잠금을 따라서, 잠금을 켠 사람에게는 앱이 돌지 않았다). 고정도 SENSOR_ 판을
+     * 써서 뒤집어 든 경우(충전선이 위)는 따라 돈다 — 거꾸로 선 글자는 읽을 수 없다.
+     */
+    private fun applyRotation(rotation: ScreenRotation) {
+        requestedOrientation = when (rotation) {
+            ScreenRotation.Auto -> ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+            ScreenRotation.Portrait -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+            ScreenRotation.Landscape -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        }
+    }
+
     /** 책을 읽는 동안에는 시스템 바를 숨긴다. 메뉴를 열면 다시 보인다. */
     private fun hideSystemBars(on: Boolean) {
         val controller = WindowCompat.getInsetsController(window, window.decorView)
@@ -84,13 +101,20 @@ class MainActivity : ComponentActivity() {
  * 되살리면 라이브러리가 아니라 읽던 책으로 돌아와야 한다.
  */
 @Composable
-private fun OloApp(incoming: MutableState<Intent?>, hideSystemBars: (Boolean) -> Unit, leave: () -> Unit) {
+private fun OloApp(
+    incoming: MutableState<Intent?>,
+    hideSystemBars: (Boolean) -> Unit,
+    leave: () -> Unit,
+    rotate: (ScreenRotation) -> Unit,
+) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val container = context.container
     var openId by rememberSaveable { mutableStateOf<String?>(null) }
     var reader by remember { mutableStateOf<OpenedBook?>(null) }
     var failure by remember { mutableStateOf<String?>(null) }
     var prefs by remember { mutableStateOf(container.prefs.load()) }
+    // 라이브러리에서도 같은 방향이다 — 책을 닫을 때마다 방향이 튀지 않게.
+    LaunchedEffect(prefs.rotation) { rotate(prefs.rotation) }
     // 이번 실행에서 폴더를 훑었는가. 화면(액티비티)이 새로 만들어지면 다시 훑는다.
     var scanned by remember { mutableStateOf(false) }
     // 다른 앱이 넘긴 파일의 URI. 라이브러리 id 와 따로 두는 이유: 라이브러리에 없는 파일이라
@@ -202,7 +226,13 @@ private fun OloApp(incoming: MutableState<Intent?>, hideSystemBars: (Boolean) ->
         }
         is OpenedBook.Pdf -> {
             LaunchedEffect(current) { hideSystemBars(true) }
-            PdfScreen(reader = current.reader, onClose = ::close, onChrome = { showing -> hideSystemBars(!showing) })
+            PdfScreen(
+                reader = current.reader,
+                onClose = ::close,
+                onChrome = { showing -> hideSystemBars(!showing) },
+                rotation = prefs.rotation,
+                onRotationChange = { prefs = prefs.copy(rotation = it); container.prefs.save(prefs) },
+            )
         }
     }
 

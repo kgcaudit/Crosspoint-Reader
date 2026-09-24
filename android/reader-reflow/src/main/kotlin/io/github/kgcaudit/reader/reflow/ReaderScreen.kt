@@ -58,6 +58,7 @@ import io.github.kgcaudit.reader.ui.design.CpTabBar
 import io.github.kgcaudit.reader.ui.design.CpText
 import io.github.kgcaudit.reader.ui.design.CpTheme
 import io.github.kgcaudit.reader.ui.design.CpToolButton
+import io.github.kgcaudit.reader.ui.design.ScreenRotation
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -372,6 +373,10 @@ private fun ViewSettings(reader: BookReader, prefs: ReaderPrefs, onChange: (Read
         val spacings = ReaderPrefs.LineSpacing.entries
         CpChoice("줄 간격", spacings.map { it.label }, spacings.indexOf(prefs.lineSpacing), {
             onChange(prefs.copy(lineSpacing = spacings[it]))
+        })
+        val rotations = ScreenRotation.entries
+        CpChoice("화면 회전", rotations.map { it.label }, rotations.indexOf(prefs.rotation), {
+            onChange(prefs.copy(rotation = rotations[it]))
         })
     }
 }
