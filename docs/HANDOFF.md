@@ -40,6 +40,11 @@ cd android && ./gradlew check                 # 550개 + lint
 | `:reader-reflow` | `BookReader`(조판 스레드·넘김·책갈피·목차·설정 변경 시 읽던 글자로 복귀) · `drawPage` · `ReaderScreen`(탭·스와이프·메뉴) |
 | `:app` | `OloApp`·`AppContainer`(수동 DI) · `LibraryScreen` · `MainActivity` · 앱 아이콘 · 개발용 서명 키 |
 
+### 다음 기능 계획 — `docs/READER_FEATURE_PLAN.md` (결정 대기)
+
+단면 보기 기준으로 리디 · 예스24 · 교보 · 밀리 · Play 북을 조사해 4단계로 묶었다(1 읽기 환경 · 2 찾기/이동 ·
+3 독서 기록 · 4 듣기). 결정 D1–D6 을 받은 뒤 1단계부터. 가로 화면 기능은 사용자 결정으로 뒤로.
+
 ### 남은 것 — 전부 안드로이드 모듈이다
 
 | 모듈 | 내용 | 비고 |
