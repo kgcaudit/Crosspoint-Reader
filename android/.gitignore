@@ -5,3 +5,7 @@ local.properties
 .idea/
 .kotlin/
 captures/
+
+# 릴리스 서명 키는 저장소에 넣지 않는다(공개 저장소 — 새어 나간 키로 서명한 앱은 휴대폰이 유해 앱으로 표시한다).
+*.jks
+olo-release*.keystore

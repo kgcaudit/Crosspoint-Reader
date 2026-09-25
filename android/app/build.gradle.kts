@@ -1,7 +1,38 @@
+import java.util.Base64
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+}
+
+/**
+ * 릴리스 서명 키를 찾는다. 저장소에는 절대 넣지 않는다(공개 저장소에 키를 두면 남이 같은 키로 서명한 앱을
+ * 만들 수 있고, 휴대폰은 그런 키를 "새어 나간 키" 로 보고 앱을 유해하다고 표시한다).
+ *
+ * 1. 환경 변수 OLO_RELEASE_KEYSTORE_B64(키 파일을 base64 로) + OLO_RELEASE_PASSWORD — 클라우드 세션용.
+ * 2. Gradle 속성 olo.release.keystore(파일 경로) + olo.release.password — PC 의 ~/.gradle/gradle.properties.
+ * 별칭은 OLO_RELEASE_ALIAS / olo.release.alias, 없으면 "olo-release".
+ */
+class ReleaseKey(val file: File, val password: String, val alias: String)
+
+val releaseKey: ReleaseKey? = run {
+    val alias = providers.environmentVariable("OLO_RELEASE_ALIAS").orNull
+        ?: providers.gradleProperty("olo.release.alias").orNull ?: "olo-release"
+    val b64 = providers.environmentVariable("OLO_RELEASE_KEYSTORE_B64").orNull
+    val envPassword = providers.environmentVariable("OLO_RELEASE_PASSWORD").orNull
+    if (!b64.isNullOrBlank() && !envPassword.isNullOrBlank()) {
+        val out = layout.buildDirectory.file("release-key/olo-release.keystore").get().asFile
+        out.parentFile.mkdirs()
+        out.writeBytes(Base64.getMimeDecoder().decode(b64.trim()))
+        return@run ReleaseKey(out, envPassword, alias)
+    }
+    val path = providers.gradleProperty("olo.release.keystore").orNull
+    val password = providers.gradleProperty("olo.release.password").orNull
+    if (!path.isNullOrBlank() && !password.isNullOrBlank() && File(path).isFile) ReleaseKey(File(path), password, alias) else null
+}
+if (releaseKey == null) {
+    logger.warn("OLO: no private release key - release APK is signed with the public dev key (-devkey). Phones flag it as harmful. See make-release-key.ps1.")
 }
 
 android {
@@ -12,27 +43,31 @@ android {
         applicationId = providers.gradleProperty("reader.applicationId").get()
         minSdk = 26
         targetSdk = 35
-        versionCode = 20
-        versionName = "0.15.0"
+        versionCode = 21
+        versionName = "0.15.1"
         resValue("string", "app_name", providers.gradleProperty("reader.appName").get())
         // 의존 라이브러리가 싣고 오는 80여 개 언어 번역을 뺀다. 화면이 한국어뿐이다.
         resourceConfigurations += listOf("ko", "en")
     }
 
     signingConfigs {
-        // 저장소에 커밋한 **개발용** 키. 비밀이 아니다(암호도 여기 적혀 있다).
-        //
-        // 왜 커밋하나: 안드로이드는 서명이 다른 APK 로 덮어 설치하지 못한다. 세션·PC 마다
-        // 자동 생성되는 debug 키를 쓰면 다음 빌드를 설치할 때 앱을 지워야 하고, 그러면
-        // 책갈피·진도가 전부 사라진다. 어디서 빌드해도 같은 키로 서명되게 한다.
-        //
-        // 공개 배포(Play 등) 전에는 비공개 릴리스 키로 바꾼다. 그때부터는 그 키로만
-        // 업데이트할 수 있다.
+        // 개발용 키. 저장소에 커밋되어 있어 **누구나 이 키로 서명할 수 있다** — 그래서 휴대폰의 보안 검사
+        // (Play 프로텍트 · 삼성 자동 차단)가 이 키로 서명된 앱을 "잠재적으로 유해한 앱" 으로 본다(0.15.0 에서
+        // 실제로 걸렸다). debug 빌드(OLO eBook (dev), 따로 설치되는 앱)에만 쓴다.
         create("dev") {
             storeFile = file("olo-dev.keystore")
             storePassword = "olo-dev"
             keyAlias = "olo-dev"
             keyPassword = "olo-dev"
+        }
+        // 사람에게 건네는 APK 의 키. 저장소 밖에만 둔다(make-release-key.ps1 이 만든다).
+        releaseKey?.let { key ->
+            create("release") {
+                storeFile = key.file
+                storePassword = key.password
+                keyAlias = key.alias
+                keyPassword = key.password
+            }
         }
     }
 
@@ -48,7 +83,9 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("dev")
+            // 비공개 키가 없으면(시험만 돌리는 세션) 개발용 키로 서명하되 파일 이름에 -devkey 를 붙인다.
+            // 그 APK 는 휴대폰이 유해 앱으로 표시하므로 사람에게 건네지 않는다.
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("dev")
         }
     }
 
@@ -71,7 +108,7 @@ android {
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
 
 // 산출물 이름에 앱 이름과 판을 넣는다. app-release.apk 로 여러 개가 쌓이면 구별이 안 된다.
-base { archivesName.set("OLO-eBook-" + android.defaultConfig.versionName) }
+base { archivesName.set("OLO-eBook-" + android.defaultConfig.versionName + (if (releaseKey == null) "-devkey" else "")) }
 
 dependencies {
     implementation(project(":reader-reflow"))
