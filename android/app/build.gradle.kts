@@ -8,7 +8,7 @@ plugins {
 
 /**
  * 릴리스 서명 키를 찾는다. 저장소에는 절대 넣지 않는다(공개 저장소에 키를 두면 남이 같은 키로 서명한 앱을
- * 만들 수 있고, 휴대폰은 그런 키를 "새어 나간 키" 로 보고 앱을 유해하다고 표시한다).
+ * 만들어 우리 앱의 업데이트인 척할 수 있다).
  *
  * 1. 환경 변수 OLO_RELEASE_KEYSTORE_B64(키 파일을 base64 로) + OLO_RELEASE_PASSWORD — 클라우드 세션용.
  * 2. Gradle 속성 olo.release.keystore(파일 경로) + olo.release.password — PC 의 ~/.gradle/gradle.properties.
@@ -32,7 +32,7 @@ val releaseKey: ReleaseKey? = run {
     if (!path.isNullOrBlank() && !password.isNullOrBlank() && File(path).isFile) ReleaseKey(File(path), password, alias) else null
 }
 if (releaseKey == null) {
-    logger.warn("OLO: no private release key - release APK is signed with the public dev key (-devkey). Phones flag it as harmful. See make-release-key.ps1.")
+    logger.info("OLO: no private release key - release APK is signed with the dev key (-devkey). See make-release-key.ps1.")
 }
 
 android {
@@ -51,9 +51,8 @@ android {
     }
 
     signingConfigs {
-        // 개발용 키. 저장소에 커밋되어 있어 **누구나 이 키로 서명할 수 있다** — 그래서 휴대폰의 보안 검사
-        // (Play 프로텍트 · 삼성 자동 차단)가 이 키로 서명된 앱을 "잠재적으로 유해한 앱" 으로 본다(0.15.0 에서
-        // 실제로 걸렸다). debug 빌드(OLO eBook (dev), 따로 설치되는 앱)에만 쓴다.
+        // 개발용 키. 저장소(공개)에 커밋되어 있어 누구나 이 키로 서명할 수 있다 — 공개 배포 전에는 release 를
+        // 비공개 키로 바꾼다. 어디서 빌드해도 같은 키라 덮어 설치가 되고 책갈피 · 진도가 남는다.
         create("dev") {
             storeFile = file("olo-dev.keystore")
             storePassword = "olo-dev"
@@ -83,8 +82,7 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // 비공개 키가 없으면(시험만 돌리는 세션) 개발용 키로 서명하되 파일 이름에 -devkey 를 붙인다.
-            // 그 APK 는 휴대폰이 유해 앱으로 표시하므로 사람에게 건네지 않는다.
+            // 비공개 키가 없으면 개발용 키로 서명하고 파일 이름에 -devkey 를 붙인다(어느 키인지 이름으로 보이게).
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("dev")
         }
     }
