@@ -33,6 +33,15 @@ class ReadingNotesTest {
     }
 
     @Test
+    fun `a highlight carried across pages says which pages it spans, a one page one does not`() {
+        val at = java.util.Calendar.getInstance().apply { set(2026, 8, 25, 10, 0) }.timeInMillis
+        assertEquals("31% · 5–6쪽에 걸침 · 2026.09.25.", noteWhere(31f, at, 5..6))
+        // 한 쪽짜리 범위(5..5)나 뒤집힌 범위가 들어와도 "5–5쪽에 걸침" 같은 말을 만들지 않는다.
+        assertEquals("31% · 2026.09.25.", noteWhere(31f, at, 5..5))
+        assertEquals("31% · 2026.09.25.", noteWhere(31f, at, 6..5))
+    }
+
+    @Test
     fun `the export reads like the screen, chapter by chapter with memos under their highlight`() {
         val text = exportNotes("어린 왕자", "생텍쥐페리", items)
         assertTrue(text.startsWith("어린 왕자 — 생텍쥐페리\n독서노트 4개\n"))

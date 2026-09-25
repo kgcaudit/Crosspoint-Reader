@@ -279,6 +279,10 @@ class Listening(
         if (gen != generation || !_state.value.playing) return
         val c = load(spine)
         if (i !in c.sentences.indices) return
+        // 이미 보인 문장(speakFrom 이 막 보인 것)의 시작 알림이면 쪽을 건드리지 않는다. 엔진의 알림은 늦게 올 수 있어
+        // (바인더 · 부하), 그 사이 사람이 넘긴 쪽을 이 문장 자리로 되돌리면 "넘겼는데 앞 쪽으로 튀어 돌아온다".
+        val st = _state.value
+        if (i == index && st.spine == spine && st.sentence == c.sentences[i]) return
         index = i
         show(c, i)
     }

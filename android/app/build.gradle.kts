@@ -43,8 +43,8 @@ android {
         applicationId = providers.gradleProperty("reader.applicationId").get()
         minSdk = 26
         targetSdk = 35
-        versionCode = 23
-        versionName = "0.16.1"
+        versionCode = 24
+        versionName = "0.17.0"
         resValue("string", "app_name", providers.gradleProperty("reader.appName").get())
         // 의존 라이브러리가 싣고 오는 80여 개 언어 번역을 뺀다. 화면이 한국어뿐이다.
         resourceConfigurations += listOf("ko", "en")

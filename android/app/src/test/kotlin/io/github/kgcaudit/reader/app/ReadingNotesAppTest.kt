@@ -21,6 +21,8 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.filterToOne
 import androidx.compose.ui.test.swipe
 import androidx.test.core.app.ApplicationProvider
 import io.github.kgcaudit.reader.document.Annotation
@@ -226,6 +228,93 @@ class ReadingNotesAppTest {
     }
 
     @Test
+    fun `hiding highlights stops drawing and tapping them but keeps and still saves them`() {
+        openWith()
+        select(0)
+        node(hasContentDescription("노랑")).performClick()
+        compose.waitUntil(5_000) { tinted(page(), Pen.Yellow) }
+        // 보이는 채 칠하면 알릴 것이 없다 — 칠이 보이는데 "숨겨 둔 상태" 라고 하면 거짓말이다.
+        assertFalse(hasNode(hasText("형광펜을 숨겨 둔 상태라", substring = true)), "보이는데 숨김 알림이 떴다")
+
+        // 모든 보기 설정 › 화면 › 형광펜 · 메모 › 숨김.
+        compose.onRoot().performTouchInput { click(center) }
+        waitFor(hasText("보기"))
+        node(hasText("보기")).performClick()
+        waitFor(hasText("모든 보기 설정"))
+        node(hasText("모든 보기 설정")).performClick()
+        waitFor(hasText("형광펜 · 메모"))
+        scrollToShow("형광펜 · 메모")
+        waitFor(hasText("숨겨도 지워지지 않습니다", substring = true))
+        shot("75-hide-highlights-setting")
+        choose("형광펜 · 메모", "숨김")
+        compose.waitUntil(5_000) { !app.container.prefs.load().screen.showHighlights }
+        repeat(3) { compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }; compose.waitForIdle() }
+        waitFor(hasText("1 / ", substring = true))
+        compose.waitUntil(5_000) { !tinted(page(), Pen.Yellow) }
+        shot("76-highlights-hidden")
+
+        // 보이지 않는 칠을 눌러도 칠 메뉴가 뜨지 않는다 — 여느 누름(여기는 앞 쪽 자리, 첫 쪽이라 그대로).
+        compose.onRoot().performTouchInput { click(lineStart(0)) }
+        compose.waitForIdle()
+        assertFalse(hasNode(hasText("지우기")), "숨긴 칠을 눌렀는데 칠 메뉴가 떴다")
+
+        // 숨긴 채 칠하면 저장은 되고, 왜 안 보이는지 알린다. 앞서 남은 알림이 없음을 먼저 본다 — 남아 있으면
+        // 새 알림이 뜨지 않아도 아래 기다림이 통과한다.
+        assertFalse(hasNode(hasText("형광펜을 숨겨 둔 상태라", substring = true)))
+        select(1)
+        node(hasContentDescription("파랑")).performClick()
+        waitFor(hasText("형광펜을 숨겨 둔 상태라", substring = true))
+        compose.waitUntil(5_000) { runBlocking { app.container.data.annotations.forBook(bookId()) }.size == 2 }
+        assertFalse(tinted(page(), Pen.Blue))
+
+        // 다시 보이게 하면 둘 다 칠해져 있다.
+        compose.onRoot().performTouchInput { click(center) }
+        waitFor(hasText("보기"))
+        node(hasText("보기")).performClick()
+        node(hasText("모든 보기 설정")).performClick()
+        waitFor(hasText("형광펜 · 메모"))
+        scrollToShow("형광펜 · 메모")
+        choose("형광펜 · 메모", "보임")
+        repeat(3) { compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }; compose.waitForIdle() }
+        compose.waitUntil(5_000) { tinted(page(), Pen.Yellow) && tinted(page(), Pen.Blue) }
+    }
+
+    @Test
+    fun `a selection reaching the page end continues onto the next page and saves as one highlight`() {
+        openWith()
+        select(0)
+        // 끝을 고르지 않았으면 "이어서" 가 없다 — 쪽 끝에 닿지 않은 고르기에서 쪽을 넘기면 가운데가 빠진다.
+        assertFalse(hasNode(hasText("이어서 ›")))
+        // 끝 손잡이를 쪽 오른쪽 아래 끝까지 끈다.
+        val end = node(hasContentDescription("고르기 끝 손잡이")).fetchSemanticsNode().boundsInRoot.center
+        compose.onRoot().performTouchInput { swipe(start = end, end = Offset(width * 0.97f, height * 0.9f), durationMillis = 1_200) }
+        compose.waitForIdle()
+        waitFor(hasText("이어서 ›"))
+        shot("77-continue-offer")
+        node(hasText("이어서 ›")).performClick()
+        waitFor(hasText("2 / ", substring = true))
+        // 앞 쪽의 것을 들고 넘어왔다: 알림 띠, 시작 손잡이는 없고(앞 쪽에 있다) 끝 손잡이만.
+        waitFor(hasText("앞 쪽에서 이어 고르는 중", substring = true))
+        assertTrue(hasNode(hasContentDescription("고르기 끝 손잡이")))
+        assertFalse(hasNode(hasContentDescription("고르기 시작 손잡이")))
+        shot("78-continue-carried")
+        node(hasContentDescription("초록")).performClick()
+        compose.waitUntil(5_000) { runBlocking { app.container.data.annotations.forBook(bookId()) }.isNotEmpty() }
+        val saved = runBlocking { app.container.data.annotations.forBook(bookId()) }.single()
+        // 하나의 칠이 첫 쪽 첫 낱말부터 둘째 쪽까지.
+        assertEquals(0, saved.start.charOffset)
+        assertTrue(saved.snippet.startsWith("보아구렁이는"), saved.snippet)
+        compose.waitUntil(5_000) { tinted(page(), Pen.Green) }
+
+        // 독서노트에는 걸친 쪽이 적힌다.
+        compose.onRoot().performTouchInput { click(center) }
+        waitFor(hasText("독서노트"))
+        node(hasText("독서노트")).performClick()
+        waitFor(hasText("1–2쪽에 걸침", substring = true))
+        shot("79-continue-notes")
+    }
+
+    @Test
     fun `the dictionary goes to an installed app and says so when there is none`() {
         openWith()
         select(0)
@@ -406,6 +495,47 @@ class ReadingNotesAppTest {
         abs(android.graphics.Color.red(a) - android.graphics.Color.red(b)) <= tolerance &&
             abs(android.graphics.Color.green(a) - android.graphics.Color.green(b)) <= tolerance &&
             abs(android.graphics.Color.blue(a) - android.graphics.Color.blue(b)) <= tolerance
+
+    /**
+     * [text] 줄이 화면 안에 들 때까지 설정 화면을 천천히 밀어 올린다. `performScrollTo` 는 시험 디스패처(StandardTestDispatcher)
+     * 에서 스크롤 코루틴이 돌기 전에 다시 요청하기를 되풀이해, 전체 검사에서 코루틴 127만 개를 쌓고 메모리가 바닥났다.
+     */
+    private fun scrollToShow(text: String) {
+        repeat(10) {
+            val b = compose.onAllNodes(hasText(text), useUnmergedTree = true)[0].fetchSemanticsNode().boundsInRoot
+            // 목록 끝의 줄은 화면 맨 아래까지만 올라온다 — "화면 안에 온전히" 면 된다(잘린 줄은 높이가 준다).
+            if (b.height > 20 * density && b.bottom <= compose.activity.window.decorView.height) {
+                // 목록 끝을 넘겨 끌면 늘어남(overscroll) 효과가 되돌아오는 동안 누름을 받지 않는다. waitForIdle 은 그것을
+                // 기다리지 않아, 시계를 직접 돌린다.
+                compose.mainClock.advanceTimeBy(2_000)
+                compose.waitForIdle()
+                return
+            }
+            // 설정 목록 자체를 민다. 화면 전체(onRoot)를 밀면 목록 밑의 읽기 화면이 끌기를 받아 목록은 그대로다.
+            val list = compose.onAllNodes(hasScrollAction(), useUnmergedTree = true).fetchSemanticsNodes()
+                .maxBy { it.boundsInRoot.height }.id
+            compose.onAllNodes(hasScrollAction(), useUnmergedTree = true).filterToOne(SemanticsMatcher("목록") { it.id == list })
+                .performTouchInput {
+                    // 끌다가 멈춘 뒤 뗀다 — 그냥 밀면 관성으로 계속 흘러, 바로 다음 누름이 "흐름 멈춤" 으로 먹힌다.
+                    down(Offset(centerX, height * 0.7f))
+                    repeat(10) { moveBy(Offset(0f, -height * 0.03f), delayMillis = 50) }
+                    advanceEventTime(400)
+                    up()
+                }
+            compose.waitForIdle()
+        }
+        error("$text 줄이 화면에 오지 않는다")
+    }
+
+    /** 설정 줄 [label] 의 선택지 [option] 을 누른다. 같은 낱말("숨김")이 다른 줄에도 있어 줄 높이로 가른다. */
+    private fun choose(label: String, option: String) {
+        val y = node(hasText(label)).fetchSemanticsNode().boundsInRoot.center.y
+        val nodes = compose.onAllNodes(hasText(option), useUnmergedTree = true)
+        val i = nodes.fetchSemanticsNodes().indexOfFirst { abs(it.boundsInRoot.center.y - y) < 24 * density }
+        check(i >= 0) { "$label 줄에 $option 이 없다" }
+        nodes[i].performClick()
+        compose.waitForIdle()
+    }
 
     private fun hasNode(matcher: SemanticsMatcher) =
         compose.onAllNodes(matcher, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()

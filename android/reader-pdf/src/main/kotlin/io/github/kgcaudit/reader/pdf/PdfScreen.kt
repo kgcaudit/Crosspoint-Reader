@@ -29,7 +29,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import io.github.kgcaudit.reader.ui.design.PdfFit
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -156,9 +163,30 @@ fun PdfScreen(
         ),
         activity = state.page,
     )
-    VolumeKeyPaging(enabled = prefs.volumeKeys && panel == PdfPanel.None) { forward ->
-        scope.go { if (forward) reader.next() else reader.previous() }
+    // 폭 맞춤(③): 지금 쪽 안을 한 화면씩 내리는 손잡이. 보이는 PageView 가 걸어 둔다.
+    val scroller = remember { PageScroller() }
+    // 앞 쪽으로 돌아갈 때 그 쪽을 끝에서 보이게 할 쪽. 다른 쪽으로 가면 지운다 — 남겨 두면 나중에 그 쪽에 앞으로
+    // 넘어 들어와도 끝부터 보인다.
+    var enterBottom by remember { mutableStateOf(-1) }
+    LaunchedEffect(state.page) { if (state.page != enterBottom) enterBottom = -1 }
+    val fitWidth = prefs.pdfFit == PdfFit.Width
+
+    /**
+     * 누름 · 볼륨 키 · 자동 넘김의 "앞으로 / 뒤로". 폭 맞춤이면 쪽 안에서 한 화면 옮기고, 쪽 끝이면 넘긴다.
+     * 셋이 따로 판단하면 누르면 내려가는데 볼륨 키는 쪽을 건너뛰어 쪽 아래쪽을 못 읽는다.
+     */
+    fun advance(forward: Boolean) {
+        if (fitWidth && scroller.scroll?.invoke(forward) == true) return
+        scope.go {
+            if (forward) {
+                reader.next()
+            } else {
+                if (fitWidth && state.page > 0) enterBottom = state.page - 1
+                reader.previous()
+            }
+        }
     }
+    VolumeKeyPaging(enabled = prefs.volumeKeys && panel == PdfPanel.None) { forward -> advance(forward) }
     fun toggleBookmark() = scope.go {
         reader.toggleBookmark()
         toast = if (reader.state.value.bookmarked) "책갈피를 꽂았습니다" else "책갈피를 뺐습니다"
@@ -197,15 +225,16 @@ fun PdfScreen(
                 val viewH = constraints.maxHeight.toFloat()
                 val density = androidx.compose.ui.platform.LocalDensity.current.density
                 val smallest = androidx.compose.ui.platform.LocalConfiguration.current.smallestScreenWidthDp
-                val twoPages = prefs.twoPages(viewW / density, viewH / density, smallest)
+                // 폭 맞춤은 한 쪽씩이다 — 두 쪽을 나란히 폭에 맞추면 쪽 전체와 다를 게 없다.
+                val twoPages = !fitWidth && prefs.twoPages(viewW / density, viewH / density, smallest)
                 LaunchedEffect(twoPages, prefs.pdfCoverAlone) { reader.setSpread(if (twoPages) prefs.pdfCoverAlone else null) }
                 val onTap: (Offset, Float) -> Unit = { at, corner ->
                     if (panel != PdfPanel.None) {
                         panel = PdfPanel.None
                     } else {
                         when (prefs.touch.actionAt(at.x, at.y, viewW, corner)) {
-                            TapAction.Previous -> scope.go { reader.previous() }
-                            TapAction.Next -> scope.go { reader.next() }
+                            TapAction.Previous -> advance(false)
+                            TapAction.Next -> advance(true)
                             TapAction.Menu -> panel = PdfPanel.Bar
                             TapAction.Bookmark -> toggleBookmark()
                         }
@@ -228,6 +257,9 @@ fun PdfScreen(
                             viewH = viewH,
                             onTap = onTap,
                             onSwipe = onSwipe,
+                            fitWidth = fitWidth,
+                            fromBottom = enterBottom == shown.first(),
+                            scroller = scroller,
                         )
                     }
                 }
@@ -276,7 +308,7 @@ fun PdfScreen(
         }
         // 자동 넘김(L7). PDF 도 글자 없이 쪽만 넘기면 되므로 같이 쓴다. 메뉴가 열려 있으면 쉰다.
         val autoSuspended = panel != PdfPanel.None
-        val autoTurn = rememberAutoTurn(prefs.autoTurn, state.page, autoSuspended) { scope.go { reader.next() } }
+        val autoTurn = rememberAutoTurn(prefs.autoTurn, state.page, autoSuspended) { advance(true) }
         if (autoTurn.visible(prefs.autoTurn, autoSuspended)) {
             CpAutoTurnPill(autoTurn, Modifier.align(Alignment.BottomCenter).padding(bottom = 60.dp))
         }
@@ -304,6 +336,12 @@ fun PdfScreen(
                         CpThemeSwatches(prefs.theme, { onPrefsChange(prefs.copy(theme = it)) })
                         CpBrightnessRow(prefs.brightness, { onPrefsChange(prefs.copy(brightness = it)) })
                         val rotations = ScreenRotation.entries
+                        // 쪽 맞춤(③)을 회전 위에 둔다 — 가로로 돌리는 까닭이 대개 글자를 크게 보려는 것이라, 돌린 뒤
+                        // 바로 위 줄에서 폭을 고른다.
+                        val fits = PdfFit.entries
+                        CpChoice("쪽 맞춤", fits.map { it.label }, fits.indexOf(prefs.pdfFit), {
+                            onPrefsChange(prefs.copy(pdfFit = fits[it]))
+                        })
                         CpChoice("화면 회전", rotations.map { it.label }, rotations.indexOf(prefs.rotation), {
                             onPrefsChange(prefs.copy(rotation = rotations[it]))
                         })
@@ -344,6 +382,14 @@ fun PdfScreen(
 
 private enum class PdfPanel { None, Bar, View, Settings, Contents, Notes }
 
+/**
+ * 보이는 쪽의 "한 화면 옮기기". 넘김 효과 동안 옛 쪽과 새 쪽이 함께 있으므로, 나중에 걸린(새) 쪽만 남고 옛 쪽이
+ * 사라질 때 새 쪽의 것을 지우지 않는다. 옮겼으면 true, 이미 그 끝이면 false(그때 쪽을 넘긴다).
+ */
+private class PageScroller {
+    var scroll: ((forward: Boolean) -> Boolean)? = null
+}
+
 /** 오른쪽 위 모서리의 책갈피 네모(EPUB 과 같다). */
 private val CORNER = 56.dp
 
@@ -363,15 +409,30 @@ private fun PageView(
     /** 누른 자리와 책갈피 모서리의 크기(px). */
     onTap: (Offset, Float) -> Unit,
     onSwipe: (forward: Boolean) -> Unit,
+    fitWidth: Boolean = false,
+    /** 쪽 끝부터 보인다(폭 맞춤에서 앞 쪽으로 돌아왔다). 처음 놓을 때만 본다. */
+    fromBottom: Boolean = false,
+    scroller: PageScroller? = null,
 ) {
     // 크기를 모르면 그리지 않는다. A 판형으로 먼저 그렸다가 가로 쪽으로 바뀌면 한 번 출렁인다. 앞뒤 쪽은
     // 미리 재 두므로 넘길 때는 바로 안다.
     var aspect by remember(page) { mutableStateOf(reader.book.knownAspectRatio(page)) }
     LaunchedEffect(page) { if (aspect == null) aspect = reader.book.pageAspectRatio(page) }
     val pageAspect = aspect ?: return
-    var viewport by remember(page, viewW, viewH, pageAspect) { mutableStateOf(PageViewport.fit(viewW, viewH, pageAspect)) }
-    val fitW = (viewW.coerceAtMost(viewH * pageAspect)).roundToInt()
-    val fitH = (fitW / pageAspect).roundToInt()
+    fun rest(aspect: Float, bottom: Boolean = false) =
+        if (fitWidth) PageViewport.fitWidth(viewW, viewH, aspect, bottom) else PageViewport.fit(viewW, viewH, aspect)
+    var viewport by remember(page, viewW, viewH, pageAspect, fitWidth) { mutableStateOf(rest(pageAspect, fromBottom)) }
+    // 바탕 그림은 쉬는 크기 그대로 그린다. 폭 맞춤을 쪽 전체 크기로 그려 늘리면 쉬는 동안 내내 글자가 흐리다.
+    val restView = rest(pageAspect)
+    val fitW = restView.width.roundToInt()
+    val fitH = restView.height.roundToInt()
+    if (scroller != null && fitWidth) {
+        DisposableEffect(scroller, page) {
+            val mine: (Boolean) -> Boolean = { forward -> viewport.scroll(forward)?.also { viewport = it } != null }
+            scroller.scroll = mine
+            onDispose { if (scroller.scroll === mine) scroller.scroll = null }
+        }
+    }
 
     // 미리 그려 둔 쪽이면 첫 프레임부터 보인다. 기다렸다 받으면 넘길 때마다 빈 종이가 한 번 번쩍인다.
     var base by remember(page, fitW, fitH) { mutableStateOf(reader.cachedPage(page, fitW, fitH)) }
@@ -383,9 +444,8 @@ private fun PageView(
         }
         for (near in intArrayOf(page + 1, page - 1)) {
             if (near !in 0 until reader.book.pageCount) continue
-            val a = reader.book.pageAspectRatio(near)
-            val w = (viewW.coerceAtMost(viewH * a)).roundToInt()
-            reader.page(near, w, (w / a).roundToInt())
+            val near0 = rest(reader.book.pageAspectRatio(near))
+            reader.page(near, near0.width.roundToInt(), near0.height.roundToInt())
         }
     }
 
@@ -422,6 +482,9 @@ private fun PageView(
                     var pinched = false
                     var travel = Offset.Zero
                     var swipe = 0f
+                    // 폭 맞춤에서 처음 움직인 방향이 세로면 쪽 안을 내려 보는 것, 가로면 넘기는 것. 한 번 정하면
+                    // 손을 뗄 때까지 바꾸지 않는다 — 비스듬히 내리다 쪽이 넘어가면 읽던 곳을 잃는다.
+                    var vertical = false
                     do {
                         val event = awaitPointerEvent()
                         val zoom = event.calculateZoom()
@@ -430,6 +493,7 @@ private fun PageView(
                         if (!moving) {
                             travel += pan
                             moving = fingers > 1 || travel.getDistance() > viewConfiguration.touchSlop
+                            if (moving) vertical = fitWidth && abs(travel.y) > abs(travel.x)
                         }
                         if (moving) {
                             if (fingers > 1) pinched = true
@@ -439,12 +503,16 @@ private fun PageView(
                             }
                             // 확대돼 있으면 끌기는 쪽 안에서 움직이는 것이다. 넘김으로 읽으면 확대한 곳을
                             // 보려고 끌 때마다 쪽이 넘어간다.
-                            if (viewport.isZoomed) viewport = viewport.pan(pan.x, pan.y) else swipe += pan.x
+                            when {
+                                viewport.isZoomed -> viewport = viewport.pan(pan.x, pan.y)
+                                vertical -> viewport = viewport.pan(0f, pan.y)
+                                else -> swipe += pan.x
+                            }
                             event.changes.forEach { it.consume() }
                         }
                     } while (event.changes.any { it.pressed })
                     // 두 손가락으로 줄였다가 전체 크기로 돌아온 것은 넘기려던 게 아니다.
-                    if (moving && !pinched && !viewport.isZoomed && abs(swipe) > threshold) onSwipe(swipe < 0)
+                    if (moving && !pinched && !vertical && !viewport.isZoomed && abs(swipe) > threshold) onSwipe(swipe < 0)
                 }
             },
     ) {
@@ -477,8 +545,58 @@ private fun PageView(
                 Modifier.align(Alignment.Center),
             )
         }
+        if (fitWidth) ScreenPosition(page, viewport, Modifier.matchParentSize())
     }
 }
+
+/**
+ * 폭 맞춤에서 쪽 안의 자리: 오른쪽 스크롤 막대와 아래 "18쪽 · 첫 화면 (1/3)". 화면을 옮기거나 쪽이 바뀐 뒤 잠깐만
+ * 보인다 — 늘 떠 있으면 쪽 아래 글을 가린다. 한 화면에 다 들어가는 쪽이면 보이지 않는다.
+ */
+@Composable
+private fun ScreenPosition(page: Int, viewport: PageViewport, modifier: Modifier) {
+    val (index, total) = viewport.screen()
+    if (total <= 1) return
+    var visible by remember { mutableStateOf(true) }
+    LaunchedEffect(page, index) {
+        visible = true
+        delay(POSITION_MS)
+        visible = false
+    }
+    if (!visible) return
+    Box(modifier) {
+        val h = viewport.height
+        val barTop = (-viewport.top / h).coerceIn(0f, 1f)
+        val barLen = (viewport.viewHeight / h).coerceIn(0f, 1f)
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        with(density) {
+            Box(
+                Modifier.align(Alignment.TopEnd).padding(end = 3.dp)
+                    .offset(y = (barTop * viewport.viewHeight).toDp())
+                    .width(4.dp).height((barLen * viewport.viewHeight).toDp())
+                    .clip(RoundedCornerShape(50)).background(Color(0x88000000)),
+            )
+        }
+        Box(
+            Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp).clip(RoundedCornerShape(14.dp))
+                .background(Color(0xE6302A24)).padding(horizontal = 12.dp, vertical = 5.dp)
+                .semantics { contentDescription = "쪽 안 위치" },
+        ) { CpText(screenLabel(page, index, total), CpTheme.type.caption, Color.White) }
+    }
+}
+
+/** "18쪽 · 첫 화면 (1/3)". 처음 · 끝은 말로, 가운데는 몇 번째인지. */
+internal fun screenLabel(page: Int, index: Int, total: Int): String {
+    val where = when (index) {
+        1 -> "첫 화면"
+        total -> "끝 화면"
+        else -> "${index}번째 화면"
+    }
+    return "${page + 1}쪽 · $where ($index/$total)"
+}
+
+/** 쪽 안 위치가 보이는 시간. 한 번 흘끗 보기에 충분하고 읽기를 오래 가리지 않는다. */
+private const val POSITION_MS = 1500L
 
 /**
  * 두쪽보기: 펼침의 쪽들을 가운데(책등)에 붙여 나란히 놓는다. 쪽마다 화면 절반 × 전체 높이에 맞춘다. 표지처럼

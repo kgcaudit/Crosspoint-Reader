@@ -141,7 +141,10 @@ internal fun FloatingMenu(
                 Row {
                     words.forEach { word ->
                         CpText(
-                            word, CpTheme.type.label, if (word == "지우기") Color(0xFFFFB0A0) else Color.White,
+                            word, CpTheme.type.label,
+                            // "이어서 ›" 는 쪽 끝에 닿았을 때만 새로 생기는 낱말이라 눈에 띄게 한다 — 흰색이면 늘 있던
+                            // 메뉴로 보여 지나친다.
+                            when (word) { "지우기" -> Color(0xFFFFB0A0); CONTINUE -> Color(0xFFFFC7A8); else -> Color.White },
                             Modifier.clip(RoundedCornerShape(10.dp)).clickable(role = Role.Button) { onWord(word) }
                                 .padding(horizontal = 12.dp, vertical = 12.dp),
                         )
@@ -175,20 +178,22 @@ internal fun handleCentres(first: Rect, last: Rect, r: Float): Pair<Offset, Offs
  * 손잡이가 새 자리로 옮겨 가며 손가락과의 거리가 매번 어긋난다.
  */
 @Composable
-internal fun SelectionHandles(first: Rect, last: Rect, color: Color) {
+internal fun SelectionHandles(first: Rect, last: Rect, color: Color, showStart: Boolean = true) {
     Canvas(Modifier.fillMaxSize()) {
         val r = HANDLE_RADIUS.toPx()
         val stroke = 2.dp.toPx()
         val (a, b) = handleCentres(first, last, r)
-        drawLine(color, Offset(first.left, first.top), Offset(first.left, first.bottom + 2), strokeWidth = stroke)
-        drawCircle(color, r, a)
+        if (showStart) {
+            drawLine(color, Offset(first.left, first.top), Offset(first.left, first.bottom + 2), strokeWidth = stroke)
+            drawCircle(color, r, a)
+        }
         drawLine(color, Offset(last.right, last.top), Offset(last.right, last.bottom + 2), strokeWidth = stroke)
         drawCircle(color, r, b)
     }
     // 화면 읽기(TalkBack)와 시험이 손잡이 자리를 알 수 있게 이름만 단 빈 상자. 누름은 받지 않는다(지면이 받는다).
     val density = LocalDensity.current
     val (a, b) = handleCentres(first, last, with(density) { HANDLE_RADIUS.toPx() })
-    for ((at, name) in listOf(a to "고르기 시작 손잡이", b to "고르기 끝 손잡이")) {
+    for ((at, name) in listOfNotNull(if (showStart) a to "고르기 시작 손잡이" else null, b to "고르기 끝 손잡이")) {
         Box(
             Modifier.offset { IntOffset((at.x - HANDLE_RADIUS.toPx()).roundToInt(), (at.y - HANDLE_RADIUS.toPx()).roundToInt()) }
                 .size(HANDLE_RADIUS * 2).semantics { contentDescription = name },
@@ -314,3 +319,36 @@ internal fun lookUp(context: Context, word: String): Boolean {
 /** 네모들을 모두 담는 네모(메뉴를 띄울 기준). */
 internal fun List<Rect>.bounds(): Rect =
     Rect(minOf { it.left }, minOf { it.top }, maxOf { it.right }, maxOf { it.bottom })
+
+/** 메뉴의 "이어서 ›"(쪽을 넘어 이어서 고르기). */
+internal const val CONTINUE = "이어서 ›"
+
+/** 보이는 쪽의 마지막 글자 뒤 자리(끝의 공백은 뺀다). 고른 끝이 여기에 닿아야 "이어서" 가 뜬다. */
+internal fun lastVisible(text: String, shownStart: Int, shownEnd: Int): Int {
+    var e = shownEnd.coerceAtMost(text.length)
+    while (e > shownStart && text[e - 1].isWhitespace()) e--
+    return e
+}
+
+/**
+ * 이어 고를 때 새 쪽에서 처음 잡아 줄 끝: 쪽 첫머리부터 시작하는 문장의 끝. 쪽 안에 문장 끝이 없으면 쪽 끝.
+ * 쪽 첫머리의 문장 조각(앞 쪽에서 넘어온 문장의 나머지)이 대개 이어 고르려던 곳이다.
+ */
+internal fun continueEnd(text: String, paragraphStarts: Set<Int>, pageStart: Int, shownEnd: Int): Int {
+    val end = shownEnd.coerceAtMost(text.length)
+    if (pageStart >= end) return end
+    val sentences = io.github.kgcaudit.reader.layout.book.splitSentences(text.substring(pageStart, end), paragraphStarts.map { it - pageStart }.filter { it > 0 }.toSet())
+    return sentences.firstOrNull()?.let { pageStart + it.endExclusive } ?: lastVisible(text, pageStart, end)
+}
+
+/** 새 쪽 위의 띠: "앞 쪽에서 이어 고르는 중 · 64자". 시작 손잡이가 보이지 않는 까닭을 알린다. */
+@Composable
+internal fun ContinueBanner(charsBefore: Int, modifier: Modifier = Modifier) {
+    Row(
+        modifier.clip(RoundedCornerShape(14.dp)).background(Color(0xE6302A24)).padding(horizontal = 12.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        io.github.kgcaudit.reader.ui.design.CpIcon(io.github.kgcaudit.reader.ui.design.CpIcons.Back, Color.White, size = 14.dp)
+        CpText("앞 쪽에서 이어 고르는 중 · ${charsBefore}자", CpTheme.type.caption, Color.White, Modifier.padding(start = 4.dp))
+    }
+}

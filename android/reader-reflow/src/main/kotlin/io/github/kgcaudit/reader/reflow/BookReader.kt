@@ -367,6 +367,19 @@ class BookReader(
         show(requireLayout().resolve(annotation.start))
     }
 
+    /**
+     * 칠이 여러 쪽에 걸치면 그 쪽들(장 안의 1부터 센 번호, 화면 아래 "5 / 12" 와 같은 수). 한 쪽 안이면 null.
+     * 쪽을 넘어 이어 고른 칠을 독서노트에서 눌렀을 때 첫 쪽만 보고 "잘렸다" 고 오해하지 않게 알린다.
+     */
+    suspend fun pagesOf(annotation: Annotation): IntRange? = run {
+        val l = requireLayout()
+        // 끝은 칠 바깥의 첫 글자라, 그대로 찾으면 쪽 끝에서 멈춘 칠이 다음 쪽에 걸친 것으로 보인다.
+        val last = Locator.Reflow(annotation.end.spine, (annotation.end.charOffset - 1).coerceAtLeast(0))
+        val a = l.resolve(annotation.start)
+        val b = l.resolve(last)
+        if (a.spineIndex != b.spineIndex || a.pageIndex == b.pageIndex) null else (a.pageIndex + 1)..(b.pageIndex + 1)
+    }
+
     /** 이 자리가 책의 몇 %(독서노트의 "3%"). */
     suspend fun percentOf(locator: Locator.Reflow): Float = run { requireLayout().percentAt(locator.spine, locator.charOffset) }
 

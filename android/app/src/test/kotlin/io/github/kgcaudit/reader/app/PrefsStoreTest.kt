@@ -88,6 +88,8 @@ class PrefsStoreTest {
                 twoPagesPortrait = true,
                 pdfCoverAlone = false,
                 autoTurn = io.github.kgcaudit.reader.ui.design.AutoTurn.S30,
+                showHighlights = false,
+                pdfFit = io.github.kgcaudit.reader.ui.design.PdfFit.Width,
             ),
             listen = io.github.kgcaudit.reader.reflow.ListenPrefs(rate = 1.3f, engine = "com.samsung.SMT", voice = "ko-kr-x-1", voiceLabel = "Samsung TTS · 한국어 1"),
         )
@@ -103,11 +105,13 @@ class PrefsStoreTest {
     fun `a value from a later version falls back to the default instead of failing`() {
         // 나중 판에서 없어진 이름이 남아 있어도 책은 열려야 한다(규칙 6).
         context.getSharedPreferences("reader", Context.MODE_PRIVATE).edit()
-            .putString("theme", "Sepia").putString("footerLeft", "Weather").putString("margin", "Huge").commit()
+            .putString("theme", "Sepia").putString("footerLeft", "Weather").putString("margin", "Huge")
+            .putString("pdfFit", "Height").commit()
         val loaded = PrefsStore(context).load()
         assertEquals(io.github.kgcaudit.reader.ui.design.PaperTheme.System, loaded.screen.theme)
         assertEquals(io.github.kgcaudit.reader.ui.design.FooterItem.BookTitle, loaded.screen.footer.left)
         assertEquals(ReaderPrefs.Margin.Normal, loaded.margin)
+        assertEquals(io.github.kgcaudit.reader.ui.design.PdfFit.Page, loaded.screen.pdfFit)
     }
 
     @Test

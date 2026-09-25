@@ -17,12 +17,14 @@ import androidx.test.core.app.ApplicationProvider
 import io.github.kgcaudit.reader.document.pdf.TestPdf
 import io.github.kgcaudit.reader.document.pdf.TestPdf.Companion.pages
 import io.github.kgcaudit.reader.document.pdf.TestPdf.Companion.utf16
+import org.junit.After
 import org.junit.Before
 import kotlinx.coroutines.test.StandardTestDispatcher
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.File
@@ -222,6 +224,62 @@ class PdfAppTest {
         container.pdfEngine = { it.close(); throw java.io.IOException("file not in PDF format or corrupted") }
         node(hasText("설명서.pdf")).performClick()
         waitFor(hasText("PDF 파일이 손상됐거나", substring = true))
+    }
+
+    /**
+     * 가로 화면으로 돈 시험 뒤에 세로로 되돌린다. Robolectric 은 다음 시험의 @Config 로 설정은 바꾸지만 화면(Display)
+     * 크기는 남겨 둬서, 뒤에 도는 다른 시험 묶음이 높이 393dp 화면에서 돌아 아래쪽 줄을 못 찾았다.
+     */
+    @After
+    fun backToPortrait() = RuntimeEnvironment.setQualifiers("w393dp-h851dp-xhdpi")
+
+    @Test
+    @Config(qualifiers = "w851dp-h393dp-xhdpi")
+    fun `in fit width a landscape phone reads one page down screen by screen and then turns`() {
+        node(hasText("설명서.pdf")).performClick()
+        waitFor(hasText("1 / 6"))
+        // 보기 판의 "쪽 맞춤" 에서 폭을 고른다.
+        compose.onRoot().performTouchInput { click(center) }
+        waitFor(hasText("보기"))
+        node(hasText("보기")).performClick()
+        waitFor(hasText("쪽 맞춤"))
+        shot("29-pdf-fit-setting")
+        node(hasText("폭")).performClick()
+        compose.waitForIdle()
+        compose.activity.onBackPressedDispatcher.onBackPressed()
+        compose.activity.onBackPressedDispatcher.onBackPressed()
+        // 쪽 머리부터, 몇 번째 화면인지 잠깐 보인다.
+        waitFor(hasText("1쪽 · 첫 화면", substring = true))
+        shot("29-pdf-fit-width")
+        val total = node(hasText("1쪽 · 첫 화면", substring = true)).fetchSemanticsNode()
+            .config[androidx.compose.ui.semantics.SemanticsProperties.Text].first().text
+            .substringAfter("(1/").substringBefore(")").toInt()
+        check(total >= 3) { "가로에서 폭에 맞춘 A4 가 세 화면도 안 된다: $total" }
+
+        // 다음 쪽 자리를 누르면 쪽이 아니라 한 화면 아래로. 쪽 끝까지는 쪽 번호가 그대로다.
+        fun next() = compose.onRoot().performTouchInput { click(centerRight.copy(x = width * 0.9f)) }
+        fun previous() = compose.onRoot().performTouchInput { click(centerLeft.copy(x = width * 0.1f)) }
+        for (i in 2..total) {
+            next()
+            waitFor(hasText("($i/$total)", substring = true))
+            waitFor(hasText("1 / 6"))
+        }
+        waitFor(hasText("1쪽 · 끝 화면", substring = true))
+        // 쪽 끝에서 한 번 더 누르면 다음 쪽의 머리. 가로지만 한 쪽씩이다(두쪽이면 "2–3 / 6").
+        next()
+        waitFor(hasText("2 / 6"))
+        waitFor(hasText("2쪽 · 첫 화면", substring = true))
+        // 앞 쪽 자리를 누르면 쪽 머리에서는 앞 쪽으로 — 그 쪽의 끝부터 보여야 방금 읽던 곳에 이어진다.
+        previous()
+        waitFor(hasText("1 / 6"))
+        waitFor(hasText("1쪽 · 끝 화면", substring = true))
+        previous()
+        waitFor(hasText("(${total - 1}/$total)", substring = true))
+        waitFor(hasText("1 / 6"))
+        // 옆으로 밀면 화면이 아니라 쪽을 넘긴다(새 쪽은 머리부터).
+        compose.onRoot().performTouchInput { swipeLeft() }
+        waitFor(hasText("2 / 6"))
+        waitFor(hasText("2쪽 · 첫 화면", substring = true))
     }
 
     /** 쪽 6장, 목차(장 · 절), 문서 정보(제목 · 저자)가 있는 PDF. 쪽 그림은 가짜 엔진([DrawnPdf])이 그린다. */

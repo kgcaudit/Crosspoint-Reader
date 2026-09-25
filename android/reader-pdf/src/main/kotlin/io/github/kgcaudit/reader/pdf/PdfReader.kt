@@ -98,11 +98,14 @@ class PdfReader(
     val title: String get() = book.meta.title
 
     /**
-     * 화면 크기로 그린 쪽. 지금 쪽과 앞뒤 한 쪽씩이면 넘길 때 기다리지 않는다. 쪽 하나가 화면 크기
-     * 비트맵(1080×2400 이면 약 10MB)이라 여섯 장까지만 둔다 — 두쪽보기의 지금 · 다음 · 앞 펼침(쪽마다 화면의
-     * 절반이라 합이 한 쪽 보기의 세 장과 비슷하다).
+     * 화면 크기로 그린 쪽. 지금 쪽과 앞뒤 한 쪽씩이면 넘길 때 기다리지 않는다. 장 수가 아니라 **바이트**로 센다 —
+     * 쪽 전체는 한 장 약 7–10MB 라 여섯 장 남짓이지만, 가로 화면의 폭 맞춤은 한 장이 30MB 를 넘어 여섯 장이면
+     * 180MB 다(0.17.0 시험에서 메모리가 모자랐다). 폭 맞춤에서는 지금 · 다음 두 장이 남고, 앞 쪽을 미리 그리면
+     * 가장 오래된 것부터 내린다.
      */
-    private val pages = LruCache<Triple<Int, Int, Int>, Bitmap>(6)
+    private val pages = object : LruCache<Triple<Int, Int, Int>, Bitmap>(CACHE_BYTES) {
+        override fun sizeOf(key: Triple<Int, Int, Int>, value: Bitmap): Int = value.allocationByteCount
+    }
 
     /** 저장된 자리로 간다. 없거나 범위를 벗어났으면(파일이 바뀜) 첫 쪽. */
     suspend fun open() {
@@ -233,3 +236,6 @@ class PdfReader(
         _state.value = _state.value.copy(bookmarked = marked)
     }
 }
+
+/** 쪽 그림 캐시의 크기. 예전 "화면 크기 여섯 장"(1080×2400 × 6 ≈ 60MB)과 같은 몫. */
+private const val CACHE_BYTES = 64 * 1024 * 1024

@@ -155,13 +155,30 @@ fun ReaderScreen(
     var memo by remember { mutableStateOf<MemoDraft?>(null) }
     var lastPen by remember { mutableStateOf(Pen.Yellow) }
     // 쪽이 바뀌면 고르기를 푼다(한 쪽 안에서만 고른다 — N9).
+    // "이어서 ›" 로 넘긴 고르기(① 쪽을 넘어 이어서 고르기). 장 번호와 함께 들고 있다가 다음 쪽이 보이면 잇는다.
+    var carry by remember { mutableStateOf<Pair<Int, Selection>?>(null) }
     LaunchedEffect(state.position?.spineIndex, state.position?.pageIndex, state.spread) {
-        selection = null
         tapped = null
+        val c = carry
+        carry = null
+        val p = state.position
+        val page = state.page
+        selection = if (c != null && p != null && page != null && p.spineIndex == c.first) {
+            // 앞 쪽에서 고른 시작은 그대로, 끝은 새 쪽의 첫 문장 끝 — 대개 거기까지가 이어 고르려던 곳이고, 아니면 끝
+            // 손잡이로 줄이거나 늘린다.
+            val shownEnd = (state.rightPage ?: page).endCharExclusive
+            Selection(c.second.start, continueEnd(state.text, state.paragraphStarts, page.startChar, shownEnd).coerceAtLeast(c.second.endExclusive))
+        } else {
+            null
+        }
     }
     fun say(message: String) {
         toast = message
         toastCount++
+    }
+    // 형광펜을 숨긴 채 칠하면 아무 일도 없어 보인다 — 저장은 됐다고 알린다.
+    fun hiddenHint() {
+        if (!latestPrefs.screen.showHighlights) say("형광펜을 숨겨 둔 상태라 보이지 않습니다. 보기 설정에서 켤 수 있습니다")
     }
 
     // ── 듣기(4단계) ──
@@ -354,6 +371,8 @@ fun ReaderScreen(
             state.links.filter { it.isFootnote(state.text) }.map { it.start until it.endExclusive }
         }
         val dark = colors.darkPaper
+        // 형광펜 숨김(3-5): 그리지도, 눌러 열지도 않는다. 지우지는 않는다.
+        val shownNotes = if (prefs.screen.showHighlights) state.annotations else emptyList()
         val marks = PageMarks(
             highlight = state.highlight?.let { it.start until it.endExclusive },
             highlightColor = accent.copy(alpha = 0.3f),
@@ -363,8 +382,8 @@ fun ReaderScreen(
             tints = listOfNotNull(
                 listen.sentence?.takeIf { listen.active && listen.spine == state.position?.spineIndex }
                     ?.let { Tint(it.start until it.endExclusive, accent.copy(alpha = if (dark) 0.30f else 0.18f)) },
-            ) + state.annotations.map { Tint(it.start.charOffset until it.end.charOffset, it.color.pen.fill(dark)) },
-            memos = state.annotations.filter { it.note != null }.map { MemoMark(it.end.charOffset, it.color.pen.mark(dark)) },
+            ) + shownNotes.map { Tint(it.start.charOffset until it.end.charOffset, it.color.pen.fill(dark)) },
+            memos = shownNotes.filter { it.note != null }.map { MemoMark(it.end.charOffset, it.color.pen.mark(dark)) },
             selection = selection?.range,
             selectionColor = accent.copy(alpha = 0.28f),
         )
@@ -460,7 +479,8 @@ fun ReaderScreen(
                         // 칠 안에 있어도 열린다. 링크의 넉넉한 누름 자리(48dp)보다는 칠한 글자가 앞선다.
                         val onLinkText = link != null && boxesOf(link.start, link.endExclusive).any { it.contains(offset) }
                         if (!onLinkText) {
-                            annotationAt({ boxesOf(it.start.charOffset, it.end.charOffset) }, current.annotations, offset.x, offset.y)?.let {
+                            val visible = if (latestPrefs.screen.showHighlights) current.annotations else emptyList()
+                            annotationAt({ boxesOf(it.start.charOffset, it.end.charOffset) }, visible, offset.x, offset.y)?.let {
                                 tapped = it
                                 return@detectTapGestures
                             }
@@ -503,7 +523,9 @@ fun ReaderScreen(
                         val da = (down.position - a).getDistance()
                         val db = (down.position - b).getDistance()
                         if (minOf(da, db) > reach) return@awaitEachGesture
-                        val isStart = da < db
+                        val shownStart = reader.state.value.page?.startChar ?: 0
+                        // 앞 쪽에서 이어 온 고르기는 시작 손잡이가 이 쪽에 없다 — 끝 손잡이만 잡힌다.
+                        val isStart = da < db && now.start >= shownStart
                         // 손가락은 물방울을 잡고 있지만 고를 글자는 그 위의 줄이다. 잡은 순간의 높이 차를 끝까지 유지한다.
                         val grabbed = if (isStart) boxes.first() else boxes.last()
                         val lift = down.position.y - grabbed.center.y
@@ -520,18 +542,30 @@ fun ReaderScreen(
         // 고른 구간: 손잡이와 메뉴(N4).
         selection?.let { sel ->
             val boxes = boxesOf(sel.start, sel.endExclusive)
+            val page = state.page
+            val position = state.position
+            val shownStart = page?.startChar ?: 0
+            val shownEnd = (state.rightPage ?: page)?.endCharExclusive ?: 0
+            val fromBefore = sel.start < shownStart
+            // "이어서 ›": 고른 끝이 보이는 쪽의 마지막 글자에 닿았고, 이 장에 뒤 쪽이 있을 때만.
+            val canContinue = position != null && sel.endExclusive >= lastVisible(state.text, shownStart, shownEnd) &&
+                position.pageIndex + (if (state.rightPage != null) 1 else 0) < position.pageCount - 1
             if (boxes.isNotEmpty()) {
-                SelectionHandles(boxes.first(), boxes.last(), accent)
+                SelectionHandles(boxes.first(), boxes.last(), accent, showStart = !fromBefore)
+                if (fromBefore) {
+                    ContinueBanner(shownStart - sel.start, Modifier.align(Alignment.TopCenter).windowInsetsPadding(cutout).padding(top = 4.dp))
+                }
                 // 메모 판이 떠 있는 동안에는 메뉴를 숨긴다. 고른 칠 · 손잡이는 남겨 "무엇에 대한 메모인지" 보이게 하되,
                 // 판 뒤에 같은 색 단추가 한 벌 더 있으면 어느 것이 판의 것인지 헷갈린다.
                 if (memo == null) FloatingMenu(
                     anchor = boxes.bounds(),
                     current = null,
-                    words = listOf("메모", "복사", "공유", "사전"),
+                    words = listOf("메모", "복사", "공유", "사전") + if (canContinue) listOf(CONTINUE) else emptyList(),
                     onPen = { pen ->
                         lastPen = pen
                         selection = null
                         scope.go { reader.highlight(sel.start, sel.endExclusive, pen.color) }
+                        hiddenHint()
                     },
                     onWord = { word ->
                         val quote = snippetOf(state.text, sel.start, sel.endExclusive, state.paragraphStarts)
@@ -540,8 +574,15 @@ fun ReaderScreen(
                             "복사" -> if (!copyText(context, quote)) say("복사했습니다")
                             "공유" -> shareOut(context, shareText(quote, null, reader.title))
                             "사전" -> if (!lookUp(context, quote)) say("낱말을 찾아 줄 사전 앱이 없습니다")
+                            CONTINUE -> {
+                                val spine = state.position?.spineIndex
+                                if (spine != null) {
+                                    carry = spine to sel
+                                    scope.go { reader.next() }
+                                }
+                            }
                         }
-                        if (word != "메모") selection = null
+                        if (word != "메모" && word != CONTINUE) selection = null
                     },
                 )
             }
@@ -740,6 +781,7 @@ fun ReaderScreen(
                             reader.update(draft.annotation.copy(color = pen.color).withNote(text))
                         } else if (sel != null) {
                             reader.highlight(sel.start, sel.endExclusive, pen.color, text)
+                            hiddenHint()
                         }
                     }
                 },
@@ -954,7 +996,7 @@ private suspend fun readingNotes(reader: BookReader, toc: List<TocEntry>): Readi
             text = note.snippet,
             pen = note.color.pen,
             memo = note.note,
-            where = noteWhere(reader.percentOf(note.start), note.createdAtEpochMs),
+            where = noteWhere(reader.percentOf(note.start), note.createdAtEpochMs, reader.pagesOf(note)),
         )
         rows += Triple(Triple(note.start.spine, note.start.charOffset, 1), item, note)
     }

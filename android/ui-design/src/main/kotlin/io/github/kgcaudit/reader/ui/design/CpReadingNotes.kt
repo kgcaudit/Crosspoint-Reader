@@ -126,10 +126,14 @@ fun NoteFilter.shows(item: NoteItem): Boolean = when (this) {
     NoteFilter.Memos -> !item.isBookmark && item.memo != null
 }
 
-/** "3% · 2026.09.24.". [percent] 가 null 이면(PDF) 날짜만 — PDF 는 쪽 번호가 곧 글이다. */
-fun noteWhere(percent: Float?, createdAtEpochMs: Long): String {
+/**
+ * "3% · 2026.09.24.". [percent] 가 null 이면(PDF) 날짜만 — PDF 는 쪽 번호가 곧 글이다.
+ * [pages] 는 쪽을 넘어 이어 고른 칠이 걸친 쪽들 — "31% · 5–6쪽에 걸침 · 2026.09.25.".
+ */
+fun noteWhere(percent: Float?, createdAtEpochMs: Long, pages: IntRange? = null): String {
     val date = SimpleDateFormat("yyyy.MM.dd.", Locale.KOREA).format(Date(createdAtEpochMs))
-    return if (percent == null) date else "${percent.roundToInt()}% · $date"
+    val span = pages?.takeIf { it.last > it.first }?.let { "${it.first}–${it.last}쪽에 걸침 · " } ?: ""
+    return if (percent == null) "$span$date" else "${percent.roundToInt()}% · $span$date"
 }
 
 /**

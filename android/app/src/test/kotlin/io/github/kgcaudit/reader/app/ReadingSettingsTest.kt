@@ -16,6 +16,8 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.filterToOne
 import androidx.test.core.app.ApplicationProvider
 import io.github.kgcaudit.reader.reflow.ReaderPrefs
 import io.github.kgcaudit.reader.ui.design.FooterItem
@@ -78,6 +80,37 @@ class ReadingSettingsTest {
         openMenu()
         node(hasText("보기")).performClick()
         waitFor(hasText("모든 보기 설정"))
+    }
+
+    /**
+     * [text] 줄이 화면 안에 들 때까지 설정 화면을 천천히 밀어 올린다. `performScrollTo` 는 시험 디스패처(StandardTestDispatcher)
+     * 에서 스크롤 코루틴이 돌기 전에 다시 요청하기를 되풀이해, 전체 검사에서 코루틴 127만 개를 쌓고 메모리가 바닥났다.
+     */
+    private fun scrollToShow(text: String) {
+        repeat(10) {
+            val b = compose.onAllNodes(hasText(text), useUnmergedTree = true)[0].fetchSemanticsNode().boundsInRoot
+            // 목록 끝의 줄은 화면 맨 아래까지만 올라온다 — "화면 안에 온전히" 면 된다(잘린 줄은 높이가 준다).
+            if (b.height > 20 * density && b.bottom <= compose.activity.window.decorView.height) {
+                // 목록 끝을 넘겨 끌면 늘어남(overscroll) 효과가 되돌아오는 동안 누름을 받지 않는다. waitForIdle 은 그것을
+                // 기다리지 않아, 시계를 직접 돌린다.
+                compose.mainClock.advanceTimeBy(2_000)
+                compose.waitForIdle()
+                return
+            }
+            // 설정 목록 자체를 민다. 화면 전체(onRoot)를 밀면 목록 밑의 읽기 화면이 끌기를 받아 목록은 그대로다.
+            val list = compose.onAllNodes(hasScrollAction(), useUnmergedTree = true).fetchSemanticsNodes()
+                .maxBy { it.boundsInRoot.height }.id
+            compose.onAllNodes(hasScrollAction(), useUnmergedTree = true).filterToOne(SemanticsMatcher("목록") { it.id == list })
+                .performTouchInput {
+                    // 끌다가 멈춘 뒤 뗀다 — 그냥 밀면 관성으로 계속 흘러, 바로 다음 누름이 "흐름 멈춤" 으로 먹힌다.
+                    down(Offset(centerX, height * 0.7f))
+                    repeat(10) { moveBy(Offset(0f, -height * 0.03f), delayMillis = 50) }
+                    advanceEventTime(400)
+                    up()
+                }
+            compose.waitForIdle()
+        }
+        error("$text 줄이 화면에 오지 않는다")
     }
 
     private fun openAllSettings() {
@@ -147,7 +180,6 @@ class ReadingSettingsTest {
         fun left(text: String) = node(hasText(text)).fetchSemanticsNode().boundsInRoot.left / density
         assertEquals(left("문단") + 16f, left("정렬"), 1f)
         assertEquals(left("넘기기") + 16f, left("터치 영역"), 1f)
-        assertEquals(left("화면") + 16f, left("하단 정보"), 1f)
 
         // 문단 설정은 저장되고 조판 설정에 들어간다(규칙 4 — 빠지면 캐시 키가 같아 옛 쪽이 보인다).
         node(hasText("왼쪽")).performClick()
@@ -158,6 +190,11 @@ class ReadingSettingsTest {
         assertEquals(ReaderPrefs.ParagraphAlign.Left, saved.align)
         assertEquals(ReaderPrefs.Indent.Off, saved.indent)
         assertEquals(ReaderPrefs.ParagraphSpacing.Loose, saved.paragraphSpacing)
+
+        // 화면 묶음은 줄이 많아 아래쪽이 첫 화면 밖이다(밖에 있는 줄은 폭 0 으로 잰다) — 문단 줄을 다 누른 뒤 내려 본다.
+        scrollToShow("하단 정보")
+        assertEquals(left("화면") + 16f, left("하단 정보"), 1f)
+        assertEquals(left("화면") + 16f, left("형광펜 · 메모"), 1f)
     }
 
     @Test
@@ -217,6 +254,7 @@ class ReadingSettingsTest {
     fun `the footer shows what was chosen for each place`() {
         openWith()
         openAllSettings()
+        scrollToShow("하단 정보")
         node(hasText("하단 정보")).performClick()
         waitFor(hasText("미리 보기"))
         node(hasText("왼쪽")).performClick()

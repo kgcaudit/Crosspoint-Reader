@@ -31,6 +31,13 @@ data class ScreenPrefs(
     val brightnessGesture: Boolean = true,
     /** n초마다 다음 쪽(L7). 기본 끔. 듣기가 켜져 있으면 쉰다 — 듣기가 쪽을 따라 넘긴다. */
     val autoTurn: AutoTurn = AutoTurn.Off,
+    /**
+     * 본문에 형광펜 · 메모 쪽지를 보일지(3-5). 숨겨도 지우지 않는다 — 독서노트에는 그대로 있다. 칠 없이 깨끗한 쪽으로
+     * 다시 읽고 싶을 때.
+     */
+    val showHighlights: Boolean = true,
+    /** PDF 쪽 맞춤: 쪽 전체(기본) · 폭. 가로 화면에서 잡지 글자가 작아 폭에 맞춰 위아래로 밀어 읽는다. */
+    val pdfFit: PdfFit = PdfFit.Page,
 ) {
     /**
      * 지금 화면에서 두 쪽을 펼칠지. 세로 두쪽은 기기의 가장 짧은 폭이 [WIDE_SCREEN_DP] 이상일 때만 — 휴대폰
@@ -138,4 +145,12 @@ data class Footer(
         get() = listOf(left, center, right).filter { it != FooterItem.None }
             .joinToString(" · ") { if (it == FooterItem.Percent) "%" else it.label }
             .ifEmpty { FooterItem.None.label }
+}
+
+/** PDF 쪽을 화면에 맞추는 방식. */
+enum class PdfFit(val label: String) {
+    /** 쪽 전체가 보인다(두쪽보기 가능). */
+    Page("쪽 전체"),
+    /** 쪽 폭을 화면 폭에 맞춘다. 한 쪽씩, 위아래로 밀어 본다. */
+    Width("폭"),
 }

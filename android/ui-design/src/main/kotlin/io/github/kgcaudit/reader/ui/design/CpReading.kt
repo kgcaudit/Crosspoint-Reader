@@ -381,6 +381,18 @@ fun CpViewSettingsScreen(
                 CpChoice("화면 회전", rotations.map { it.label }, rotations.indexOf(prefs.rotation), {
                     onChange(prefs.copy(rotation = rotations[it]))
                 }, child)
+                if (!pdf) {
+                    // 형광펜 · 메모 숨기기(3-5). PDF 에는 칠이 없어 줄을 두지 않는다.
+                    CpChoice("형광펜 · 메모", listOf("보임", "숨김"), if (prefs.showHighlights) 0 else 1, {
+                        onChange(prefs.copy(showHighlights = it == 0))
+                    }, child)
+                    CpText(
+                        "숨겨도 지워지지 않습니다. 독서노트에는 그대로 있고, 숨긴 동안 새로 칠한 것도 저장됩니다.",
+                        CpTheme.type.caption, CpTheme.colors.textMuted,
+                        Modifier.padding(start = CpTheme.metrics.gutter + CpTheme.metrics.levelIndent, end = CpTheme.metrics.gutter, top = 4.dp, bottom = 4.dp),
+                        maxLines = 2,
+                    )
+                }
                 CpChoice("가로에서 두쪽보기", listOf("켬", "끔"), if (prefs.twoPagesLandscape) 0 else 1, {
                     onChange(prefs.copy(twoPagesLandscape = it == 0))
                 }, child)
