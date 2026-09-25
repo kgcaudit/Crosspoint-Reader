@@ -87,7 +87,9 @@ class PrefsStoreTest {
                 twoPagesLandscape = false,
                 twoPagesPortrait = true,
                 pdfCoverAlone = false,
+                autoTurn = io.github.kgcaudit.reader.ui.design.AutoTurn.S30,
             ),
+            listen = io.github.kgcaudit.reader.reflow.ListenPrefs(rate = 1.3f, engine = "com.samsung.SMT", voice = "ko-kr-x-1", voiceLabel = "Samsung TTS · 한국어 1"),
         )
         PrefsStore(context).save(chosen)
         assertEquals(chosen, PrefsStore(context).load())
@@ -106,5 +108,18 @@ class PrefsStoreTest {
         assertEquals(io.github.kgcaudit.reader.ui.design.PaperTheme.System, loaded.screen.theme)
         assertEquals(io.github.kgcaudit.reader.ui.design.FooterItem.BookTitle, loaded.screen.footer.left)
         assertEquals(ReaderPrefs.Margin.Normal, loaded.margin)
+    }
+
+    @Test
+    fun `a broken reading speed is brought back into range instead of stopping the voice`() {
+        // 0 배속 · 무한대가 저장돼 있으면 듣기가 멈추거나 알아들을 수 없게 빠르다.
+        val sp = context.getSharedPreferences("reader", Context.MODE_PRIVATE)
+        sp.edit().putFloat("listenRate", 0f).commit()
+        assertEquals(0.5f, PrefsStore(context).load().listen.rate)
+        sp.edit().putFloat("listenRate", Float.POSITIVE_INFINITY).commit()
+        assertEquals(1f, PrefsStore(context).load().listen.rate)
+        sp.edit().putFloat("listenRate", 9f).putString("autoTurn", "S5").commit()
+        assertEquals(2f, PrefsStore(context).load().listen.rate)
+        assertEquals(io.github.kgcaudit.reader.ui.design.AutoTurn.Off, PrefsStore(context).load().screen.autoTurn)
     }
 }

@@ -29,6 +29,8 @@ data class ScreenPrefs(
     val pageTurn: PageTurn = PageTurn.None,
     /** 왼쪽 끝을 위아래로 밀어 밝기(E6). 기본 켬(리디와 같다). 옆으로 미는 넘김과는 방향으로 가른다. */
     val brightnessGesture: Boolean = true,
+    /** n초마다 다음 쪽(L7). 기본 끔. 듣기가 켜져 있으면 쉰다 — 듣기가 쪽을 따라 넘긴다. */
+    val autoTurn: AutoTurn = AutoTurn.Off,
 ) {
     /**
      * 지금 화면에서 두 쪽을 펼칠지. 세로 두쪽은 기기의 가장 짧은 폭이 [WIDE_SCREEN_DP] 이상일 때만 — 휴대폰

@@ -74,6 +74,11 @@ import io.github.kgcaudit.reader.ui.design.CpToast
 import io.github.kgcaudit.reader.ui.design.CpViewSettingsScreen
 import io.github.kgcaudit.reader.ui.design.FooterInfo
 import io.github.kgcaudit.reader.ui.design.ReadingWindow
+import io.github.kgcaudit.reader.ui.design.AutoTurn
+import io.github.kgcaudit.reader.ui.design.CpAutoTurnPill
+import io.github.kgcaudit.reader.ui.design.KeepScreenOn
+import io.github.kgcaudit.reader.ui.design.rememberAutoTurn
+import io.github.kgcaudit.reader.ui.design.visible
 import io.github.kgcaudit.reader.ui.design.ScreenPrefs
 import io.github.kgcaudit.reader.ui.design.TapAction
 import io.github.kgcaudit.reader.ui.design.VolumeKeyPaging
@@ -143,7 +148,14 @@ fun PdfScreen(
         turn[2] = state.shown.size.toLong()
     }
 
-    ReadingWindow(prefs.copy(brightness = dragBrightness ?: prefs.brightness), activity = state.page)
+    // 자동 넘김을 켜 두면 화면을 켜 둔다(EPUB 과 같다).
+    ReadingWindow(
+        prefs.copy(
+            brightness = dragBrightness ?: prefs.brightness,
+            keepScreenOn = if (prefs.autoTurn != AutoTurn.Off) KeepScreenOn.Always else prefs.keepScreenOn,
+        ),
+        activity = state.page,
+    )
     VolumeKeyPaging(enabled = prefs.volumeKeys && panel == PdfPanel.None) { forward ->
         scope.go { if (forward) reader.next() else reader.previous() }
     }
@@ -261,6 +273,12 @@ fun PdfScreen(
         // 가린다(구상안 ⑥).
         if (state.bookmarked && state.pageCount > 0) {
             CpRibbon(Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.displayCutout).padding(end = 20.dp))
+        }
+        // 자동 넘김(L7). PDF 도 글자 없이 쪽만 넘기면 되므로 같이 쓴다. 메뉴가 열려 있으면 쉰다.
+        val autoSuspended = panel != PdfPanel.None
+        val autoTurn = rememberAutoTurn(prefs.autoTurn, state.page, autoSuspended) { scope.go { reader.next() } }
+        if (autoTurn.visible(prefs.autoTurn, autoSuspended)) {
+            CpAutoTurnPill(autoTurn, Modifier.align(Alignment.BottomCenter).padding(bottom = 60.dp))
         }
         CpToast(toast, onDone = { toast = null }, Modifier.align(Alignment.BottomCenter), key = toastCount)
         CpBrightnessOverlay(dragBrightness, Modifier.align(Alignment.CenterStart))

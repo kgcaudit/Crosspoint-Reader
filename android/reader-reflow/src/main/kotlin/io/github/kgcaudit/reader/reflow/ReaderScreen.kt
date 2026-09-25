@@ -4,6 +4,17 @@ import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import io.github.kgcaudit.reader.reflow.listen.ListenHub
+import io.github.kgcaudit.reader.reflow.listen.ListenKit
+import io.github.kgcaudit.reader.reflow.listen.ListenPlayer
+import io.github.kgcaudit.reader.reflow.listen.ListenSheet
+import io.github.kgcaudit.reader.reflow.listen.ListenState
+import io.github.kgcaudit.reader.reflow.listen.Listening
+import io.github.kgcaudit.reader.reflow.listen.VoiceScreen
+import io.github.kgcaudit.reader.ui.design.CpAutoTurnPill
+import io.github.kgcaudit.reader.ui.design.rememberAutoTurn
+import io.github.kgcaudit.reader.ui.design.visible
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -113,6 +124,8 @@ fun ReaderScreen(
     /** 읽는 속도(글자/분). 남은 시간을 센다(E5). 앱이 저장해 두어 책을 닫아도 남는다. */
     speed: ReadingSpeed = remember { ReadingSpeed() },
     onSpeedChange: (ReadingSpeed) -> Unit = {},
+    /** 듣기 엔진(4단계). 앱이 주고, 시험은 가짜 엔진을 준다. null 이면 휴대폰의 음성 엔진. */
+    listenKit: ListenKit? = null,
 ) {
     val state by reader.state.collectAsState()
     val scope = rememberCoroutineScope()
@@ -151,7 +164,63 @@ fun ReaderScreen(
         toastCount++
     }
 
-    ReadingWindow(prefs.screen.copy(brightness = dragBrightness ?: prefs.screen.brightness), activity = state.position)
+    // ── 듣기(4단계) ──
+    val kit = remember(listenKit) { listenKit ?: ListenKit.android(context) }
+    val hub by ListenHub.current.collectAsState()
+    // 이 책의 듣기만 조종판에 보인다(다른 책을 듣던 중에 이 책을 열었으면 그 듣기는 붙이지 않는다).
+    val listening = hub?.takeIf { it.belongsTo(reader) }
+    val listen = listening?.state?.collectAsState()?.value ?: ListenState()
+    var listenSheet by remember { mutableStateOf(false) }
+    fun startListening(from: Int? = null) {
+        val position = state.position ?: return
+        val page = state.page ?: return
+        val l = Listening(reader, kit.speaker(prefs.listen.engine), ListenHub.scope)
+        ListenHub.attach(context, l)
+        panel = Panel.None
+        ListenHub.scope.launch { l.start(position.spineIndex, from ?: page.startChar, prefs.listen.rate, prefs.listen.voice) }
+    }
+    // 책을 닫으면 듣기도 끝낸다. 닫은 책을 화면 없이 계속 읽으면 멈출 곳이 잠금 화면뿐이다.
+    val closeBook = {
+        ListenHub.detach(listening)
+        onClose()
+    }
+    LaunchedEffect(listen.message) {
+        listen.message?.let { say(it); listening?.consumeMessage() }
+    }
+    // 사람이 쪽을 옮기면(넘기기 · 목차 · 진행 막대) 듣기도 그 쪽의 첫 문장으로 온다.
+    LaunchedEffect(state.position?.spineIndex, state.position?.pageIndex, state.spread) {
+        val p = state.position ?: return@LaunchedEffect
+        val page = state.page ?: return@LaunchedEffect
+        listening?.onPageShown(p.spineIndex, page.startChar, (state.rightPage ?: page).endCharExclusive)
+    }
+    // 화면을 끈 채 듣는 동안 쪽이 넘어갔으면, 돌아왔을 때 알린다 — 보던 쪽이 바뀐 까닭을 모르면 놀란다.
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle, listening) {
+        var left: Pair<Int, Int>? = null
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            val p = reader.state.value.position
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> left = p?.let { it.spineIndex to it.pageIndex }
+                androidx.lifecycle.Lifecycle.Event.ON_START -> {
+                    val now = p?.let { it.spineIndex to it.pageIndex }
+                    if (left != null && now != left && listening?.state?.value?.active == true) say("듣던 곳으로 쪽을 옮겼습니다")
+                    left = null
+                }
+                else -> Unit
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+
+    // 자동 넘김을 켜 두면 화면을 켜 둔다 — 넘기는 사이 화면 꺼짐 시간이 지나 꺼지면 자동 넘김이 뜻이 없다.
+    ReadingWindow(
+        prefs.screen.copy(
+            brightness = dragBrightness ?: prefs.screen.brightness,
+            keepScreenOn = if (prefs.screen.autoTurn != io.github.kgcaudit.reader.ui.design.AutoTurn.Off) io.github.kgcaudit.reader.ui.design.KeepScreenOn.Always else prefs.screen.keepScreenOn,
+        ),
+        activity = state.position,
+    )
     VolumeKeyPaging(enabled = prefs.screen.volumeKeys && panel == Panel.None) { forward ->
         scope.go { if (forward) reader.next() else reader.previous() }
     }
@@ -205,10 +274,11 @@ fun ReaderScreen(
             return@BackHandler
         }
         panel = when (panel) {
-            Panel.None -> { onClose(); Panel.None }
+            Panel.None -> { closeBook(); Panel.None }
             // 목록에서 뒤로 가면 도구줄로 돌아온다 — 바로 닫히면 목록을 다시 열 길이 멀어진다.
             Panel.Contents, Panel.Notes, Panel.View, Panel.Search -> Panel.Bar
             Panel.Fonts, Panel.Settings -> Panel.View
+            Panel.Voices -> Panel.None
             Panel.Bar -> Panel.None
         }
     }
@@ -289,7 +359,11 @@ fun ReaderScreen(
             highlightColor = accent.copy(alpha = 0.3f),
             accent = noteMarks,
             accentColor = accent,
-            tints = state.annotations.map { Tint(it.start.charOffset until it.end.charOffset, it.color.pen.fill(dark)) },
+            // 지금 읽는 문장(L3)을 먼저 깐다 — 형광펜이 그 위에 보인다. 강조색이라 4색 형광펜과 헷갈리지 않는다.
+            tints = listOfNotNull(
+                listen.sentence?.takeIf { listen.active && listen.spine == state.position?.spineIndex }
+                    ?.let { Tint(it.start until it.endExclusive, accent.copy(alpha = if (dark) 0.30f else 0.18f)) },
+            ) + state.annotations.map { Tint(it.start.charOffset until it.end.charOffset, it.color.pen.fill(dark)) },
             memos = state.annotations.filter { it.note != null }.map { MemoMark(it.end.charOffset, it.color.pen.mark(dark)) },
             selection = selection?.range,
             selectionColor = accent.copy(alpha = 0.28f),
@@ -531,7 +605,26 @@ fun ReaderScreen(
         )
         CpToast(toast, onDone = { toast = null }, Modifier.align(Alignment.BottomCenter), key = toastCount)
 
+        // 자동 넘김(L7). 메뉴가 열렸거나 듣는 중이면 쉰다.
+        val autoSuspended = panel != Panel.None || listen.active || selection != null || memo != null
+        val autoTurn = rememberAutoTurn(prefs.screen.autoTurn, state.position?.let { it.spineIndex to it.pageIndex }, autoSuspended) {
+            scope.go { reader.next() }
+        }
+        val lift = if (listen.active || autoTurn.visible(prefs.screen.autoTurn, autoSuspended)) 124.dp else 64.dp
         if (panel == Panel.None) {
+            if (listen.active) {
+                ListenPlayer(
+                    state = listen,
+                    onPrevious = { listening?.previous() },
+                    onToggle = { listening?.toggle() },
+                    onNext = { listening?.next() },
+                    onSettings = { listenSheet = true },
+                    onClose = { ListenHub.detach(listening) },
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 60.dp),
+                )
+            } else if (autoTurn.visible(prefs.screen.autoTurn, autoSuspended)) {
+                CpAutoTurnPill(autoTurn, Modifier.align(Alignment.BottomCenter).padding(bottom = 60.dp))
+            }
             if (search.current >= 0 && search.results.isNotEmpty()) {
                 SearchResultBar(
                     index = search.current,
@@ -540,26 +633,28 @@ fun ReaderScreen(
                     onNext = { if (search.current < search.results.size - 1) openHit(search.current + 1) },
                     onList = { panel = Panel.Search },
                     onClose = { search.current = -1; scope.go { reader.clearHighlight() } },
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 64.dp),
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = lift),
                 )
             } else if (state.canReturn) {
-                ReturnChip({ scope.go { reader.returnBack() } }, Modifier.align(Alignment.BottomCenter).padding(bottom = 64.dp))
+                ReturnChip({ scope.go { reader.returnBack() } }, Modifier.align(Alignment.BottomCenter).padding(bottom = lift))
             }
         }
         CpBrightnessOverlay(dragBrightness, Modifier.align(Alignment.CenterStart))
 
         when (panel) {
-            Panel.None -> Unit
+            // 목소리 화면은 아래에서 듣기 판과 함께 그린다.
+            Panel.None, Panel.Voices -> Unit
             Panel.Bar, Panel.View -> ReaderBar(
                 reader = reader,
                 state = state,
                 prefs = prefs,
                 onPrefsChange = onPrefsChange,
                 showView = panel == Panel.View,
-                onClose = onClose,
+                onClose = closeBook,
                 onPanel = { panel = it },
                 onBookmark = ::toggleBookmark,
                 onSearch = { panel = Panel.Search },
+                onListen = { if (listening != null) { panel = Panel.None; listening.play() } else startListening() },
                 scope = scope,
             )
             Panel.Search -> SearchScreen(
@@ -591,6 +686,43 @@ fun ReaderScreen(
                 onMemo = { memo = it },
                 onShare = { shareOut(context, it) },
                 scope = scope,
+            )
+        }
+
+        if (listenSheet && listen.active) {
+            ListenSheet(
+                prefs = prefs.listen,
+                timer = listen.timer,
+                onRate = { next -> onPrefsChange(prefs.copy(listen = next)); listening?.setRate(next.rate) },
+                onVoices = { listenSheet = false; panel = Panel.Voices },
+                onTimer = { listening?.setTimer(it) },
+                onClose = { listenSheet = false },
+            )
+        }
+        if (panel == Panel.Voices) {
+            VoiceScreen(
+                kit = kit,
+                current = prefs.listen,
+                onPick = { picked ->
+                    val engineChanged = picked.engine != prefs.listen.engine
+                    onPrefsChange(prefs.copy(listen = picked))
+                    val l = listening
+                    if (l != null && engineChanged) {
+                        // 엔진이 바뀌면 새 엔진으로 다시 연다 — 듣던 문장부터.
+                        val at = l.state.value.sentence?.start
+                        val spine = l.state.value.spine
+                        ListenHub.detach(l)
+                        val position = state.position
+                        if (position != null) {
+                            val next = Listening(reader, kit.speaker(picked.engine), ListenHub.scope)
+                            ListenHub.attach(context, next)
+                            ListenHub.scope.launch { next.start(spine.takeIf { it >= 0 } ?: position.spineIndex, at ?: (state.page?.startChar ?: 0), picked.rate, picked.voice) }
+                        }
+                    } else {
+                        l?.setVoice(picked.voice)
+                    }
+                },
+                onBack = { panel = Panel.None; if (listen.active) listenSheet = true },
             )
         }
 
@@ -650,7 +782,7 @@ fun ReaderScreen(
  * 이제 누르면 **얇은 도구줄**만 뜨고 지면은 거의 그대로 보인다. 목차·책갈피는 볼 때만
  * 전체 화면으로 연다(Play 북·리디와 같은 구성).
  */
-private enum class Panel { None, Bar, View, Fonts, Settings, Search, Contents, Notes }
+private enum class Panel { None, Bar, View, Fonts, Settings, Search, Contents, Notes, Voices }
 
 /** 한 번 그린 쪽. 넘김 효과가 옛 쪽을 새 쪽과 함께 그리는 동안 옛 쪽의 내용을 쥐고 있다. */
 private data class PageFrame(
@@ -689,6 +821,7 @@ private fun ReaderBar(
     onPanel: (Panel) -> Unit,
     onBookmark: () -> Unit,
     onSearch: () -> Unit,
+    onListen: () -> Unit,
     scope: CoroutineScope,
 ) {
     val position = state.position
@@ -698,6 +831,7 @@ private fun ReaderBar(
         bookmarked = state.bookmarked,
         onBookmark = onBookmark,
         onSearch = onSearch,
+        onListen = onListen,
         onBack = onClose,
         onDismiss = { onPanel(Panel.None) },
         progress = state.percent / 100f,

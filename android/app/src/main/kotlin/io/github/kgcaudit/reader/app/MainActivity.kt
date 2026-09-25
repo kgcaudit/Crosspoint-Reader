@@ -246,6 +246,7 @@ private fun OloApp(
                     onChrome = { showing -> hideSystemBars(!showing) },
                     speed = charSpeed,
                     onSpeedChange = { container.prefs.saveSpeed("chars", it) },
+                    listenKit = container.listenKit,
                 )
             }
         }

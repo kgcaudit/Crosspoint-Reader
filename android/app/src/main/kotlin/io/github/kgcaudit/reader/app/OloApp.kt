@@ -18,6 +18,9 @@ import io.github.kgcaudit.reader.pdf.PdfSource
 import io.github.kgcaudit.reader.pdf.PlatformPdfSource
 import io.github.kgcaudit.reader.reflow.BookReader
 import io.github.kgcaudit.reader.reflow.ReaderPrefs
+import io.github.kgcaudit.reader.reflow.ListenPrefs
+import io.github.kgcaudit.reader.reflow.listen.ListenKit
+import io.github.kgcaudit.reader.ui.design.AutoTurn
 import io.github.kgcaudit.reader.text.FontCatalog
 import io.github.kgcaudit.reader.text.UserFonts
 import io.github.kgcaudit.reader.ui.design.Footer
@@ -76,6 +79,10 @@ class AppContainer(private val app: Application) {
      */
     @androidx.annotation.VisibleForTesting
     internal var pdfEngine: (android.os.ParcelFileDescriptor) -> PdfSource = ::PlatformPdfSource
+
+    /** 듣기 엔진(4단계). 테스트가 가짜로 바꾼다 — Robolectric 에는 음성 엔진이 없다. */
+    @androidx.annotation.VisibleForTesting
+    internal var listenKit: ListenKit = ListenKit.android(app)
 
     /** 책을 연다. */
     suspend fun open(book: LibraryBook): OpenedBook = withContext(Dispatchers.IO) {
@@ -239,6 +246,14 @@ class PrefsStore(context: Context) {
             pdfCoverAlone = sp.getBoolean(KEY_PDF_COVER_ALONE, true),
             pageTurn = enumOf(KEY_PAGE_TURN, PageTurn.None),
             brightnessGesture = sp.getBoolean(KEY_BRIGHTNESS_GESTURE, true),
+            autoTurn = enumOf(KEY_AUTO_TURN, AutoTurn.Off),
+        ),
+        listen = ListenPrefs(
+            // 망가진 값(범위 밖)은 범위 안으로 — 0 배속으로 저장된 값 때문에 듣기가 안 되면 안 된다.
+            rate = sp.getFloat(KEY_LISTEN_RATE, 1f).takeIf { it.isFinite() }?.coerceIn(ListenPrefs.MIN_RATE, ListenPrefs.MAX_RATE) ?: 1f,
+            engine = sp.getString(KEY_LISTEN_ENGINE, null),
+            voice = sp.getString(KEY_LISTEN_VOICE, null),
+            voiceLabel = sp.getString(KEY_LISTEN_VOICE_LABEL, null),
         ),
     )
 
@@ -270,6 +285,11 @@ class PrefsStore(context: Context) {
             .putBoolean(KEY_PDF_COVER_ALONE, prefs.screen.pdfCoverAlone)
             .putString(KEY_PAGE_TURN, prefs.screen.pageTurn.name)
             .putBoolean(KEY_BRIGHTNESS_GESTURE, prefs.screen.brightnessGesture)
+            .putString(KEY_AUTO_TURN, prefs.screen.autoTurn.name)
+            .putFloat(KEY_LISTEN_RATE, prefs.listen.rate)
+            .putString(KEY_LISTEN_ENGINE, prefs.listen.engine)
+            .putString(KEY_LISTEN_VOICE, prefs.listen.voice)
+            .putString(KEY_LISTEN_VOICE_LABEL, prefs.listen.voiceLabel)
             .apply()
     }
 
@@ -319,5 +339,10 @@ class PrefsStore(context: Context) {
         private const val KEY_PDF_COVER_ALONE = "pdfCoverAlone"
         private const val KEY_PAGE_TURN = "pageTurn"
         private const val KEY_BRIGHTNESS_GESTURE = "brightnessGesture"
+        private const val KEY_AUTO_TURN = "autoTurn"
+        private const val KEY_LISTEN_RATE = "listenRate"
+        private const val KEY_LISTEN_ENGINE = "listenEngine"
+        private const val KEY_LISTEN_VOICE = "listenVoice"
+        private const val KEY_LISTEN_VOICE_LABEL = "listenVoiceLabel"
     }
 }

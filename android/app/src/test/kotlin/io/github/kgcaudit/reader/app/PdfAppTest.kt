@@ -138,6 +138,8 @@ class PdfAppTest {
         node(hasContentDescription("책갈피 꽂기")).performClick()
         waitFor(hasContentDescription("책갈피 빼기"))
         // 도구줄의 책갈피 단추는 독서노트로 합쳤다(N5). PDF 독서노트는 책갈피만 모인다.
+        // PDF 는 글자가 없어 듣기 단추가 없다(L8, 찾기와 같다).
+        kotlin.test.assertTrue(compose.onAllNodes(hasContentDescription("듣기"), useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
         node(hasText("독서노트")).performClick()
         waitFor(hasText("4쪽"))
         waitFor(hasText("PDF 는 글자를 고를 수 없어 책갈피만 모입니다"))

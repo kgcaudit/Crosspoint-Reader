@@ -366,6 +366,16 @@ fun CpViewSettingsScreen(
                 CpChoice("넘김 효과", turns.map { it.label }, turns.indexOf(prefs.pageTurn), {
                     onChange(prefs.copy(pageTurn = turns[it]))
                 }, child)
+                val autos = AutoTurn.entries
+                CpChoice("자동 넘김", autos.map { it.label }, autos.indexOf(prefs.autoTurn), {
+                    onChange(prefs.copy(autoTurn = autos[it]))
+                }, child)
+                CpText(
+                    "자동 넘김은 가운데를 누르면 멈춥니다. 듣기와 함께 켜면 듣기가 넘김을 맡습니다.",
+                    CpTheme.type.caption, CpTheme.colors.textMuted,
+                    Modifier.padding(start = CpTheme.metrics.gutter + CpTheme.metrics.levelIndent, end = CpTheme.metrics.gutter, top = 4.dp, bottom = 4.dp),
+                    maxLines = 2,
+                )
                 CpSectionLabel("화면")
                 val rotations = ScreenRotation.entries
                 CpChoice("화면 회전", rotations.map { it.label }, rotations.indexOf(prefs.rotation), {
