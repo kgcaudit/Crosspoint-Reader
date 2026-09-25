@@ -159,6 +159,7 @@ class ListenAppTest {
     private fun startListening() {
         compose.onRoot().performTouchInput { click(center) }
         waitFor(hasContentDescription("듣기"))
+        shot("85-bar-listen")
         node(hasContentDescription("듣기")).performClick()
         waitFor(hasContentDescription("듣기 조종판"))
         compose.waitUntil(5_000) { speakers.isNotEmpty() && speaker.current != null }
