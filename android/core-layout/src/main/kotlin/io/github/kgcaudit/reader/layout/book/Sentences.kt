@@ -34,7 +34,7 @@ fun splitSentences(text: CharSequence, paragraphStarts: Set<Int> = emptySet(), m
         if (c in TERMINATORS) {
             var j = i + 1
             while (j < text.length && (text[j] in TERMINATORS || text[j] in CLOSERS)) j++
-            val ends = j >= text.length || text[j].isWhitespace() || j in paragraphStarts
+            val ends = j >= text.length || isGap(text[j]) || j in paragraphStarts
             if (ends && !isInitial(text, i)) {
                 close(j)
                 i = j
@@ -66,15 +66,31 @@ fun List<Sentence>.indexAt(offset: Int): Int {
     return -1
 }
 
-/** 엔진에 넘길 글: 제어 문자 · 그림 자리 글자(U+FFFC)는 공백으로, 겹친 공백은 한 칸으로. */
+/**
+ * 엔진에 넘길 글. 화면의 글자는 그대로 두고, 엔진이 헷갈리는 숨은 문자만 정리한다.
+ *
+ * - 제어 문자 · 그림 자리 글자(U+FFFC)는 공백으로.
+ * - 여러 가지 공백(줄바꿈 금지 공백 U+00A0 · 좁은 공백 · 전각 공백 …)은 보통 공백으로. 일부 EPUB 은 어절 사이를
+ *   이것으로 띄우는데, 엔진에 따라 이것을 어절 경계로 보지 않아 두 어절을 한 낱말처럼 붙여 읽는다.
+ * - 폭 없는 공백(U+200B) · 낱말 잇기(U+2060) · BOM · 소프트 하이픈(U+00AD)은 지운다. 화면에 보이지 않는 글자라
+ *   엔진이 그 자리에서 낱말을 끊거나 기호로 읽으면 어절 한가운데서 끊겨 들린다.
+ * - 겹친 공백은 한 칸으로.
+ */
 fun speakable(text: CharSequence, sentence: Sentence): String {
     val sb = StringBuilder(sentence.endExclusive - sentence.start)
     for (i in sentence.start until sentence.endExclusive.coerceAtMost(text.length)) {
         val c = text[i]
-        sb.append(if (c < ' ' || c == '￼') ' ' else c)
+        when {
+            c in INVISIBLE -> Unit
+            c < ' ' || c == OBJECT_REPLACEMENT || Character.isSpaceChar(c) -> sb.append(' ')
+            else -> sb.append(c)
+        }
     }
     return sb.replace(SPACES, " ").trim()
 }
+
+/** 문장 끝 뒤에 올 수 있는 틈: 공백 종류 전부와 폭 없는 공백. "다.(U+200B)다음" 도 두 문장이다. */
+private fun isGap(c: Char): Boolean = c.isWhitespace() || c in INVISIBLE
 
 private fun emit(text: CharSequence, from: Int, to: Int, maxChars: Int, out: MutableList<Sentence>) {
     var s = from
@@ -106,4 +122,8 @@ private fun addIfSpoken(text: CharSequence, s: Int, e: Int, out: MutableList<Sen
 private const val TERMINATORS = ".!?…。！？"
 private const val CLOSERS = "\"'”’)]」』〉》"
 private const val SOFT_BREAKS = ",，、;:"
+/** 보이지 않아 읽을 것이 없는 글자: 폭 없는 공백 · 폭 없는 비결합자 · 낱말 잇기 · BOM · 소프트 하이픈. */
+private const val INVISIBLE = "\u200B\u200C\u2060\uFEFF\u00AD"
+/** 그림 자리 글자. 조판이 그림 하나를 이 한 글자로 둔다. */
+private const val OBJECT_REPLACEMENT = '\uFFFC'
 private val SPACES = Regex("\\s+")
