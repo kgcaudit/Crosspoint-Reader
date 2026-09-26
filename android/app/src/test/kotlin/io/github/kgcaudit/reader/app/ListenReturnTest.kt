@@ -88,7 +88,12 @@ class ListenReturnTest {
         waitFor(hasContentDescription("듣기"))
         compose.onAllNodes(hasContentDescription("듣기"), useUnmergedTree = true)[0].performClick()
         waitFor(hasContentDescription("듣기 조종판"))
-        compose.waitUntil(5_000) { speakers.isNotEmpty() && speakers.last().current != null }
+        // 드물게(전체 점검에서만, 여러 번 돌려도 재현 안 됨) 여기서 엔진이 말을 시작하지 않은 채 남는다. 다음에 걸리면
+        // 원인을 볼 수 있게 그때의 엔진 · 듣기 상태를 실패 문구에 남긴다.
+        runCatching { compose.waitUntil(5_000) { speakers.isNotEmpty() && speakers.last().current != null } }.onFailure {
+            throw AssertionError("listening never started: speakers=${speakers.size} queues=${speakers.map { it.queue.toList() }} " +
+                "stops=${speakers.map { it.stops }} state=${ListenHub.current.value?.state?.value}", it)
+        }
         return first
     }
 
