@@ -281,7 +281,11 @@ fun PdfScreen(
         val quote = if (sel != null) reader.cachedLayer(sel.page)?.quote(sel.start, sel.endExclusive).orEmpty() else note?.snippet.orEmpty()
         when (word) {
             "메모" -> text.memo = PdfMemo(note, sel, quote, note?.color?.pen ?: lastPen)
-            "복사" -> if (!copyText(context, quote)) say("복사했습니다")
+            "복사" -> {
+                // 고른 글에 가린 글자가 있으면 엔진이 준 글자 번호를 함께 복사한다(폰에서만 깨지는 글의 원인 찾기).
+                val copied = if (sel != null) reader.cachedLayer(sel.page)?.copyWithDiagnosis(sel.start, sel.endExclusive) ?: quote else quote
+                if (!copyText(context, copied)) say("복사했습니다")
+            }
             "공유" -> shareOut(context, shareText(quote, note?.note, reader.title))
             "사전" -> if (!lookUp(context, quote)) say("낱말을 찾아 줄 사전 앱이 없습니다")
             "지우기" -> note?.let { n ->

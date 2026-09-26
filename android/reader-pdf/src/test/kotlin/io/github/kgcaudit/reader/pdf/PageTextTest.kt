@@ -175,6 +175,18 @@ class PageTextTest {
     }
 
     @Test
+    fun `copying a hidden stretch carries the engine's own letter numbers, a sound one does not`() {
+        // 폰에서만 깨지는 글의 원인을 찾으려면 폰 엔진이 준 그대로의 글자가 필요하다. 가린 글자가 있을 때만 덧붙인다.
+        val raw = "\u0537\u07FB\u0001가"
+        val layer = PageText(raw, FloatArray(raw.length * 4) { Float.NaN }).withText("\u200B\u200B 가")
+        assertEquals(raw, layer.source)
+        val copied = layer.copyWithDiagnosis(0, raw.length)
+        assertTrue(copied.endsWith("[진단 · 엔진이 준 글자 번호:위치] 0537:- 07FB:- 0001:- AC00:-"), copied)
+        val sound = page(listOf("멀쩡한 글이다."))
+        assertEquals("멀쩡한 글이다.", sound.copyWithDiagnosis(0, sound.length))
+    }
+
+    @Test
     fun `letters stored out of order in a line are read in the order they are seen`() {
         // 좋은생각 109쪽 글귀: 자간을 맞추는 글꼴이 글자를 쓴 순서가 보이는 순서와 달라 "번역은" 이 "번은역" 으로 왔다.
         // 글자와 네모를 함께 화면 순서로 옮긴다. 위치를 모르는 글자(쉼표가 "\r" 로 온 것)는 앞 글자를 따라간다.

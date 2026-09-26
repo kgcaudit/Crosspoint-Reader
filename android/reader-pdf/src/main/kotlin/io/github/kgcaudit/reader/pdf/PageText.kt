@@ -17,16 +17,19 @@ import kotlin.math.min
  * 네모에도 들어가지 않는다 — 글은 남는다(찾기 · 듣기에는 쓰인다).
  *
  * @param boxes 글자마다 네 수(왼 · 위 · 오른 · 아래). 길이는 글자 수 × 4.
+ * @param source 엔진이 준 그대로의 글([BrokenHangul] 로 고치기 전). 글자 자리는 [text] 와 같다 — 폰에서만 깨지는 글을
+ *   고칠 때 폰 엔진이 무엇을 줬는지 알아야 해서 남긴다([copyWithDiagnosis]).
  */
-class PageText(val text: String, private val boxes: FloatArray) {
+class PageText(val text: String, private val boxes: FloatArray, val source: String = text) {
     init {
         require(boxes.size == text.length * 4) { "boxes must hold 4 numbers per char: ${boxes.size} for ${text.length}" }
+        require(source.length == text.length) { "source must match text: ${source.length} for ${text.length}" }
     }
 
     val length: Int get() = text.length
 
     /** 같은 네모에 고친 글([BrokenHangul]). 글 길이가 같아야 한다 — 네모는 글자 자리로 짝지어진다. */
-    fun withText(fixed: String): PageText = if (fixed == text) this else PageText(fixed, boxes)
+    fun withText(fixed: String): PageText = if (fixed == text) this else PageText(fixed, boxes, source)
 
     /**
      * 줄 안의 글자를 화면 순서(왼쪽 → 오른쪽)로. 어떤 글꼴은 자간을 맞추느라 글자를 쓴 순서가 보이는 순서와 달라, 글자
@@ -48,7 +51,7 @@ class PageText(val text: String, private val boxes: FloatArray) {
         if (!changed) return this
         val out = FloatArray(boxes.size)
         for (i in order.indices) for (j in 0 until 4) out[i * 4 + j] = boxes[order[i] * 4 + j]
-        return PageText(String(CharArray(text.length) { text[order[it]] }), out)
+        return PageText(String(CharArray(text.length) { text[order[it]] }), out, String(CharArray(text.length) { source[order[it]] }))
     }
 
     /** 글자 [i] 의 네모. 자리를 모르면 null. */
@@ -161,6 +164,25 @@ class PageText(val text: String, private val boxes: FloatArray) {
      */
     fun quote(start: Int, endExclusive: Int): String =
         text.substring(start.coerceIn(0, text.length), endExclusive.coerceIn(0, text.length)).replace(LINE_BREAKS, " ").trim()
+
+    /**
+     * 복사할 글. 고른 곳에 가린 글자(우리말로 풀리지 않아 소리 내지 않는 글자)가 있으면, 엔진이 준 그대로의 글자 번호를
+     * 덧붙인다. 폰의 PDF 엔진이 주는 글자는 작업 환경의 엔진과 달라(좋은생각 109쪽 글귀가 폰에서만 깨졌다), 폰에서 무엇이
+     * 왔는지는 이것으로만 알 수 있다. 멀쩡한 글에는 붙지 않는다.
+     */
+    fun copyWithDiagnosis(start: Int, endExclusive: Int): String {
+        val from = start.coerceIn(0, text.length)
+        val to = endExclusive.coerceIn(from, text.length)
+        val quote = quote(from, to)
+        if ((from until to).none { text[it] == '\u200B' || text[it] != source[it] && text[it] !in '가'..'힣' }) return quote
+        // 글자마다 "번호:가로,세로"(글자 네모의 가운데, 쪽의 천분율). 폰에서만 줄이 섞이는지(위치가 다른지)도 이것으로 본다.
+        val codes = (from until to).joinToString(" ") { i ->
+            val b = box(i)
+            val at = if (b == null) "-" else "${((b.left + b.right) * 500).toInt()},${((b.top + b.bottom) * 500).toInt()}"
+            "%04X:%s".format(source[i].code, at)
+        }
+        return "$quote\n\n[진단 · 엔진이 준 글자 번호:위치] $codes"
+    }
 
     /**
      * 듣기의 글과 문장들(결정 4). 글은 [text] 와 길이가 같다 — 문장 칠 · 쪽 따라가기가 같은 자리를 가리킨다.
