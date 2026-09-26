@@ -12,6 +12,11 @@ package io.github.kgcaudit.reader.pdf
  * 번호 − 96 + U+AC00 이 곧 그 한글이다. 확인은 글자 빈도로 한다(되살린 글자에 "이 · 다 · 는 · 의" 처럼 흔한 글자가
  * 많아야 한다) — 번호가 우연히 이 범위에 든 멀쩡한 글(기호 · 외국 글자)은 건드리지 않는다.
  *
+ * 번호 체계는 둘을 본다. 위의 "유니코드 순" 과, 글꼴이 Adobe-KR 문자 모음(산돌 · 한컴 계열)일 때의 **Adobe-KR 번호**
+ * (Adobe 가 공개한 표 [adobeKr]). 좋은생각 109쪽 아래 글귀(SDGretaSans2)가 뒤쪽이었다 — 앞쪽 규칙으로 풀면 "냖뎚댛 깾눧띎"
+ * 이 되어 가려졌고, 그 글귀는 읽히지 않았다. 어느 쪽인지는 **낱말마다** 풀어 보고 우리말다운 쪽(흔히 쓰는 한글이 많은
+ * 쪽, [KsHangul])을 고른다 — 한 쪽에 두 글꼴이 섞인다.
+ *
  * 한 쪽에 멀쩡한 글꼴과 망가진 글꼴이 섞이므로(제목은 멀쩡, 본문은 망가짐) **망가진 표시가 있는 낱말만** 바꾼다.
  * 멀쩡한 "2024" 는 그대로 두고, "2024֥" 의 "֥" 만 "년" 으로. 글 길이는 바꾸지 않는다 — 글자마다의 네모 · 저장한
  * 형광펜 자리가 같은 글자를 가리켜야 한다.
@@ -20,22 +25,31 @@ object BrokenHangul {
 
     fun repair(text: String): String {
         var candidates = 0
-        var common = 0
+        var commonSequential = 0
+        var commonAdobe = 0
         for (c in text) {
             if (!candidate(c)) continue
             candidates++
-            if (c.code in HANGUL_GLYPHS && hangulOf(c) in COMMON) common++
+            if (c.code in HANGUL_GLYPHS && hangulOf(c) in COMMON) commonSequential++
+            if (adobeKrOf(c) in COMMON) commonAdobe++
         }
         // 흔한 글자가 적으면 망가진 글이 아니다(기호가 많은 쪽 · 다른 방식으로 망가진 글꼴).
-        if (candidates < MIN_CANDIDATES || common < candidates * MIN_COMMON_SHARE) return text
+        if (candidates < MIN_CANDIDATES || maxOf(commonSequential, commonAdobe) < candidates * MIN_COMMON_SHARE) return text
         val out = text.toCharArray()
+        val breaks = lineBreaks(text)
+        fun Int.isSeparator() = text[this] == ' ' || breaks[this]
+        val sequential = CharArray(text.length)
+        val adobe = CharArray(text.length)
         var i = 0
         while (i < text.length) {
-            if (text[i].isSeparator()) { i++; continue }
+            if (i.isSeparator()) { i++; continue }
             var end = i
-            while (end < text.length && !text[end].isSeparator()) end++
-            if ((i until end).any { brokenMark(text[it]) }) {
-                repairWord(text, i, end, out)
+            while (end < text.length && !end.isSeparator()) end++
+            if ((i until end).any { brokenMark(text[it]) || text[it] == '\r' || text[it] == '\n' }) {
+                repairSequential(text, i, end, sequential)
+                repairAdobe(text, i, end, adobe)
+                val best = if (likeness(text, i, end, adobe) > likeness(text, i, end, sequential)) adobe else sequential
+                best.copyInto(out, i, i, end)
                 hideUnlikely(text, i, end, out)
             }
             i = end
@@ -43,8 +57,42 @@ object BrokenHangul {
         return String(out)
     }
 
-    /** 낱말 하나([from]..[to]) 안의 망가진 글자를 되살린다. */
-    private fun repairWord(text: String, from: Int, to: Int, out: CharArray) {
+    /** 푼 낱말이 얼마나 우리말 같은가: 흔히 쓰는 한글은 +1, 그 밖의 한글은 −3(잘못 풀면 그런 글자가 쏟아진다). */
+    private fun likeness(text: String, from: Int, to: Int, out: CharArray): Int =
+        (from until to).sumOf { k ->
+            val c = out[k]
+            when {
+                c == text[k] || c !in '가'..'힣' -> 0
+                KsHangul.contains(c) -> 1
+                else -> -3
+            }.toInt()
+        }
+
+    /** Adobe-KR 번호로 푼다. ASCII(1–95)는 두 체계가 같다. 표에 없는 번호는 그대로. */
+    private fun repairAdobe(text: String, from: Int, to: Int, out: CharArray) {
+        for (k in from until to) {
+            val c = text[k]
+            out[k] = when {
+                c.code in 1..31 -> (c.code + ASCII_SHIFT).toChar()
+                candidate(c) -> adobeKrOf(c) ?: c
+                else -> c
+            }
+        }
+    }
+
+    /** Adobe-KR 번호 [c] 의 글자. 표 밖이거나 비었으면 null. */
+    private fun adobeKrOf(c: Char): Char? = adobeKr.getOrNull(c.code)?.takeIf { it != '\u0000' }
+
+    /**
+     * Adobe-KR 번호 → 글자 표(번호가 곧 자리, 없는 번호는 U+0000). Adobe cmap-resources 의 UniAKR-UTF16-H 에서
+     * 뽑았다(BSD 허가 — 같은 자리의 adobe-kr.LICENSE.txt). 처음 쓸 때 한 번 읽는다.
+     */
+    private val adobeKr: String by lazy {
+        BrokenHangul::class.java.getResourceAsStream("adobe-kr.txt")?.use { it.readBytes().toString(Charsets.UTF_8) }.orEmpty()
+    }
+
+    /** 낱말 하나([from]..[to]) 안의 망가진 글자를 유니코드 순 번호로 되살린다. */
+    private fun repairSequential(text: String, from: Int, to: Int, out: CharArray) {
         var i = from
         while (i < to) {
             val c = text[i]
@@ -54,15 +102,16 @@ object BrokenHangul {
                 var end = i
                 while (end < to && text[end] in 'a'..'z') end++
                 val english = end - i >= 2 && (i until end).any { text[it] in RARE_AS_HANGUL }
-                if (!english) for (k in i until end) out[k] = hangulOf(text[k])
+                for (k in i until end) out[k] = if (english) text[k] else hangulOf(text[k])
                 i = end
                 continue
             }
             out[i] = when {
-                c.code in 1..31 && c != '\r' && c != '\n' -> (c.code + ASCII_SHIFT).toChar()
+                c.code in 1..31 -> (c.code + ASCII_SHIFT).toChar()
                 c.code in 123..126 -> hangulOf(c)
+                // 한글 모양 다음 자리: 확인한 기호만 풀고, 모르는 것은 가린다. 더 뒤(Adobe-KR 에만 있는 번호)는 그대로.
+                c.code >= HANGUL_END -> if (c.code < SYMBOL_END) SYMBOLS[c.code] ?: HIDDEN else c
                 candidate(c) -> decode(c)
-                c.code >= HANGUL_END && c.code < SYMBOL_END -> SYMBOLS[c.code] ?: HIDDEN
                 else -> c
             }
             i++
@@ -98,18 +147,27 @@ object BrokenHangul {
 
     /** 망가진 한글일 수 있는 글자: 한글 번호 범위이고, 진짜 한글도 흔히 쓰는 기호도 아니다. */
     private fun candidate(c: Char): Boolean =
-        c.code in 127 until HANGUL_END && c !in '가'..'힣' && c !in KEEP
+        c.code in 127 until maxOf(HANGUL_END, ADOBE_KR_END) && c !in '가'..'힣' && c !in KEEP
 
     /** 이 글자가 낱말에 있으면 그 낱말은 망가진 글꼴의 것이다. 제어 문자는 멀쩡한 글에 나오지 않는다. */
     private fun brokenMark(c: Char): Boolean =
         (c.code in 1..31 && c != '\r' && c != '\n' && c != '\t') || candidate(c)
 
-    /** 낱말을 가르는 글자. 망가진 글의 공백은 U+0001 이라 가르지 않는다 — 망가진 줄 하나가 통째로 한 낱말이 된다. */
-    private fun Char.isSeparator() = this == ' ' || this == '\r' || this == '\n'
+    /**
+     * 진짜 줄바꿈 자리. 엔진은 줄 끝에 "\r\n" 을 짝으로 둔다. 망가진 글꼴에서는 쉼표(번호 13)가 "\r", 닫는 괄호(10)가
+     * "\n" 으로 **혼자** 나온다 — 그것까지 줄바꿈으로 보면 "아니라," 의 쉼표가 줄바꿈이 되어 문장이 끊긴다.
+     * 낱말을 가르는 것은 공백과 이 자리뿐이다. 망가진 글의 공백은 U+0001 이라 가르지 않는다 — 망가진 줄 하나가 통째로
+     * 한 낱말이 된다.
+     */
+    private fun lineBreaks(text: String): BooleanArray = BooleanArray(text.length) { i ->
+        (text[i] == '\r' && text.getOrNull(i + 1) == '\n') || (text[i] == '\n' && text.getOrNull(i - 1) == '\r')
+    }
 
     private const val HANGUL_START = 97
     private const val HANGUL_END = HANGUL_START + 11172
     private val HANGUL_GLYPHS = HANGUL_START until HANGUL_END
+    /** Adobe-KR-9 의 마지막 번호 다음. 망가진 글자 후보는 두 체계 중 넓은 쪽까지 본다. */
+    private const val ADOBE_KR_END = 22872
     private const val ASCII_SHIFT = 31
     private const val SYMBOL_END = 12000
     private const val MIN_CANDIDATES = 8

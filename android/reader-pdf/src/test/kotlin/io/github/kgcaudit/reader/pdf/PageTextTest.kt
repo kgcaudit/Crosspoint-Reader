@@ -2,6 +2,7 @@ package io.github.kgcaudit.reader.pdf
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertSame
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -162,6 +163,70 @@ class PageTextTest {
         assertEquals("눈물의 이유는 과거 그 자리에 그대로 있었지만, 영주는 어느 날 문", spoken.last())
         // 듣기 글은 원문과 길이가 같다 — 문장 칠이 같은 글자를 가리킨다.
         assertEquals(novel.text.length, novel.speech().text.length)
+    }
+
+    @Test
+    fun `a line from a font that cannot be recovered is skipped instead of spelled out`() {
+        // 씨네21 15쪽: 모양 번호를 새로 매긴 글꼴이라 엔진이 제어 문자와 기호를 내준다. 그대로 읽으면 알파벳 · 기호를
+        // 하나씩 읽는다. 그 줄은 건너뛰고, 멀쩡한 줄은 읽는다.
+        val garbled = "E1)-@ \u001eBA >JC \u001d\u0012F< :\u0011A \u000e\u001a! \u0014\u0019\u000e( \u0010\u000b\u0005 \u00126H\u000e\u0001"
+        val p = page(listOf("멀쩡한 첫 문장이다.", garbled, "멀쩡한 끝 문장이다."), tops = listOf(0.2f, 0.3f, 0.4f))
+        assertEquals(listOf("멀쩡한 첫 문장이다.", "멀쩡한 끝 문장이다."), spokenOf(p))
+    }
+
+    @Test
+    fun `letters stored out of order in a line are read in the order they are seen`() {
+        // 좋은생각 109쪽 글귀: 자간을 맞추는 글꼴이 글자를 쓴 순서가 보이는 순서와 달라 "번역은" 이 "번은역" 으로 왔다.
+        // 글자와 네모를 함께 화면 순서로 옮긴다. 위치를 모르는 글자(쉼표가 "\r" 로 온 것)는 앞 글자를 따라간다.
+        val shown = "번역은 단순히,"
+        val stored = intArrayOf(0, 2, 1, 3, 4, 5, 6, 7) // "번은역 단순히,"
+        val boxes = FloatArray(shown.length * 4) { Float.NaN }
+        val text = StringBuilder()
+        stored.forEachIndexed { k, i ->
+            text.append(shown[i])
+            if (shown[i] != ',') listOf(0.1f + i * 0.02f, 0.2f, 0.1f + (i + 1) * 0.02f, 0.22f).forEachIndexed { j, v -> boxes[k * 4 + j] = v }
+        }
+        val fixed = PageText(text.toString(), boxes).inVisualOrder()
+        assertEquals(shown, fixed.text)
+        // 네모도 함께 옮겼다 — "역" 자리를 누르면 "역" 이다.
+        assertEquals('역', fixed.text[fixed.charAt(0.1f + 1.5f * 0.02f, 0.21f)!!])
+        // 순서가 맞는 줄은 그대로(같은 것) — 보통 쪽의 저장한 형광펜 자리가 바뀌지 않는다.
+        val plain = page(listOf("이미 순서가 맞는 줄이다."))
+        assertSame(plain, plain.inVisualOrder())
+    }
+
+    @Test
+    fun `a box low on the left is read after a title high on the right`() {
+        // 씨네21 18쪽: 오른쪽 위 제목 · 왼쪽 아래 ITEM 상자. 세로 틈이 있어도 높이가 전혀 겹치지 않으면 단이 아니다.
+        val lines = listOf("갱신하는 질문, 확장하는 춤.", "장혜림 안무감독.", "괄사와 아로마 오일.", "해외 출장에도 함께하는 동반자다.")
+        val p = page(lines, tops = listOf(0.1f, 0.14f, 0.7f, 0.74f), lefts = listOf(0.6f, 0.6f, 0.1f, 0.1f), charW = 0.012f)
+        assertEquals(lines, spokenOf(p))
+        val swapped = page(lines.drop(2) + lines.take(2), tops = listOf(0.7f, 0.74f, 0.1f, 0.14f), lefts = listOf(0.1f, 0.1f, 0.6f, 0.6f), charW = 0.012f)
+        assertEquals(lines, spokenOf(swapped))
+    }
+
+    @Test
+    fun `a quote set in a bigger font than the body is still one sentence across its lines`() {
+        // 좋은생각 109쪽: 본문보다 큰 글귀 두 줄이 줄마다 새 덩이가 되어 "대담한 여정" · "이다." 로 따로 읽혔다.
+        val p = page(
+            listOf("본문 첫 줄이다.", "본문 둘째 줄이다.", "본문 셋째 줄이다.", "번역은 한 문화를 옮기는 대담한 여정", "이다."),
+            heights = listOf(0.02f, 0.02f, 0.02f, 0.03f, 0.03f),
+            tops = listOf(0.2f, 0.23f, 0.26f, 0.4f, 0.445f),
+            justified = setOf(3),
+        )
+        assertEquals("번역은 한 문화를 옮기는 대담한 여정이다.", spokenOf(p).last())
+    }
+
+    @Test
+    fun `print marks left outside the page are not read however long they are`() {
+        // 씨네21 1569호 18쪽: 조판 프로그램의 인쇄용 표시("…016.indd 16 2026-08-07 오후…")가 쪽 아래 밖에 남아, 화면에는
+        // 없는 글을 듣기가 알파벳 하나씩 읽었다. 가장자리의 짧은 줄만 건너뛰던 규칙으로는 긴 표시가 걸리지 않았다.
+        val slug = "Cine21 016-017 STAFF indd 16 2026-08-07 PM 12:18:32 proof"
+        val p = page(listOf("괄사와 아로마 오일.", "해외 출장에도 함께하는 동반자다.", slug), tops = listOf(0.7f, 0.74f, 1.04f))
+        assertEquals(listOf("괄사와 아로마 오일.", "해외 출장에도 함께하는 동반자다."), spokenOf(p))
+        // 쪽 안의 같은 줄은 읽는다(쪽 밖이라서 뺀 것이지 길어서 뺀 것이 아니다).
+        val inside = page(listOf("괄사와 아로마 오일.", slug), tops = listOf(0.5f, 0.6f))
+        assertTrue(spokenOf(inside).any { it.startsWith("Cine21") }, spokenOf(inside).toString())
     }
 
     @Test

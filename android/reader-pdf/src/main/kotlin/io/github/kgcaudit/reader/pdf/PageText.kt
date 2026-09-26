@@ -2,6 +2,7 @@ package io.github.kgcaudit.reader.pdf
 
 import io.github.kgcaudit.reader.layout.book.Sentence
 import io.github.kgcaudit.reader.layout.book.splitSentences
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
@@ -26,6 +27,29 @@ class PageText(val text: String, private val boxes: FloatArray) {
 
     /** 같은 네모에 고친 글([BrokenHangul]). 글 길이가 같아야 한다 — 네모는 글자 자리로 짝지어진다. */
     fun withText(fixed: String): PageText = if (fixed == text) this else PageText(fixed, boxes)
+
+    /**
+     * 줄 안의 글자를 화면 순서(왼쪽 → 오른쪽)로. 어떤 글꼴은 자간을 맞추느라 글자를 쓴 순서가 보이는 순서와 달라, 글자
+     * 층에 "번역은" 이 "번은역" 으로 온다(좋은생각 109쪽 글귀). 그대로 읽으면 낱말이 뒤섞여 들린다. 글자와 네모를 함께
+     * 옮기므로 누른 자리 · 칠 · 찾기가 모두 맞는다. 순서가 이미 맞는 줄은 그대로다 — 보통 쪽의 글자 자리(저장한 형광펜)는
+     * 바뀌지 않는다. 자리를 모르는 글자(망가진 글꼴의 쉼표가 "\r" 로 온 것 등)는 바로 앞 글자에 붙어 다닌다.
+     */
+    fun inVisualOrder(): PageText {
+        val order = IntArray(text.length) { it }
+        var changed = false
+        for (line in lines) {
+            val range = line.start until line.endExclusive
+            var last = Float.NEGATIVE_INFINITY
+            val xs = range.map { i -> box(i)?.let { (it.left + it.right) / 2f }?.also { last = it } ?: last }
+            if ((1 until xs.size).all { xs[it] >= xs[it - 1] }) continue
+            range.sortedBy { xs[it - line.start] }.forEachIndexed { k, from -> order[line.start + k] = from }
+            changed = true
+        }
+        if (!changed) return this
+        val out = FloatArray(boxes.size)
+        for (i in order.indices) for (j in 0 until 4) out[i * 4 + j] = boxes[order[i] * 4 + j]
+        return PageText(String(CharArray(text.length) { text[order[it]] }), out)
+    }
 
     /** 글자 [i] 의 네모. 자리를 모르면 null. */
     fun box(i: Int): PageRegion? {
@@ -141,7 +165,7 @@ class PageText(val text: String, private val boxes: FloatArray) {
     /**
      * 듣기의 글과 문장들(결정 4). 글은 [text] 와 길이가 같다 — 문장 칠 · 쪽 따라가기가 같은 자리를 가리킨다.
      *
-     * - 쪽 위아래 가장자리([EDGE])에 있는 짧은 줄(머리말 · 쪽 번호 · 잡지 이름)은 읽지 않는다. 읽으면 쪽이 바뀔
+     * - 쪽 밖의 줄([isOffPage] — 인쇄용 표시), 되살릴 수 없게 망가진 줄([isGarbled])과 쪽 위아래 가장자리([EDGE])에 있는 짧은 줄(머리말 · 쪽 번호 · 잡지 이름)은 읽지 않는다. 읽으면 쪽이 바뀔
      *   때마다 "OLO 사용 설명서 이 장 넘기기 18" 을 듣는다. 가장자리라도 긴 줄은 본문이 쪽 끝까지 찬 것이라 읽는다.
      * - 문단 시작은 [paragraphStarts]. PDF 글에는 문단 표시가 없어, 이것이 틀리면 한 문장이 줄마다 끊겨 읽히고
      *   (0.18.0 의 실제 버그), 모자라면 마침표 없는 제목이 본문에 붙어 한 숨에 읽힌다.
@@ -195,8 +219,13 @@ class PageText(val text: String, private val boxes: FloatArray) {
             }
             return null
         }
-        val split = cut(blocks::blockLeft, blocks::blockRight) ?: cut(blocks::blockTop, blocks::blockBottom)
-            ?: return ids.sorted()
+        // 세로 틈으로 나눈 양쪽이 높이에서 전혀 겹치지 않으면 단이 아니다 — 위쪽 오른편의 제목과 아래쪽 왼편의 글 상자를
+        // 왼쪽부터 읽으면 아래 상자가 제목보다 먼저 나온다(씨네21 18쪽). 그때는 위 → 아래로 자른다.
+        val columns = cut(blocks::blockLeft, blocks::blockRight)?.takeIf { (a, b) ->
+            val overlap = min(a.maxOf(blocks::blockBottom), b.maxOf(blocks::blockBottom)) - max(a.minOf(blocks::blockTop), b.minOf(blocks::blockTop))
+            overlap > 0f
+        }
+        val split = columns ?: cut(blocks::blockTop, blocks::blockBottom) ?: return ids.sorted()
         return xyCut(split.first, blocks) + xyCut(split.second, blocks)
     }
 
@@ -233,7 +262,7 @@ class PageText(val text: String, private val boxes: FloatArray) {
         val lineHeight = median(body.map { it.bottom - it.top })
         val gaps = (1 until all.size).filter { !skipped[it] && !skipped[it - 1] }.map { all[it].top - all[it - 1].bottom }.filter { it > 0f }
         val usualGap = if (gaps.size >= 2) median(gaps) else lineHeight * 0.8f
-        fun odd(line: TextLine) = lineHeight > 0f && kotlin.math.abs((line.bottom - line.top) - lineHeight) > lineHeight * 0.25f
+        fun odd(line: TextLine) = lineHeight > 0f && abs((line.bottom - line.top) - lineHeight) > lineHeight * 0.25f
         val of = IntArray(all.size)
         for (k in 1 until all.size) {
             val prev = all[k - 1]
@@ -242,7 +271,9 @@ class PageText(val text: String, private val boxes: FloatArray) {
             val split = skipped[k] || skipped[k - 1] ||
                 cur.top - prev.bottom > max(usualGap * 1.5f, lineHeight * 0.3f) ||
                 cur.top < prev.top - lineHeight * 0.5f ||
-                odd(prev) || odd(cur)
+                // 글자 크기가 바뀌는 곳(제목 ↔ 본문). 크기가 같은 두 줄은 본문과 달라도 한 덩이다 — 여러 줄 글귀가 줄마다
+                // 끊겨 "대담한 여정" · "이다." 로 따로 읽혔다(좋은생각 109쪽).
+                odd(prev) != odd(cur) || (odd(prev) && abs((prev.bottom - prev.top) - (cur.bottom - cur.top)) > lineHeight * 0.25f)
             of[k] = of[k - 1] + if (split) 1 else 0
         }
         val count = (of.lastOrNull() ?: -1) + 1
@@ -321,7 +352,22 @@ class PageText(val text: String, private val boxes: FloatArray) {
     }
 
     private fun TextLine.isMargin(): Boolean =
-        (bottom <= EDGE || top >= 1f - EDGE) && text.substring(start, endExclusive).trim().length <= MARGIN_CHARS
+        isOffPage() || isGarbled() || (bottom <= EDGE || top >= 1f - EDGE) && text.substring(start, endExclusive).trim().length <= MARGIN_CHARS
+
+    /**
+     * 쪽 밖(자르는 선 바깥)에 놓인 줄. 잡지 PDF 에는 조판 프로그램이 남긴 인쇄용 표시(파일 이름 · 날짜 · 쪽)가 쪽 밖에
+     * 남아 있다 — 화면에는 안 보이는데 글자 층에는 있어, 듣기가 그것을 알파벳 하나씩 읽었다(씨네21 1569호 18쪽:
+     * "…016.indd 16 2026-08-07…", 글자 대응표가 없어 엉뚱한 기호로 나온다). 길이와 상관없이 읽지 않는다.
+     */
+    private fun TextLine.isGarbled(): Boolean {
+        // 되살릴 수 없게 망가진 줄: 글꼴을 줄이며 모양 번호를 1, 2, 3… 으로 새로 매긴 글꼴은 어느 표로도 글자를 알 수 없고,
+        // 엔진은 제어 문자와 기호를 내준다. 그대로 읽으면 "이 원 괄호 골뱅이…" 를 알파벳 · 기호 하나씩 읽는다(씨네21 15쪽).
+        // 제어 문자는 멀쩡한 글에 나오지 않는다 — 되살린 글([BrokenHangul])에서는 이미 사라졌다.
+        val chars = text.substring(start, endExclusive).filter { !it.isWhitespace() }
+        return chars.isNotEmpty() && chars.count { it.code in 1..31 } * 5 > chars.length
+    }
+
+    private fun TextLine.isOffPage(): Boolean = bottom <= 0f || top >= 1f || right <= 0f || left >= 1f
 
     private fun distance(line: TextLine, y: Float): Float = when {
         y < line.top -> line.top - y

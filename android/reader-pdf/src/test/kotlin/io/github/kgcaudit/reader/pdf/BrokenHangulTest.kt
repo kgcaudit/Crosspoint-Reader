@@ -60,15 +60,39 @@ class BrokenHangulTest {
 
     @Test
     fun `words from a font numbered some other way are hidden instead of read as nonsense`() {
-        // 같은 쪽에 번호 체계가 다른 망가진 글꼴(쪽 머리 장식 글씨)이 섞였다. 같은 규칙으로 풀면 "댦뗴꿹 뎚뎹" —
-        // 듣기가 이것을 읽었다. 본문은 되살리고 그 낱말은 소리 나지 않게 가린다.
+        // 같은 쪽에 두 체계 어느 쪽으로 풀어도 우리말이 안 되는 글꼴(쪽 머리 장식 글씨 등)이 섞였다. 억지로 풀면 "댦뗴꿹"
+        // 같은 글자를 읽는다 — 본문은 되살리고 그 낱말은 소리 나지 않게 가린다.
+        val table = BrokenHangul::class.java.getResourceAsStream("adobe-kr.txt")!!.use { it.readBytes().toString(Charsets.UTF_8) }
+        fun ks(c: Char) = c in '가'..'힣' && String("$c".toByteArray(charset("EUC-KR")), charset("EUC-KR")) == "$c" &&
+            "$c".toByteArray(charset("EUC-KR")).size == 2
+        val junk = (2000 until 11000).asSequence().map { it.toChar() }
+            .filter { c -> !ks('가' + (c.code - 97)) && table.getOrNull(c.code)?.let { ks(it) } != true }
+            .take(12).toList()
+        val nonsense = junk.chunked(3).joinToString("\u0001") { it.joinToString("") }
         val body = "나는 오래전 잊힌 독립운동가를 찾아 세상에 알리는 일을 소명으로 여기고 있다."
-        val nonsense = broken("댦뗴꿹 뎚뎹 낤뎚됇")
         val fixed = BrokenHangul.repair(broken(body) + "\r\n" + nonsense)
         assertEquals(body, fixed.substringBefore("\r\n"))
         val tail = fixed.substringAfter("\r\n")
         assertTrue(tail.none { it in '가'..'힣' }, tail)
         assertEquals(nonsense.length, tail.length)
+    }
+
+    /** Adobe-KR 번호 체계의 글꼴이 엔진에서 나오는 모양(표를 거꾸로 써서 만든다). */
+    private fun brokenAdobe(s: String): String {
+        val table = BrokenHangul::class.java.getResourceAsStream("adobe-kr.txt")!!.use { it.readBytes().toString(Charsets.UTF_8) }
+        return s.map { c -> if (c in ' '..'~') (c.code - 31).toChar() else table.indexOf(c).also { require(it > 0) { "$c" } }.toChar() }.joinToString("")
+    }
+
+    @Test
+    fun `a line in an adobe-kr font on the same page is read too, not hidden`() {
+        // 좋은생각 109쪽: 본문은 유니코드 순 번호, 아래 글귀(SDGretaSans2)는 Adobe-KR 번호. 앞 규칙으로만 풀면 글귀가
+        // "냖뎚댛 깾눧띎" 이 되어 가려졌고, 듣기가 그 글귀를 읽지 않았다.
+        val body = "나는 오래전 잊힌 독립운동가를 찾아 세상에 알리는 일을 소명으로 여기고 있다."
+        val quote = "번역은 단순히 언어를 바꾸는 것이 아니라, 한 문화를 다른 문화로 이동시키는 대담한 여정이다."
+        val fixed = BrokenHangul.repair(broken(body) + "\r\n" + brokenAdobe(quote))
+        assertEquals("$body\r\n$quote", fixed)
+        // Adobe-KR 글꼴만 있는 쪽도(앞 규칙의 흔한 글자 비율이 낮아도) 되살린다.
+        assertEquals(quote, BrokenHangul.repair(brokenAdobe(quote)))
     }
 
     @Test

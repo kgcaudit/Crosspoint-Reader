@@ -154,7 +154,7 @@ class PdfReader(
         if (!readsText || page !in 0 until book.pageCount) return PageText.EMPTY
         layers.get(page)?.let { return it }
         val layer = withContext(renderThread) { runCatching { book.source.textLayer(page) }.getOrNull() }
-            ?.let { it.withText(BrokenHangul.repair(it.text)) } ?: PageText.EMPTY
+            ?.let { it.withText(BrokenHangul.repair(it.text)).inVisualOrder() } ?: PageText.EMPTY
         layers.put(page, layer)
         return layer
     }
