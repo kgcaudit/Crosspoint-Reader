@@ -1,5 +1,6 @@
 package io.github.kgcaudit.reader.reflow
 
+import io.github.kgcaudit.reader.ui.design.drawMemoGlyph
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -136,23 +137,6 @@ data class Tint(val range: IntRange, val color: Color)
 
 /** 메모가 달린 칠의 끝(쪽지를 그릴 자리). */
 data class MemoMark(val endExclusive: Int, val color: Color)
-
-/**
- * 메모 쪽지: 접힌 귀가 있는 작은 종이에 흰 줄 둘. [at] 은 칠한 끝 글자의 오른쪽 위 — 쪽지는 그 자리에서
- * 4분의 3 쯤 위로 올라가 줄 사이(행간)에 걸친다. 줄 안에 두면 다음 글자의 머리를 덮는다.
- */
-private fun DrawScope.drawMemoGlyph(at: Offset, size: Float, color: Color) {
-    val x = at.x + size * 0.1f
-    val y = at.y - size * 0.75f
-    val fold = size * 0.32f
-    val body = androidx.compose.ui.graphics.Path().apply {
-        moveTo(x, y); lineTo(x + size, y); lineTo(x + size, y + size - fold); lineTo(x + size - fold, y + size); lineTo(x, y + size); close()
-    }
-    drawPath(body, color)
-    val stroke = (size * 0.1f).coerceAtLeast(1f)
-    drawLine(Color.White, Offset(x + size * 0.2f, y + size * 0.32f), Offset(x + size * 0.8f, y + size * 0.32f), stroke)
-    drawLine(Color.White, Offset(x + size * 0.2f, y + size * 0.56f), Offset(x + size * 0.6f, y + size * 0.56f), stroke)
-}
 
 /**
  * 쪽 위에 얹는 표시: 형광펜([tints] · [memos]), 고른 구간([selection]), 찾은 말([highlight], 글자 뒤 색)과 각주 표시([accent], 강조색 글자). 둘 다 이 장 텍스트의

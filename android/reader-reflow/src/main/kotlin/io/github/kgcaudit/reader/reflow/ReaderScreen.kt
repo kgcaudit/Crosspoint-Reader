@@ -1,5 +1,11 @@
 package io.github.kgcaudit.reader.reflow
 
+import io.github.kgcaudit.reader.ui.design.HANDLE_RADIUS
+import io.github.kgcaudit.reader.ui.design.handleCentres
+import io.github.kgcaudit.reader.ui.design.lookUp
+import io.github.kgcaudit.reader.ui.design.shareOut
+import io.github.kgcaudit.reader.ui.design.copyText
+import io.github.kgcaudit.reader.ui.design.shareText
 import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas

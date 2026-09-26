@@ -52,6 +52,9 @@ import androidx.compose.ui.unit.sp
 import io.github.kgcaudit.reader.document.TocEntry
 import io.github.kgcaudit.reader.layout.book.SearchHit
 import io.github.kgcaudit.reader.ui.design.CpButton
+import io.github.kgcaudit.reader.ui.design.CpSearchResultBar
+import io.github.kgcaudit.reader.ui.design.CpSearchRow
+import io.github.kgcaudit.reader.ui.design.CpSearchScreen
 import io.github.kgcaudit.reader.ui.design.CpDivider
 import io.github.kgcaudit.reader.ui.design.CpFullScreen
 import io.github.kgcaudit.reader.ui.design.CpIcon
@@ -120,7 +123,7 @@ class SearchSession {
     }
 }
 
-/** 찾기 화면: 찾을 말 · 결과 수 · 장별 결과(앞뒤 문맥, 찾은 말 칠함). */
+/** 찾기 화면(모양은 ui-design 의 CpSearchScreen). 결과 자리는 책의 %. */
 @Composable
 internal fun SearchScreen(
     session: SearchSession,
@@ -129,86 +132,35 @@ internal fun SearchScreen(
     onOpen: (Int) -> Unit,
     onBack: () -> Unit,
 ) {
-    val c = CpTheme.colors
-    val focus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { if (session.results.isEmpty()) runCatching { focus.requestFocus() } }
-    CpFullScreen {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            CpIconButton(CpIcons.Back, "뒤로", onBack)
-            Row(
-                Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(CpTheme.metrics.cornerMedium))
-                    .border(2.dp, c.accent, RoundedCornerShape(CpTheme.metrics.cornerMedium)).padding(horizontal = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                CpIcon(CpIcons.Search, c.textMuted, size = 20.dp)
-                Box(Modifier.weight(1f).padding(start = 10.dp)) {
-                    if (session.query.isEmpty()) CpText("책에서 찾기", CpTheme.type.body, c.textMuted)
-                    BasicTextField(
-                        value = session.query,
-                        onValueChange = { session.query = it },
-                        singleLine = true,
-                        textStyle = CpTheme.type.body.copy(color = c.text),
-                        cursorBrush = SolidColor(c.accent),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(onSearch = { onSearch() }),
-                        modifier = Modifier.fillMaxWidth().focusRequester(focus).semantics { contentDescription = "찾을 말" },
-                    )
-                }
-                if (session.query.isNotEmpty()) {
-                    CpIconButton(CpIcons.Close, "지우기", { session.query = ""; session.stop() }, tint = c.textMuted)
-                }
-            }
-            Spacer(Modifier.width(12.dp))
-        }
-        val summary = when {
-            session.running -> "찾는 중… ${session.searched} / ${session.chapters} 장 · 지금까지 ${session.results.size}곳"
-            session.searched > 0 && session.results.isEmpty() -> "찾지 못했습니다"
-            session.searched > 0 -> "${session.results.size}곳 · ${session.results.map { it.hit.spine }.distinct().size}장에서"
-            else -> ""
-        }
-        if (summary.isNotEmpty()) {
-            CpText(summary, CpTheme.type.caption, c.textMuted, Modifier.padding(horizontal = CpTheme.metrics.gutter, vertical = 6.dp))
-        }
-        if (session.running && session.chapters > 0) {
-            CpProgressBar(session.searched / session.chapters.toFloat(), Modifier.padding(horizontal = CpTheme.metrics.gutter))
-        }
-        CpDivider(Modifier.padding(top = 8.dp))
-        LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
-            itemsIndexed(session.results) { i, found ->
-                val spine = found.hit.spine
-                if (i == 0 || session.results[i - 1].hit.spine != spine) {
-                    CpSectionLabel(toc.getOrNull(currentTocIndex(toc, spine))?.label ?: "${spine + 1}장")
-                }
-                HitRow(found, onClick = { onOpen(i) })
-            }
-        }
+    val summary = when {
+        session.running -> "찾는 중… ${session.searched} / ${session.chapters} 장 · 지금까지 ${session.results.size}곳"
+        session.searched > 0 && session.results.isEmpty() -> "찾지 못했습니다"
+        session.searched > 0 -> "${session.results.size}곳 · ${session.results.map { it.hit.spine }.distinct().size}장에서"
+        else -> ""
     }
+    val rows = session.results.map { found ->
+        val hit = found.hit
+        CpSearchRow(
+            section = toc.getOrNull(currentTocIndex(toc, hit.spine))?.label ?: "${hit.spine + 1}장",
+            context = hit.context,
+            matchStart = hit.contextMatchStart,
+            matchLength = (hit.endExclusive - hit.start).coerceAtMost(hit.context.length - hit.contextMatchStart),
+            where = "${found.percent.roundToInt()}%",
+        )
+    }
+    CpSearchScreen(
+        query = session.query,
+        onQuery = { session.query = it },
+        onClear = { session.query = ""; session.stop() },
+        summary = summary,
+        progress = if (session.running && session.chapters > 0) session.searched / session.chapters.toFloat() else null,
+        rows = rows,
+        onSearch = onSearch,
+        onOpen = onOpen,
+        onBack = onBack,
+    )
 }
 
-/** 결과 한 줄. 위계 규칙: 장 이름(글자만) 아래 한 단(16dp) 안쪽. */
-@Composable
-private fun HitRow(found: Found, onClick: () -> Unit) {
-    val c = CpTheme.colors
-    val m = CpTheme.metrics
-    val hit = found.hit
-    Column(
-        Modifier.fillMaxWidth().clickable(onClick = onClick)
-            .padding(start = m.gutter + m.levelIndent, end = m.gutter, top = 10.dp, bottom = 10.dp),
-    ) {
-        val word = (hit.endExclusive - hit.start).coerceAtMost(hit.context.length - hit.contextMatchStart)
-        val text = buildAnnotatedString {
-            append(hit.context.substring(0, hit.contextMatchStart))
-            withStyle(SpanStyle(background = c.accent.copy(alpha = 0.25f), fontWeight = FontWeight.Bold)) {
-                append(hit.context.substring(hit.contextMatchStart, hit.contextMatchStart + word))
-            }
-            append(hit.context.substring(hit.contextMatchStart + word))
-        }
-        BasicText(text, style = CpTheme.type.body.copy(color = c.text, lineHeight = 24.sp), maxLines = 2)
-        CpText("${found.percent.roundToInt()}%", CpTheme.type.caption, c.textMuted, Modifier.padding(top = 2.dp))
-    }
-}
-
-/** 결과를 보고 있는 동안 아래에 뜨는 막대: 앞 결과 · n / 전체 · 다음 결과 · 목록 · 끝내기(E3). */
 @Composable
 internal fun SearchResultBar(
     index: Int,
@@ -218,24 +170,7 @@ internal fun SearchResultBar(
     onList: () -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
-) {
-    val c = CpTheme.colors
-    Row(
-        modifier.shadow(8.dp, RoundedCornerShape(24.dp)).clip(RoundedCornerShape(24.dp)).background(c.surface)
-            .border(1.dp, c.divider, RoundedCornerShape(24.dp)).padding(horizontal = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        CpIconButton(CpIcons.Back, "앞 결과", onPrevious, tint = if (index > 0) c.text else c.outline)
-        CpText("${index + 1} / $total", CpTheme.type.label, c.text, Modifier.padding(horizontal = 8.dp))
-        CpIconButton(CpIcons.Forward, "다음 결과", onNext, tint = if (index < total - 1) c.text else c.outline)
-        Box(Modifier.width(1.dp).height(24.dp).background(c.divider))
-        CpText(
-            "목록", CpTheme.type.label, c.accent,
-            Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = onList).padding(horizontal = 14.dp, vertical = 12.dp),
-        )
-        CpIconButton(CpIcons.Close, "찾기 끝내기", onClose)
-    }
-}
+) = CpSearchResultBar(index, total, onPrevious, onNext, onList, onClose, modifier)
 
 /**
  * 각주 판(F3): 아래에서 올라온다. 짧으면 내용만큼, 길면 화면의 60% 까지 올라오고 판 안에서 스크롤한다. 읽던
