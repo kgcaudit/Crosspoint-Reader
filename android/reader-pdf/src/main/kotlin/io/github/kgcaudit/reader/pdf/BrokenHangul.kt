@@ -23,7 +23,13 @@ package io.github.kgcaudit.reader.pdf
  */
 object BrokenHangul {
 
-    fun repair(text: String): String {
+    /**
+     * @param lineStarts 줄이 시작하는 글자 자리(글자 네모로 가른 줄, [PageText.lines]). 낱말은 여기서도 끊는다. 폰의 PDF
+     *   엔진은 줄바꿈 글자("\r\n")를 주지 않아(작업 환경의 엔진은 준다), 줄바꿈 글자로만 끊으면 망가진 글의 공백이
+     *   U+0001 이라 **여러 줄이 한 낱말**이 되었다 — 본문 끝줄과 아래 글귀가 한 덩이로 한 체계로 풀려, 좋은생각 109쪽에서
+     *   "있지" 다음부터 깨져 읽혔다(폰이 준 글자 번호 · 위치로 재현).
+     */
+    fun repair(text: String, lineStarts: Collection<Int> = emptyList()): String {
         var candidates = 0
         var commonSequential = 0
         var commonAdobe = 0
@@ -37,6 +43,7 @@ object BrokenHangul {
         if (candidates < MIN_CANDIDATES || maxOf(commonSequential, commonAdobe) < candidates * MIN_COMMON_SHARE) return hyphens(text)
         val out = text.toCharArray()
         val breaks = lineBreaks(text)
+        val cuts = BooleanArray(text.length).also { c -> lineStarts.forEach { if (it in c.indices) c[it] = true } }
         fun Int.isSeparator() = text[this] == ' ' || breaks[this]
         val sequential = CharArray(text.length)
         val adobe = CharArray(text.length)
@@ -44,12 +51,13 @@ object BrokenHangul {
         while (i < text.length) {
             if (i.isSeparator()) { i++; continue }
             var end = i
-            while (end < text.length && !end.isSeparator()) end++
+            while (end < text.length && !end.isSeparator() && !(end > i && cuts[end])) end++
             if ((i until end).any { brokenMark(text[it]) || text[it] == '\r' || text[it] == '\n' }) {
                 repairSequential(text, i, end, sequential)
                 repairAdobe(text, i, end, adobe)
                 val best = if (likeness(text, i, end, adobe) > likeness(text, i, end, sequential)) adobe else sequential
                 best.copyInto(out, i, i, end)
+                loneMarks(text, i, end, out)
                 hideUnlikely(text, i, end, out)
             }
             i = end
@@ -59,6 +67,22 @@ object BrokenHangul {
 
     /** 망가진 낱말 밖에 남은 번호 2 표시([BROKEN_WORD_MARK])는 줄 끝 하이픈이다. */
     private fun hyphens(text: String): String = text.replace(BROKEN_WORD_MARK, '-')
+
+    /**
+     * 망가진 줄 안에 **홀로** 선 문장부호(앞뒤가 망가진 공백 · 글자)는 망가진 글꼴의 번호다 — 번호 33–64 는 ASCII 로
+     * 멀쩡한 글자와 겹쳐 그대로 두는데, 홀로 선 것은 멀쩡한 글꼴에서 왔을 리 없다(좋은생각 109쪽 "_ 안소니 버제스" 의
+     * "_" 가 "@" 로 남아 "골뱅이" 로 읽혔다). 숫자 · 영문자는 멀쩡한 글과 섞이는 일이 많아 건드리지 않는다.
+     */
+    private fun loneMarks(text: String, from: Int, to: Int, out: CharArray) {
+        for (k in from until to) {
+            val c = text[k]
+            if (c.code !in 33..64 || c.isLetterOrDigit()) continue
+            // 이웃이 망가진 공백 · 망가진 글자 · 낱말 끝이면 홀로 선 것이다. 폰은 어떤 줄을 오른쪽에서 왼쪽 순서로 주어
+            // "_" 가 망가진 글자 바로 옆에 오기도 한다. 멀쩡한 영문자 · 숫자 옆("user@mail")이면 멀쩡한 글이다.
+            fun broken(at: Int) = at !in from until to || text[at] == SPACE || candidate(text[at])
+            if (broken(k - 1) && broken(k + 1)) out[k] = (c.code + ASCII_SHIFT).toChar()
+        }
+    }
 
     /** 푼 낱말이 얼마나 우리말 같은가: 흔히 쓰는 한글은 +1, 그 밖의 한글은 −3(잘못 풀면 그런 글자가 쏟아진다). */
     private fun likeness(text: String, from: Int, to: Int, out: CharArray): Int =
@@ -167,6 +191,8 @@ object BrokenHangul {
     /** Adobe-KR-9 의 마지막 번호 다음. 망가진 글자 후보는 두 체계 중 넓은 쪽까지 본다. */
     private const val ADOBE_KR_END = 22872
     private const val ASCII_SHIFT = 31
+    /** 망가진 글꼴의 공백(번호 1). */
+    private const val SPACE = '\u0001'
     private const val SYMBOL_END = 12000
     private const val MIN_CANDIDATES = 8
     private const val MIN_COMMON_SHARE = 0.15f

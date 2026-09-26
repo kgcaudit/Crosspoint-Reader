@@ -28,6 +28,36 @@ class PageText(val text: String, private val boxes: FloatArray, val source: Stri
 
     val length: Int get() = text.length
 
+    /**
+     * 대응표 없는 글꼴의 글을 되살린 층([BrokenHangul]). 낱말은 **글자 네모로 가른 줄**에서도 끊는다 — 폰의 엔진은
+     * 줄바꿈 글자를 주지 않는다.
+     */
+    fun repaired(): PageText = withText(BrokenHangul.repair(text, rowStarts()))
+
+    /**
+     * 높이가 바뀌어 새 줄이 시작하는 글자 자리. [lines] 와 달리 왼쪽으로 되돌아가도 끊지 않는다 — 폰의 엔진은 어떤 글꼴의
+     * 줄을 오른쪽에서 왼쪽 순서로 준다("버제스 니소안"). 그 규칙으로 끊으면 한 줄이 한 글자씩 조각나, 조각마다 번호 체계를
+     * 잘못 골랐다("안소" → "닒뇽").
+     */
+    private fun rowStarts(): List<Int> {
+        val out = ArrayList<Int>()
+        var t = 0f
+        var b = 0f
+        var open = false
+        for (i in text.indices) {
+            val box = box(i) ?: continue
+            if (box.bottom - box.top <= 0f) continue
+            val same = open && overlap(t, b, box.top, box.bottom) >= 0.5f * min(b - t, box.bottom - box.top)
+            if (!same) {
+                out += i
+                t = box.top; b = box.bottom; open = true
+            } else {
+                t = min(t, box.top); b = max(b, box.bottom)
+            }
+        }
+        return out
+    }
+
     /** 같은 네모에 고친 글([BrokenHangul]). 글 길이가 같아야 한다 — 네모는 글자 자리로 짝지어진다. */
     fun withText(fixed: String): PageText = if (fixed == text) this else PageText(fixed, boxes, source)
 
@@ -40,12 +70,14 @@ class PageText(val text: String, private val boxes: FloatArray, val source: Stri
     fun inVisualOrder(): PageText {
         val order = IntArray(text.length) { it }
         var changed = false
-        for (line in lines) {
-            val range = line.start until line.endExclusive
+        // 줄은 높이로만 가른다([rowStarts]) — 오른쪽에서 왼쪽 순서로 온 줄을 [lines] 는 글자마다 조각내, 뒤집힌 줄이 그대로 남았다.
+        val starts = rowStarts()
+        for ((k, from) in starts.withIndex()) {
+            val range = from until (starts.getOrNull(k + 1) ?: text.length)
             var last = Float.NEGATIVE_INFINITY
             val xs = range.map { i -> box(i)?.let { (it.left + it.right) / 2f }?.also { last = it } ?: last }
             if ((1 until xs.size).all { xs[it] >= xs[it - 1] }) continue
-            range.sortedBy { xs[it - line.start] }.forEachIndexed { k, from -> order[line.start + k] = from }
+            range.sortedBy { xs[it - from] }.forEachIndexed { j, at -> order[from + j] = at }
             changed = true
         }
         if (!changed) return this

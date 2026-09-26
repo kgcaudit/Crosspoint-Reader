@@ -175,6 +175,35 @@ class PageTextTest {
     }
 
     @Test
+    fun `a layer with no line break characters is repaired by the lines its boxes make`() {
+        // 폰의 엔진처럼 줄바꿈 글자 없이, 두 줄이 네모 자리로만 갈린 층. 첫 줄은 순번 체계 글꼴(본문), 둘째 줄은
+        // Adobe-KR 체계 글꼴(인용문)이다 — 좋은생각 109쪽. 줄에서 자르지 않으면 "있지" 뒤가 한 낱말이 되어 한 체계로
+        // 풀리고, 어느 쪽을 골라도 다른 쪽 글이 깨진다.
+        fun seq(s: String) = s.map { c -> if (c in '가'..'힣') (97 + (c - '가')).toChar() else (c.code - 31).toChar() }.joinToString("")
+        fun adobe(s: String) = s.map { c -> if (c in ' '..'~') (c.code - 31).toChar() else AdobeKr.table.indexOf(c).toChar() }.joinToString("")
+        val first = "여기에도 누군가의 숨은 노력이 있지 않았을까."
+        val second = "번역은 단순히 언어를 바꾸는 것이 아니라, 한 문화를 다른 문화로 이동시키는 대담한 여정"
+        val raw = seq(first) + adobe(second)
+        val boxes = FloatArray(raw.length * 4)
+        for (i in raw.indices) {
+            val row = if (i < first.length) 0 else 1
+            val col = if (row == 0) i else i - first.length
+            floatArrayOf(0.1f + col * 0.01f, 0.3f + row * 0.05f, 0.11f + col * 0.01f, 0.32f + row * 0.05f).copyInto(boxes, i * 4)
+        }
+        assertEquals(first + second, PageText(raw, boxes).repaired().text)
+
+        // 폰은 어떤 글꼴의 줄을 오른쪽에서 왼쪽 순서로 준다. 글자마다 조각내지 않고 한 줄로 풀어야 한다.
+        val name = "안소니 버제스"
+        val rtl = seq(name).reversed()
+        val rtlBoxes = FloatArray(rtl.length * 4)
+        for (k in rtl.indices) {
+            val col = name.length - 1 - k
+            floatArrayOf(0.1f + col * 0.01f, 0.5f, 0.11f + col * 0.01f, 0.52f).copyInto(rtlBoxes, k * 4)
+        }
+        assertEquals(name, PageText(seq(first) + rtl, boxes.copyOf(first.length * 4) + rtlBoxes).repaired().inVisualOrder().text.substring(first.length))
+    }
+
+    @Test
     fun `copying a hidden stretch carries the engine's own letter numbers, a sound one does not`() {
         // 폰에서만 깨지는 글의 원인을 찾으려면 폰 엔진이 준 그대로의 글자가 필요하다. 가린 글자가 있을 때만 덧붙인다.
         val raw = "\u0537\u07FB\u0001가"

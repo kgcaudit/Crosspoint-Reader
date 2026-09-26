@@ -96,6 +96,29 @@ class BrokenHangulTest {
     }
 
     @Test
+    fun `lines without line break characters are still repaired line by line`() {
+        // 폰의 PDF 엔진은 줄바꿈 글자를 주지 않는다. 본문 끝줄(유니코드 순 번호)과 아래 글귀(Adobe-KR 번호)가 붙어 오면,
+        // 줄바꿈 글자로만 낱말을 끊던 때는 둘이 한 덩이로 한 체계로 풀려 "있지" 다음부터 깨졌다(좋은생각 109쪽, 폰에서).
+        val body = "여기에도 누군가의 숨은 노력이 있지 않았을까."
+        val quote = "번역은 단순히 언어를 바꾸는 것이 아니라, 한 문화를 다른 문화로 이동시키는 대담한 여정이다."
+        val joined = broken(body) + brokenAdobe(quote)
+        assertEquals(body + quote, BrokenHangul.repair(joined, listOf(0, body.length)))
+        // 줄 자리를 모르면(예전) 둘 중 하나는 깨진다 — 이 시험이 무엇을 지키는지 보인다.
+        assertTrue(BrokenHangul.repair(joined) != body + quote)
+    }
+
+    @Test
+    fun `a lone mark between broken spaces is the broken font's own letter`() {
+        // "_ 안소니 버제스" 의 "_" 는 번호 64 로 와서 "@" 로 보였다(골뱅이로 읽힘). 홀로 선 것만 푼다 — 낱말 속 숫자는 그대로.
+        val line = "번역은 대담한 여정이다. _ 안소니 버제스"
+        assertEquals(line, BrokenHangul.repair(brokenAdobe(line)))
+        // 폰처럼 오른쪽에서 왼쪽 순서로 와서 "_" 가 망가진 글자 바로 옆에 붙어도 푼다.
+        assertEquals(line.reversed(), BrokenHangul.repair(brokenAdobe(line).reversed()))
+        // 멀쩡한 영문자 옆의 "@" 는 그대로(메일 주소).
+        assertEquals("메일 user@mail.com 으로", BrokenHangul.repair("메일 user@mail.com 으로"))
+    }
+
+    @Test
     fun `glyph numbers that do not read as korean are not forced into hangul`() {
         // 망가진 글꼴이라도 번호 체계가 다르면(흔한 글자가 나오지 않으면) 억지로 바꾸지 않는다 — 엉뚱한 한글을
         // 읽어 주는 것보다 "읽을 글이 없다" 가 낫다.
