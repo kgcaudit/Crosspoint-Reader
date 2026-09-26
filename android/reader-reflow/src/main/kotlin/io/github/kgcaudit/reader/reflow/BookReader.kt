@@ -26,6 +26,8 @@ import io.github.kgcaudit.reader.layout.book.BookFontTable
 import io.github.kgcaudit.reader.layout.book.LinkTarget
 import io.github.kgcaudit.reader.layout.book.SearchHit
 import io.github.kgcaudit.reader.layout.book.Sentence
+import io.github.kgcaudit.reader.listen.ListenSource
+import io.github.kgcaudit.reader.listen.SpeechChapter
 import io.github.kgcaudit.reader.layout.book.splitSentences
 import io.github.kgcaudit.reader.layout.html.Link
 import java.io.File
@@ -101,7 +103,7 @@ class BookReader(
     private val annotationRepository: AnnotationRepository = InMemoryAnnotations(),
     private val clock: () -> Long = System::currentTimeMillis,
     private val layoutThread: CoroutineDispatcher = Dispatchers.Default.limitedParallelism(1),
-) {
+) : ListenSource {
     private val _state = MutableStateFlow(ReaderState())
     val state: StateFlow<ReaderState> = _state.asStateFlow()
 
@@ -132,7 +134,7 @@ class BookReader(
     }
     private val images = LruCache<String, ImageBitmap>(8)
 
-    val title: String get() = document.meta.title
+    override val title: String get() = document.meta.title
 
     /**
      * 책에 **쓸 수 있는** 글꼴이 들어 있다. 글꼴 목록에 "출판사 글꼴" 을 내놓는다.
@@ -397,7 +399,8 @@ class BookReader(
     // ── 듣기(4단계) ──────────────────────────────────────────────────
 
     /** 장 하나의 문장들. 듣기가 장을 넘어갈 때 부른다. 장이 깨졌으면 빈 목록(그 장을 건너뛴다). */
-    suspend fun speech(spineIndex: Int): SpeechChapter = run {
+    override suspend fun speech(unit: Int): SpeechChapter = run {
+        val spineIndex = unit
         val l = requireLayout()
         if (spineIndex !in 0 until l.spine().size) return@run SpeechChapter(spineIndex, "", emptyList())
         val text = runCatching { l.chapterText(spineIndex).orEmpty() }.getOrDefault("")
@@ -405,11 +408,14 @@ class BookReader(
         SpeechChapter(spineIndex, text, sentences)
     }
 
+    override suspend fun unitCount(): Int = chapterCount()
+
     /**
      * 글자 [offset] 이 든 쪽을 보인다(듣는 문장을 쪽이 따라간다). 이미 보이는 쪽(두쪽이면 펼침)이면 아무것도 하지
      * 않는다 — 문장마다 다시 그리면 화면이 깜빡이고 진도를 쓸데없이 저장한다.
      */
-    suspend fun follow(spineIndex: Int, offset: Int) = run {
+    override suspend fun follow(unit: Int, offset: Int): Unit = run {
+        val spineIndex = unit
         val st = _state.value
         val shownEnd = (st.rightPage ?: st.page)?.endCharExclusive ?: -1
         val shownStart = st.page?.startChar ?: -1
@@ -545,5 +551,3 @@ internal class InMemoryAnnotations : AnnotationRepository {
     }
 }
 
-/** 한 장의 텍스트와 문장들(듣기). */
-class SpeechChapter(val spine: Int, val text: String, val sentences: List<Sentence>)

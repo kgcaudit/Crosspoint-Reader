@@ -1,4 +1,4 @@
-package io.github.kgcaudit.reader.reflow.listen
+package io.github.kgcaudit.reader.listen
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -19,7 +19,6 @@ import android.media.session.PlaybackState
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
-import io.github.kgcaudit.reader.reflow.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi

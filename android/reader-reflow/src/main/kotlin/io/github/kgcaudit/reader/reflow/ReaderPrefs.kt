@@ -1,5 +1,6 @@
 package io.github.kgcaudit.reader.reflow
 
+import io.github.kgcaudit.reader.listen.ListenPrefs
 import io.github.kgcaudit.reader.layout.Insets
 import io.github.kgcaudit.reader.layout.LayoutSpec
 import io.github.kgcaudit.reader.layout.TextAlign
@@ -137,25 +138,4 @@ fun ReaderPrefs.toSpec(
  */
 fun BookReader.usesBookFonts(prefs: ReaderPrefs): Boolean = prefs.publisherFonts && hasBookFonts
 
-/**
- * 듣기 설정. 빠르기 · 목소리는 책이 바뀌어도 그대로다(사람의 귀에 맞춘 값이다). 잠자기 타이머는 저장하지 않는다 —
- * 어젯밤 30분 타이머가 오늘 아침 듣기를 30분 만에 끊으면 안 된다.
- *
- * @param engine 음성 엔진 패키지. null 이면 휴대폰 기본 엔진.
- * @param voice 엔진 안의 목소리 이름. null 이면 엔진의 기본 목소리.
- * @param voiceLabel 듣기 판에 보일 이름("Samsung TTS · 한국어 1").
- */
-data class ListenPrefs(
-    val rate: Float = 1f,
-    val engine: String? = null,
-    val voice: String? = null,
-    val voiceLabel: String? = null,
-) {
-    /** 한 단계 빠르게(+) · 느리게(−). 0.5–2.0 을 0.1 씩(L4). 떠돌이 소수(1.2000001)가 생기지 않게 10배로 센다. */
-    fun stepRate(by: Int): ListenPrefs = copy(rate = ((kotlin.math.round(rate * 10f).toInt() + by).coerceIn(5, 20)) / 10f)
 
-    companion object {
-        const val MIN_RATE = 0.5f
-        const val MAX_RATE = 2.0f
-    }
-}

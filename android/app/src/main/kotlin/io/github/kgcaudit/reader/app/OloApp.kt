@@ -18,8 +18,8 @@ import io.github.kgcaudit.reader.pdf.PdfSource
 import io.github.kgcaudit.reader.pdf.PlatformPdfSource
 import io.github.kgcaudit.reader.reflow.BookReader
 import io.github.kgcaudit.reader.reflow.ReaderPrefs
-import io.github.kgcaudit.reader.reflow.ListenPrefs
-import io.github.kgcaudit.reader.reflow.listen.ListenKit
+import io.github.kgcaudit.reader.listen.ListenPrefs
+import io.github.kgcaudit.reader.listen.ListenKit
 import io.github.kgcaudit.reader.ui.design.AutoTurn
 import io.github.kgcaudit.reader.ui.design.PdfFit
 import io.github.kgcaudit.reader.text.FontCatalog

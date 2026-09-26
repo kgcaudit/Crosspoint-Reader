@@ -1,4 +1,4 @@
-package io.github.kgcaudit.reader.reflow.listen
+package io.github.kgcaudit.reader.listen
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -37,7 +37,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import io.github.kgcaudit.reader.reflow.ListenPrefs
 import io.github.kgcaudit.reader.ui.design.CpButton
 import io.github.kgcaudit.reader.ui.design.CpChoice
 import io.github.kgcaudit.reader.ui.design.CpDivider
@@ -66,7 +65,7 @@ internal fun minutesLeft(endsAtMs: Long, nowMs: Long): Int = (((endsAtMs - nowMs
  * 지면은 그대로 보이고, 쪽 넘기기 · 칠하기도 그대로 된다 — 조종판 밖을 누른 것은 지면이 받는다.
  */
 @Composable
-internal fun ListenPlayer(
+fun ListenPlayer(
     state: ListenState,
     onPrevious: () -> Unit,
     onToggle: () -> Unit,
@@ -120,7 +119,7 @@ internal fun ListenPlayer(
 
 /** 듣기 판(L4): 빠르기 · 목소리 · 타이머. 조종판의 빠르기 · 타이머를 누르면 올라온다. */
 @Composable
-internal fun ListenSheet(
+fun ListenSheet(
     prefs: ListenPrefs,
     timer: ListenTimer,
     onRate: (ListenPrefs) -> Unit,
@@ -164,7 +163,7 @@ internal fun ListenSheet(
  * 글자는 동그라미 뒤 childIndent 에서 시작한다. "들어 보기" 는 고르지 않고 소리만 들려준다.
  */
 @Composable
-internal fun VoiceScreen(
+fun VoiceScreen(
     kit: ListenKit,
     current: ListenPrefs,
     onPick: (ListenPrefs) -> Unit,

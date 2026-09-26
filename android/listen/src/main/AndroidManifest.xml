@@ -11,7 +11,7 @@
 
     <application>
         <service
-            android:name=".listen.ListenService"
+            android:name=".ListenService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
     </application>

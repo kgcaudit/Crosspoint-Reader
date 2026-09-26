@@ -91,7 +91,7 @@ class PrefsStoreTest {
                 showHighlights = false,
                 pdfFit = io.github.kgcaudit.reader.ui.design.PdfFit.Width,
             ),
-            listen = io.github.kgcaudit.reader.reflow.ListenPrefs(rate = 1.3f, engine = "com.samsung.SMT", voice = "ko-kr-x-1", voiceLabel = "Samsung TTS · 한국어 1"),
+            listen = io.github.kgcaudit.reader.listen.ListenPrefs(rate = 1.3f, engine = "com.samsung.SMT", voice = "ko-kr-x-1", voiceLabel = "Samsung TTS · 한국어 1"),
         )
         PrefsStore(context).save(chosen)
         assertEquals(chosen, PrefsStore(context).load())

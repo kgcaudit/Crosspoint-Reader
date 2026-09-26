@@ -1,10 +1,8 @@
-package io.github.kgcaudit.reader.reflow.listen
+package io.github.kgcaudit.reader.listen
 
 import io.github.kgcaudit.reader.layout.book.Sentence
 import io.github.kgcaudit.reader.layout.book.indexAt
 import io.github.kgcaudit.reader.layout.book.speakable
-import io.github.kgcaudit.reader.reflow.BookReader
-import io.github.kgcaudit.reader.reflow.SpeechChapter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -44,14 +42,14 @@ data class ListenState(
  * 듣기 한 번(책 하나)의 진행. 문장 하나씩 엔진에 넘기고, 끝나면 다음 문장, 장이 끝나면 다음 장으로 간다.
  *
  * 화면(Compose)과 떨어져 돈다. 화면을 끄면 그림은 멈추지만 읽기는 계속되어야 한다(L6) — 그래서 쪽을 따라가는
- * 것도 화면의 효과가 아니라 여기서 [BookReader.follow] 를 직접 부른다. 쪽이 넘어가면 리더가 진도를 저장하므로,
+ * 것도 화면의 효과가 아니라 여기서 [ListenSource.follow] 를 직접 부른다. 쪽이 넘어가면 리더가 진도를 저장하므로,
  * 화면을 끈 채 듣다가 앱을 닫아도 들은 곳에서 다시 연다.
  *
  * 엔진에는 지금 문장과 **다음 한 문장**을 줄 세워 둔다. 하나씩 주면 문장이 끝난 알림이 오고 다음 문장을 넘기는
  * 사이에 틈이 생겨, 화면이 꺼진 동안 그 틈에 기기가 잠들면 읽기가 멈춘다.
  */
 class Listening(
-    private val reader: BookReader,
+    private val reader: ListenSource,
     private val speaker: Speaker,
     private val scope: CoroutineScope,
     private val clock: () -> Long = System::currentTimeMillis,
@@ -62,7 +60,7 @@ class Listening(
     val title: String get() = reader.title
 
     /** 이 듣기가 [other] 책의 것인가. 화면이 다시 만들어져도 같은 책이면 조종판을 이어 보인다. */
-    fun belongsTo(other: BookReader): Boolean = reader === other
+    fun belongsTo(other: ListenSource): Boolean = reader === other
 
     private var chapter: SpeechChapter? = null
     private var index = -1
@@ -252,7 +250,7 @@ class Listening(
                 i = c.sentences.size - 1
             } else {
                 s++
-                if (s >= reader.chapterCount()) return null
+                if (s >= reader.unitCount()) return null
                 c = load(s)
                 i = 0
             }

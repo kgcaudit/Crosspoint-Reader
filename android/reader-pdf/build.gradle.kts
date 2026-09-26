@@ -23,6 +23,7 @@ kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarg
 dependencies {
     api(project(":ui-design"))
     api(project(":document"))
+    api(project(":listen"))
     implementation(libs.coroutines.android)
     implementation(libs.androidx.activity.compose)
 

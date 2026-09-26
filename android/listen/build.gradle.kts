@@ -4,13 +4,11 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-// EPUB·TXT 리더 화면. 조판은 :core-layout 이 끝내 두었으므로 여기 남은 일은 페이지를
-// 좌표 그대로 찍고, 넘김·책갈피·목차를 사람 손에 연결하는 것뿐이다.
-//
-// :data 에 의존하지 않는다. 책을 여는 것(SAF)은 앱이 하고, 여기는 ReflowDocument 와
-// 보관소 인터페이스만 받는다 — 저장 수단이 바뀌어도 리더는 그대로다.
+// 듣기(TTS). EPUB 과 PDF 가 함께 쓴다 — 리더는 [ListenSource] 로 "장(또는 쪽) 하나의 글과 문장" 을 내주고,
+// 여기는 문장을 엔진에 넘기고 쪽을 따라가게 하고 화면을 끈 채 읽는 일(서비스 · 미디어 세션)만 한다.
+// 0.18.0 에서 EPUB 모듈에서 떼어 냈다(PDF 듣기가 EPUB 리더에 기대지 않게).
 android {
-    namespace = providers.gradleProperty("reader.namespace").get() + ".reflow"
+    namespace = providers.gradleProperty("reader.namespace").get() + ".listen"
     compileSdk = 35
     defaultConfig { minSdk = 26 }
     compileOptions {
@@ -24,9 +22,7 @@ kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarg
 
 dependencies {
     api(project(":ui-design"))
-    api(project(":text-platform"))
-    api(project(":document"))
-    api(project(":listen"))
+    api(project(":core-layout"))
     implementation(libs.coroutines.android)
     implementation(libs.androidx.activity.compose)
 
