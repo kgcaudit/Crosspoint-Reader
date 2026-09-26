@@ -122,6 +122,10 @@ class PageTextTest {
         // 글자 모양을 문자로 되돌리는 표가 없는 PDF: 사용자 영역 글자뿐.
         assertFalse(PageText.isReadable(" "))
         assertTrue(PageText.isReadable("PDF 는 쪽 모양 그대로 보입니다."))
+        // 깨진 글자 사이에 로마자 몇 개가 섞여도(글꼴 표가 일부만 있는 PDF) 읽을 글이 아니다 — 찾거나 읽으면 헛돈다.
+        assertFalse(PageText.isReadable("\uE001\uE002\uE003\uE004\uE005\uE006\uE007\uE008\uE009\uE00A ab"))
+        // 깨진 글자가 조금 섞인 본문은 읽을 글이다.
+        assertTrue(PageText.isReadable("책갈피는 쪽 번호로 저장된다 \uFFFD"))
     }
 
     @Test
