@@ -111,54 +111,27 @@ private fun textApi(): Boolean =
 private fun textOf(page: PdfRenderer.Page): String = page.textContents.joinToString("") { it.text }
 
 /**
- * 쪽의 글과 글자마다의 네모. 엔진은 글자 하나의 네모를 따로 주지 않아, 글자 하나씩 "고르기"([PdfRenderer.Page.selectContent])
- * 를 불러 그 네모를 얻는다. 한 쪽에 수천 번이지만 쪽마다 한 번이고 그리기 스레드에서 돈다.
- *
- * 고르기의 끝이 "그 글자까지" 인지 "그 글자 앞까지" 인지 문서가 말하지 않는다. 앞의 뜻으로 (i, i+1) 을 부르고,
- * 이웃 글자의 네모가 대부분 겹치면(두 글자씩 잡힌 것) 뒤의 뜻으로 (i, i) 를 다시 부른다 — 어느 쪽이든 글자
- * 하나의 네모가 남는다.
+ * 쪽의 글과 글자마다의 네모. 엔진은 글자 하나의 네모를 따로 주지 않아, 글자 번호마다 "고르기"([PdfRenderer.Page.selectContent])
+ * 를 불러 그 글자와 네모를 함께 받는다([assembleLayer] — 쪽 전체 글과 고르기는 번호가 달라, 따로 받으면 네모가 밀린다).
+ * 한 쪽에 수천 번이지만 쪽마다 한 번이고 그리기 스레드에서 돈다. 끝 번호는 끝을 빼고 센다(pdfClient 의 GetTextUtf8 ·
+ * GetTextBounds 가 [시작, 끝) 이다).
  */
 @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
 @RequiresExtension(extension = Build.VERSION_CODES.S, version = 13)
 private fun layerOf(page: PdfRenderer.Page): PageText {
-    val text = textOf(page)
-    if (text.isEmpty()) return PageText.EMPTY
+    val whole = textOf(page)
+    if (whole.isEmpty()) return PageText.EMPTY
     val w = page.width.toFloat().coerceAtLeast(1f)
     val h = page.height.toFloat().coerceAtLeast(1f)
-    fun boxes(stopOffset: Int): FloatArray {
-        val out = FloatArray(text.length * 4) { Float.NaN }
-        for (i in text.indices) {
-            if (text[i].isWhitespace()) continue
-            val rect: RectF = runCatching {
-                page.selectContent(SelectionBoundary(i), SelectionBoundary(i + stopOffset))
-                    ?.selectedTextContents?.firstNotNullOfOrNull { it.bounds.firstOrNull() }
-            }.getOrNull() ?: continue
-            out[i * 4] = rect.left / w
-            out[i * 4 + 1] = rect.top / h
-            out[i * 4 + 2] = rect.right / w
-            out[i * 4 + 3] = rect.bottom / h
-        }
-        return out
+    // 잘린 앞머리(공백 · 하이픈)와 번호 2 의 늘어남을 넉넉히 덮는다. 끝을 넘은 번호는 빈 글이라 헛돌기만 한다.
+    return assembleLayer(whole.length + LAYER_SLACK) { from, to ->
+        runCatching {
+            val content = page.selectContent(SelectionBoundary(from), SelectionBoundary(to))?.selectedTextContents
+            val text = content?.joinToString("") { it.text }.orEmpty()
+            val rect: RectF? = content?.firstNotNullOfOrNull { it.bounds.firstOrNull() }
+            text to rect?.let { floatArrayOf(it.left / w, it.top / h, it.right / w, it.bottom / h) }
+        }.getOrNull()
     }
-    val exclusive = boxes(1)
-    return if (mostlyDoubled(text, exclusive)) PageText(text, boxes(0)) else PageText(text, exclusive)
 }
 
-/** 이웃한 두 글자의 네모가 대부분 겹치는가 — 글자 하나를 달라 했는데 둘씩 온 것이다. */
-internal fun mostlyDoubled(text: String, boxes: FloatArray): Boolean {
-    var pairs = 0
-    var overlapping = 0
-    for (i in 0 until text.length - 1) {
-        val a = i * 4
-        val b = (i + 1) * 4
-        if (boxes[a].isNaN() || boxes[b].isNaN()) continue
-        // 같은 줄(가운데 높이가 비슷)인 이웃만 센다.
-        val midA = (boxes[a + 1] + boxes[a + 3]) / 2
-        val midB = (boxes[b + 1] + boxes[b + 3]) / 2
-        if (kotlin.math.abs(midA - midB) > (boxes[a + 3] - boxes[a + 1]) / 2) continue
-        pairs++
-        val widthA = boxes[a + 2] - boxes[a]
-        if (boxes[a + 2] - boxes[b] > widthA * 0.3f) overlapping++
-    }
-    return pairs >= 4 && overlapping * 2 > pairs
-}
+private const val LAYER_SLACK = 64

@@ -34,7 +34,7 @@ object BrokenHangul {
             if (adobeKrOf(c) in COMMON) commonAdobe++
         }
         // 흔한 글자가 적으면 망가진 글이 아니다(기호가 많은 쪽 · 다른 방식으로 망가진 글꼴).
-        if (candidates < MIN_CANDIDATES || maxOf(commonSequential, commonAdobe) < candidates * MIN_COMMON_SHARE) return text
+        if (candidates < MIN_CANDIDATES || maxOf(commonSequential, commonAdobe) < candidates * MIN_COMMON_SHARE) return hyphens(text)
         val out = text.toCharArray()
         val breaks = lineBreaks(text)
         fun Int.isSeparator() = text[this] == ' ' || breaks[this]
@@ -54,8 +54,11 @@ object BrokenHangul {
             }
             i = end
         }
-        return String(out)
+        return hyphens(String(out))
     }
+
+    /** 망가진 낱말 밖에 남은 번호 2 표시([BROKEN_WORD_MARK])는 줄 끝 하이픈이다. */
+    private fun hyphens(text: String): String = text.replace(BROKEN_WORD_MARK, '-')
 
     /** 푼 낱말이 얼마나 우리말 같은가: 흔히 쓰는 한글은 +1, 그 밖의 한글은 −3(잘못 풀면 그런 글자가 쏟아진다). */
     private fun likeness(text: String, from: Int, to: Int, out: CharArray): Int =
@@ -83,13 +86,8 @@ object BrokenHangul {
     /** Adobe-KR 번호 [c] 의 글자. 표 밖이거나 비었으면 null. */
     private fun adobeKrOf(c: Char): Char? = adobeKr.getOrNull(c.code)?.takeIf { it != '\u0000' }
 
-    /**
-     * Adobe-KR 번호 → 글자 표(번호가 곧 자리, 없는 번호는 U+0000). Adobe cmap-resources 의 UniAKR-UTF16-H 에서
-     * 뽑았다(BSD 허가 — 같은 자리의 adobe-kr.LICENSE.txt). 처음 쓸 때 한 번 읽는다.
-     */
-    private val adobeKr: String by lazy {
-        BrokenHangul::class.java.getResourceAsStream("adobe-kr.txt")?.use { it.readBytes().toString(Charsets.UTF_8) }.orEmpty()
-    }
+    /** Adobe-KR 번호 → 글자 표([AdobeKr] — Adobe cmap-resources 의 UniAKR-UTF16-H 에서 뽑았다, BSD). */
+    private val adobeKr: String get() = AdobeKr.table
 
     /** 낱말 하나([from]..[to]) 안의 망가진 글자를 유니코드 순 번호로 되살린다. */
     private fun repairSequential(text: String, from: Int, to: Int, out: CharArray) {

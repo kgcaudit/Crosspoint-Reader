@@ -62,7 +62,7 @@ class BrokenHangulTest {
     fun `words from a font numbered some other way are hidden instead of read as nonsense`() {
         // 같은 쪽에 두 체계 어느 쪽으로 풀어도 우리말이 안 되는 글꼴(쪽 머리 장식 글씨 등)이 섞였다. 억지로 풀면 "댦뗴꿹"
         // 같은 글자를 읽는다 — 본문은 되살리고 그 낱말은 소리 나지 않게 가린다.
-        val table = BrokenHangul::class.java.getResourceAsStream("adobe-kr.txt")!!.use { it.readBytes().toString(Charsets.UTF_8) }
+        val table = AdobeKr.table
         fun ks(c: Char) = c in '가'..'힣' && String("$c".toByteArray(charset("EUC-KR")), charset("EUC-KR")) == "$c" &&
             "$c".toByteArray(charset("EUC-KR")).size == 2
         val junk = (2000 until 11000).asSequence().map { it.toChar() }
@@ -79,7 +79,7 @@ class BrokenHangulTest {
 
     /** Adobe-KR 번호 체계의 글꼴이 엔진에서 나오는 모양(표를 거꾸로 써서 만든다). */
     private fun brokenAdobe(s: String): String {
-        val table = BrokenHangul::class.java.getResourceAsStream("adobe-kr.txt")!!.use { it.readBytes().toString(Charsets.UTF_8) }
+        val table = AdobeKr.table
         return s.map { c -> if (c in ' '..'~') (c.code - 31).toChar() else table.indexOf(c).also { require(it > 0) { "$c" } }.toChar() }.joinToString("")
     }
 

@@ -380,17 +380,43 @@ class PageTextTest {
     }
 }
 
-class GlyphBoxesTest {
-    private fun row(n: Int, width: Float) = FloatArray(n * 4).also { b ->
-        for (i in 0 until n) { b[i * 4] = i * 0.02f; b[i * 4 + 1] = 0.1f; b[i * 4 + 2] = i * 0.02f + width; b[i * 4 + 3] = 0.12f }
+class LayerAssemblyTest {
+
+    /**
+     * 안드로이드 PDF 엔진(pdfClient)을 그대로 흉내 낸다: 번호 [first]..[last] 만 글이 있고(앞뒤 공백 · 하이픈은 잘림),
+     * 번호 2 는 "-\r\n" 으로 늘어나며, 고르기는 [시작, 끝) 이다.
+     */
+    private class FakeClient(val codes: IntArray) {
+        val first = codes.indexOfFirst { it !in listOf(0x20, 0x2D, 2, 13, 10) }
+        val last = codes.indexOfLast { it !in listOf(0x20, 0x2D, 2, 13, 10) }
+        fun textOf(i: Int) = if (codes[i] == 2) "-\r\n" else codes[i].toChar().toString()
+        /** 쪽 전체 글(textContents): 잘리고 늘어난 것. */
+        val whole = (first..last).joinToString("") { textOf(it) }
+        fun select(from: Int, to: Int): Pair<String, FloatArray?> {
+            val a = from.coerceIn(first, last + 1)
+            val b = to.coerceIn(first, last + 1)
+            val s = (a until b).joinToString("") { textOf(it) }
+            // 글자 i 의 네모: x = i × 0.01 — 어느 번호의 네모인지 알아볼 수 있게.
+            return s to (a until b).firstOrNull { codes[it] != 0x20 }?.let { floatArrayOf(it * 0.01f, 0.1f, it * 0.01f + 0.01f, 0.12f) }
+        }
     }
 
     @Test
-    fun `boxes two characters wide are recognised so the engine is asked again one by one`() {
-        // 엔진이 (i, i+1) 을 "두 글자까지" 로 읽었다면 네모가 이웃과 반씩 겹친다. 알아채지 못하면 칠이 한 글자씩 넘친다.
-        assertTrue(mostlyDoubled("가나다라마바", row(6, 0.04f)))
-        assertFalse(mostlyDoubled("가나다라마바", row(6, 0.02f)))
-        // 글자가 너무 적으면 판단하지 않는다(짧은 쪽 번호 하나로 뒤집히지 않게).
-        assertFalse(mostlyDoubled("가나", row(2, 0.04f)))
+    fun `every letter keeps its own box when the engine trims and expands the page text`() {
+        // 앞머리 공백 둘(잘림) · 가운데 번호 2 둘(세 글자로 늘어남). 쪽 전체 글의 번호로 고르면 뒤 글자의 네모가 밀렸다.
+        val codes = intArrayOf(0x20, 0x20, '가'.code, '나'.code, 2, '다'.code, 2, '라'.code, '마'.code)
+        val engine = FakeClient(codes)
+        val layer = assembleLayer(engine.whole.length + 64) { a, b -> engine.select(a, b) }
+        assertEquals("가나\u0002다\u0002라마", layer.text)
+        // "마" 는 번호 8 의 네모(x = 0.08)를 가진다 — 밀렸다면 다른 글자의 네모다.
+        val ma = layer.text.indexOf('마')
+        assertEquals(0.08f, layer.box(ma)!!.left, 1e-4f)
+        assertEquals(0.02f, layer.box(0)!!.left, 1e-4f)
+    }
+
+    @Test
+    fun `the broken word mark becomes a hyphen outside broken words and a letter inside them`() {
+        // 멀쩡한 글에서는 줄 끝 하이픈("exam-" · "ple"), 대응표 없는 글꼴 낱말 안에서는 번호 2 = "!".
+        assertEquals("exam-ple", BrokenHangul.repair("exam\u0002ple"))
     }
 }
