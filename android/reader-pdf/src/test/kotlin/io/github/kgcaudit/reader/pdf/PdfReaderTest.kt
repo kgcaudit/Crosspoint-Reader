@@ -44,6 +44,57 @@ class PdfReaderTest {
     private fun reader(source: FakeSource = FakeSource(10)) =
         PdfReader(PdfBook(BookMeta(id, BookFormat.PDF, "설명서"), source), bookmarks, progress, Dispatchers.Unconfined) { 1_000L }
 
+    private val text = mapOf(
+        0 to "",
+        1 to "",
+        2 to "작은 글자는 두 번 눌러 확대\r\n합니다. 확대한 동안 끌면 쪽 안을 움직입니다.",
+        5 to "확대 배율은 다섯 배까지입니다.",
+    )
+
+    @Test
+    fun `search finds a phrase broken across lines on every page and says which page`() = runTest {
+        val r = reader(FakeSource(10, texts = text))
+        r.open()
+        val found = ArrayList<Pair<Int, String>>()
+        r.search("확대 합니다") { page, hits -> hits.forEach { found += page to it.context } }
+        // 줄에서 끊긴 "확대\r\n합니다" 도 찾는다 — 공백 개수를 가리지 않는다. 문맥에 줄바꿈 글자가 끼지 않는다.
+        assertEquals(listOf(2), found.map { it.first })
+        assertFalse(found.single().second.contains('\r'), found.single().second)
+        val pages = ArrayList<Int>()
+        r.search("확대") { page, hits -> repeat(hits.size) { pages += page } }
+        assertEquals(listOf(2, 2, 5), pages)
+    }
+
+    @Test
+    fun `a pdf whose first pages are pictures still counts as text, a fully scanned one does not`() = runTest {
+        // 표지 · 속표지(0, 1쪽)는 글이 없어도 본문이 있으면 글이 있는 PDF 다.
+        assertTrue(reader(FakeSource(10, texts = text)).also { it.open() }.hasText())
+        assertFalse(reader(FakeSource(10, texts = emptyMap())).also { it.open() }.hasText())
+        // 글자 API 가 없는 엔진(안드로이드 14 이하)은 묻지도 않는다.
+        val old = FakeSource(10)
+        assertFalse(reader(old).also { it.open() }.hasText())
+    }
+
+    @Test
+    fun `a highlight keeps the page and its text with line breaks joined, and listening reads page by page`() = runTest {
+        val r = reader(FakeSource(10, texts = text))
+        r.open()
+        val t = text.getValue(2)
+        val start = t.indexOf("확대")
+        val a = r.highlight(2, start, t.indexOf("합니다") + 3, io.github.kgcaudit.reader.document.HighlightColor.Green)!!
+        assertEquals("확대 합니다", a.snippet)
+        assertEquals(Locator.Reflow(2, start), a.start)
+        assertEquals(listOf(a), r.state.value.notes)
+        // 빈 구간은 칠하지 않는다.
+        assertNull(r.highlight(2, 5, 5, io.github.kgcaudit.reader.document.HighlightColor.Green))
+        // 듣기: 쪽 하나가 한 단위. 글 없는 쪽은 문장 없음(건너뛴다), 듣기가 쪽을 따라 넘긴다.
+        assertEquals(10, r.unitCount())
+        assertTrue(r.speech(0).sentences.isEmpty())
+        assertEquals(2, r.speech(2).sentences.size)
+        r.follow(5, 0)
+        assertEquals(5, r.state.value.page)
+    }
+
     @Test
     fun `turning pages saves the place and reopening returns to it`() = runTest {
         val first = reader()
@@ -298,7 +349,17 @@ private fun outlinedPdf(): ByteArray = TestPdf().run {
 }
 
 /** 쪽 번호로 회색 농도를 정해 칠한다(0쪽은 검정). [broken] 쪽은 PdfRenderer 처럼 예외를 던진다. */
-private class FakeSource(override val pageCount: Int, private val broken: Set<Int> = emptySet()) : PdfSource {
+private class FakeSource(
+    override val pageCount: Int,
+    private val broken: Set<Int> = emptySet(),
+    /** 쪽마다의 글(줄은 "\r\n"). 없으면 글자 API 가 없는 엔진이다. */
+    private val texts: Map<Int, String>? = null,
+) : PdfSource {
+    var textCalls = 0
+    override val readsText: Boolean get() = texts != null
+    override fun pageText(index: Int): String? = texts?.let { textCalls++; it[index].orEmpty() }
+    override fun textLayer(index: Int): PageText? = texts?.let { PageText.textOnly(it[index].orEmpty()) }
+
     var renders = 0
     var lastRegion: PageRegion? = null
     var closed = false

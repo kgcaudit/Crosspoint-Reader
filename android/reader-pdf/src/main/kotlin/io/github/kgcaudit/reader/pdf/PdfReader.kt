@@ -2,7 +2,16 @@ package io.github.kgcaudit.reader.pdf
 
 import android.graphics.Bitmap
 import android.util.LruCache
+import io.github.kgcaudit.reader.document.Annotation
+import io.github.kgcaudit.reader.document.AnnotationRepository
 import io.github.kgcaudit.reader.document.Bookmark
+import io.github.kgcaudit.reader.document.HighlightColor
+import io.github.kgcaudit.reader.document.InMemoryAnnotations
+import io.github.kgcaudit.reader.layout.book.SearchHit
+import io.github.kgcaudit.reader.layout.book.findAll
+import io.github.kgcaudit.reader.listen.ListenSource
+import io.github.kgcaudit.reader.listen.SpeechChapter
+import kotlinx.coroutines.ensureActive
 import io.github.kgcaudit.reader.document.BookmarkRepository
 import io.github.kgcaudit.reader.document.Locator
 import io.github.kgcaudit.reader.document.ProgressRepository
@@ -71,6 +80,8 @@ data class PdfState(
     val ready: Boolean = false,
     /** 보이는 쪽들. 한 쪽 보기면 [page] 하나, 두쪽보기면 펼침(왼쪽이 [page]). */
     val shown: List<Int> = listOf(page),
+    /** 이 책의 형광펜 전부(쪽마다 걸러 그린다). */
+    val notes: List<Annotation> = emptyList(),
 ) {
     /** 진도(0~100). 마지막 쪽을 펴면 100 — 두쪽이면 오른쪽 쪽까지 읽은 것으로 센다. */
     val percent: Float get() = if (pageCount <= 0) 0f else ((shown.maxOrNull() ?: page) + 1) * 100f / pageCount
@@ -90,12 +101,13 @@ class PdfReader(
     private val bookmarkRepository: BookmarkRepository,
     private val progressRepository: ProgressRepository,
     private val renderThread: CoroutineDispatcher = Dispatchers.IO.limitedParallelism(1),
+    private val annotationRepository: AnnotationRepository = InMemoryAnnotations(),
     private val clock: () -> Long = System::currentTimeMillis,
-) {
+) : ListenSource {
     private val _state = MutableStateFlow(PdfState(pageCount = book.pageCount))
     val state: StateFlow<PdfState> = _state.asStateFlow()
 
-    val title: String get() = book.meta.title
+    override val title: String get() = book.meta.title
 
     /**
      * 화면 크기로 그린 쪽. 지금 쪽과 앞뒤 한 쪽씩이면 넘길 때 기다리지 않는다. 장 수가 아니라 **바이트**로 센다 —
@@ -111,6 +123,118 @@ class PdfReader(
     suspend fun open() {
         val saved = runCatching { progressRepository.get(book.meta.id)?.locator as? Locator.FixedPage }.getOrNull()
         show(saved?.page ?: 0, save = false)
+        refreshNotes()
+    }
+
+    // ── 글자 층(안드로이드 15+) ────────────────────────────────────────
+
+    /** 이 휴대폰의 엔진이 글자를 꺼낼 수 있는가. 아니면 찾기 · 형광펜 · 듣기 단추가 없다. */
+    val readsText: Boolean get() = book.source.readsText
+
+    /** 쪽마다의 글(찾기 · 스캔본 판정). 글은 작아 모두 둔다 — 찾을 때마다 엔진을 다시 부르면 수백 쪽이 느리다. */
+    private val texts = HashMap<Int, String>()
+
+    /** 글자 네모까지 든 층(고르기 · 칠 · 문장 칠). 비싸서 최근 몇 쪽만 둔다. */
+    private val layers = LruCache<Int, PageText>(LAYER_PAGES)
+
+    private var readable: Boolean? = null
+
+    /** [page] 쪽의 글. 없거나 못 꺼내면 빈 글. */
+    suspend fun plainText(page: Int): String {
+        if (!readsText || page !in 0 until book.pageCount) return ""
+        synchronized(texts) { texts[page] }?.let { return it }
+        val text = withContext(renderThread) { runCatching { book.source.pageText(page) }.getOrNull() }.orEmpty()
+        synchronized(texts) { texts[page] = text }
+        return text
+    }
+
+    /** [page] 쪽의 글자 층. 없거나 못 꺼내면 빈 층. */
+    suspend fun textLayer(page: Int): PageText {
+        if (!readsText || page !in 0 until book.pageCount) return PageText.EMPTY
+        layers.get(page)?.let { return it }
+        val layer = withContext(renderThread) { runCatching { book.source.textLayer(page) }.getOrNull() } ?: PageText.EMPTY
+        layers.put(page, layer)
+        return layer
+    }
+
+    /** 이미 꺼내 둔 층이면 기다리지 않고 준다(그리기 중에 부른다). */
+    fun cachedLayer(page: Int): PageText? = layers.get(page)
+
+    /**
+     * 사람이 읽을 글이 있는 PDF 인가(결정 1: 스캔본이면 단추를 누를 때 알린다). 앞에서부터 [SCAN_PAGES] 쪽까지
+     * 보고 하나라도 읽을 글이 있으면 그렇다 — 표지 · 속표지는 그림뿐인 책이 많다. 한 번 보면 기억한다.
+     */
+    suspend fun hasText(): Boolean {
+        readable?.let { return it }
+        if (!readsText) return false.also { readable = it }
+        val here = _state.value.page
+        val pages = (listOf(here) + (0 until book.pageCount).take(SCAN_PAGES)).distinct()
+        return pages.any { PageText.isReadable(plainText(it)) }.also { readable = it }
+    }
+
+    /**
+     * 찾기(4-1): 앞 쪽부터 차례로 찾아 쪽마다 [onPage] 로 넘긴다(찾는 대로 목록에 쌓인다). 부르는 쪽이 취소하면
+     * 멈춘다. [findAll] 은 EPUB 과 같다 — 대소문자 · 공백 개수를 가리지 않아 줄에서 끊긴 말("확대\r\n합니다")도 찾는다.
+     */
+    suspend fun search(query: String, onPage: suspend (page: Int, hits: List<SearchHit>) -> Unit) {
+        for (page in 0 until book.pageCount) {
+            kotlin.coroutines.coroutineContext.ensureActive()
+            // 줄 끝의 "\r" 을 한 칸으로(자리 수는 그대로) — 두면 목록의 문맥에 보이지 않는 글자가 끼어 줄이 깨진다.
+            val text = plainText(page).replace('\r', ' ')
+            onPage(page, if (PageText.isReadable(text)) findAll(text, query, page) else emptyList())
+        }
+    }
+
+    // ── 형광펜(4-2) ──────────────────────────────────────────────────
+
+    /**
+     * 칠한다. 자리는 [Locator.Reflow] 에 쪽 번호와 그 쪽 글자 층의 오프셋을 담는다 — PDF 는 글자 크기를 바꿔도
+     * 글이 다시 흐르지 않아 (쪽, 글자) 가 늘 같은 글자다. 한 쪽 안에서만 칠한다(결정 2).
+     */
+    suspend fun highlight(page: Int, start: Int, endExclusive: Int, color: HighlightColor, note: String? = null): Annotation? {
+        if (start >= endExclusive) return null
+        val layer = textLayer(page)
+        val a = Annotation(
+            Annotation.NO_ID, book.meta.id, Locator.Reflow(page, start), Locator.Reflow(page, endExclusive), color, null,
+            snippet = layer.quote(start, endExclusive), createdAtEpochMs = clock(),
+        ).withNote(note)
+        return runCatching { annotationRepository.add(a) }.getOrNull().also { refreshNotes() }
+    }
+
+    suspend fun update(annotation: Annotation) {
+        runCatching { annotationRepository.update(annotation) }
+        refreshNotes()
+    }
+
+    suspend fun remove(annotation: Annotation) {
+        runCatching { annotationRepository.remove(annotation.id) }
+        refreshNotes()
+    }
+
+    suspend fun annotations(): List<Annotation> =
+        runCatching { annotationRepository.forBook(book.meta.id) }.getOrDefault(emptyList())
+
+    /** 칠한 곳으로 간다(독서노트에서 누름). */
+    suspend fun goTo(annotation: Annotation) = show(annotation.start.spine)
+
+    private suspend fun refreshNotes() {
+        _state.value = _state.value.copy(notes = annotations())
+    }
+
+    // ── 듣기(4-3) — 쪽 하나가 듣기의 한 단위다 ───────────────────────────
+
+    override suspend fun unitCount(): Int = book.pageCount
+
+    /** [unit] 쪽의 문장들. 머리말 · 쪽 번호는 뺀다(결정 4). 글이 없는 쪽(그림 · 스캔)은 문장 없음 — 듣기가 건너뛴다. */
+    override suspend fun speech(unit: Int): SpeechChapter {
+        val layer = textLayer(unit)
+        val sentences = if (PageText.isReadable(layer.text)) layer.speech() else emptyList()
+        return SpeechChapter(unit, layer.text, sentences)
+    }
+
+    /** 읽는 쪽을 따라 넘긴다. 이미 보이면(두쪽이면 펼침) 그대로 — 문장마다 진도를 쓰지 않는다. */
+    override suspend fun follow(unit: Int, offset: Int) {
+        if (unit !in _state.value.shown) show(unit)
     }
 
     /** 두쪽보기. null 이면 한 쪽. 값은 표지를 따로 둘지(T4). */
@@ -239,3 +363,9 @@ class PdfReader(
 
 /** 쪽 그림 캐시의 크기. 예전 "화면 크기 여섯 장"(1080×2400 × 6 ≈ 60MB)과 같은 몫. */
 private const val CACHE_BYTES = 64 * 1024 * 1024
+
+/** 글자 층을 둘 쪽 수. 지금 · 앞뒤 · 두쪽 펼침 · 찾은 결과 몇 쪽이면 충분하다(쪽마다 네모 수천 개). */
+private const val LAYER_PAGES = 8
+
+/** 스캔본인지 볼 앞쪽 쪽 수. 표지 · 속표지 · 목차 그림을 넘어 본문이 나올 만큼. */
+private const val SCAN_PAGES = 12

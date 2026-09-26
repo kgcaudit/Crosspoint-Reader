@@ -160,4 +160,19 @@ class PageViewportTest {
         assertEquals(1f, slide.base)
         assertEquals(1 to 1, slide.screen())
     }
+
+    @Test
+    fun `revealing a found word scrolls it into view only when it is off screen`() {
+        // 가로 폰 폭 맞춤: 쪽 가운데(50%)에 있는 말은 첫 화면 밖이다 → 화면 위 3분의 1 쯤으로 온다.
+        val low = PageRegion(0.1f, 0.5f, 0.3f, 0.52f)
+        val moved = landscape.reveal(low)
+        val y = moved.top + 0.5f * moved.height
+        assertEquals(1000f * 0.3f, y, 1f)
+        // 이미 보이는 말은 그대로 — 듣는 문장마다 화면이 흔들리면 읽을 수 없다.
+        val high = PageRegion(0.1f, 0.05f, 0.3f, 0.07f)
+        assertEquals(landscape, landscape.reveal(high))
+        // 쪽 끝에 가까운 말은 쪽 끝을 넘겨 내리지 않는다(가둔다).
+        val bottom = landscape.reveal(PageRegion(0.1f, 0.99f, 0.3f, 1f))
+        assertTrue(bottom.atBottom)
+    }
 }

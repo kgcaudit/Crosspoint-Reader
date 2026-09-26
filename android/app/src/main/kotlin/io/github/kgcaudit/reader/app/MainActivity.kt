@@ -262,6 +262,9 @@ private fun OloApp(
                     onPrefsChange = { prefs = prefs.copy(screen = it); container.prefs.save(prefs) },
                     speed = pageSpeed,
                     onSpeedChange = { container.prefs.saveSpeed("pages", it) },
+                    listen = prefs.listen,
+                    onListenChange = { prefs = prefs.copy(listen = it); container.prefs.save(prefs) },
+                    listenKit = container.listenKit,
                 )
             }
         }

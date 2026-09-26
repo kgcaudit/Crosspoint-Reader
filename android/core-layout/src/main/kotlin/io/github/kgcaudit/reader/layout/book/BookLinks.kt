@@ -62,7 +62,7 @@ internal fun noteText(text: String, blocks: List<Block>, anchorOffsets: Collecti
  * [query] 가 [text] 에 나오는 자리들. 대소문자와 공백의 개수는 가리지 않는다("Boa  Constrictor" = "boa constrictor").
  * 겹치는 자리는 세지 않는다(한 번 찾은 뒤 그 끝부터 다시).
  */
-internal fun findAll(text: String, query: String, spine: Int, paragraphStarts: Collection<Int> = emptyList()): List<SearchHit> {
+fun findAll(text: String, query: String, spine: Int, paragraphStarts: Collection<Int> = emptyList()): List<SearchHit> {
     val words = query.trim().split(WHITESPACE).filter { it.isNotEmpty() }
     if (words.isEmpty()) return emptyList()
     val pattern = Regex(words.joinToString("\\s+") { Regex.escape(it) }, RegexOption.IGNORE_CASE)

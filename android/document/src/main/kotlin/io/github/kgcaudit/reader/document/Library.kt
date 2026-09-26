@@ -49,3 +49,23 @@ interface AnnotationRepository {
 
     suspend fun remove(id: Long)
 }
+
+/** 보관소를 주지 않았을 때(시험 · 미리보기). 앱은 Room 보관소를 준다. */
+class InMemoryAnnotations : AnnotationRepository {
+    private val rows = ArrayList<Annotation>()
+    private var next = 1L
+
+    override suspend fun forBook(bookId: BookId): List<Annotation> =
+        rows.filter { it.bookId == bookId }.sortedWith(compareBy({ it.start.spine }, { it.start.charOffset }, { it.id }))
+
+    override suspend fun add(annotation: Annotation): Annotation = annotation.copy(id = next++).also { rows.add(it) }
+
+    override suspend fun update(annotation: Annotation) {
+        val i = rows.indexOfFirst { it.id == annotation.id }
+        if (i >= 0) rows[i] = rows[i].copy(color = annotation.color, note = annotation.note)
+    }
+
+    override suspend fun remove(id: Long) {
+        rows.removeAll { it.id == id }
+    }
+}

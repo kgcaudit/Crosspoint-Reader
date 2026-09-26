@@ -67,6 +67,22 @@ class PageViewport private constructor(
     fun toggleZoom(focusX: Float, focusY: Float): PageViewport =
         if (isZoomed) scaleTo(base, focusX, focusY) else zoom(DOUBLE_TAP_SCALE, focusX, focusY)
 
+    /**
+     * 쪽 안의 [region](쪽 비율)이 화면 밖이면 보이게 옮긴다 — 찾은 곳으로 가거나 듣는 문장이 화면 아래로 내려갈 때.
+     * 이미 다 보이면 그대로다(문장마다 화면이 출렁이지 않게). 옮길 때는 그 곳을 화면 위에서 3분의 1 쯤에 둔다 —
+     * 가운데보다 위라야 뒤따르는 글이 더 많이 보인다.
+     */
+    fun reveal(region: PageRegion): PageViewport {
+        val top = this.top + region.top * height
+        val bottom = this.top + region.bottom * height
+        val left = this.left + region.left * width
+        val right = this.left + region.right * width
+        val dy = if (top < 0f || bottom > viewHeight) viewHeight * 0.3f - top else 0f
+        val dx = if (left < 0f || right > viewWidth) viewWidth / 2f - (left + right) / 2f else 0f
+        if (dx == 0f && dy == 0f) return this
+        return clamped(scale, this.left + dx, this.top + dy)
+    }
+
     /** 쪽 머리 · 쪽 끝이 화면에 닿았는가. 쪽이 화면보다 낮으면 둘 다 참. */
     val atTop: Boolean get() = height <= viewHeight + EPS || top >= -EPS
     val atBottom: Boolean get() = height <= viewHeight + EPS || top <= viewHeight - height + EPS

@@ -175,7 +175,7 @@ class AppContainer(private val app: Application) {
         BookFormat.PDF -> {
             val book = PdfBook.open(id, name, data.sources.seekableDescriptor(uri), pdfEngine)
             closingOnFailure(book) {
-                val reader = PdfReader(book, data.bookmarks, data.progress)
+                val reader = PdfReader(book, data.bookmarks, data.progress, annotationRepository = data.annotations)
                 reader.open()
                 OpenedBook.Pdf(reader)
             }

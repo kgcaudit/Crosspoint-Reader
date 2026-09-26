@@ -24,6 +24,7 @@ dependencies {
     api(project(":ui-design"))
     api(project(":document"))
     api(project(":listen"))
+    implementation(libs.androidx.annotation)
     implementation(libs.coroutines.android)
     implementation(libs.androidx.activity.compose)
 

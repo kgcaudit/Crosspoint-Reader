@@ -345,6 +345,8 @@ fun CpViewSettingsScreen(
     paragraph: (@Composable (child: Modifier) -> Unit)? = null,
     /** PDF 에서 열었을 때만 "PDF" 묶음(두쪽보기의 표지)을 보인다. EPUB 에서 보이면 무엇을 바꾸는지 알 수 없다. */
     pdf: Boolean = false,
+    /** "형광펜 · 메모" 줄을 보인다. PDF 는 글자를 꺼낼 수 있는 휴대폰(안드로이드 15+)에서만 칠이 있다. */
+    highlights: Boolean = !pdf,
 ) {
     var sub by remember { mutableStateOf(SettingsPage.Main) }
     androidx.activity.compose.BackHandler(enabled = sub != SettingsPage.Main) { sub = SettingsPage.Main }
@@ -381,8 +383,8 @@ fun CpViewSettingsScreen(
                 CpChoice("화면 회전", rotations.map { it.label }, rotations.indexOf(prefs.rotation), {
                     onChange(prefs.copy(rotation = rotations[it]))
                 }, child)
-                if (!pdf) {
-                    // 형광펜 · 메모 숨기기(3-5). PDF 에는 칠이 없어 줄을 두지 않는다.
+                if (highlights) {
+                    // 형광펜 · 메모 숨기기(3-5). 칠이 없는 곳(안드로이드 14 이하의 PDF)에는 줄을 두지 않는다.
                     CpChoice("형광펜 · 메모", listOf("보임", "숨김"), if (prefs.showHighlights) 0 else 1, {
                         onChange(prefs.copy(showHighlights = it == 0))
                     }, child)

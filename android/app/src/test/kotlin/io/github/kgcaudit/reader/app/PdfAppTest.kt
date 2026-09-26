@@ -66,6 +66,9 @@ class PdfAppTest {
 
     @Test
     fun `a pdf opens, turns, zooms, keeps a bookmark and reopens where it was left`() {
+        // 이 시험은 글자 API 가 없는 휴대폰(안드로이드 14 이하)이다 — 찾기 · 듣기 단추가 없고 독서노트는 책갈피만.
+        // 글자를 꺼내는 휴대폰은 PdfTextAppTest 가 본다.
+        ApplicationProvider.getApplicationContext<OloApp>().container.pdfEngine = { DrawnPdf(it, pageCount = 6, readsText = false) }
         // 목록에서 "준비 중" 이 사라지고 눌러 열린다. 제목은 파일에 적힌 것(문서 정보).
         node(hasText("설명서.pdf")).performClick()
         waitFor(hasText("1 / 6"))
@@ -139,12 +142,13 @@ class PdfAppTest {
         waitFor(hasContentDescription("책갈피 꽂기"))
         node(hasContentDescription("책갈피 꽂기")).performClick()
         waitFor(hasContentDescription("책갈피 빼기"))
-        // 도구줄의 책갈피 단추는 독서노트로 합쳤다(N5). PDF 독서노트는 책갈피만 모인다.
-        // PDF 는 글자가 없어 듣기 단추가 없다(L8, 찾기와 같다).
+        // 도구줄의 책갈피 단추는 독서노트로 합쳤다(N5). 글자를 못 꺼내는 휴대폰의 PDF 독서노트는 책갈피만 모인다.
+        // 그 휴대폰에서는 찾기 · 듣기 단추도 없다(누를 때마다 "안 됩니다" 를 보는 것보다 없는 편이 낫다).
         kotlin.test.assertTrue(compose.onAllNodes(hasContentDescription("듣기"), useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
+        kotlin.test.assertTrue(compose.onAllNodes(hasContentDescription("본문에서 찾기"), useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
         node(hasText("독서노트")).performClick()
         waitFor(hasText("4쪽"))
-        waitFor(hasText("PDF 는 글자를 고를 수 없어 책갈피만 모입니다"))
+        waitFor(hasText("이 휴대폰(안드로이드 14 이하)에서는 PDF 글자를 고를 수 없어 책갈피만 모입니다"))
         shot("23-pdf-bookmarks")
 
         // 목록에서 책갈피를 누르면 그 쪽으로. 한 쪽 더 넘긴 뒤 닫고 다시 열면 넘긴 쪽(5쪽)이다.

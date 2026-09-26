@@ -56,6 +56,26 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.geometry.Rect
+import io.github.kgcaudit.reader.document.Annotation
+import io.github.kgcaudit.reader.listen.ListenHub
+import io.github.kgcaudit.reader.listen.ListenKit
+import io.github.kgcaudit.reader.listen.ListenPlayer
+import io.github.kgcaudit.reader.listen.ListenPrefs
+import io.github.kgcaudit.reader.listen.ListenSheet
+import io.github.kgcaudit.reader.listen.ListenState
+import io.github.kgcaudit.reader.listen.Listening
+import io.github.kgcaudit.reader.listen.VoiceScreen
+import io.github.kgcaudit.reader.ui.design.CpMemoSheet
+import io.github.kgcaudit.reader.ui.design.CpSearchResultBar
+import io.github.kgcaudit.reader.ui.design.CpSearchRow
+import io.github.kgcaudit.reader.ui.design.CpSearchScreen
+import io.github.kgcaudit.reader.ui.design.Pen
+import io.github.kgcaudit.reader.ui.design.copyText
+import io.github.kgcaudit.reader.ui.design.lookUp
+import io.github.kgcaudit.reader.ui.design.shareOut
+import io.github.kgcaudit.reader.ui.design.shareText
 import io.github.kgcaudit.reader.document.Bookmark
 import io.github.kgcaudit.reader.document.TocEntry
 import io.github.kgcaudit.reader.ui.design.CpButton
@@ -125,6 +145,11 @@ fun PdfScreen(
     /** 읽는 속도(쪽/분). 남은 시간을 센다(E5). */
     speed: ReadingSpeed = remember { ReadingSpeed() },
     onSpeedChange: (ReadingSpeed) -> Unit = {},
+    /** 듣기 설정(빠르기 · 목소리). EPUB 과 한 벌이다. */
+    listen: ListenPrefs = ListenPrefs(),
+    onListenChange: (ListenPrefs) -> Unit = {},
+    /** 음성 엔진. null 이면 휴대폰의 것(시험은 가짜를 준다). */
+    listenKit: ListenKit? = null,
 ) {
     val state by reader.state.collectAsState()
     val scope = rememberCoroutineScope()
@@ -187,20 +212,154 @@ fun PdfScreen(
         }
     }
     VolumeKeyPaging(enabled = prefs.volumeKeys && panel == PdfPanel.None) { forward -> advance(forward) }
+    fun say(message: String) {
+        toast = message
+        toastCount++
+    }
     fun toggleBookmark() = scope.go {
         reader.toggleBookmark()
-        toast = if (reader.state.value.bookmarked) "책갈피를 꽂았습니다" else "책갈피를 뺐습니다"
-        toastCount++
+        say(if (reader.state.value.bookmarked) "책갈피를 꽂았습니다" else "책갈피를 뺐습니다")
+    }
+
+    // ── 글자 층(4단계 PDF): 찾기 · 고르기 · 칠 · 듣기 ─────────────────────
+    val text = remember(reader) { PdfTextState() }
+    val search = remember(reader) { PdfSearch() }
+    var lastPen by remember { mutableStateOf(Pen.Yellow) }
+    // 찾은 곳 · 듣는 문장을 보이게 옮길 곳(쪽, 쪽 안 네모). 폭 맞춤 · 확대에서만 실제로 움직인다.
+    var focus by remember { mutableStateOf<Pair<Int, PageRegion>?>(null) }
+    // 쪽이 바뀌면 고르던 것 · 누른 칠은 놓는다(한 쪽 안에서만 고른다, 결정 2).
+    LaunchedEffect(state.shown) {
+        text.selection = null
+        text.tapped = null
+    }
+    /** 글자가 그림인 PDF(결정 1): 단추는 두고 누르면 까닭을 알린다. */
+    fun whenReadable(action: () -> Unit) = scope.go {
+        if (reader.hasText()) {
+            action()
+        } else {
+            // 도구줄을 닫고 알린다 — 열어 둔 채면 알림이 도구줄 밑에 가려 보이지 않는다.
+            panel = PdfPanel.None
+            say(SCANNED)
+        }
+    }
+    fun hiddenHint() {
+        if (!latestPrefs.showHighlights) say("형광펜을 숨겨 둔 상태라 보이지 않습니다. 보기 설정에서 켤 수 있습니다")
+    }
+    fun longPress(at: Offset) {
+        if (!reader.readsText) return
+        val placed = text.placedAt(at) ?: return
+        scope.go {
+            if (!reader.hasText()) {
+                say(SCANNED)
+                return@go
+            }
+            val layer = reader.textLayer(placed.page)
+            text.layers++
+            val p = placed.toPage(at)
+            val i = layer.charAt(p.x, p.y) ?: return@go
+            val word = layer.wordAt(i)
+            text.tapped = null
+            text.selection = PdfSelection(placed.page, word.first, word.last + 1)
+        }
+    }
+    fun onPen(pen: Pen) {
+        lastPen = pen
+        val sel = text.selection
+        val note = text.tapped
+        text.selection = null
+        text.tapped = null
+        if (sel != null) {
+            scope.go { reader.highlight(sel.page, sel.start, sel.endExclusive, pen.color) }
+            hiddenHint()
+        } else if (note != null) {
+            scope.go { reader.update(note.copy(color = pen.color)) }
+        }
+    }
+    fun onWord(word: String) {
+        val sel = text.selection
+        val note = text.tapped
+        val quote = if (sel != null) reader.cachedLayer(sel.page)?.quote(sel.start, sel.endExclusive).orEmpty() else note?.snippet.orEmpty()
+        when (word) {
+            "메모" -> text.memo = PdfMemo(note, sel, quote, note?.color?.pen ?: lastPen)
+            "복사" -> if (!copyText(context, quote)) say("복사했습니다")
+            "공유" -> shareOut(context, shareText(quote, note?.note, reader.title))
+            "사전" -> if (!lookUp(context, quote)) say("낱말을 찾아 줄 사전 앱이 없습니다")
+            "지우기" -> note?.let { n ->
+                scope.go { reader.remove(n) }
+                say("형광펜을 지웠습니다")
+            }
+        }
+        if (word != "메모") {
+            text.selection = null
+            text.tapped = null
+        }
+    }
+    fun openHit(i: Int) {
+        val hit = search.results.getOrNull(i) ?: return
+        search.current = i
+        text.found = search.results.groupBy({ it.spine }, { it.start until it.endExclusive })
+        text.current = hit.spine to (hit.start until hit.endExclusive)
+        panel = PdfPanel.None
+        scope.go {
+            reader.goTo(hit.spine)
+            val box = reader.textLayer(hit.spine).rects(hit.start, hit.endExclusive).firstOrNull()
+            text.layers++
+            if (box != null) focus = hit.spine to box
+        }
+    }
+    fun closeSearch() {
+        search.current = -1
+        text.found = emptyMap()
+        text.current = null
+    }
+
+    // 듣기(4-3). EPUB 과 같은 듣기 — 쪽 하나가 한 단위다.
+    val kit = remember(listenKit) { listenKit ?: ListenKit.android(context) }
+    val hub by ListenHub.current.collectAsState()
+    val listening = hub?.takeIf { it.belongsTo(reader) }
+    val heard = listening?.state?.collectAsState()?.value ?: ListenState()
+    var listenSheet by remember { mutableStateOf(false) }
+    fun startListening() = whenReadable {
+        val l = Listening(reader, kit.speaker(listen.engine), ListenHub.scope)
+        ListenHub.attach(context, l)
+        panel = PdfPanel.None
+        ListenHub.scope.launch { l.start(state.page, 0, listen.rate, listen.voice) }
+    }
+    // 책을 닫으면 듣기도 끝낸다(EPUB 과 같다).
+    val closeBook = {
+        ListenHub.detach(listening)
+        onClose()
+    }
+    LaunchedEffect(heard.message) {
+        heard.message?.let { say(it); listening?.consumeMessage() }
+    }
+    // 사람이 쪽을 옮기면 듣기도 그 쪽의 첫 문장으로. 듣기가 넘긴 것이면 읽는 문장이 이미 보이는 쪽에 있다.
+    LaunchedEffect(state.shown) {
+        val l = listening ?: return@LaunchedEffect
+        if (heard.active && heard.spine !in state.shown) l.onPageShown(state.page, 0, Int.MAX_VALUE)
+    }
+    val sentence = heard.sentence?.takeIf { heard.active && heard.spine in state.shown }?.let { heard.spine to (it.start until it.endExclusive) }
+    // 폭 맞춤 · 확대에서 읽는 문장이 화면 밖으로 가면 따라 내린다.
+    LaunchedEffect(sentence) {
+        val (page, range) = sentence ?: return@LaunchedEffect
+        val box = reader.textLayer(page).rects(range.first, range.last + 1).firstOrNull() ?: return@LaunchedEffect
+        focus = page to box
     }
 
     LaunchedEffect(panel) { onChrome(panel != PdfPanel.None) }
     BackHandler {
+        if (panel == PdfPanel.None && (text.selection != null || text.tapped != null)) {
+            text.selection = null
+            text.tapped = null
+            return@BackHandler
+        }
         panel = when (panel) {
-            PdfPanel.None -> { onClose(); PdfPanel.None }
-            PdfPanel.Contents, PdfPanel.Notes -> PdfPanel.Bar
+            PdfPanel.None -> { closeBook(); PdfPanel.None }
+            PdfPanel.Contents, PdfPanel.Notes, PdfPanel.Search -> PdfPanel.Bar
             PdfPanel.View -> PdfPanel.Bar
             PdfPanel.Settings -> PdfPanel.View
             PdfPanel.Bar -> PdfPanel.None
+            PdfPanel.Voices -> { if (heard.active) listenSheet = true; PdfPanel.None }
         }
     }
 
@@ -229,10 +388,16 @@ fun PdfScreen(
                 val twoPages = !fitWidth && prefs.twoPages(viewW / density, viewH / density, smallest)
                 LaunchedEffect(twoPages, prefs.pdfCoverAlone) { reader.setSpread(if (twoPages) prefs.pdfCoverAlone else null) }
                 val onTap: (Offset, Float) -> Unit = { at, corner ->
-                    if (panel != PdfPanel.None) {
-                        panel = PdfPanel.None
-                    } else {
-                        when (prefs.touch.actionAt(at.x, at.y, viewW, corner)) {
+                    val note = if (latestPrefs.showHighlights) annotationAt(reader, text, reader.state.value.notes, at) else null
+                    when {
+                        panel != PdfPanel.None -> panel = PdfPanel.None
+                        // 고르는 중에 다른 곳을 누르면 고르기만 푼다(쪽이 넘어가면 고른 것을 잃는다).
+                        text.selection != null || text.tapped != null -> {
+                            text.selection = null
+                            text.tapped = null
+                        }
+                        note != null -> text.tapped = note
+                        else -> when (prefs.touch.actionAt(at.x, at.y, viewW, corner)) {
                             TapAction.Previous -> advance(false)
                             TapAction.Next -> advance(true)
                             TapAction.Menu -> panel = PdfPanel.Bar
@@ -240,6 +405,8 @@ fun PdfScreen(
                         }
                     }
                 }
+                // 넘김 효과 동안 옛 쪽도 자리를 알리므로, 지금 보이는 쪽의 것만 받는다.
+                val onPlaced: (List<Placed>) -> Unit = { list -> if (list.all { it.page in reader.state.value.shown } && list != text.placed) text.placed = list }
                 val onSwipe: (Boolean) -> Unit = { forward -> scope.go { if (forward) reader.next() else reader.previous() } }
                 // 넘김 효과(E7): 보이는 쪽(들)이 바뀔 때.
                 if (state.ready && state.pageCount > 0 && viewW > 0f && viewH > 0f) CpPageTurn(
@@ -248,7 +415,7 @@ fun PdfScreen(
                     forward = { from, to -> (to.firstOrNull() ?: 0) > (from.firstOrNull() ?: 0) },
                 ) { shown ->
                     if (twoPages) {
-                        SpreadView(reader, shown, viewW, viewH, onTap, onSwipe)
+                        SpreadView(reader, shown, viewW, viewH, onTap, onSwipe, ::longPress, onPlaced, text)
                     } else {
                         PageView(
                             reader = reader,
@@ -260,9 +427,24 @@ fun PdfScreen(
                             fitWidth = fitWidth,
                             fromBottom = enterBottom == shown.first(),
                             scroller = scroller,
+                            onLongPress = ::longPress,
+                            onPlaced = onPlaced,
+                            text = text,
+                            focus = focus?.takeIf { it.first == shown.first() }?.second,
                         )
                     }
                 }
+                // 칠 · 찾은 곳 · 읽는 문장 · 고르기(쪽 그림 위에 얹는다, 누름은 받지 않는다).
+                if (reader.readsText) PdfTextOverlay(
+                    reader = reader,
+                    text = text,
+                    notes = state.notes,
+                    showNotes = prefs.showHighlights,
+                    sentence = sentence,
+                    accent = colors.accent,
+                    onPen = ::onPen,
+                    onWord = ::onWord,
+                )
             }
             CpReadingFooter(
                 info = FooterInfo(
@@ -306,11 +488,35 @@ fun PdfScreen(
         if (state.bookmarked && state.pageCount > 0) {
             CpRibbon(Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.displayCutout).padding(end = 20.dp))
         }
-        // 자동 넘김(L7). PDF 도 글자 없이 쪽만 넘기면 되므로 같이 쓴다. 메뉴가 열려 있으면 쉰다.
-        val autoSuspended = panel != PdfPanel.None
+        // 자동 넘김(L7). PDF 도 글자 없이 쪽만 넘기면 되므로 같이 쓴다. 메뉴가 열렸거나 듣는 중 · 고르는 중이면 쉰다.
+        val autoSuspended = panel != PdfPanel.None || heard.active || text.selection != null || text.memo != null
         val autoTurn = rememberAutoTurn(prefs.autoTurn, state.page, autoSuspended) { advance(true) }
-        if (autoTurn.visible(prefs.autoTurn, autoSuspended)) {
-            CpAutoTurnPill(autoTurn, Modifier.align(Alignment.BottomCenter).padding(bottom = 60.dp))
+        val lift = if (heard.active || autoTurn.visible(prefs.autoTurn, autoSuspended)) 124.dp else 64.dp
+        if (panel == PdfPanel.None) {
+            if (heard.active) {
+                ListenPlayer(
+                    state = heard,
+                    onPrevious = { listening?.previous() },
+                    onToggle = { listening?.toggle() },
+                    onNext = { listening?.next() },
+                    onSettings = { listenSheet = true },
+                    onClose = { ListenHub.detach(listening) },
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 60.dp),
+                )
+            } else if (autoTurn.visible(prefs.autoTurn, autoSuspended)) {
+                CpAutoTurnPill(autoTurn, Modifier.align(Alignment.BottomCenter).padding(bottom = 60.dp))
+            }
+            if (search.current >= 0 && search.results.isNotEmpty()) {
+                CpSearchResultBar(
+                    index = search.current,
+                    total = search.results.size,
+                    onPrevious = { if (search.current > 0) openHit(search.current - 1) },
+                    onNext = { if (search.current < search.results.size - 1) openHit(search.current + 1) },
+                    onList = { panel = PdfPanel.Search },
+                    onClose = ::closeSearch,
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = lift),
+                )
+            }
         }
         CpToast(toast, onDone = { toast = null }, Modifier.align(Alignment.BottomCenter), key = toastCount)
         CpBrightnessOverlay(dragBrightness, Modifier.align(Alignment.CenterStart))
@@ -323,8 +529,11 @@ fun PdfScreen(
             subtitle = "${state.page + 1} / ${state.pageCount} 쪽",
             bookmarked = state.bookmarked,
             onBookmark = ::toggleBookmark,
-            onBack = onClose,
+            onBack = closeBook,
             onDismiss = { panel = PdfPanel.None },
+            // 찾기 · 듣기(4단계 PDF). 글자를 꺼낼 수 없는 휴대폰(안드로이드 14 이하)에서는 단추가 없다.
+            onSearch = if (reader.readsText) ({ whenReadable { panel = PdfPanel.Search } }) else null,
+            onListen = if (reader.readsText) ({ if (listening != null) { panel = PdfPanel.None; listening.play() } else startListening() }) else null,
             progress = if (state.pageCount > 1) state.page / (state.pageCount - 1f) else 1f,
             progressLabel = { pageAt(it, state.pageCount).let { p -> "${reader.book.pageLabel(p) ?: (p + 1)}쪽" } },
             onSeek = { target -> scope.go { reader.seek(target) } },
@@ -362,25 +571,108 @@ fun PdfScreen(
                 selected = panel == PdfPanel.View,
             )
         }
-        PdfPanel.Settings -> CpViewSettingsScreen(prefs, onPrefsChange, onBack = { panel = PdfPanel.View }, pdf = true)
+        PdfPanel.Settings -> CpViewSettingsScreen(prefs, onPrefsChange, onBack = { panel = PdfPanel.View }, pdf = true, highlights = reader.readsText)
         PdfPanel.Contents, PdfPanel.Notes -> PdfLists(
             reader = reader,
             page = state.page,
+            notes = state.notes,
             showNotes = panel == PdfPanel.Notes,
             onPanel = { panel = it },
+            onMemo = { note -> text.memo = PdfMemo(note, null, note.snippet, note.color.pen) },
             scope = scope,
+        )
+        PdfPanel.Search -> CpSearchScreen(
+            query = search.query,
+            onQuery = { search.query = it },
+            onClear = { search.query = ""; search.stop(); closeSearch() },
+            summary = search.summary(state.pageCount),
+            progress = if (search.running && state.pageCount > 0) search.searched / state.pageCount.toFloat() else null,
+            rows = search.results.map { hit ->
+                CpSearchRow(
+                    section = contents.getOrNull(currentContentsIndex(contents, hit.spine))?.label ?: "${hit.spine + 1}쪽",
+                    context = hit.context,
+                    matchStart = hit.contextMatchStart,
+                    matchLength = (hit.endExclusive - hit.start).coerceAtMost(hit.context.length - hit.contextMatchStart),
+                    where = "${reader.book.pageLabel(hit.spine) ?: (hit.spine + 1)}쪽",
+                )
+            },
+            onSearch = { search.start(reader, scope) },
+            onOpen = ::openHit,
+            onBack = { panel = PdfPanel.Bar },
+        )
+        PdfPanel.Voices -> VoiceScreen(
+            kit = kit,
+            current = listen,
+            onPick = { picked ->
+                val engineChanged = picked.engine != listen.engine
+                onListenChange(picked)
+                val l = listening
+                if (l != null && engineChanged) {
+                    // 엔진이 바뀌면 새 엔진으로 다시 연다 — 듣던 쪽부터.
+                    val page = l.state.value.spine.takeIf { it >= 0 } ?: state.page
+                    val at = l.state.value.sentence?.start ?: 0
+                    ListenHub.detach(l)
+                    val next = Listening(reader, kit.speaker(picked.engine), ListenHub.scope)
+                    ListenHub.attach(context, next)
+                    ListenHub.scope.launch { next.start(page, at, picked.rate, picked.voice) }
+                } else {
+                    l?.setVoice(picked.voice)
+                }
+            },
+            onBack = { panel = PdfPanel.None; if (heard.active) listenSheet = true },
+        )
+    }
+
+    if (listenSheet && heard.active) {
+        ListenSheet(
+            prefs = listen,
+            timer = heard.timer,
+            onRate = { next -> onListenChange(next); listening?.setRate(next.rate) },
+            onVoices = { listenSheet = false; panel = PdfPanel.Voices },
+            onTimer = { listening?.setTimer(it) },
+            onClose = { listenSheet = false },
+        )
+    }
+
+    // 메모 판은 독서노트 목록 위에서도 뜬다("메모 고치기").
+    text.memo?.let { draft ->
+        CpMemoSheet(
+            key = draft,
+            quote = draft.quote,
+            initialText = draft.annotation?.note.orEmpty(),
+            initialPen = draft.pen,
+            onSave = { body, pen ->
+                lastPen = pen
+                text.memo = null
+                text.selection = null
+                text.tapped = null
+                val a = draft.annotation
+                val sel = draft.selection
+                scope.go {
+                    if (a != null) {
+                        reader.update(a.copy(color = pen.color).withNote(body))
+                    } else if (sel != null) {
+                        reader.highlight(sel.page, sel.start, sel.endExclusive, pen.color, body)
+                    }
+                }
+                if (a == null) hiddenHint()
+            },
+            onCancel = { text.memo = null },
         )
     }
 
     if (state.ready && state.pageCount <= 0) {
-        CpPopup(title = "이 PDF 를 열지 못했습니다", message = "쪽이 하나도 없는 파일입니다.", onDismiss = onClose) {
+        CpPopup(title = "이 PDF 를 열지 못했습니다", message = "쪽이 하나도 없는 파일입니다.", onDismiss = closeBook) {
             Spacer(Modifier.height(16.dp))
-            CpButton("라이브러리로", onClose)
+            CpButton("라이브러리로", closeBook)
         }
     }
 }
 
-private enum class PdfPanel { None, Bar, View, Settings, Contents, Notes }
+private enum class PdfPanel { None, Bar, View, Settings, Contents, Notes, Search, Voices }
+
+/** 글자가 그림인 PDF 에서 찾기 · 듣기 · 고르기를 누르면(결정 1). */
+internal const val SCANNED = "이 PDF 는 글자가 그림으로 되어 있어(스캔본) 찾기 · 듣기 · 형광펜을 쓸 수 없습니다"
 
 /**
  * 보이는 쪽의 "한 화면 옮기기". 넘김 효과 동안 옛 쪽과 새 쪽이 함께 있으므로, 나중에 걸린(새) 쪽만 남고 옛 쪽이
@@ -413,6 +705,13 @@ private fun PageView(
     /** 쪽 끝부터 보인다(폭 맞춤에서 앞 쪽으로 돌아왔다). 처음 놓을 때만 본다. */
     fromBottom: Boolean = false,
     scroller: PageScroller? = null,
+    /** 길게 누른 자리(글자 고르기). */
+    onLongPress: (Offset) -> Unit = {},
+    /** 쪽이 화면 어디에 놓였는지(칠 · 고르기 층이 따라 놓인다). */
+    onPlaced: (List<Placed>) -> Unit = {},
+    text: PdfTextState? = null,
+    /** 보이게 옮길 쪽 안의 곳(찾은 말 · 듣는 문장). */
+    focus: PageRegion? = null,
 ) {
     // 크기를 모르면 그리지 않는다. A 판형으로 먼저 그렸다가 가로 쪽으로 바뀌면 한 번 출렁인다. 앞뒤 쪽은
     // 미리 재 두므로 넘길 때는 바로 안다.
@@ -433,6 +732,11 @@ private fun PageView(
             onDispose { if (scroller.scroll === mine) scroller.scroll = null }
         }
     }
+
+    SideEffect {
+        onPlaced(listOf(Placed(page, Rect(viewport.left, viewport.top, viewport.left + viewport.width, viewport.top + viewport.height))))
+    }
+    LaunchedEffect(focus) { focus?.let { viewport = viewport.reveal(it) } }
 
     // 미리 그려 둔 쪽이면 첫 프레임부터 보인다. 기다렸다 받으면 넘길 때마다 빈 종이가 한 번 번쩍인다.
     var base by remember(page, fitW, fitH) { mutableStateOf(reader.cachedPage(page, fitW, fitH)) }
@@ -466,18 +770,21 @@ private fun PageView(
             .fillMaxSize()
             // 확대한 쪽이 제 자리 밖(상태 막대 위)까지 그려지지 않게 자른다.
             .clipToBounds()
+            .then(if (text != null) Modifier.selectionHandles(reader, text) else Modifier)
             .pointerInput(page, viewW, viewH, pageAspect) {
                 detectTapGestures(
                     // 두 번 누르기를 기다리느라 한 번 누르기가 조금(약 0.3초) 늦다. PDF 는 글자가 작아
                     // 확대를 자주 하므로 받아들인다.
                     onDoubleTap = { at -> viewport = viewport.toggleZoom(at.x, at.y) },
                     onTap = { at -> onTap(at, CORNER.toPx()) },
+                    onLongPress = { at -> onLongPress(at) },
                 )
             }
             .pointerInput(page, viewW, viewH, pageAspect) {
                 val threshold = 48.dp.toPx()
                 awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false)
+                    // 손잡이를 끄는 누름은 손잡이 층이 먼저 먹었다 — 넘기기 · 확대로 읽지 않는다.
+                    if (awaitFirstDown(requireUnconsumed = false).isConsumed) return@awaitEachGesture
                     var moving = false
                     var pinched = false
                     var travel = Offset.Zero
@@ -613,6 +920,9 @@ private fun SpreadView(
     viewH: Float,
     onTap: (Offset, Float) -> Unit,
     onSwipe: (forward: Boolean) -> Unit,
+    onLongPress: (Offset) -> Unit = {},
+    onPlaced: (List<Placed>) -> Unit = {},
+    text: PdfTextState? = null,
 ) {
     val half = viewW / 2f
     // 쪽 비율을 모르면 그리지 않는다(PageView 와 같다). 앞뒤 쪽은 미리 재 두므로 넘길 때는 바로 안다.
@@ -641,11 +951,21 @@ private fun SpreadView(
             reader.page(p, w, (w / a).roundToInt())
         }
     }
+    // 쪽마다 놓인 자리. 그리기(아래 Canvas)와 같은 셈이다 — 두 쪽이면 책등이 가운데, 한 쪽이면 그 쪽이 가운데.
+    val placed = fits?.let { f ->
+        var x = if (f.size == 2) half - f[0].first else (viewW - f.sumOf { it.first }) / 2f
+        f.mapIndexed { i, (w, h) ->
+            val top = (viewH - h) / 2f
+            Placed(pages[i], Rect(x, top, x + w, top + h)).also { x += w }
+        }
+    }
+    SideEffect { placed?.let(onPlaced) }
     Box(
         Modifier
             .fillMaxSize()
+            .then(if (text != null) Modifier.selectionHandles(reader, text) else Modifier)
             .pointerInput(pages, viewW, viewH) {
-                detectTapGestures(onTap = { at -> onTap(at, CORNER.toPx()) })
+                detectTapGestures(onTap = { at -> onTap(at, CORNER.toPx()) }, onLongPress = { at -> onLongPress(at) })
             }
             .pointerInput(pages, viewW, viewH) {
                 val threshold = 48.dp.toPx()
@@ -686,31 +1006,46 @@ private fun SpreadView(
 private fun PdfLists(
     reader: PdfReader,
     page: Int,
+    notes: List<Annotation>,
     showNotes: Boolean,
     onPanel: (PdfPanel) -> Unit,
+    onMemo: (Annotation) -> Unit,
     scope: CoroutineScope,
 ) {
     var contents by remember { mutableStateOf<List<TocEntry>?>(null) }
     var marks by remember { mutableStateOf<List<Bookmark>?>(null) }
+    var filter by remember { mutableStateOf(NoteFilter.All) }
     val context = androidx.compose.ui.platform.LocalContext.current
     LaunchedEffect(Unit) {
         contents = runCatching { reader.outline() }.getOrDefault(emptyList())
         marks = runCatching { reader.bookmarks() }.getOrDefault(emptyList())
     }
-    val items = remember(marks, contents) {
+    fun label(p: Int) = "${reader.book.pageLabel(p) ?: "${p + 1}"}쪽"
+    // 책 순서(쪽, 쪽 안의 글자)로. 같은 쪽이면 책갈피가 먼저 — 쪽 머리에 꽂은 것이 그 쪽 안의 칠보다 앞에 읽힌다.
+    val rows = remember(marks, contents, notes) {
         val entries = contents.orEmpty()
-        marks?.map { mark ->
+        fun section(p: Int) = entries.getOrNull(currentContentsIndex(entries, p))?.label ?: "앞부분"
+        val list = ArrayList<Triple<Pair<Int, Int>, NoteItem, Any>>()
+        marks?.forEach { mark ->
             val at = mark.locator.fixedPage
-            NoteItem(
-                key = "b${mark.id}",
-                section = entries.getOrNull(currentContentsIndex(entries, at))?.label ?: "책갈피",
-                text = mark.snippet ?: "${reader.book.pageLabel(at) ?: "${at + 1}"}쪽",
-                pen = null,
-                memo = null,
-                where = noteWhere(null, mark.createdAtEpochMs),
+            list += Triple(
+                at to -1,
+                NoteItem("b${mark.id}", section(at), mark.snippet ?: label(at), null, null, "${label(at)} · ${noteWhere(null, mark.createdAtEpochMs)}"),
+                mark,
             )
         }
+        notes.forEach { note ->
+            val at = note.start.spine
+            list += Triple(
+                at to note.start.charOffset,
+                NoteItem("a${note.id}", section(at), note.snippet, note.color.pen, note.note, "${label(at)} · ${noteWhere(null, note.createdAtEpochMs)}"),
+                note,
+            )
+        }
+        list.sortedWith(compareBy({ it.first.first }, { it.first.second }))
     }
+    val items = if (marks == null) null else rows.map { it.second }
+    fun find(item: NoteItem): Any? = rows.firstOrNull { it.second.key == item.key }?.third
     CpFullScreen {
         CpHeader(title = reader.title, subtitle = "PDF", onBack = { onPanel(PdfPanel.Bar) }) {
             if (showNotes && !items.isNullOrEmpty()) {
@@ -733,20 +1068,32 @@ private fun PdfLists(
             if (showNotes) {
                 CpReadingNotesList(
                     items = items,
-                    filter = NoteFilter.All,
-                    onFilter = {},
+                    filter = filter,
+                    onFilter = { filter = it },
                     onOpen = { item ->
-                        marks?.firstOrNull { "b${it.id}" == item.key }?.let { mark -> scope.go { reader.goTo(mark) } }
+                        when (val row = find(item)) {
+                            is Bookmark -> scope.go { reader.goTo(row) }
+                            is Annotation -> scope.go { reader.goTo(row) }
+                        }
                         onPanel(PdfPanel.None)
                     },
                     onRemove = { item ->
-                        marks?.firstOrNull { "b${it.id}" == item.key }?.let { mark ->
-                            scope.go { reader.removeBookmark(mark); marks = reader.bookmarks() }
+                        when (val row = find(item)) {
+                            is Bookmark -> scope.go { reader.removeBookmark(row); marks = reader.bookmarks() }
+                            is Annotation -> scope.go { reader.remove(row) }
                         }
                     },
-                    chips = false,
-                    caption = "PDF 는 글자를 고를 수 없어 책갈피만 모입니다",
-                    empty = "책갈피가 없습니다. 쪽 오른쪽 위를 누르거나 가운데를 누르고 위쪽 책갈피 단추로 꽂을 수 있습니다",
+                    onMemo = { item -> (find(item) as? Annotation)?.let(onMemo) },
+                    onRecolor = { item, pen -> (find(item) as? Annotation)?.let { a -> scope.go { reader.update(a.copy(color = pen.color)) } } },
+                    onShare = { item -> shareOut(context, shareText(item.text, item.memo, reader.title)) },
+                    // 글자를 꺼낼 수 없는 휴대폰(안드로이드 14 이하)에서는 책갈피만 모인다 — 그때만 거르개를 숨기고 까닭을 적는다.
+                    chips = reader.readsText,
+                    caption = if (reader.readsText) null else "이 휴대폰(안드로이드 14 이하)에서는 PDF 글자를 고를 수 없어 책갈피만 모입니다",
+                    empty = if (reader.readsText) {
+                        "독서노트가 비어 있습니다. 글자를 길게 눌러 칠하거나 쪽 오른쪽 위를 눌러 책갈피를 꽂으면 여기에 모입니다"
+                    } else {
+                        "책갈피가 없습니다. 쪽 오른쪽 위를 누르거나 가운데를 누르고 위쪽 책갈피 단추로 꽂을 수 있습니다"
+                    },
                 )
             } else {
                 ContentsList(contents, page, labelOf = { reader.book.pageLabel(it) ?: "${it + 1}" }) { entry ->
