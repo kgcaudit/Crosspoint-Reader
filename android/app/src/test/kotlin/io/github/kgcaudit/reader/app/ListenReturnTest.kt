@@ -3,6 +3,7 @@ package io.github.kgcaudit.reader.app
 import android.app.Notification
 import android.content.Intent
 import android.os.Looper
+import android.provider.DocumentsContract
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.click
@@ -118,6 +119,24 @@ class ListenReturnTest {
         waitFor(hasContentDescription("듣기 조종판"))
         assertSame(listening, ListenHub.current.value)
         assertEquals(0, app.container.dropped, "듣는 책은 닫지 않는다 — 닫으면 듣기가 닫힌 파일을 읽는다")
+    }
+
+    @Test
+    fun `a file sent from another app while listening stops the listening and says so`() {
+        // 내 파일 · 다른 앱에서 파일이 왔다: 읽던 책은 닫히고 받은 파일이 열린다. 그 책의 듣기도 끝나고 알린다 —
+        // 두면 닫힌 책을 계속 읽어, 멈출 곳이 알림 카드뿐이었다(0.19.0–0.20.1).
+        val first = listenFromLibrary()
+        val listening = assertNotNull(ListenHub.current.value)
+        File(app.cacheDir, "sdcard/Downloads").apply { mkdirs() }.resolve("받은 책.epub").writeBytes(SampleBooks.epub())
+        val view = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(DocumentsContract.buildDocumentUri(FolderProvider.AUTHORITY, "Downloads/받은 책.epub"), "application/epub+zip")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        compose.seeBriefly(hasText("‘어린 왕자’ 듣기를 멈췄습니다")) { first.onActivity { it.onNewIntent(view) } }
+        assertEquals(null, ListenHub.current.value)
+        assertFalse(listening.state.value.active, "닫힌 책의 듣기가 아직 켜져 있다")
+        // 받은 파일은 듣기 없이 열린다.
+        waitFor(hasText("1 / ", substring = true))
+        assertFalse(hasNode(hasContentDescription("듣기 조종판")))
     }
 
     @Test

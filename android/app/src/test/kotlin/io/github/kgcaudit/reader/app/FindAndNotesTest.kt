@@ -188,8 +188,7 @@ class FindAndNotesTest {
         compose.waitUntil(5_000) { !hasNode(hasText("브라우저로 열까요?")) }
 
         // 깨진 각주(규칙 6): 넘기지 않고 알린다.
-        compose.onRoot().performTouchInput { click(lineStart(3)) }
-        waitFor(hasText("이 각주의 내용을 책에서 찾지 못했습니다"))
+        compose.seeBriefly(hasText("이 각주의 내용을 책에서 찾지 못했습니다")) { compose.onRoot().performTouchInput { click(lineStart(3)) } }
         assertTrue(hasNode(hasText("1 / ", substring = true)))
     }
 

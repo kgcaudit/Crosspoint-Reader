@@ -20,6 +20,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
@@ -27,12 +28,14 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import io.github.kgcaudit.reader.document.BookFormat
 import io.github.kgcaudit.reader.document.BookId
+import io.github.kgcaudit.reader.listen.ListenHub
 import io.github.kgcaudit.reader.pdf.PdfScreen
 import io.github.kgcaudit.reader.reflow.ReaderScreen
 import io.github.kgcaudit.reader.ui.design.CpButton
 import io.github.kgcaudit.reader.ui.design.CpPopup
 import io.github.kgcaudit.reader.ui.design.CpReaderTheme
 import io.github.kgcaudit.reader.ui.design.CpTheme
+import io.github.kgcaudit.reader.ui.design.CpToast
 import io.github.kgcaudit.reader.ui.design.LocalVolumeKeys
 import io.github.kgcaudit.reader.ui.design.VolumeKeyRouter
 import io.github.kgcaudit.reader.ui.design.ScreenRotation
@@ -153,6 +156,8 @@ private fun OloApp(
     // 다른 앱에서 열었으면 닫을 때 그 앱으로 돌아간다. 라이브러리가 나오면 "파일을 봤을 뿐인데
     // 왜 다른 앱이 떠 있나" 가 된다.
     var fromOutside by rememberSaveable { mutableStateOf(false) }
+    // 화면 전체에 잠깐 띄우는 안내(책 화면 밖의 일 — 다른 앱에서 파일이 와서 듣기를 멈춘 것).
+    var notice by remember { mutableStateOf<String?>(null) }
 
     /**
      * 듣기가 아직 읽고 있는 책을 이 화면에 되찾는다. 되찾았으면 true. 알림을 누르든 앱 아이콘을 누르든 새 화면은
@@ -193,7 +198,15 @@ private fun OloApp(
             null -> Unit
             is Incoming.Refused -> failure = request.message
             is Incoming.Book -> {
-                // 읽던 책이 있으면 닫고 새 파일을 연다(진도는 넘길 때마다 저장돼 있다).
+                // 읽던 책이 있으면 닫고 새 파일을 연다(진도는 넘길 때마다 저장돼 있다). 그 책을 듣던 중이면 듣기도
+                // 끝내고 알린다 — 책을 닫으면 듣기가 끝나는 것과 같은 규칙. 두면 닫힌 책을 계속 읽어, 멈출 곳이 알림
+                // 카드뿐이고 카드를 눌러도 돌아갈 책이 없다(0.19.0–0.20.1).
+                reader?.let { r ->
+                    ListenHub.current.value?.takeIf { it.belongsTo(r.source) }?.let { l ->
+                        notice = "‘${l.title}’ 듣기를 멈췄습니다"
+                        ListenHub.detach(l)
+                    }
+                }
                 reader?.close()
                 reader = null
                 openId = null
@@ -297,6 +310,7 @@ private fun OloApp(
         }
     }
 
+    Box(Modifier.fillMaxSize()) { CpToast(notice, { notice = null }, Modifier.align(Alignment.BottomCenter)) }
     failure?.let { message ->
         CpPopup(title = "이 책을 열지 못했습니다", message = message, onDismiss = { failure = null }) {
             Spacer(Modifier.height(16.dp))

@@ -272,6 +272,11 @@ class ListenAppTest {
         compose.waitUntil(5_000) { speaker.current?.let { it != "첫 문장이다." && it != "둘째 문장이다." } == true }
         val onPage2 = speaker.current!!
         assertTrue(onPage2.startsWith("보아 구렁이") || onPage2.startsWith("어른들은"), onPage2)
+        // 듣기가 옮겨 간 뒤에도 사람이 넘긴 쪽에 머문다. 넘긴 쪽이 문장 한가운데서 시작하면 그 문장은 앞 쪽에서
+        // 시작하는데, 듣기가 그 문장을 따라가며 쪽을 앞으로 되돌렸다(전체 점검에서만 가끔 "2 / " 를 못 보고 실패).
+        compose.mainClock.advanceTimeBy(500)
+        compose.waitForIdle()
+        assertTrue(hasNode(hasText("2 / ", substring = true)), "넘긴 쪽에서 앞 쪽으로 되돌아갔다")
     }
 
     @Test

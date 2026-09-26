@@ -181,8 +181,13 @@ class Listening(
         if (st.spine == spine && s != null && s.start in start until endExclusive) return
         scope.launch {
             val c = load(spine)
-            val n = c.sentences.indexAt(start).let { if (it < 0) c.sentences.size else it }
-            if (_state.value.playing) speakFrom(spine, n) else moveTo(spine, n)
+            // 넘긴 쪽에서 **시작하는** 첫 문장부터. 쪽이 문장 한가운데서 시작하면 그 문장은 앞 쪽에서 시작해, 그것을
+            // 읽으며 따라가면 사람이 넘긴 쪽을 앞 쪽으로 되돌렸다(넘겼는데 튀어 돌아옴). 쪽 전체가 한 문장 안이면(시작하는
+            // 문장이 없으면) 그 문장을 읽되 쪽은 사람이 둔 곳에 둔다.
+            val starting = c.sentences.indexOfFirst { it.start in start until endExclusive }
+            val n = if (starting >= 0) starting else c.sentences.indexAt(start).let { if (it < 0) c.sentences.size else it }
+            val keepPage = starting < 0
+            if (_state.value.playing) speakFrom(spine, n, follow = !keepPage) else moveTo(spine, n, follow = !keepPage)
         }
     }
 
@@ -206,17 +211,17 @@ class Listening(
         chapter?.takeIf { it.spine == spine } ?: reader.speech(spine).also { chapter = it }
 
     /** 멈춘 채로 문장만 옮긴다(칠과 쪽만 따라간다). 장 경계를 넘으면 그 장으로. */
-    private suspend fun moveTo(spine: Int, n: Int) {
+    private suspend fun moveTo(spine: Int, n: Int, follow: Boolean = true) {
         val (c, i) = resolve(spine, n) ?: return
         index = i
-        show(c, i)
+        show(c, i, follow)
     }
 
     /**
      * [spine] 장의 [n] 번째 문장부터 읽는다. 장 끝을 넘으면 다음 장(빈 장은 건너뛴다), 앞을 넘으면 앞 장의 끝.
      * 책 끝이면 멈추고 알린다.
      */
-    private suspend fun speakFrom(spine: Int, n: Int) {
+    private suspend fun speakFrom(spine: Int, n: Int, follow: Boolean = true) {
         val from = chapter?.spine
         val resolved = resolve(spine, n)
         if (resolved == null) {
@@ -239,7 +244,7 @@ class Listening(
         queued = i
         queueNext(c)
         _state.value = _state.value.copy(playing = true)
-        show(c, i)
+        show(c, i, follow)
     }
 
     private fun queueNext(c: SpeechChapter) {
@@ -272,10 +277,11 @@ class Listening(
         return c to i
     }
 
-    private suspend fun show(c: SpeechChapter, i: Int) {
+    /** 지금 문장을 알리고(칠 · 잠금 화면 카드), [follow] 면 그 문장이 보이게 쪽을 옮긴다. */
+    private suspend fun show(c: SpeechChapter, i: Int, follow: Boolean = true) {
         val sentence = c.sentences[i]
         _state.value = _state.value.copy(spine = c.spine, sentence = sentence, sentenceText = speakable(c.text, sentence))
-        runCatching { reader.follow(c.spine, sentence.start) }
+        if (follow) runCatching { reader.follow(c.spine, sentence.start) }
     }
 
     /** 엔진에 넘길 글: 숨은 문자를 정리하고([speakable]) 어절 쉼 줄이기를 적용한다. 화면의 글 · 칠은 그대로다. */

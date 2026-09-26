@@ -218,8 +218,7 @@ class ReadingNotesAppTest {
         // 지우기.
         compose.onRoot().performTouchInput { click(lineStart(0)) }
         waitFor(hasText("지우기"))
-        node(hasText("지우기")).performClick()
-        waitFor(hasText("형광펜을 지웠습니다"))
+        compose.seeBriefly(hasText("형광펜을 지웠습니다")) { node(hasText("지우기")).performClick() }
         compose.waitUntil(5_000) { !tinted(page(), Pen.Blue) }
         assertTrue(runBlocking { app.container.data.annotations.forBook(bookId()) }.isEmpty())
         // 칠한 곳이 아닌 자리를 누르면 여느 때처럼 — 가운데는 메뉴.
@@ -262,8 +261,7 @@ class ReadingNotesAppTest {
         // 새 알림이 뜨지 않아도 아래 기다림이 통과한다.
         assertFalse(hasNode(hasText("형광펜을 숨겨 둔 상태라", substring = true)))
         select(1)
-        node(hasContentDescription("파랑")).performClick()
-        waitFor(hasText("형광펜을 숨겨 둔 상태라", substring = true))
+        compose.seeBriefly(hasText("형광펜을 숨겨 둔 상태라", substring = true)) { node(hasContentDescription("파랑")).performClick() }
         compose.waitUntil(5_000) { runBlocking { app.container.data.annotations.forBook(bookId()) }.size == 2 }
         assertFalse(tinted(page(), Pen.Blue))
 
@@ -318,8 +316,7 @@ class ReadingNotesAppTest {
     fun `the dictionary goes to an installed app and says so when there is none`() {
         openWith()
         select(0)
-        node(hasText("사전")).performClick()
-        waitFor(hasText("낱말을 찾아 줄 사전 앱이 없습니다"))
+        compose.seeBriefly(hasText("낱말을 찾아 줄 사전 앱이 없습니다")) { node(hasText("사전")).performClick() }
 
         // 사전 앱이 하나 있으면 고른 말을 그 앱에 넘긴다(ACTION_PROCESS_TEXT).
         val info = ResolveInfo().apply { activityInfo = ActivityInfo().apply { packageName = "org.example.dict"; name = "org.example.dict.Look" } }
@@ -361,8 +358,9 @@ class ReadingNotesAppTest {
         select(0)
         node(hasContentDescription("노랑")).performClick()
         compose.waitUntil(5_000) { !hasNode(hasContentDescription("고른 글 메뉴")) }
-        compose.onRoot().performTouchInput { click(topRight.copy(x = width - 20 * density, y = 20 * density)) }
-        waitFor(hasText("책갈피를 꽂았습니다"))
+        compose.seeBriefly(hasText("책갈피를 꽂았습니다")) {
+            compose.onRoot().performTouchInput { click(topRight.copy(x = width - 20 * density, y = 20 * density)) }
+        }
 
         // 도구줄: 목차 · 독서노트 · 보기(N5). 책갈피 단추는 없다.
         compose.onRoot().performTouchInput { click(center) }
