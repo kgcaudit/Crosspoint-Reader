@@ -165,6 +165,41 @@ class PageTextTest {
     }
 
     @Test
+    fun `a magazine page is read from the top down whatever order the text was placed in`() {
+        // 좋은생각 77쪽: 조판 프로그램이 시 → 이름 → 맨 아래 안내문 → 가운데 심사평 상자 순으로 넣었다. 글자 층의
+        // 순서대로 읽으면 안내문이 심사평보다 먼저 나온다.
+        val lines = listOf(
+            "떠나오는 산길은 가장자리로 걷기만 했다.",
+            "강철주 님.",
+            "좋은님의 자작시를 보내 주세요.",
+            "이번 호에는 좋은 시가 여럿 들어왔다.",
+            "매우 특별하고 보기 드문 작품이다.",
+        )
+        val p = page(lines, tops = listOf(0.2f, 0.3f, 0.8f, 0.5f, 0.53f), lefts = listOf(0.15f, 0.15f, 0.19f, 0.19f, 0.19f))
+        assertEquals(
+            listOf(lines[0], lines[1], lines[3], lines[4], lines[2]),
+            spokenOf(p),
+        )
+        // 목록 순서만 바뀐다 — 문장 자리는 글 그대로(문장 칠이 그 글자를 가리킨다).
+        val sentences = p.speech().sentences
+        assertEquals(lines[2], p.text.substring(sentences.last().start, sentences.last().endExclusive))
+    }
+
+    @Test
+    fun `two columns are read column by column even when their paragraphs end at the same height`() {
+        // 두 단 기사, 단마다 두 줄짜리 문단 둘. 두 단의 문단이 같은 높이에서 끝나 가로 틈이 생겨도, 왼쪽 단을 다 읽고
+        // 오른쪽 단으로 간다(가로부터 자르면 왼 · 오른 문단을 번갈아 읽는다).
+        val left = listOf("왼쪽 단 첫 문단 첫 줄.", "왼쪽 단 첫 문단 끝 줄.", "왼쪽 단 둘째 문단 첫 줄.", "왼쪽 단 둘째 문단 끝 줄.")
+        val right = left.map { it.replace("왼쪽", "오른쪽") }
+        val tops = listOf(0.2f, 0.23f, 0.33f, 0.36f)
+        fun twoColumns(first: List<String>, firstLeft: Float, second: List<String>, secondLeft: Float) =
+            page(first + second, tops = tops + tops, lefts = List(4) { firstLeft } + List(4) { secondLeft }, charW = 0.015f)
+        assertEquals(left + right, spokenOf(twoColumns(left, 0.1f, right, 0.55f)))
+        // 글자 층이 오른쪽 단을 먼저 넣었어도 같다.
+        assertEquals(left + right, spokenOf(twoColumns(right, 0.55f, left, 0.1f)))
+    }
+
+    @Test
     fun `a text box set further in than the body is read in sentences, not line by line`() {
         // 잡지 쪽(좋은생각 "좋은님 시 마당"): 위에 시, 아래에 본문보다 안쪽에 놓인 심사평 상자. 쪽 전체의 왼쪽 끝과 견주면
         // 상자의 줄이 모두 들여 쓴 줄이라 "시 안에는 세 개" 에서 끊겨 읽혔다.

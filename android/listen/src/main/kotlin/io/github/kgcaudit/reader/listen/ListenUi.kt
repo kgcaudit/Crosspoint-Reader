@@ -171,7 +171,7 @@ fun ListenSheet(
             val joins = WordJoin.entries
             CpChoice("어절 쉼 줄이기", joins.map { it.label }, joins.indexOf(prefs.join), { onJoin(joins[it]) })
             CpText(
-                "실험 기능 · 뜻이 이어지는 어절을 붙여서 엔진에 넘깁니다. 화면의 글은 그대로입니다. 붙인 곳의 억양이 어색하면 끄세요.",
+                "속독 · 뜻이 이어지는 어절을 붙여서 엔진에 넘겨 쉼을 줄입니다. 화면의 글은 그대로입니다. 억양이 어색하면 일반으로 두세요.",
                 CpTheme.type.caption, c.textMuted,
                 Modifier.padding(start = m.gutter + m.levelIndent, end = m.gutter, top = 2.dp, bottom = 4.dp), maxLines = 3,
             )
@@ -190,7 +190,7 @@ fun ListenSheet(
 }
 
 /**
- * 비교 들어 보기: 지금 문장을 세기마다 한 줄씩 — 누르면 그 세기로 들려준다. "│" 는 엔진이 쉬는 자리.
+ * 비교 들어 보기: 지금 문장을 세기(일반 · 속독)마다 한 줄씩 — 누르면 그 세기로 들려준다. "│" 는 엔진이 쉬는 자리.
  * 마지막으로 들은 세기로 "…로 정하기". 고르지 않고 닫으면 설정은 그대로다.
  */
 @Composable
@@ -342,7 +342,7 @@ private fun VoiceRow(name: String, selected: Boolean, onPick: () -> Unit, onList
     }
 }
 
-/** "끔으로" · "약하게로" — 받침이 있으면 "으로". */
+/** "일반으로" · "속독으로" — 받침이 있으면 "으로"(받침 없는 이름이 생겨도 "…로" 가 맞게). */
 internal fun WordJoin.withRo(): String {
     val last = label.last()
     val batchim = last in '\uAC00'..'\uD7A3' && (last - '\uAC00') % 28 != 0

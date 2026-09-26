@@ -96,6 +96,25 @@ class PdfReaderTest {
     }
 
     @Test
+    fun `pages set in a font without a character map are read and found, not skipped`() = runTest {
+        // 좋은생각 2026년 8월호: 본문 글꼴에 글자 대응표가 없어 엔진이 모양 번호를 내줬다. 듣기는 그 쪽들을 "글 없음"
+        // 으로 보고 77쪽에서 118쪽으로 뛰었다. 되살린 글로 읽고, 찾기에도 걸린다.
+        val sentence = "나는 오래전 잊힌 독립운동가를 찾아 세상에 알리는 일을 소명으로 여기고 있다."
+        val broken = sentence.map { c ->
+            when (c) {
+                in '가'..'힣' -> (97 + (c - '가')).toChar()
+                in ' '..'~' -> (c.code - 31).toChar()
+                else -> c
+            }
+        }.joinToString("")
+        val r = reader(FakeSource(3, texts = mapOf(1 to broken)))
+        r.open()
+        assertEquals(listOf(sentence), r.speech(1).sentences.map { r.textLayer(1).text.substring(it.start, it.endExclusive) })
+        assertTrue(r.hasText())
+        assertEquals(sentence, r.plainText(1))
+    }
+
+    @Test
     fun `turning pages saves the place and reopening returns to it`() = runTest {
         val first = reader()
         first.open()

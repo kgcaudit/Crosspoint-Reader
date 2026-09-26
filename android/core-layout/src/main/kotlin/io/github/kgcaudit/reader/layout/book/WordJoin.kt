@@ -1,17 +1,17 @@
 package io.github.kgcaudit.reader.layout.book
 
 /**
- * 어절 쉼 줄이기(듣기 실험 기능)의 세기. 음성 엔진은 띄어쓰기마다 조금씩 쉬는데, 엔진마다 그 쉼이 길어 "어절마다
+ * 어절 쉼 줄이기(듣기)의 세기. 음성 엔진은 띄어쓰기마다 조금씩 쉬는데, 엔진마다 그 쉼이 길어 "어절마다
  * 끊겨 읽힌다" 고 들린다. 엔진에는 쉼 길이를 정하는 설정이 없어, 쉬는 자리(띄어쓰기) 자체를 줄여 넘긴다.
+ *
+ * 이름(저장값)은 처음 것(Off · Light)을 그대로 둔다 — 바꾸면 저장해 둔 선택이 풀린다. 0.19.0 의 "강하게"(두 글자 이하
+ * 어절까지 붙임)는 폰에서 들어 보고 뺐다(2026-09-26 사용자 결정). 저장값 "Strong" 은 읽을 때 기본값(일반)이 된다.
  */
 enum class WordJoin(val label: String) {
-    Off("끔"),
+    Off("일반"),
 
-    /** 뜻이 확실히 이어지는 곳만: 의존명사 · 관형사 · 보조용언. */
-    Light("약하게"),
-
-    /** 약하게 + 두 글자 이하 어절을 이웃에 붙인다(합쳐 7자까지). 억양이 어색한 곳이 생길 수 있다. */
-    Strong("강하게"),
+    /** 뜻이 확실히 이어지는 곳만 붙인다: 의존명사 · 관형사 · 보조용언. */
+    Light("속독"),
 }
 
 /**
@@ -23,8 +23,7 @@ enum class WordJoin(val label: String) {
 fun joinWords(text: String, level: WordJoin): String {
     if (level == WordJoin.Off || text.isBlank()) return text
     val words = text.split(' ').filter { it.isNotEmpty() }
-    val light = joinLight(words)
-    return (if (level == WordJoin.Strong) joinShort(light) else light).joinToString(" ")
+    return joinLight(words).joinToString(" ")
 }
 
 /** 엔진이 쉬는 자리의 수(띄어쓰기). 비교 판에 "쉬는 자리 7" 로 보인다. */
@@ -39,24 +38,6 @@ private fun joinLight(words: List<String>): List<String> {
         if (join) out[out.size - 1] = prev + w else out += w
         // 관형사 · 짧은 부사는 뒤 어절에 붙는다("그 사람" · "더 미친").
         glueNext = w in PRENOUNS
-    }
-    return out
-}
-
-/** 두 글자 이하 어절을 한쪽 이웃에 붙인다. 한 번 붙은 덩이에는 더 붙이지 않는다 — 줄줄이 붙으면 한 숨에 너무 길다. */
-private fun joinShort(units: List<String>): List<String> {
-    val out = ArrayList<String>()
-    val merged = ArrayList<Boolean>()
-    for (u in units) {
-        val prev = out.lastOrNull()
-        val short = hangulLength(u) <= SHORT || (prev != null && hangulLength(prev) <= SHORT)
-        if (prev != null && !merged.last() && short && canJoin(prev, u) && (prev + u).length <= STRONG_MAX) {
-            out[out.size - 1] = prev + u
-            merged[merged.size - 1] = true
-        } else {
-            out += u
-            merged += false
-        }
     }
     return out
 }
@@ -76,12 +57,7 @@ private fun isAuxiliary(prev: String, word: String): Boolean {
     return AUXILIARIES.any { (head, ends) -> word.startsWith(head) && end in ends }
 }
 
-private fun hangulLength(word: String): Int = word.count(::isHangul)
-
 private fun isHangul(c: Char): Boolean = c in '가'..'힣'
-
-private const val SHORT = 2
-private const val STRONG_MAX = 7
 
 private val DEPENDENTS = listOf("때문", "만큼", "대로", "것", "수", "때", "데", "줄", "뿐", "듯", "채", "척", "적", "바", "터", "김")
 

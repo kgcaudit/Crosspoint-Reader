@@ -24,6 +24,9 @@ class PageText(val text: String, private val boxes: FloatArray) {
 
     val length: Int get() = text.length
 
+    /** 같은 네모에 고친 글([BrokenHangul]). 글 길이가 같아야 한다 — 네모는 글자 자리로 짝지어진다. */
+    fun withText(fixed: String): PageText = if (fixed == text) this else PageText(fixed, boxes)
+
     /** 글자 [i] 의 네모. 자리를 모르면 null. */
     fun box(i: Int): PageRegion? {
         if (i !in text.indices) return null
@@ -155,7 +158,46 @@ class PageText(val text: String, private val boxes: FloatArray) {
         val sentences = splitSentences(spoken, starts).filter { s ->
             all.withIndex().none { (k, line) -> skipped[k] && s.start in line.start until line.endExclusive }
         }
-        return PdfSpeech(spoken, sentences)
+        return PdfSpeech(spoken, inReadingOrder(sentences, all, skipped, blocks))
+    }
+
+    /**
+     * 문장을 **쪽에 놓인 순서**(위에서 아래로, 단이 나뉘면 왼쪽 단부터)로 늘어놓는다. 글자 층의 순서는 조판 프로그램이
+     * 글을 넣은 순서라 보이는 순서와 다를 수 있다 — 잡지 쪽에서 시 → 아래 안내문 → 가운데 심사평 상자 순으로 읽혔다
+     * (좋은생각 77쪽). 글과 문장의 자리는 그대로 두고 목록의 순서만 바꾼다: 문장 칠 · 형광펜 · 찾기는 글자 자리로
+     * 계산하므로 어긋나지 않고, 듣기는 목록의 순서대로 읽는다.
+     *
+     * 덩이([blocksOf])를 XY 자르기로 나눈다: 세로로 비어 있는 틈(단 사이)이 있으면 왼쪽 → 오른쪽, 없으면 가로로 비어
+     * 있는 틈에서 위 → 아래, 그것도 없으면(겹쳐 놓인 글) 글자 층의 순서를 믿는다. 단 나누기를 먼저 보는 까닭: 두 단의
+     * 문단이 우연히 같은 높이에서 끝나면 가로 틈이 생겨, 가로를 먼저 자르면 두 단을 한 줄씩 번갈아 읽는다.
+     */
+    private fun inReadingOrder(sentences: List<Sentence>, all: List<TextLine>, skipped: List<Boolean>, blocks: Blocks): List<Sentence> {
+        if (sentences.size < 2 || blocks.count < 2) return sentences
+        val body = (0 until blocks.count).filter { b -> all.indices.any { blocks.of[it] == b && !skipped[it] } }
+        val rank = IntArray(blocks.count) { Int.MAX_VALUE }
+        xyCut(body, blocks).forEachIndexed { r, b -> rank[b] = r }
+        fun blockOf(s: Sentence): Int {
+            val k = all.indexOfFirst { it.endExclusive > s.start }
+            return if (k < 0) blocks.count - 1 else blocks.of[k]
+        }
+        return sentences.sortedBy { rank[blockOf(it)] }
+    }
+
+    private fun xyCut(ids: List<Int>, blocks: Blocks): List<Int> {
+        if (ids.size < 2) return ids
+        val slack = blocks.lineHeight * 0.25f
+        fun cut(start: (Int) -> Float, end: (Int) -> Float): Pair<List<Int>, List<Int>>? {
+            val sorted = ids.sortedBy(start)
+            var reach = end(sorted[0])
+            for (k in 1 until sorted.size) {
+                if (start(sorted[k]) >= reach - slack) return sorted.subList(0, k) to sorted.subList(k, sorted.size)
+                reach = max(reach, end(sorted[k]))
+            }
+            return null
+        }
+        val split = cut(blocks::blockLeft, blocks::blockRight) ?: cut(blocks::blockTop, blocks::blockBottom)
+            ?: return ids.sorted()
+        return xyCut(split.first, blocks) + xyCut(split.second, blocks)
     }
 
     /**
@@ -196,25 +238,43 @@ class PageText(val text: String, private val boxes: FloatArray) {
         for (k in 1 until all.size) {
             val prev = all[k - 1]
             val cur = all[k]
+            // 위로 되돌아간 줄은 다른 덩이다(다음 단, 또는 조판 프로그램이 나중에 넣은 글 상자).
             val split = skipped[k] || skipped[k - 1] ||
                 cur.top - prev.bottom > max(usualGap * 1.5f, lineHeight * 0.3f) ||
+                cur.top < prev.top - lineHeight * 0.5f ||
                 odd(prev) || odd(cur)
             of[k] = of[k - 1] + if (split) 1 else 0
         }
         val count = (of.lastOrNull() ?: -1) + 1
         val lefts = FloatArray(count) { Float.MAX_VALUE }
         val rights = FloatArray(count) { -Float.MAX_VALUE }
+        val tops = FloatArray(count) { Float.MAX_VALUE }
+        val bottoms = FloatArray(count) { -Float.MAX_VALUE }
         all.forEachIndexed { k, line ->
             lefts[of[k]] = minOf(lefts[of[k]], line.left)
             rights[of[k]] = maxOf(rights[of[k]], line.right)
+            tops[of[k]] = minOf(tops[of[k]], line.top)
+            bottoms[of[k]] = maxOf(bottoms[of[k]], line.bottom)
         }
-        return Blocks(of, lefts, rights, lineHeight)
+        return Blocks(of, lefts, rights, tops, bottoms, lineHeight)
     }
 
-    private class Blocks(val of: IntArray, private val lefts: FloatArray, private val rights: FloatArray, val lineHeight: Float) {
+    private class Blocks(
+        val of: IntArray,
+        private val lefts: FloatArray,
+        private val rights: FloatArray,
+        private val tops: FloatArray,
+        private val bottoms: FloatArray,
+        val lineHeight: Float,
+    ) {
+        val count: Int get() = lefts.size
         fun left(line: Int) = lefts[of[line]]
         fun right(line: Int) = rights[of[line]]
         fun width(line: Int) = (right(line) - left(line)).coerceAtLeast(1e-3f)
+        fun blockLeft(block: Int) = lefts[block]
+        fun blockRight(block: Int) = rights[block]
+        fun blockTop(block: Int) = tops[block]
+        fun blockBottom(block: Int) = bottoms[block]
     }
 
     /**

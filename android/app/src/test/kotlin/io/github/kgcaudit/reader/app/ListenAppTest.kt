@@ -247,27 +247,30 @@ class ListenAppTest {
         assertEquals(left("어절 쉼 줄이기") + 16f, left("비교 들어 보기"), 1f)
         shot("86-listen-join-setting")
 
-        // 약하게: 엔진에는 "첫문장이다." 로 넘긴다(관형사 "첫" 을 붙임). 지금 문장부터 바로 다시 읽는다.
-        node(hasText("약하게")).performClick()
+        // 선택지는 일반 · 속독 둘뿐이다("강하게" 는 들어 보고 뺐다).
+        assertFalse(hasNode(hasText("강하게")))
+        // 속독: 엔진에는 "첫문장이다." 로 넘긴다(관형사 "첫" 을 붙임). 지금 문장부터 바로 다시 읽는다.
+        node(hasText("속독")).performClick()
         compose.waitUntil(5_000) { speaker.current == "첫문장이다." }
         assertEquals(io.github.kgcaudit.reader.layout.book.WordJoin.Light, app.container.prefs.load().listen.join)
         // 붙인 글은 엔진에만 간다 — 지금 문장(칠 · 잠금 화면 카드에 보이는 글)은 원문 그대로다.
         assertEquals("첫 문장이다.", ListenHub.current.value!!.state.value.sentenceText)
 
-        // 비교 들어 보기: 끔으로 들려주고, 읽기는 멈춘다(미리 듣기 뒤에 저절로 이어지지 않는다).
+        // 비교 들어 보기: 일반으로 들려주고, 읽기는 멈춘다(미리 듣기 뒤에 저절로 이어지지 않는다).
         node(hasText("비교 들어 보기")).performClick()
-        waitFor(hasContentDescription("끔으로 들어 보기"))
+        waitFor(hasContentDescription("일반으로 들어 보기"))
         assertTrue(hasNode(hasText("  쉬는 자리 1")) && hasNode(hasText("  쉬는 자리 0")))
+        assertFalse(hasNode(hasContentDescription("강하게로 들어 보기")))
         shot("87-listen-join-compare")
         // 미리 듣기는 고른 세기로 붙인 글을 들려주고, 그동안 읽기는 멈춘다.
-        node(hasContentDescription("강하게로 들어 보기")).performClick()
+        node(hasContentDescription("속독으로 들어 보기")).performClick()
         compose.waitUntil(5_000) { speaker.current == "첫문장이다." && ListenHub.current.value!!.state.value.previewing != null }
         assertFalse(ListenHub.current.value!!.state.value.playing, "미리 듣기인데 읽기가 이어진다")
-        node(hasContentDescription("끔으로 들어 보기")).performClick()
+        node(hasContentDescription("일반으로 들어 보기")).performClick()
         compose.waitUntil(5_000) { speaker.current == "첫 문장이다." }
         compose.waitForIdle()
         // 들어 본 세기로 정하면 설정이 바뀌고 판은 설정 화면으로 돌아온다.
-        node(hasText("끔으로 정하기")).performClick()
+        node(hasText("일반으로 정하기")).performClick()
         compose.waitUntil(5_000) { app.container.prefs.load().listen.join == io.github.kgcaudit.reader.layout.book.WordJoin.Off }
         waitFor(hasText("어절 쉼 줄이기"))
     }

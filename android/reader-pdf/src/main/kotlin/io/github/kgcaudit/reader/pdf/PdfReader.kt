@@ -144,6 +144,7 @@ class PdfReader(
         if (!readsText || page !in 0 until book.pageCount) return ""
         synchronized(texts) { texts[page] }?.let { return it }
         val text = withContext(renderThread) { runCatching { book.source.pageText(page) }.getOrNull() }.orEmpty()
+            .let(BrokenHangul::repair)
         synchronized(texts) { texts[page] = text }
         return text
     }
@@ -152,7 +153,8 @@ class PdfReader(
     suspend fun textLayer(page: Int): PageText {
         if (!readsText || page !in 0 until book.pageCount) return PageText.EMPTY
         layers.get(page)?.let { return it }
-        val layer = withContext(renderThread) { runCatching { book.source.textLayer(page) }.getOrNull() } ?: PageText.EMPTY
+        val layer = withContext(renderThread) { runCatching { book.source.textLayer(page) }.getOrNull() }
+            ?.let { it.withText(BrokenHangul.repair(it.text)) } ?: PageText.EMPTY
         layers.put(page, layer)
         return layer
     }
