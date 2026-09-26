@@ -154,6 +154,33 @@ private fun OloApp(
     // 왜 다른 앱이 떠 있나" 가 된다.
     var fromOutside by rememberSaveable { mutableStateOf(false) }
 
+    /**
+     * 듣기가 아직 읽고 있는 책을 이 화면에 되찾는다. 되찾았으면 true. 알림을 누르든 앱 아이콘을 누르든 새 화면은
+     * 여기를 지난다 — 어느 쪽이든 듣고 있는 책이 나와야 한다.
+     */
+    fun adoptListened(): Boolean {
+        val held = container.held?.takeIf { it.listened() } ?: return false
+        reader = held.book
+        openId = held.openId
+        incomingUri = held.incomingUri
+        incomingFormat = held.incomingFormat
+        incomingName = held.incomingName
+        incomingSize = held.incomingSize
+        // 알림으로 돌아온 책을 닫으면 라이브러리로 간다. 보낸 앱은 이미 앞에 없다.
+        fromOutside = false
+        return true
+    }
+    // 화면이 새로 만들어졌다. 듣기가 읽던 책이 있으면 같은 리더를 되찾는다 — 저장된 id 로 다시 열면 듣기와 다른
+    // 리더라 조종판이 붙지 않고, 저장된 것이 없으면(밀어 닫음) 라이브러리가 뜬다. 듣지 않던 책은 닫는다: 저장된
+    // id 로 다시 열 것이고, 두면 파일을 쥔 채 남는다.
+    // 값(되찾았는가)을 돌려주는 것은 lint 때문이다 — Unit 을 돌려주는 remember 는 오류로 막힌다. 한 화면에 한 번만 돌아야
+    // 해서 SideEffect(그릴 때마다) 로는 안 된다.
+    remember { adoptListened().also { if (!it) container.dropHeld() } }
+    // 지금 열린 책을 화면 밖에 남긴다. 화면이 사라져도 듣기는 이 책을 계속 읽는다.
+    LaunchedEffect(reader) {
+        container.held = reader?.let { HeldBook(it, openId, incomingUri, incomingFormat, incomingName, incomingSize) }
+    }
+
     LaunchedEffect(incoming.value) {
         val intent = incoming.value ?: return@LaunchedEffect
         // 제공자에게 묻는 일(이름·크기)은 입출력이다. 클라우드·메일 첨부는 여기서 파일을 받기도 한다 —

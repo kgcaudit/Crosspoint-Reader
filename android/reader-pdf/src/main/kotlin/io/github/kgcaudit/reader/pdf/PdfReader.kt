@@ -228,8 +228,9 @@ class PdfReader(
     /** [unit] 쪽의 문장들. 머리말 · 쪽 번호는 뺀다(결정 4). 글이 없는 쪽(그림 · 스캔)은 문장 없음 — 듣기가 건너뛴다. */
     override suspend fun speech(unit: Int): SpeechChapter {
         val layer = textLayer(unit)
-        val sentences = if (PageText.isReadable(layer.text)) layer.speech() else emptyList()
-        return SpeechChapter(unit, layer.text, sentences)
+        if (!PageText.isReadable(layer.text)) return SpeechChapter(unit, layer.text, emptyList())
+        val speech = layer.speech()
+        return SpeechChapter(unit, speech.text, speech.sentences)
     }
 
     /** 읽는 쪽을 따라 넘긴다. 이미 보이면(두쪽이면 펼침) 그대로 — 문장마다 진도를 쓰지 않는다. */

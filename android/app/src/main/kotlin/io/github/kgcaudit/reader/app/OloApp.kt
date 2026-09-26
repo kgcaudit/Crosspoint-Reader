@@ -18,8 +18,10 @@ import io.github.kgcaudit.reader.pdf.PdfSource
 import io.github.kgcaudit.reader.pdf.PlatformPdfSource
 import io.github.kgcaudit.reader.reflow.BookReader
 import io.github.kgcaudit.reader.reflow.ReaderPrefs
+import io.github.kgcaudit.reader.listen.ListenHub
 import io.github.kgcaudit.reader.listen.ListenPrefs
 import io.github.kgcaudit.reader.listen.ListenKit
+import io.github.kgcaudit.reader.listen.ListenSource
 import io.github.kgcaudit.reader.ui.design.AutoTurn
 import io.github.kgcaudit.reader.ui.design.PdfFit
 import io.github.kgcaudit.reader.text.FontCatalog
@@ -39,13 +41,34 @@ import java.io.File
 
 /** 연 책. 형식마다 리더가 다르다 — 리플로우(EPUB·TXT)는 조판하고, PDF 는 쪽을 그린다. */
 sealed interface OpenedBook : AutoCloseable {
+    /** 듣기가 읽는 쪽. 듣기가 이 책의 것인지 가릴 때 쓴다(`Listening.belongsTo`). */
+    val source: ListenSource
+
     class Reflow(val reader: BookReader) : OpenedBook {
+        override val source: ListenSource get() = reader
         override fun close() = reader.close()
     }
 
     class Pdf(val reader: PdfReader) : OpenedBook {
+        override val source: ListenSource get() = reader
         override fun close() = reader.close()
     }
+}
+
+/**
+ * 화면에 열려 있던 책과, 그 책을 연 경로(라이브러리 id 또는 받은 파일). 화면(액티비티)보다 오래 산다 —
+ * 듣기는 화면이 사라져도 이 책을 계속 읽으므로, 새로 만들어진 화면이 **같은 책(같은 리더)** 을 되찾아야 한다.
+ */
+class HeldBook(
+    val book: OpenedBook,
+    val openId: String?,
+    val incomingUri: String?,
+    val incomingFormat: String?,
+    val incomingName: String?,
+    val incomingSize: Long,
+) {
+    /** 듣기가 아직 이 책을 읽고 있는가(알림 · 잠금 화면 카드가 떠 있다). */
+    fun listened(): Boolean = ListenHub.current.value?.belongsTo(book.source) == true
 }
 
 class OloApp : Application() {
@@ -84,6 +107,26 @@ class AppContainer(private val app: Application) {
     /** 듣기 엔진(4단계). 테스트가 가짜로 바꾼다 — Robolectric 에는 음성 엔진이 없다. */
     @androidx.annotation.VisibleForTesting
     internal var listenKit: ListenKit = ListenKit.android(app)
+
+    /**
+     * 지금 열려 있는 책. 화면이 새로 만들어지면(작업 목록에서 밀어 닫음 · 시스템이 화면만 거둠) 화면의 상태는
+     * 사라지지만 듣기는 이 책을 계속 읽는다. 그때 듣기 알림을 누르면 라이브러리가 아니라 이 책으로 돌아와야 한다
+     * (0.19.0 까지는 라이브러리가 떴다 — 듣던 책을 다시 찾아 열면 듣기와 다른 리더라 조종판도 붙지 않았다).
+     */
+    internal var held: HeldBook? = null
+
+    /** 되찾지 않을 책을 닫고 놓는다. 두면 새 화면이 저장된 id 로 다시 여는 동안 옛 리더가 파일을 쥔 채 남는다. */
+    internal fun dropHeld() {
+        val book = held?.book ?: return
+        held = null
+        book.close()
+        dropped++
+    }
+
+    /** [dropHeld] 가 닫은 책의 수. 리더가 닫혔는지는 밖에서 보이지 않아 테스트가 이걸 본다. */
+    @androidx.annotation.VisibleForTesting
+    internal var dropped = 0
+        private set
 
     /** 책을 연다. */
     suspend fun open(book: LibraryBook): OpenedBook = withContext(Dispatchers.IO) {

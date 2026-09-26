@@ -136,32 +136,106 @@ class PageText(val text: String, private val boxes: FloatArray) {
         text.substring(start.coerceIn(0, text.length), endExclusive.coerceIn(0, text.length)).replace(LINE_BREAKS, " ").trim()
 
     /**
-     * 듣기의 문장들(결정 4).
+     * 듣기의 글과 문장들(결정 4). 글은 [text] 와 길이가 같다 — 문장 칠 · 쪽 따라가기가 같은 자리를 가리킨다.
      *
      * - 쪽 위아래 가장자리([EDGE])에 있는 짧은 줄(머리말 · 쪽 번호 · 잡지 이름)은 읽지 않는다. 읽으면 쪽이 바뀔
      *   때마다 "OLO 사용 설명서 이 장 넘기기 18" 을 듣는다. 가장자리라도 긴 줄은 본문이 쪽 끝까지 찬 것이라 읽는다.
-     * - 문단 시작: 앞 줄이 짧게 끝났거나(글 폭보다 [SHORT] 이상 모자람) 줄 사이가 크게 벌어진 줄. PDF 글에는 문단
-     *   표시가 없어, 이것이 없으면 마침표 없는 제목("2-1 확대하기")이 다음 문장에 붙어 한 숨에 읽힌다.
+     * - 문단 시작은 [paragraphStarts]. PDF 글에는 문단 표시가 없어, 이것이 틀리면 한 문장이 줄마다 끊겨 읽히고
+     *   (0.18.0 의 실제 버그), 모자라면 마침표 없는 제목이 본문에 붙어 한 숨에 읽힌다.
+     * - 줄 끝에서 한글 낱말이 끊긴 곳("흐↵르게")은 공백 없이 잇는다([joinedLines]). 줄바꿈을 공백으로 읽으면 낱말
+     *   한가운데서 쉰다.
      */
-    fun speech(): List<Sentence> {
+    fun speech(): PdfSpeech {
         val all = lines
-        if (all.isEmpty()) return splitSentences(text)
+        if (all.isEmpty()) return PdfSpeech(text, splitSentences(text))
         val skipped = all.map { it.isMargin() }
+        val starts = paragraphStarts(all, skipped)
+        val spoken = joinedLines(all, skipped, starts)
+        val sentences = splitSentences(spoken, starts).filter { s ->
+            all.withIndex().none { (k, line) -> skipped[k] && s.start in line.start until line.endExclusive }
+        }
+        return PdfSpeech(spoken, sentences)
+    }
+
+    /**
+     * 문단이 시작하는 글자 자리. 새 문단으로 보는 줄:
+     * - 머리말 · 쪽 번호 앞뒤,
+     * - 줄 사이가 **그 쪽의 보통 줄 간격**보다 크게 벌어진 줄 — 글자 높이와 견주면 안 된다. 줄 간격이 넉넉한
+     *   책(글자 높이의 0.8배)에서 줄마다 새 문단이 된다(0.18.0 에서 소설 한 쪽 25줄 중 8줄이 그랬다),
+     * - 글자 크기가 다른 줄(제목) 앞뒤,
+     * - 들여 쓴 줄(문단 첫 줄 들여쓰기),
+     * - 앞 줄이 짧게 끝났고 그 끝이 문장부호 · 닫는 따옴표인 줄. 문장부호를 함께 보는 까닭: 오른쪽이 들쭉날쭉한
+     *   책은 문단 한가운데 줄도 짧게 끝난다.
+     */
+    private fun paragraphStarts(all: List<TextLine>, skipped: List<Boolean>): Set<Int> {
         val body = all.filterIndexed { k, _ -> !skipped[k] }
         val left = body.minOfOrNull { it.left } ?: 0f
         val right = body.maxOfOrNull { it.right } ?: 1f
         val width = (right - left).coerceAtLeast(1e-3f)
-        val lineHeight = body.map { it.bottom - it.top }.sorted().let { if (it.isEmpty()) 0f else it[it.size / 2] }
+        val lineHeight = median(body.map { it.bottom - it.top })
+        val gaps = (1 until all.size).filter { !skipped[it] && !skipped[it - 1] }.map { all[it].top - all[it - 1].bottom }.filter { it > 0f }
+        val usualGap = if (gaps.size >= 2) median(gaps) else lineHeight * 0.8f
         val starts = HashSet<Int>()
         for (k in 1 until all.size) {
             val prev = all[k - 1]
             val cur = all[k]
+            fun odd(line: TextLine) = lineHeight > 0f && kotlin.math.abs((line.bottom - line.top) - lineHeight) > lineHeight * 0.25f
+            val prevEnd = text.substring(prev.start, prev.endExclusive).trimEnd().lastOrNull()
             val newParagraph = skipped[k] || skipped[k - 1] ||
-                prev.right < right - width * SHORT ||
-                cur.top - prev.bottom > lineHeight * 0.8f
+                cur.top - prev.bottom > max(usualGap * 1.5f, lineHeight * 0.3f) ||
+                odd(prev) || odd(cur) ||
+                cur.left > left + lineHeight * 0.8f ||
+                (prev.right < right - width * SHORT && prevEnd != null && prevEnd in PARAGRAPH_ENDS)
             if (newParagraph) starts += cur.start
         }
-        return splitSentences(text, starts).filter { s -> all.withIndex().none { (k, line) -> skipped[k] && s.start in line.start until line.endExclusive } }
+        return starts
+    }
+
+    /**
+     * 줄바꿈 자리를 소리 내지 않는 글자(폭 없는 공백)로 바꾼 글 — [speakable] 이 지워 두 줄이 공백 없이 이어진다.
+     * 앞 줄이 오른쪽 끝까지 찼고(끊긴 곳이 줄 끝) 양쪽이 한글일 때만. 오른쪽이 들쭉날쭉한 책(앞 줄이 짧게 끝남)은
+     * 어절 단위로 줄을 바꾼 것이라 공백으로 둔다. 어절 사이에서 끊긴 줄을 붙이면 두 어절이 이어 읽힐 뿐이지만,
+     * 낱말 한가운데를 띄우면 낱말이 둘로 쪼개져 들린다 — 그래서 한글끼리는 붙이는 쪽을 고른다.
+     * 영어는 줄 끝 하이픈("exam-↵ple")만 지우고 잇는다.
+     */
+    private fun joinedLines(all: List<TextLine>, skipped: List<Boolean>, starts: Set<Int>): String {
+        val body = all.filterIndexed { k, _ -> !skipped[k] }
+        val left = body.minOfOrNull { it.left } ?: 0f
+        val right = body.maxOfOrNull { it.right } ?: 1f
+        val width = (right - left).coerceAtLeast(1e-3f)
+        val out = StringBuilder(text)
+        for (k in 1 until all.size) {
+            val prev = all[k - 1]
+            val cur = all[k]
+            if (skipped[k] || skipped[k - 1] || cur.start in starts) continue
+            if (prev.right < right - width * FULL) continue
+            val last = text[prev.endExclusive - 1]
+            val first = text[cur.start]
+            val hangul = isHangul(last) && isHangul(first)
+            val hyphen = last == '-' && prev.endExclusive >= 2 && text[prev.endExclusive - 2].isLetter() && first.isLetter() && !isHangul(first)
+            if (!hangul && !hyphen) continue
+            if (hangul && endsWord(prev, cur)) continue
+            val from = if (hyphen) prev.endExclusive - 1 else prev.endExclusive
+            for (i in from until cur.start) out.setCharAt(i, SILENT)
+        }
+        return out.toString()
+    }
+
+    /**
+     * 한글 줄바꿈이 어절 사이인가(그러면 공백으로 둔다). 글자 단위로 줄을 바꾼 책도 어절 사이에서 끊기는 일이 많아,
+     * 모두 붙이면 "영주가커피" 처럼 두 어절이 붙어 들린다(실제 소설 PDF 에서).
+     * - 다음 줄이 조사 · 어미 하나로 시작하면("을 닦고", "고 묻지") 낱말이 이어진 것 — 붙인다.
+     * - 앞 줄 끝 조각이 두 글자 이상이고 조사 · 어미로 끝나면("그러는", "영주가") 어절 끝 — 띄운다.
+     * - 그 밖(한 글자 조각 "흐↵르게" · "평↵생")은 붙인다.
+     * "다" · "지" 는 끝 글자로 보지 않는다 — "기다↵리다" 처럼 낱말 한가운데에도 흔하다.
+     */
+    private fun endsWord(prev: TextLine, cur: TextLine): Boolean {
+        var e = cur.start
+        while (e < cur.endExclusive && isHangul(text[e])) e++
+        if (text.substring(cur.start, e) in BOUND) return false
+        var s = prev.endExclusive
+        while (s > prev.start && isHangul(text[s - 1])) s--
+        return prev.endExclusive - s >= 2 && text[prev.endExclusive - 1] in WORD_ENDS
     }
 
     private fun TextLine.isMargin(): Boolean =
@@ -184,6 +258,24 @@ class PageText(val text: String, private val boxes: FloatArray) {
         const val MARGIN_CHARS = 40
         /** 앞 줄이 글 폭보다 이만큼 짧게 끝나면 문단이 끝난 것이다. */
         const val SHORT = 0.12f
+
+        /** 앞 줄이 오른쪽 끝에서 이만큼 안이면 "끝까지 찬 줄" 이다(양쪽 맞춤의 오차). */
+        const val FULL = 0.03f
+        /** 문단 끝으로 볼 줄 끝 글자(짧게 끝난 줄에서만 본다). */
+        private const val PARAGRAPH_ENDS = ".!?…。！？:\"'”’)」』》"
+        /** 줄 머리에 홀로 오면 앞 줄 낱말에 이어지는 조사 · 어미. */
+        private val BOUND = setOf(
+            "을", "를", "이", "가", "은", "는", "에", "의", "도", "고", "다", "요", "게", "서", "와", "과", "로", "만", "면", "며",
+            "지", "께", "랑", "이다", "이었다", "였다", "했다", "에서", "에게", "으로", "로서", "처럼", "까지", "부터",
+        )
+        /** 어절 끝에 흔한 조사 · 어미 글자(두 글자 이상 조각의 끝일 때만 본다). */
+        private const val WORD_ENDS = "는은을를가고서며게에의도와과로면요"
+        /** 소리 내지 않고 [speakable] 이 지우는 글자(폭 없는 공백). */
+        private const val SILENT = '\u200B'
+
+        private fun isHangul(c: Char): Boolean = c in '\uAC00'..'\uD7A3'
+
+        private fun median(values: List<Float>): Float = values.sorted().let { if (it.isEmpty()) 0f else it[it.size / 2] }
 
         private val LINE_BREAKS = Regex("\\s*[\\r\\n]+\\s*")
 
@@ -213,3 +305,6 @@ class PageText(val text: String, private val boxes: FloatArray) {
 
 /** 한 줄: 글자 구간(끝은 마지막 보이는 글자 다음)과 그 줄을 담는 네모(쪽 비율). */
 data class TextLine(val start: Int, val endExclusive: Int, val left: Float, val top: Float, val right: Float, val bottom: Float)
+
+/** PDF 쪽 하나의 듣기: 엔진에 줄 글([text], 원문과 길이가 같다)과 문장들. */
+class PdfSpeech(val text: String, val sentences: List<Sentence>)
