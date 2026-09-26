@@ -149,8 +149,9 @@ class PageText(val text: String, private val boxes: FloatArray) {
         val all = lines
         if (all.isEmpty()) return PdfSpeech(text, splitSentences(text))
         val skipped = all.map { it.isMargin() }
-        val starts = paragraphStarts(all, skipped)
-        val spoken = joinedLines(all, skipped, starts)
+        val blocks = blocksOf(all, skipped)
+        val starts = paragraphStarts(all, skipped, blocks)
+        val spoken = joinedLines(all, skipped, starts, blocks)
         val sentences = splitSentences(spoken, starts).filter { s ->
             all.withIndex().none { (k, line) -> skipped[k] && s.start in line.start until line.endExclusive }
         }
@@ -159,36 +160,61 @@ class PageText(val text: String, private val boxes: FloatArray) {
 
     /**
      * 문단이 시작하는 글자 자리. 새 문단으로 보는 줄:
-     * - 머리말 · 쪽 번호 앞뒤,
-     * - 줄 사이가 **그 쪽의 보통 줄 간격**보다 크게 벌어진 줄 — 글자 높이와 견주면 안 된다. 줄 간격이 넉넉한
-     *   책(글자 높이의 0.8배)에서 줄마다 새 문단이 된다(0.18.0 에서 소설 한 쪽 25줄 중 8줄이 그랬다),
-     * - 글자 크기가 다른 줄(제목) 앞뒤,
+     * - 새 덩이의 첫 줄([blocksOf]: 머리말 · 쪽 번호 앞뒤, 넓은 줄 사이, 제목),
      * - 들여 쓴 줄(문단 첫 줄 들여쓰기),
      * - 앞 줄이 짧게 끝났고 그 끝이 문장부호 · 닫는 따옴표인 줄. 문장부호를 함께 보는 까닭: 오른쪽이 들쭉날쭉한
      *   책은 문단 한가운데 줄도 짧게 끝난다.
      */
-    private fun paragraphStarts(all: List<TextLine>, skipped: List<Boolean>): Set<Int> {
-        val body = all.filterIndexed { k, _ -> !skipped[k] }
-        val left = body.minOfOrNull { it.left } ?: 0f
-        val right = body.maxOfOrNull { it.right } ?: 1f
-        val width = (right - left).coerceAtLeast(1e-3f)
-        val lineHeight = median(body.map { it.bottom - it.top })
-        val gaps = (1 until all.size).filter { !skipped[it] && !skipped[it - 1] }.map { all[it].top - all[it - 1].bottom }.filter { it > 0f }
-        val usualGap = if (gaps.size >= 2) median(gaps) else lineHeight * 0.8f
+    private fun paragraphStarts(all: List<TextLine>, skipped: List<Boolean>, blocks: Blocks): Set<Int> {
         val starts = HashSet<Int>()
         for (k in 1 until all.size) {
             val prev = all[k - 1]
             val cur = all[k]
-            fun odd(line: TextLine) = lineHeight > 0f && kotlin.math.abs((line.bottom - line.top) - lineHeight) > lineHeight * 0.25f
             val prevEnd = text.substring(prev.start, prev.endExclusive).trimEnd().lastOrNull()
-            val newParagraph = skipped[k] || skipped[k - 1] ||
-                cur.top - prev.bottom > max(usualGap * 1.5f, lineHeight * 0.3f) ||
-                odd(prev) || odd(cur) ||
-                cur.left > left + lineHeight * 0.8f ||
-                (prev.right < right - width * SHORT && prevEnd != null && prevEnd in PARAGRAPH_ENDS)
+            // 들여쓰기 · 짧은 줄은 **그 줄이 든 덩이**의 왼쪽 · 오른쪽 끝과 견준다. 쪽 전체와 견주면, 본문보다 안쪽에 놓인
+            // 글 상자(잡지의 심사평 상자)의 줄이 모두 "들여 쓴 줄" 이 되어 줄마다 끊겨 읽혔다(0.19.1 좋은생각 PDF).
+            val newParagraph = blocks.of[k] != blocks.of[k - 1] ||
+                cur.left > blocks.left(k) + blocks.lineHeight * 0.8f ||
+                (prev.right < blocks.right(k) - blocks.width(k) * SHORT && prevEnd != null && prevEnd in PARAGRAPH_ENDS)
             if (newParagraph) starts += cur.start
         }
         return starts
+    }
+
+    /**
+     * 줄을 덩이로 묶는다. 덩이가 갈리는 곳은 머리말 · 쪽 번호 앞뒤, 줄 사이가 **그 쪽의 보통 줄 간격**보다 크게 벌어진
+     * 곳(글자 높이와 견주면 안 된다 — 줄 간격이 넉넉한 책에서 줄마다 갈린다, 0.18.0 에서 소설 한 쪽 25줄 중 8줄),
+     * 글자 크기가 다른 줄(제목) 앞뒤. 덩이는 곧 문단 경계이고, 덩이마다 왼쪽 · 오른쪽 끝을 따로 잰다.
+     */
+    private fun blocksOf(all: List<TextLine>, skipped: List<Boolean>): Blocks {
+        val body = all.filterIndexed { k, _ -> !skipped[k] }
+        val lineHeight = median(body.map { it.bottom - it.top })
+        val gaps = (1 until all.size).filter { !skipped[it] && !skipped[it - 1] }.map { all[it].top - all[it - 1].bottom }.filter { it > 0f }
+        val usualGap = if (gaps.size >= 2) median(gaps) else lineHeight * 0.8f
+        fun odd(line: TextLine) = lineHeight > 0f && kotlin.math.abs((line.bottom - line.top) - lineHeight) > lineHeight * 0.25f
+        val of = IntArray(all.size)
+        for (k in 1 until all.size) {
+            val prev = all[k - 1]
+            val cur = all[k]
+            val split = skipped[k] || skipped[k - 1] ||
+                cur.top - prev.bottom > max(usualGap * 1.5f, lineHeight * 0.3f) ||
+                odd(prev) || odd(cur)
+            of[k] = of[k - 1] + if (split) 1 else 0
+        }
+        val count = (of.lastOrNull() ?: -1) + 1
+        val lefts = FloatArray(count) { Float.MAX_VALUE }
+        val rights = FloatArray(count) { -Float.MAX_VALUE }
+        all.forEachIndexed { k, line ->
+            lefts[of[k]] = minOf(lefts[of[k]], line.left)
+            rights[of[k]] = maxOf(rights[of[k]], line.right)
+        }
+        return Blocks(of, lefts, rights, lineHeight)
+    }
+
+    private class Blocks(val of: IntArray, private val lefts: FloatArray, private val rights: FloatArray, val lineHeight: Float) {
+        fun left(line: Int) = lefts[of[line]]
+        fun right(line: Int) = rights[of[line]]
+        fun width(line: Int) = (right(line) - left(line)).coerceAtLeast(1e-3f)
     }
 
     /**
@@ -198,17 +224,13 @@ class PageText(val text: String, private val boxes: FloatArray) {
      * 낱말 한가운데를 띄우면 낱말이 둘로 쪼개져 들린다 — 그래서 한글끼리는 붙이는 쪽을 고른다.
      * 영어는 줄 끝 하이픈("exam-↵ple")만 지우고 잇는다.
      */
-    private fun joinedLines(all: List<TextLine>, skipped: List<Boolean>, starts: Set<Int>): String {
-        val body = all.filterIndexed { k, _ -> !skipped[k] }
-        val left = body.minOfOrNull { it.left } ?: 0f
-        val right = body.maxOfOrNull { it.right } ?: 1f
-        val width = (right - left).coerceAtLeast(1e-3f)
+    private fun joinedLines(all: List<TextLine>, skipped: List<Boolean>, starts: Set<Int>, blocks: Blocks): String {
         val out = StringBuilder(text)
         for (k in 1 until all.size) {
             val prev = all[k - 1]
             val cur = all[k]
             if (skipped[k] || skipped[k - 1] || cur.start in starts) continue
-            if (prev.right < right - width * FULL) continue
+            if (prev.right < blocks.right(k) - blocks.width(k) * FULL) continue
             val last = text[prev.endExclusive - 1]
             val first = text[cur.start]
             val hangul = isHangul(last) && isHangul(first)

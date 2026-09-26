@@ -165,6 +165,37 @@ class PageTextTest {
     }
 
     @Test
+    fun `a text box set further in than the body is read in sentences, not line by line`() {
+        // 잡지 쪽(좋은생각 "좋은님 시 마당"): 위에 시, 아래에 본문보다 안쪽에 놓인 심사평 상자. 쪽 전체의 왼쪽 끝과 견주면
+        // 상자의 줄이 모두 들여 쓴 줄이라 "시 안에는 세 개" 에서 끊겨 읽혔다.
+        val lines = listOf(
+            "떠나오는 산길은 가장자리로 걷기만 했다",
+            "밟히며 피운 질경이가 웅크리고 하얗게 올려보고 있었다",
+            "이번 호에는 좋은 시가 여럿 들어와 선뜻 하나를 고르기 쉽지 않았다. 끝내는 문",
+            "학성이 강한 작품 쪽으로 마음을 정했다.",
+            "〈질경이 꽃〉은 서사적이며 동심원적 구성을 가진 시다. 이런 특이성이 이 작품을",
+            "손에서 내려놓지 못하게 했다. 매우 특별하고 보기 드문 작품이다. 시 안에는 세 개",
+            "의 동심원이 있다. 가장 중심의 원에는 ‘어머니’, 그다음 원에는 ‘누에고치’, 표면의",
+            "원에는 ‘질경이 꽃’이 자리한다.",
+        )
+        val p = page(
+            lines,
+            tops = listOf(0.25f, 0.28f) + (0..5).map { 0.5f + it * 0.03f },
+            lefts = listOf(0.15f, 0.15f) + List(6) { 0.19f },
+            charW = 0.01f,
+            justified = setOf(2, 4, 5, 6),
+        )
+        val spoken = spokenOf(p)
+        assertTrue("매우 특별하고 보기 드문 작품이다." in spoken, spoken.toString())
+        assertTrue("시 안에는 세 개의 동심원이 있다." in spoken, spoken.toString())
+        assertTrue("끝내는 문학성이 강한 작품 쪽으로 마음을 정했다." in spoken, spoken.toString())
+        // 짧게 마침표로 끝난 줄 다음은 여전히 새 문단이다(상자 안에서도).
+        assertTrue(spoken.any { it.startsWith("〈질경이 꽃〉은") }, spoken.toString())
+        // 시와 상자는 다른 덩이 — 시의 끝 줄이 상자의 첫 문장에 붙지 않는다.
+        assertTrue(spoken.none { "있었다 이번" in it || "있었다이번" in it }, spoken.toString())
+    }
+
+    @Test
     fun `a line break between words of a justified book stays a space, a particle on the next line joins`() {
         // 글자 단위로 줄을 바꾼 책도 어절 사이에서 끊기는 일이 많다(실제 소설 PDF: "그러는↵건데", "영주가↵커피").
         val p = page(
