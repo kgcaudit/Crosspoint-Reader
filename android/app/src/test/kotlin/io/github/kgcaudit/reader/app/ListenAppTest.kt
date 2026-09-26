@@ -236,19 +236,18 @@ class ListenAppTest {
     }
 
     @Test
-    fun `word pause setting joins words for the engine only, compares each level and is kept`() {
+    fun `word pause setting joins words for the engine only, applies at once and is kept`() {
         openWith()
         startListening()
         assertEquals("첫 문장이다.", speaker.current)
         node(hasContentDescription("듣기 설정")).performClick()
         waitFor(hasText("어절 쉼 줄이기"))
-        // 위계: "비교 들어 보기" 는 "어절 쉼 줄이기" 에 딸린 줄 — 그 글자보다 한 단(16dp) 안쪽에서 시작한다.
-        fun left(text: String) = node(hasText(text)).fetchSemanticsNode().boundsInRoot.left / compose.activity.resources.displayMetrics.density
-        assertEquals(left("어절 쉼 줄이기") + 16f, left("비교 들어 보기"), 1f)
+        // 선택지는 일반 · 속독 둘뿐이고, 따로 여는 비교 판은 없다 — 두 단추를 번갈아 누르면 지금 문장이 바로 다시
+        // 들려 그것으로 견준다("강하게" · "비교 들어 보기" 는 들어 보고 뺐다, 2026-09-26).
+        assertFalse(hasNode(hasText("강하게")))
+        assertFalse(hasNode(hasText("비교 들어 보기")))
         shot("86-listen-join-setting")
 
-        // 선택지는 일반 · 속독 둘뿐이다("강하게" 는 들어 보고 뺐다).
-        assertFalse(hasNode(hasText("강하게")))
         // 속독: 엔진에는 "첫문장이다." 로 넘긴다(관형사 "첫" 을 붙임). 지금 문장부터 바로 다시 읽는다.
         node(hasText("속독")).performClick()
         compose.waitUntil(5_000) { speaker.current == "첫문장이다." }
@@ -256,23 +255,11 @@ class ListenAppTest {
         // 붙인 글은 엔진에만 간다 — 지금 문장(칠 · 잠금 화면 카드에 보이는 글)은 원문 그대로다.
         assertEquals("첫 문장이다.", ListenHub.current.value!!.state.value.sentenceText)
 
-        // 비교 들어 보기: 일반으로 들려주고, 읽기는 멈춘다(미리 듣기 뒤에 저절로 이어지지 않는다).
-        node(hasText("비교 들어 보기")).performClick()
-        waitFor(hasContentDescription("일반으로 들어 보기"))
-        assertTrue(hasNode(hasText("  쉬는 자리 1")) && hasNode(hasText("  쉬는 자리 0")))
-        assertFalse(hasNode(hasContentDescription("강하게로 들어 보기")))
-        shot("87-listen-join-compare")
-        // 미리 듣기는 고른 세기로 붙인 글을 들려주고, 그동안 읽기는 멈춘다.
-        node(hasContentDescription("속독으로 들어 보기")).performClick()
-        compose.waitUntil(5_000) { speaker.current == "첫문장이다." && ListenHub.current.value!!.state.value.previewing != null }
-        assertFalse(ListenHub.current.value!!.state.value.playing, "미리 듣기인데 읽기가 이어진다")
-        node(hasContentDescription("일반으로 들어 보기")).performClick()
+        // 일반으로 되돌리면 같은 문장을 원문 그대로 다시 읽고, 그 값이 저장된다.
+        node(hasText("일반")).performClick()
         compose.waitUntil(5_000) { speaker.current == "첫 문장이다." }
-        compose.waitForIdle()
-        // 들어 본 세기로 정하면 설정이 바뀌고 판은 설정 화면으로 돌아온다.
-        node(hasText("일반으로 정하기")).performClick()
         compose.waitUntil(5_000) { app.container.prefs.load().listen.join == io.github.kgcaudit.reader.layout.book.WordJoin.Off }
-        waitFor(hasText("어절 쉼 줄이기"))
+        assertTrue(ListenHub.current.value!!.state.value.playing, "세기를 바꿔도 읽기는 이어진다")
     }
 
     @Test

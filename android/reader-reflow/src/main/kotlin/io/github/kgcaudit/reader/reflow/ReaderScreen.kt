@@ -745,9 +745,6 @@ fun ReaderScreen(
                 onTimer = { listening?.setTimer(it) },
                 onClose = { listenSheet = false },
                 onJoin = { level -> onPrefsChange(prefs.copy(listen = prefs.listen.copy(join = level))); listening?.setJoin(level) },
-                sample = listen.sentenceText,
-                previewing = listen.previewing,
-                onPreview = { listening?.preview(it) },
             )
         }
         if (panel == Panel.Voices) {

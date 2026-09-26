@@ -632,9 +632,6 @@ fun PdfScreen(
             onTimer = { listening?.setTimer(it) },
             onClose = { listenSheet = false },
             onJoin = { level -> onListenChange(listen.copy(join = level)); listening?.setJoin(level) },
-            sample = heard.sentenceText,
-            previewing = heard.previewing,
-            onPreview = { listening?.preview(it) },
         )
     }
 

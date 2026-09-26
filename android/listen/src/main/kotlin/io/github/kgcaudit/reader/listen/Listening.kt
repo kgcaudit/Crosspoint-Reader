@@ -40,8 +40,6 @@ data class ListenState(
     val message: String? = null,
     /** 어절 쉼 줄이기의 지금 세기. */
     val join: WordJoin = WordJoin.Off,
-    /** 비교 들어 보기로 지금 들려주는 세기. null 이면 들려주는 중이 아니다. */
-    val previewing: WordJoin? = null,
 )
 
 /**
@@ -81,8 +79,8 @@ class Listening(
     init {
         speaker.events = object : SpeakerEvents {
             override fun onStart(id: String) { scope.launch { started(id) } }
-            override fun onDone(id: String) { scope.launch { if (id.startsWith(PREVIEW)) previewDone(id) else finished(id) } }
-            override fun onError(id: String) { scope.launch { if (id.startsWith(PREVIEW)) previewDone(id) else failed(id) } }
+            override fun onDone(id: String) { scope.launch { finished(id) } }
+            override fun onError(id: String) { scope.launch { failed(id) } }
         }
     }
 
@@ -119,7 +117,7 @@ class Listening(
         generation++
         speaker.stop()
         queued = -1
-        _state.value = _state.value.copy(playing = false, previewing = null)
+        _state.value = _state.value.copy(playing = false)
     }
 
     /** 다음 · 앞 문장(조종판 · 잠금 화면 · 이어폰 단추). 멈춰 있어도 옮기고, 읽던 중이면 거기서 읽는다. */
@@ -152,23 +150,6 @@ class Listening(
         join = level
         _state.value = _state.value.copy(join = level)
         if (_state.value.playing) chapter?.let { c -> scope.launch { speakFrom(c.spine, index) } }
-    }
-
-    /**
-     * 비교 들어 보기: 지금 문장을 [level] 로 한 번 들려준다. 읽기는 멈춘다 — 미리 듣기가 끝나고 읽기가 저절로
-     * 이어지면 무엇을 비교하던 중인지 헷갈린다. 들려준 뒤에는 조종판의 읽기로 이어 듣는다.
-     */
-    fun preview(level: WordJoin) {
-        val text = _state.value.sentenceText
-        if (text.isBlank()) return
-        pause()
-        _state.value = _state.value.copy(previewing = level)
-        speaker.speak("$PREVIEW${level.name}:$generation", joinWords(text, level), flush = true)
-    }
-
-    private fun previewDone(id: String) {
-        // 늦게 온 옛 미리 듣기의 끝 알림이 지금 들려주는 것을 지우지 않게, 들려주는 중인 세기일 때만 지운다.
-        if (id.removePrefix(PREVIEW).substringBefore(':') == _state.value.previewing?.name) _state.value = _state.value.copy(previewing = null)
     }
 
     fun setVoice(voice: String?) {
@@ -257,7 +238,7 @@ class Listening(
         speaker.speak(id(c.spine, i), spoken(c, i), flush = true)
         queued = i
         queueNext(c)
-        _state.value = _state.value.copy(playing = true, previewing = null)
+        _state.value = _state.value.copy(playing = true)
         show(c, i)
     }
 
@@ -342,4 +323,3 @@ class Listening(
 }
 
 /** 미리 듣기 알림의 머리. 읽기의 알림("세대:장:문장")과 섞이지 않게 따로 둔다. */
-private const val PREVIEW = "p:"

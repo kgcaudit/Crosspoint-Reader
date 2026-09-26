@@ -37,10 +37,11 @@ class WordJoinTest {
     }
 
     @Test
-    fun `off sends the sentence untouched and the pause count follows the spaces`() {
+    fun `normal sends the sentence untouched and fast reading leaves fewer pauses`() {
         val s = cases[0].first
         assertEquals(s, joinWords(s, WordJoin.Off))
-        assertEquals(listOf(8, 5), listOf(joinWords(s, WordJoin.Off), joinWords(s, WordJoin.Light)).map(::pauseCount))
+        // 엔진이 쉬는 자리(띄어쓰기)가 8 → 5 로 준다.
+        assertEquals(listOf(8, 5), listOf(joinWords(s, WordJoin.Off), joinWords(s, WordJoin.Light)).map { t -> t.count { it == ' ' } })
     }
 
     @Test

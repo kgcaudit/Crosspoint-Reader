@@ -26,9 +26,6 @@ fun joinWords(text: String, level: WordJoin): String {
     return joinLight(words).joinToString(" ")
 }
 
-/** 엔진이 쉬는 자리의 수(띄어쓰기). 비교 판에 "쉬는 자리 7" 로 보인다. */
-fun pauseCount(text: String): Int = text.trim().count { it == ' ' }
-
 private fun joinLight(words: List<String>): List<String> {
     val out = ArrayList<String>()
     var glueNext = false
