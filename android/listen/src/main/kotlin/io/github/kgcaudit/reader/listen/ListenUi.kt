@@ -1,5 +1,13 @@
 package io.github.kgcaudit.reader.listen
 
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.foundation.text.BasicText
+import io.github.kgcaudit.reader.layout.book.pauseCount
+import io.github.kgcaudit.reader.layout.book.joinWords
+import io.github.kgcaudit.reader.layout.book.WordJoin
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -117,7 +125,10 @@ fun ListenPlayer(
     }
 }
 
-/** 듣기 판(L4): 빠르기 · 목소리 · 타이머. 조종판의 빠르기 · 타이머를 누르면 올라온다. */
+/**
+ * 듣기 판(L4): 빠르기 · 목소리 · 타이머 · 어절 쉼 줄이기. 조종판의 빠르기 · 타이머를 누르면 올라온다.
+ * "비교 들어 보기" 를 누르면 같은 판이 비교 판으로 바뀐다(판을 하나 더 올리면 뒤로 두 번 닫아야 한다).
+ */
 @Composable
 fun ListenSheet(
     prefs: ListenPrefs,
@@ -126,10 +137,17 @@ fun ListenSheet(
     onVoices: () -> Unit,
     onTimer: (ListenTimer) -> Unit,
     onClose: () -> Unit,
+    /** 어절 쉼 줄이기를 바꿨다(저장 · 지금 듣기에 적용). */
+    onJoin: (WordJoin) -> Unit = {},
+    /** 비교할 문장(지금 읽는 문장). 비었으면 비교 들어 보기를 두지 않는다. */
+    sample: String = "",
+    previewing: WordJoin? = null,
+    onPreview: (WordJoin) -> Unit = {},
 ) {
     val c = CpTheme.colors
     val m = CpTheme.metrics
-    BackHandler(onBack = onClose)
+    var comparing by remember { mutableStateOf(false) }
+    BackHandler(onBack = { if (comparing) comparing = false else onClose() })
     Box(
         Modifier.fillMaxSize().background(Color(0x44000000))
             .clickable(indication = null, interactionSource = null, onClick = onClose),
@@ -141,11 +159,24 @@ fun ListenSheet(
                 .padding(top = 10.dp, bottom = 20.dp),
         ) {
             Box(Modifier.align(Alignment.CenterHorizontally).size(width = 36.dp, height = 4.dp).clip(RoundedCornerShape(50)).background(c.divider))
+            if (comparing) {
+                CompareJoin(sample, prefs.join, previewing, onPreview, onPick = { onJoin(it); comparing = false }, onBack = { comparing = false })
+                return@Column
+            }
             CpText("듣기", CpTheme.type.title, c.text, Modifier.padding(horizontal = m.gutter, vertical = 12.dp))
             CpStepper("읽는 속도", rateLabel(prefs.rate), { onRate(prefs.stepRate(-1)) }, { onRate(prefs.stepRate(+1)) })
             CpLinkRow("목소리", prefs.voiceLabel ?: "휴대폰 기본", onVoices)
             val timers = ListenTimer.entries
             CpChoice("타이머", timers.map { it.label }, timers.indexOf(timer), { onTimer(timers[it]) })
+            val joins = WordJoin.entries
+            CpChoice("어절 쉼 줄이기", joins.map { it.label }, joins.indexOf(prefs.join), { onJoin(joins[it]) })
+            CpText(
+                "실험 기능 · 뜻이 이어지는 어절을 붙여서 엔진에 넘깁니다. 화면의 글은 그대로입니다. 붙인 곳의 억양이 어색하면 끄세요.",
+                CpTheme.type.caption, c.textMuted,
+                Modifier.padding(start = m.gutter + m.levelIndent, end = m.gutter, top = 2.dp, bottom = 4.dp), maxLines = 3,
+            )
+            // 위계: "어절 쉼 줄이기" 에 딸린 줄이라 글자만 있는 줄의 한 단(levelIndent) 안쪽에서 시작한다.
+            if (sample.isNotBlank()) CpLinkRow("비교 들어 보기", "같은 문장을 단계마다", { comparing = true }, Modifier.padding(start = m.levelIndent))
             CpDivider(Modifier.padding(vertical = 8.dp))
             CpText(
                 "휴대폰의 음성 엔진으로 읽습니다. 인터넷을 쓰지 않습니다.",
@@ -155,6 +186,60 @@ fun ListenSheet(
                 CpButton("닫기", onClose, primary = false)
             }
         }
+    }
+}
+
+/**
+ * 비교 들어 보기: 지금 문장을 세기마다 한 줄씩 — 누르면 그 세기로 들려준다. "│" 는 엔진이 쉬는 자리.
+ * 마지막으로 들은 세기로 "…로 정하기". 고르지 않고 닫으면 설정은 그대로다.
+ */
+@Composable
+private fun CompareJoin(
+    sample: String,
+    current: WordJoin,
+    previewing: WordJoin?,
+    onPreview: (WordJoin) -> Unit,
+    onPick: (WordJoin) -> Unit,
+    onBack: () -> Unit,
+) {
+    val c = CpTheme.colors
+    val m = CpTheme.metrics
+    var heard by remember { mutableStateOf(current) }
+    CpText("비교 들어 보기", CpTheme.type.title, c.text, Modifier.padding(horizontal = m.gutter, vertical = 12.dp))
+    CpText("지금 읽는 문장으로 들어 봅니다", CpTheme.type.caption, c.textMuted, Modifier.padding(horizontal = m.gutter))
+    for (level in WordJoin.entries) {
+        val text = joinWords(sample, level)
+        val playing = previewing == level
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = m.gutter, vertical = 6.dp).clip(RoundedCornerShape(12.dp))
+                .then(if (playing) Modifier.background(c.accent.copy(alpha = 0.10f)) else Modifier)
+                .border(1.dp, if (playing) c.accent else c.divider, RoundedCornerShape(12.dp))
+                .clickable(role = Role.Button) { heard = level; onPreview(level) }
+                .padding(12.dp)
+                .semantics { contentDescription = "${level.withRo()} 들어 보기" },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(36.dp).clip(RoundedCornerShape(50)).background(if (playing) c.accent else c.divider), contentAlignment = Alignment.Center) {
+                CpIcon(if (playing) CpIcons.Pause else CpIcons.Play, if (playing) c.onAccent else c.text, size = 18.dp)
+            }
+            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                Row {
+                    CpText(level.label, CpTheme.type.label, if (playing) c.accent else c.text)
+                    CpText("  쉬는 자리 ${pauseCount(text)}", CpTheme.type.caption, c.textMuted)
+                }
+                BasicText(
+                    buildAnnotatedString {
+                        for (ch in text) if (ch == ' ') withStyle(SpanStyle(color = c.accent, fontWeight = FontWeight.Bold)) { append("│") } else append(ch)
+                    },
+                    style = CpTheme.type.caption.copy(color = c.text),
+                )
+            }
+        }
+    }
+    Row(Modifier.fillMaxWidth().padding(horizontal = m.gutter, vertical = 8.dp), horizontalArrangement = Arrangement.End) {
+        CpButton("닫기", onBack, primary = false)
+        Spacer(Modifier.width(10.dp))
+        CpButton("${heard.withRo()} 정하기", { onPick(heard) })
     }
 }
 
@@ -255,4 +340,11 @@ private fun VoiceRow(name: String, selected: Boolean, onPick: () -> Unit, onList
             )
         }
     }
+}
+
+/** "끔으로" · "약하게로" — 받침이 있으면 "으로". */
+internal fun WordJoin.withRo(): String {
+    val last = label.last()
+    val batchim = last in '\uAC00'..'\uD7A3' && (last - '\uAC00') % 28 != 0
+    return label + if (batchim) "으로" else "로"
 }

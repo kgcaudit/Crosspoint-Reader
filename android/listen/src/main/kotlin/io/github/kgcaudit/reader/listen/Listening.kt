@@ -2,6 +2,8 @@ package io.github.kgcaudit.reader.listen
 
 import io.github.kgcaudit.reader.layout.book.Sentence
 import io.github.kgcaudit.reader.layout.book.indexAt
+import io.github.kgcaudit.reader.layout.book.WordJoin
+import io.github.kgcaudit.reader.layout.book.joinWords
 import io.github.kgcaudit.reader.layout.book.speakable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -36,6 +38,10 @@ data class ListenState(
     val timerEndsAtMs: Long? = null,
     /** 사람에게 알릴 말(엔진 없음 · 책 끝). 보인 뒤 [Listening.consumeMessage]. */
     val message: String? = null,
+    /** 어절 쉼 줄이기의 지금 세기. */
+    val join: WordJoin = WordJoin.Off,
+    /** 비교 들어 보기로 지금 들려주는 세기. null 이면 들려주는 중이 아니다. */
+    val previewing: WordJoin? = null,
 )
 
 /**
@@ -70,19 +76,22 @@ class Listening(
     private var timerJob: Job? = null
     private var prepared = false
 
+    private var join = WordJoin.Off
+
     init {
         speaker.events = object : SpeakerEvents {
             override fun onStart(id: String) { scope.launch { started(id) } }
-            override fun onDone(id: String) { scope.launch { finished(id) } }
-            override fun onError(id: String) { scope.launch { failed(id) } }
+            override fun onDone(id: String) { scope.launch { if (id.startsWith(PREVIEW)) previewDone(id) else finished(id) } }
+            override fun onError(id: String) { scope.launch { if (id.startsWith(PREVIEW)) previewDone(id) else failed(id) } }
         }
     }
 
     /**
      * 듣기를 켜고 [spine] 장의 글자 [offset] 에서 읽기 시작한다(보이는 쪽의 첫 문장). 엔진이 없으면 알리고 켜지 않는다.
      */
-    suspend fun start(spine: Int, offset: Int, rate: Float, voice: String?) {
-        _state.value = _state.value.copy(active = true, preparing = true, rate = rate, message = null)
+    suspend fun start(spine: Int, offset: Int, rate: Float, voice: String?, join: WordJoin = WordJoin.Off) {
+        this.join = join
+        _state.value = _state.value.copy(active = true, preparing = true, rate = rate, message = null, join = join)
         if (!prepared) {
             prepared = speaker.prepare()
             if (!prepared) {
@@ -110,7 +119,7 @@ class Listening(
         generation++
         speaker.stop()
         queued = -1
-        _state.value = _state.value.copy(playing = false)
+        _state.value = _state.value.copy(playing = false, previewing = null)
     }
 
     /** 다음 · 앞 문장(조종판 · 잠금 화면 · 이어폰 단추). 멈춰 있어도 옮기고, 읽던 중이면 거기서 읽는다. */
@@ -136,6 +145,30 @@ class Listening(
         _state.value = _state.value.copy(rate = rate)
         // 빠르기는 다음 문장부터 먹는다. 지금 문장부터 바로 바뀌어야 고른 값을 들어 볼 수 있다.
         if (_state.value.playing) chapter?.let { c -> scope.launch { speakFrom(c.spine, index) } }
+    }
+
+    /** 어절 쉼 줄이기의 세기. 빠르기처럼 지금 문장부터 바뀌어 들린다. */
+    fun setJoin(level: WordJoin) {
+        join = level
+        _state.value = _state.value.copy(join = level)
+        if (_state.value.playing) chapter?.let { c -> scope.launch { speakFrom(c.spine, index) } }
+    }
+
+    /**
+     * 비교 들어 보기: 지금 문장을 [level] 로 한 번 들려준다. 읽기는 멈춘다 — 미리 듣기가 끝나고 읽기가 저절로
+     * 이어지면 무엇을 비교하던 중인지 헷갈린다. 들려준 뒤에는 조종판의 읽기로 이어 듣는다.
+     */
+    fun preview(level: WordJoin) {
+        val text = _state.value.sentenceText
+        if (text.isBlank()) return
+        pause()
+        _state.value = _state.value.copy(previewing = level)
+        speaker.speak("$PREVIEW${level.name}:$generation", joinWords(text, level), flush = true)
+    }
+
+    private fun previewDone(id: String) {
+        // 늦게 온 옛 미리 듣기의 끝 알림이 지금 들려주는 것을 지우지 않게, 들려주는 중인 세기일 때만 지운다.
+        if (id.removePrefix(PREVIEW).substringBefore(':') == _state.value.previewing?.name) _state.value = _state.value.copy(previewing = null)
     }
 
     fun setVoice(voice: String?) {
@@ -221,17 +254,17 @@ class Listening(
         }
         generation++
         index = i
-        speaker.speak(id(c.spine, i), speakable(c.text, c.sentences[i]), flush = true)
+        speaker.speak(id(c.spine, i), spoken(c, i), flush = true)
         queued = i
         queueNext(c)
-        _state.value = _state.value.copy(playing = true)
+        _state.value = _state.value.copy(playing = true, previewing = null)
         show(c, i)
     }
 
     private fun queueNext(c: SpeechChapter) {
         val next = queued + 1
         if (next < c.sentences.size) {
-            speaker.speak(id(c.spine, next), speakable(c.text, c.sentences[next]), flush = false)
+            speaker.speak(id(c.spine, next), spoken(c, next), flush = false)
             queued = next
         }
     }
@@ -263,6 +296,9 @@ class Listening(
         _state.value = _state.value.copy(spine = c.spine, sentence = sentence, sentenceText = speakable(c.text, sentence))
         runCatching { reader.follow(c.spine, sentence.start) }
     }
+
+    /** 엔진에 넘길 글: 숨은 문자를 정리하고([speakable]) 어절 쉼 줄이기를 적용한다. 화면의 글 · 칠은 그대로다. */
+    private fun spoken(c: SpeechChapter, i: Int): String = joinWords(speakable(c.text, c.sentences[i]), join)
 
     private fun id(spine: Int, i: Int) = "$generation:$spine:$i"
 
@@ -304,3 +340,6 @@ class Listening(
         speakFrom(spine, i + 1)
     }
 }
+
+/** 미리 듣기 알림의 머리. 읽기의 알림("세대:장:문장")과 섞이지 않게 따로 둔다. */
+private const val PREVIEW = "p:"

@@ -1,6 +1,7 @@
 package io.github.kgcaudit.reader.listen
 
 import io.github.kgcaudit.reader.layout.book.Sentence
+import io.github.kgcaudit.reader.layout.book.WordJoin
 
 /**
  * 듣기가 읽는 책. EPUB 은 장 하나, PDF 는 쪽 하나가 [speech] 의 한 단위다([SpeechChapter.spine]).
@@ -36,6 +37,8 @@ data class ListenPrefs(
     val engine: String? = null,
     val voice: String? = null,
     val voiceLabel: String? = null,
+    /** 어절 쉼 줄이기(실험). 기본 끔 — 지금 듣는 방식을 몰래 바꾸지 않는다. */
+    val join: WordJoin = WordJoin.Off,
 ) {
     /** 한 단계 빠르게(+) · 느리게(−). 0.5–2.0 을 0.1 씩(L4). 떠돌이 소수(1.2000001)가 생기지 않게 10배로 센다. */
     fun stepRate(by: Int): ListenPrefs = copy(rate = ((kotlin.math.round(rate * 10f).toInt() + by).coerceIn(5, 20)) / 10f)

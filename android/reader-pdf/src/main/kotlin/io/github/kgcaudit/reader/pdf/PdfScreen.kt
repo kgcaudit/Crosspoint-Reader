@@ -323,7 +323,7 @@ fun PdfScreen(
         val l = Listening(reader, kit.speaker(listen.engine), ListenHub.scope)
         ListenHub.attach(context, l)
         panel = PdfPanel.None
-        ListenHub.scope.launch { l.start(state.page, 0, listen.rate, listen.voice) }
+        ListenHub.scope.launch { l.start(state.page, 0, listen.rate, listen.voice, listen.join) }
     }
     // 책을 닫으면 듣기도 끝낸다(EPUB 과 같다).
     val closeBook = {
@@ -614,7 +614,7 @@ fun PdfScreen(
                     ListenHub.detach(l)
                     val next = Listening(reader, kit.speaker(picked.engine), ListenHub.scope)
                     ListenHub.attach(context, next)
-                    ListenHub.scope.launch { next.start(page, at, picked.rate, picked.voice) }
+                    ListenHub.scope.launch { next.start(page, at, picked.rate, picked.voice, picked.join) }
                 } else {
                     l?.setVoice(picked.voice)
                 }
@@ -631,6 +631,10 @@ fun PdfScreen(
             onVoices = { listenSheet = false; panel = PdfPanel.Voices },
             onTimer = { listening?.setTimer(it) },
             onClose = { listenSheet = false },
+            onJoin = { level -> onListenChange(listen.copy(join = level)); listening?.setJoin(level) },
+            sample = heard.sentenceText,
+            previewing = heard.previewing,
+            onPreview = { listening?.preview(it) },
         )
     }
 

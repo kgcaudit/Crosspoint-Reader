@@ -91,7 +91,7 @@ class PrefsStoreTest {
                 showHighlights = false,
                 pdfFit = io.github.kgcaudit.reader.ui.design.PdfFit.Width,
             ),
-            listen = io.github.kgcaudit.reader.listen.ListenPrefs(rate = 1.3f, engine = "com.samsung.SMT", voice = "ko-kr-x-1", voiceLabel = "Samsung TTS · 한국어 1"),
+            listen = io.github.kgcaudit.reader.listen.ListenPrefs(rate = 1.3f, engine = "com.samsung.SMT", voice = "ko-kr-x-1", voiceLabel = "Samsung TTS · 한국어 1", join = io.github.kgcaudit.reader.layout.book.WordJoin.Strong),
         )
         PrefsStore(context).save(chosen)
         assertEquals(chosen, PrefsStore(context).load())
@@ -106,12 +106,13 @@ class PrefsStoreTest {
         // 나중 판에서 없어진 이름이 남아 있어도 책은 열려야 한다(규칙 6).
         context.getSharedPreferences("reader", Context.MODE_PRIVATE).edit()
             .putString("theme", "Sepia").putString("footerLeft", "Weather").putString("margin", "Huge")
-            .putString("pdfFit", "Height").commit()
+            .putString("pdfFit", "Height").putString("listenJoin", "Maximum").commit()
         val loaded = PrefsStore(context).load()
         assertEquals(io.github.kgcaudit.reader.ui.design.PaperTheme.System, loaded.screen.theme)
         assertEquals(io.github.kgcaudit.reader.ui.design.FooterItem.BookTitle, loaded.screen.footer.left)
         assertEquals(ReaderPrefs.Margin.Normal, loaded.margin)
         assertEquals(io.github.kgcaudit.reader.ui.design.PdfFit.Page, loaded.screen.pdfFit)
+        assertEquals(io.github.kgcaudit.reader.layout.book.WordJoin.Off, loaded.listen.join)
     }
 
     @Test

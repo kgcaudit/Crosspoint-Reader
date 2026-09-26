@@ -200,7 +200,7 @@ fun ReaderScreen(
         val l = Listening(reader, kit.speaker(prefs.listen.engine), ListenHub.scope)
         ListenHub.attach(context, l)
         panel = Panel.None
-        ListenHub.scope.launch { l.start(position.spineIndex, from ?: page.startChar, prefs.listen.rate, prefs.listen.voice) }
+        ListenHub.scope.launch { l.start(position.spineIndex, from ?: page.startChar, prefs.listen.rate, prefs.listen.voice, prefs.listen.join) }
     }
     // 책을 닫으면 듣기도 끝낸다. 닫은 책을 화면 없이 계속 읽으면 멈출 곳이 잠금 화면뿐이다.
     val closeBook = {
@@ -744,6 +744,10 @@ fun ReaderScreen(
                 onVoices = { listenSheet = false; panel = Panel.Voices },
                 onTimer = { listening?.setTimer(it) },
                 onClose = { listenSheet = false },
+                onJoin = { level -> onPrefsChange(prefs.copy(listen = prefs.listen.copy(join = level))); listening?.setJoin(level) },
+                sample = listen.sentenceText,
+                previewing = listen.previewing,
+                onPreview = { listening?.preview(it) },
             )
         }
         if (panel == Panel.Voices) {
@@ -763,7 +767,7 @@ fun ReaderScreen(
                         if (position != null) {
                             val next = Listening(reader, kit.speaker(picked.engine), ListenHub.scope)
                             ListenHub.attach(context, next)
-                            ListenHub.scope.launch { next.start(spine.takeIf { it >= 0 } ?: position.spineIndex, at ?: (state.page?.startChar ?: 0), picked.rate, picked.voice) }
+                            ListenHub.scope.launch { next.start(spine.takeIf { it >= 0 } ?: position.spineIndex, at ?: (state.page?.startChar ?: 0), picked.rate, picked.voice, picked.join) }
                         }
                     } else {
                         l?.setVoice(picked.voice)

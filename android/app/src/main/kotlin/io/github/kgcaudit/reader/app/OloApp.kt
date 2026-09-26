@@ -257,6 +257,7 @@ class PrefsStore(context: Context) {
             engine = sp.getString(KEY_LISTEN_ENGINE, null),
             voice = sp.getString(KEY_LISTEN_VOICE, null),
             voiceLabel = sp.getString(KEY_LISTEN_VOICE_LABEL, null),
+            join = enumOf(KEY_LISTEN_JOIN, io.github.kgcaudit.reader.layout.book.WordJoin.Off),
         ),
     )
 
@@ -295,6 +296,7 @@ class PrefsStore(context: Context) {
             .putString(KEY_LISTEN_ENGINE, prefs.listen.engine)
             .putString(KEY_LISTEN_VOICE, prefs.listen.voice)
             .putString(KEY_LISTEN_VOICE_LABEL, prefs.listen.voiceLabel)
+            .putString(KEY_LISTEN_JOIN, prefs.listen.join.name)
             .apply()
     }
 
@@ -347,6 +349,7 @@ class PrefsStore(context: Context) {
         private const val KEY_AUTO_TURN = "autoTurn"
         private const val KEY_SHOW_HIGHLIGHTS = "showHighlights"
         private const val KEY_PDF_FIT = "pdfFit"
+        private const val KEY_LISTEN_JOIN = "listenJoin"
         private const val KEY_LISTEN_RATE = "listenRate"
         private const val KEY_LISTEN_ENGINE = "listenEngine"
         private const val KEY_LISTEN_VOICE = "listenVoice"
