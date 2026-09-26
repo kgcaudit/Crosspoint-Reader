@@ -14,6 +14,8 @@ data class OpfPackage(
     val creator: String?,
     val language: String?,
     val identifier: String?,
+    /** `unique-identifier` 가 가리키는 식별자. 없으면 null — 그때는 [identifier] 로 대신한다. */
+    val uniqueIdentifier: String? = null,
     /** `content.opf` 가 있는 디렉터리. 챕터 안의 상대 경로를 풀 때 기준이 된다. */
     val baseDir: String,
     val manifestById: Map<String, ManifestItem>,

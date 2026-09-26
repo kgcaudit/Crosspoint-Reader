@@ -35,6 +35,25 @@ interface ReflowDocument : Document {
      * 책마다 조금씩 다른 경로 관례에 걸려 "이 책만 그림이 안 나온다" 가 된다.
      */
     suspend fun openChapterResource(index: Int, href: String): InputStream?
+
+    /**
+     * 책의 스타일시트 경로(컨테이너 기준), **정렬된 순서로**.
+     *
+     * 책 글꼴표를 만드는 데 쓴다. 챕터를 연 순서가 아니라 이 목록으로 만들어야 글꼴 번호가
+     * 어느 챕터부터 읽든 같다 — 페이지 캐시에 번호가 들어가므로 달라지면 다른 글꼴로 그린다.
+     */
+    suspend fun stylesheets(): List<String> = emptyList()
+
+    /** [fromPath] 파일 안의 상대 [href] 를 컨테이너 경로로 푼다. CSS 안의 `url(...)` 에 쓴다. */
+    fun resolveHref(fromPath: String, href: String): String = href
+
+    /**
+     * 글꼴 파일을 연다. 없으면 null.
+     *
+     * [openResource] 와 따로 있는 이유: EPUB 은 글꼴을 **난독화**해 넣을 수 있다
+     * (`META-INF/encryption.xml`). 그대로 읽으면 앞 1KB 가 뒤섞인 파일이라 안드로이드가 읽지 못한다.
+     */
+    suspend fun openFont(path: String): InputStream? = openResource(path)
 }
 
 /**

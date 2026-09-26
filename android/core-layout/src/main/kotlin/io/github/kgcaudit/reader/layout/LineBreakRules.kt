@@ -23,7 +23,8 @@ object LineBreakRules {
     /** 줄 끝에 올 수 없는 글자(여는 부호). */
     private const val NO_LINE_END = "「『（［｛〈《‹«([{‘“¥＄￦#"
 
-    fun isSpace(ch: Char): Boolean = ch == ' ' || ch == '\t' || ch == ' ' && false || ch == '　'
+    /** 줄을 바꿀 수 있는 공백. NBSP(U+00A0)는 넣지 않는다 — "여기서 끊지 말라" 는 뜻의 공백이다. */
+    fun isSpace(ch: Char): Boolean = ch == ' ' || ch == '\t' || ch == '\u3000'
 
     /**
      * 나눌 수 없는 공백(U+00A0) 여부.

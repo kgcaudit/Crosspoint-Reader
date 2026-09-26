@@ -32,3 +32,40 @@ interface ProgressRepository {
 
     suspend fun remove(bookId: BookId)
 }
+
+/**
+ * 형광펜 · 메모 보관소. 책갈피와 같은 까닭으로 인터페이스만 여기 둔다.
+ */
+interface AnnotationRepository {
+
+    /** 이 책의 형광펜. 읽는 순서(시작 위치 오름차순)로 준다 — 독서노트가 그 순서로 보인다. */
+    suspend fun forBook(bookId: BookId): List<Annotation>
+
+    /** 넣고 부여된 id 를 돌려준다. 들어온 id 는 무시한다. */
+    suspend fun add(annotation: Annotation): Annotation
+
+    /** 색 · 메모를 바꾼다. 자리 · 책은 바꾸지 않는다(칠한 글과 자리가 어긋나면 안 된다). */
+    suspend fun update(annotation: Annotation)
+
+    suspend fun remove(id: Long)
+}
+
+/** 보관소를 주지 않았을 때(시험 · 미리보기). 앱은 Room 보관소를 준다. */
+class InMemoryAnnotations : AnnotationRepository {
+    private val rows = ArrayList<Annotation>()
+    private var next = 1L
+
+    override suspend fun forBook(bookId: BookId): List<Annotation> =
+        rows.filter { it.bookId == bookId }.sortedWith(compareBy({ it.start.spine }, { it.start.charOffset }, { it.id }))
+
+    override suspend fun add(annotation: Annotation): Annotation = annotation.copy(id = next++).also { rows.add(it) }
+
+    override suspend fun update(annotation: Annotation) {
+        val i = rows.indexOfFirst { it.id == annotation.id }
+        if (i >= 0) rows[i] = rows[i].copy(color = annotation.color, note = annotation.note)
+    }
+
+    override suspend fun remove(id: Long) {
+        rows.removeAll { it.id == id }
+    }
+}

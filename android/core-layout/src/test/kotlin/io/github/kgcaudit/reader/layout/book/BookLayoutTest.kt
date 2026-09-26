@@ -203,6 +203,126 @@ class BookLayoutTest {
         }
     }
 
+    // ── 링크 · 각주 · 검색 ─────────────────────────────────────────
+
+    /** 본문 두 장 + 주석 장. 각주 · 본문 속 링크 · 인터넷 링크 · 깨진 링크가 섞였다. */
+    private fun notesEpub(): ByteArray {
+        val opf = """
+            <package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+              <metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>각주 책</dc:title></metadata>
+              <manifest>
+                <item id="c1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>
+                <item id="c2" href="Text/ch2.xhtml" media-type="application/xhtml+xml"/>
+                <item id="n" href="Text/notes.xhtml" media-type="application/xhtml+xml"/>
+              </manifest>
+              <spine><itemref idref="c1"/><itemref idref="c2"/><itemref idref="n"/></spine>
+            </package>
+        """.trimIndent()
+        val ch1 = """<html><body><p>보아 구렁이<sup><a href="notes.xhtml#n1">1</a></sup> 그림. <a href="ch2.xhtml#rose">장미 이야기</a>로.
+            <a href="https://example.com">누리집</a> <a href="notes.xhtml#none">9</a> <a href="gone.xhtml#x">없는 파일</a></p></body></html>"""
+        val ch2 = """<html><body><p>앞 문단.</p><p id="rose">장미 한 송이.</p></body></html>"""
+        val notes = """<html><body><h1>주석</h1>
+            <p id="n1">1) 보아 구렁이: 큰 뱀. <a href="ch1.xhtml">↩</a></p>
+            <p id="n2">2) 체험한 이야기: 어린이 책.</p></body></html>"""
+        val out = ByteArrayOutputStream()
+        ZipOutputStream(out).use { zip ->
+            mapOf(
+                "META-INF/container.xml" to """<container><rootfiles><rootfile full-path="OEBPS/content.opf"/></rootfiles></container>""",
+                "OEBPS/content.opf" to opf,
+                "OEBPS/Text/ch1.xhtml" to ch1,
+                "OEBPS/Text/ch2.xhtml" to ch2,
+                "OEBPS/Text/notes.xhtml" to notes,
+            ).forEach { (name, body) -> zip.putNextEntry(ZipEntry(name)); zip.write(body.toByteArray()); zip.closeEntry() }
+        }
+        return out.toByteArray()
+    }
+
+    @Test
+    fun `each kind of link goes where a reader expects`() = runTest {
+        EpubDocument.open(BookId("notes"), "notes.epub", SeekableSource.of(notesEpub())).use { doc ->
+            val book = layout(doc)
+            val links = book.links(0)
+            val text = book.chapterText(0)!!
+            fun target(label: String) = kotlinx.coroutines.runBlocking {
+                book.resolveLink(0, links.single { text.substring(it.start, it.endExclusive) == label })
+            }
+            // 각주: 판에 띄울 내용은 그 각주 하나(다음 각주 · 되돌아가기 표시 없이).
+            val note = target("1") as LinkTarget.Footnote
+            assertEquals("1) 보아 구렁이: 큰 뱀.", note.text)
+            assertEquals(2, note.spine)
+            // 본문 속 링크: 그 장의 그 자리로.
+            assertEquals(LinkTarget.Jump(1, "rose"), target("장미 이야기"))
+            // 책 밖.
+            assertEquals(LinkTarget.External("https://example.com"), target("누리집"))
+            // 깨진 링크(없는 id · 없는 파일): 책을 닫지 않고 "못 찾음".
+            assertEquals(LinkTarget.Missing, target("9"))
+            assertEquals(LinkTarget.Missing, target("없는 파일"))
+        }
+    }
+
+    @Test
+    fun `searching the whole book reports each chapter in order`() = runTest {
+        openEpub().use { doc ->
+            val book = layout(doc)
+            val seen = ArrayList<Int>()
+            var total = 0
+            book.search("어린 왕자는") { spine, hits -> seen.add(spine); total += hits.size }
+            assertEquals(listOf(0, 1, 2), seen)
+            assertEquals(6 + 10, total, "제1장 6문단 + 제3장 10문단에 한 번씩")
+        }
+    }
+
+    // ── 두쪽보기 ────────────────────────────────────────────────────
+
+    @Test
+    fun `two page spreads show every page exactly once and start each chapter on the left`() = runTest {
+        openEpub().use { doc ->
+            val book = layout(doc)
+            var left: ReadingPosition? = book.resolve(Locator.Reflow(0, 0))
+            val shown = ArrayList<Pair<Int, Int>>()
+            val lefts = ArrayList<ReadingPosition>()
+            var guard = 0
+            while (left != null && guard++ < 500) {
+                lefts.add(left)
+                shown.add(left.spineIndex to left.pageIndex)
+                book.spreadRight(left)?.let { shown.add(it.spineIndex to it.pageIndex) }
+                left = book.nextSpread(left)
+            }
+            // 빠짐도 겹침도 없다 — 한 쪽이라도 빠지면 두쪽으로 읽는 사람은 그 쪽을 영영 못 본다.
+            val all = (0 until 3).flatMap { spine -> (0 until book.pageCount(spine)).map { spine to it } }
+            assertEquals(all, shown)
+            // 왼쪽은 언제나 장 안의 짝수 쪽이고, 새 장은 왼쪽에서 시작한다.
+            assertTrue(lefts.all { it.pageIndex % 2 == 0 })
+            for (spine in 0 until 3) assertTrue(lefts.any { it.spineIndex == spine && it.pageIndex == 0 })
+            // 홀수 쪽으로 끝난 장의 마지막 펼침은 오른쪽이 빈다.
+            for (spine in 0 until 3) {
+                val count = book.pageCount(spine)
+                val last = lefts.last { it.spineIndex == spine }
+                assertEquals(count % 2 == 1, book.spreadRight(last) == null, "장 ${spine + 1}($count 쪽)의 마지막 펼침")
+            }
+            assertTrue((0 until 3).any { book.pageCount(it) % 2 == 1 }, "홀수 쪽 장이 없어 빈 오른쪽을 시험하지 못한다")
+
+            // 뒤로 넘기면 같은 펼침을 거꾸로 지난다(앞 장 끝이 홀수여도 마지막 쪽 하나로 돌아온다).
+            var back: ReadingPosition? = lefts.last()
+            val backwards = ArrayList<ReadingPosition>()
+            while (back != null) { backwards.add(back); back = book.previousSpread(back) }
+            assertEquals(lefts.reversed(), backwards)
+        }
+    }
+
+    @Test
+    fun `a position on a right hand page opens the spread it belongs to`() = runTest {
+        // 한 쪽 보기에서 3쪽(0부터)을 읽다 가로로 돌리면 2–3쪽 펼침이다. 4–5쪽으로 가면 3쪽을 건너뛴다.
+        openEpub().use { doc ->
+            val book = layout(doc)
+            val chapter = book.resolve(Locator.Reflow(2, 0))
+            assertTrue(chapter.pageCount >= 4, "3장이 4쪽이 안 돼 시험할 수 없다")
+            val third = chapter.copy(pageIndex = 3)
+            assertEquals(2, book.spreadStart(third).pageIndex)
+            assertEquals(3, book.spreadRight(third)?.pageIndex)
+        }
+    }
+
     @Test
     fun `paging backward returns to the last page of the previous chapter`() = runTest {
         openEpub().use { doc ->
@@ -285,6 +405,39 @@ class BookLayoutTest {
     fun `progress at the very start is zero`() = runTest {
         openEpub().use { doc ->
             assertEquals(0f, layout(doc).percent(Locator.Reflow(0, 0)))
+        }
+    }
+
+    @Test
+    fun `seeking to a percentage lands where the progress bar says`() = runTest {
+        // 진행 막대로 옮긴 자리의 진도가 막대 위치와 같아야 한다. 어긋나면 막대를 놓는 순간
+        // 손잡이가 다른 자리로 튄다.
+        openEpub().use { doc ->
+            val book = layout(doc)
+            for (target in listOf(10f, 33f, 50f, 72f, 95f)) {
+                val landed = book.percent(book.locatorAtPercent(target))
+                assertTrue(kotlin.math.abs(landed - target) < 2f, "$target% 로 옮겼는데 $landed% 다")
+            }
+        }
+    }
+
+    @Test
+    fun `seeking to the ends and beyond stays inside the book`() = runTest {
+        openEpub().use { doc ->
+            val book = layout(doc)
+            val chapters = book.spine().size
+            assertEquals(Locator.Reflow(0, 0), book.locatorAtPercent(0f))
+            assertEquals(Locator.Reflow(0, 0), book.locatorAtPercent(-40f))
+            // 100% 와 그 너머는 마지막 챕터 안의 실제 글자여야 한다(글자 수를 넘으면 빈 페이지).
+            for (p in listOf(100f, 250f, Float.MAX_VALUE)) {
+                val end = book.locatorAtPercent(p)
+                assertEquals(chapters - 1, end.spine)
+                val length = book.chapterText(end.spine)!!.length
+                assertTrue(end.charOffset in 0 until length, "끝 위치 ${end.charOffset} / $length")
+                // 끝까지 민 막대는 마지막 페이지로 가야 한다(처음으로 떨어지면 안 된다).
+                val page = book.resolve(end)
+                assertEquals(page.pageCount - 1, page.pageIndex, "$p% 가 마지막 페이지가 아니다")
+            }
         }
     }
 

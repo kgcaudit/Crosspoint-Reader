@@ -74,7 +74,6 @@ class GreedyLineBreaker(
                 if (split != null) {
                     current[0] = split.head
                     tokens.add(index, split.tail)
-                    width = split.head.advance
                 }
             }
 
@@ -160,6 +159,8 @@ class GreedyLineBreaker(
             if (measurer.advance(text, token.start, cut + 1, token.style) > available) break
             cut++
         }
+        // 이모지·확장 한자는 두 칸(서로게이트 쌍)이다. 그 사이에서 자르면 두 줄 모두 깨진 글자가 그려진다.
+        if (cut < token.contentEnd && Character.isLowSurrogate(text[cut]) && cut - 1 > token.start) cut--
         if (cut >= token.contentEnd) return null
         return Split(
             head = makeToken(text, token.start, cut, token.style, measurer),
@@ -191,10 +192,8 @@ class GreedyLineBreaker(
             align == TextAlign.End -> slack
             else -> 0f
         }
+        // 좌표가 실수라 나눠 떨어지지 않는 나머지가 없다. 간격마다 같은 몫을 얹으면 줄 끝이 정확히 맞는다.
         val extraPerGap = if (justify) slack / gapCount else 0f
-
-        // 나머지 픽셀을 앞쪽 간격에 하나씩 얹어, 줄의 오른쪽 끝이 정확히 맞게 한다.
-        var remainder = if (justify) (slack - extraPerGap * gapCount) else 0f
 
         // 이어지는 토큰을 한 조각으로 합친다.
         //
@@ -220,11 +219,7 @@ class GreedyLineBreaker(
             var gapInserted = false
             if (i > 0 && justify && token.breakableGapBefore) {
                 x += extraPerGap
-                if (remainder > EPSILON) {
-                    x += 1f
-                    remainder -= 1f
-                }
-                gapInserted = extraPerGap > EPSILON || remainder > EPSILON
+                gapInserted = extraPerGap > EPSILON
             }
 
             val continues = pendingStart >= 0 &&

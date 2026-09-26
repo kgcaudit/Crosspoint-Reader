@@ -26,6 +26,11 @@ object OpfParser {
         var creator: String? = null
         var language: String? = null
         var identifier: String? = null
+        // <package unique-identifier="BookId"> 가 가리키는 dc:identifier. 글꼴 난독화의 열쇠다.
+        // 첫 identifier 가 아닌 경우가 흔하다(ISBN 과 UUID 를 함께 적는 책).
+        var uniqueIdRef: String? = null
+        var uniqueIdentifier: String? = null
+        var collectingId: String? = null
         var ncxId: String? = null
         var coverMetaId: String? = null
         var version: String? = null
@@ -48,19 +53,26 @@ object OpfParser {
                 "title" -> title = title ?: value
                 "creator" -> creator = creator ?: value
                 "language" -> language = language ?: value
-                "identifier" -> identifier = identifier ?: value
+                "identifier" -> {
+                    identifier = identifier ?: value
+                    if (collectingId != null && collectingId == uniqueIdRef) uniqueIdentifier = value
+                }
             }
         }
 
         for (event in XmlScanner(reader).events()) {
             when (event) {
                 is XmlEvent.StartElement -> when {
-                    event.isLocal("package") -> version = event.attribute("version")
+                    event.isLocal("package") -> {
+                        version = event.attribute("version")
+                        uniqueIdRef = event.attribute("unique-identifier")
+                    }
 
                     event.isLocal("title") || event.isLocal("creator") ||
                         event.isLocal("language") || event.isLocal("identifier") -> {
                         finishCollecting() // 중첩·미닫힘 대비
                         collecting = event.name.local.lowercase()
+                        collectingId = event.attribute("id")
                     }
 
                     event.isLocal("item") -> {
@@ -112,6 +124,7 @@ object OpfParser {
             creator = creator,
             language = language,
             identifier = identifier,
+            uniqueIdentifier = uniqueIdentifier,
             baseDir = baseDir,
             manifestById = manifest,
             spineIdRefs = spine,

@@ -271,10 +271,12 @@ rev.1 대비: 쓸 수 있는 앱이 **10주 → 2주**, 1차 배포 **10주 → 
 | `BookLayout` (페이지 이동 · 위치 복원 · 진도) | `:core-layout` | **완료** |
 | `ReadingSession` (책갈피 · 이어읽기) | `:core-layout` | **완료** · 합계 211 테스트 |
 | 책갈피·진도 보관소 **인터페이스** | `:document` | **완료** (구현은 `:data`) |
-| `TextMeasurer` 안드로이드 구현 (`Paint`) | `:text-platform` | 미착수 |
-| SAF 폴더 스캔 · Room 구현 | `:data` | 미착수 |
-| PDF 렌더 (`PdfRenderer`) | `:reader-pdf` | 미착수 (결정 P1) |
-| GUI 컴포넌트 · 라이브러리·리더 화면 | `:ui-design` `:ui` `:app` | 미착수 |
+| `TextMeasurer` 안드로이드 구현 (`Paint`) · 시스템 글꼴 목록 (B2 번복) | `:text-platform` | **완료** · Robolectric 네이티브 그래픽스 |
+| SAF 폴더 스캔 · Room 구현 · `Uri` 바이트 원천 | `:data` | **완료** · 32 테스트 (진짜 `DocumentsProvider` 위에서 등록→스캔→EPUB 열기) |
+| PDF 리더 (`PdfRenderer` · 확대 · 책갈피 · 이어읽기) | `:reader-pdf` | **완료(v0.8.0, 결정 P1 ①)** · 엔진은 `PdfSource` 뒤 — Pdfium 으로 바꿀 곳은 그 하나 |
+| PDF 목차 · 제목 · 저자 (상호 참조표/스트림 · 객체 스트림 · 명명 목적지) | `:document` `pdf/` | **완료(v0.9.0)** · 순수 Kotlin, 엔진 없이 파일 구조에서 |
+| 암호화된 PDF(빈 사용자 암호: RC4 · AES-128 · AES-256) · 쪽 이름표 | `:document` `pdf/` | **완료(v0.10.0)** |
+| GUI 컴포넌트 · 라이브러리·리더 화면 · 첫 APK | `:ui-design` `:reader-reflow` `:app` | **완료(v0.10.0, EPUB·TXT·PDF(목차 · 암호화 · 쪽 이름표), OLO 디자인 시스템, 그림 크기·리더 메뉴 개선, 시스템 글꼴 · 사용자 글꼴, 연결 프로그램으로 열기, 출판사 글꼴)** · 앱 한 바퀴 Robolectric 테스트 + 스크린샷 |
 
 **지금 상태로 증명된 것**: EPUB/TXT 파일 바이트 → 챕터 → 블록 → 페이지 → 디스크 캐시
 → 글자 오프셋 위치 → 책갈피·이어읽기까지가 기기 없이 한 줄로 돌아간다.
@@ -289,8 +291,9 @@ rev.1 대비: 쓸 수 있는 앱이 **10주 → 2주**, 1차 배포 **10주 → 
 ## 6.6 작업 환경 제약 (클라우드 세션)
 
 > **해결됨(조건부)**: 클라우드 환경의 **Network access** 를 넓히면(또는 허용 도메인에
-> `dl.google.com` 을 추가하면) SDK 를 받을 수 있다. 기본 정책에서는 아래와 같이 막힌다.
-> 인계와 다음 단계는 `docs/HANDOFF.md` 를 본다.
+> `dl.google.com` 을 추가하면) SDK 를 받을 수 있다. 2026-09-23 세션에서 그렇게 열어
+> `:text-platform` 을 붙였다(설치 순서와 Maven Central 429 우회는 `docs/HANDOFF.md` §2).
+> 기본 정책에서는 아래와 같이 막힌다.
 
 기본 네트워크 정책의 클라우드 세션은 **`dl.google.com` 에 나갈 수 없다**(프록시가
 CONNECT 를 403 으로 막는다). 그래서 세션 안에서는
@@ -319,9 +322,9 @@ R2 에서 구현·검증됨(`PageCodec`). 초안에서 두 가지가 바뀌었�
 
 | 레코드 | 크기 | 필드 |
 |---|---:|---|
-| `.idx` 머리말 | 32B | magic `CPP1` · version u16 · pageCount u16 · complete u8 · runCount u32 · imageCount u32 · ruleCount u32 · textLength u32 |
+| `.idx` 머리말 | 32B | magic `CPP1` · version u16 (=4) · (옛 pageCount u16, 읽지 않음 — 쪽 수는 색인 길이로 센다) · complete u8 · (예약 3B) · runCount u32 · imageCount u32 · ruleCount u32 · textLength u32 · textBytes u32 (v4, `.txt` 파일 크기 — 텍스트를 풀지 않고 짝을 확인) |
 | `.idx` PageEntry | 24B | runStart u32 · runCount u16 · imageStart u16 · imageCount u8 · ruleCount u8 · ruleStart u16 · charStart u32 · charEnd u32 |
-| `.run` Run | 24B | charStart u32 · charEnd u32 · x f32 · baselineY f32 · sizeScale f32 · styleFlags u8 |
+| `.run` Run | 24B | charStart u32 · charEnd u32 · x f32 · baselineY f32 · sizeScale f32 · styleFlags u8 · (예약 u8) · face u16 (v3, 책 글꼴 번호 — 0 = 본문 글꼴) |
 | `.obj` | 가변 | 표식 u8 + (그림: 길이 u16 + href + x,y,w,h f32) / (구분선: x,y,w,thickness f32) |
 
 리틀엔디안 정수 + IEEE 754 실수. 플랫폼에 무관하게 같은 바이트가 나오므로 JVM 에서
@@ -385,6 +388,8 @@ R2 에서 구현·검증됨(`PageCodec`). 초안에서 두 가지가 바뀌었�
 | `padding` / `padding-*` | 위와 같음 | `margin` 으로 접는다 — 배경·테두리를 안 그리므로 결과가 같다 |
 | `display` | `none` | 내용을 통째로 버린다 |
 | `page-break-before` / `break-before` | always · page · left · right · recto · verso | `BlockStyle.pageBreakBefore` |
+| `font-family` | 이름 목록(따옴표·쉼표) · inherit | 처음으로 **책에 든** 이름 → `TextStyle.face`. 없으면 0(본문 글꼴). 상속 |
+| `@font-face` | font-family · src `url()` (CSS 파일 기준) · font-weight · font-style | `BookFontTable`. 이름과 `url()` 을 따로 찾는다 — 세미콜론 빠진 규칙(삼체)도 산다. 여러 형식이면 ttf/otf 우선 |
 
 **셀렉터**: 타입 · 클래스 · ID · 후손 · 그룹. 표준 특이도(id 1,000,000 / 클래스 1,000 / 타입 1).
 `>` `+` `~` 는 **후손으로 낮추고**, 의사 클래스·속성 셀렉터는 떼어 내고 나머지로 맞힌다 —
@@ -397,7 +402,7 @@ R2 에서 구현·검증됨(`PageCodec`). 초안에서 두 가지가 바뀌었�
 **상속**: `text-align` · `text-indent` 와 인라인 서식은 상속, 좌우 여백은 누적.
 그 밖의 속성은 요소별로만 적용한다.
 
-**무시(경고 없이)**: `float` · `position` · `color`/`background` · `border` · `line-height`(사용자 설정이 맡는다) · `@media` · `@font-face` · `direction`(v2) · 표 고급 속성.
+**무시(경고 없이)**: `float` · `position` · `color`/`background` · `border` · `line-height`(사용자 설정이 맡는다) · `@media` · 챕터 안 `<style>` 의 `@font-face` · `direction`(v2) · 표 고급 속성.
 깨진 CSS(닫히지 않은 주석·블록, 값 없는 선언, 모르는 단위)는 그 부분만 버리고 계속 읽는다.
 
 **알려진 한계**
@@ -428,9 +433,9 @@ R2 에서 구현·검증됨(`PageCodec`). 초안에서 두 가지가 바뀌었�
 
 | # | 항목 | 권장 |
 |---|---|---|
-| **P1** | **PDF 렌더러** — ① `PdfRenderer`(0바이트, 목차·검색 없음) ② Pdfium(+3~6MB/ABI, 목차·텍스트·검색·암호 PDF) | **①로 시작.** `FixedPageDocument` 뒤에 있어 나중에 교체 가능. PDF 목차·검색이 처음부터 필수면 ② |
+| **P1** | **PDF 렌더러** — ① `PdfRenderer`(0바이트, 목차·검색 없음) ② Pdfium(+3~6MB/ABI, 목차·텍스트·검색·암호 PDF) | **① 확정(2026-09-23 사용자 결정, 0.8.0).** `FixedPageDocument` 뒤에 있어 나중에 교체 가능. PDF 목차·검색이 처음부터 필수면 ② |
 | **B1** | 앱 이름 / 패키지명 | Play 등록 후 변경 불가 |
-| **B2** | 폰트 번들 — ① 미번들 ② KoPub 바탕 + Pretendard(+6~10MB) ③ 최초 실행 시 다운로드 | **②** (배포 전 각 서체 임베딩·재배포 조항 확인 필요) |
+| **B2** | 폰트 번들 — ① 미번들 ② KoPub 바탕 + Pretendard(+6~10MB) ③ 최초 실행 시 다운로드 | ~~②~~ → **① + 사용자 글꼴 + 책 내장 글꼴**(2026-09-23 번복, `docs/HANDOFF.md` §5) |
 | **B3** | 테스트 코퍼스 확보 경로 (EPUB 20 · TXT 10 · PDF 10) | 보유 파일 + 공공 도메인 |
 
 ---

@@ -198,6 +198,70 @@ class PaginatorTest {
     }
 
     @Test
+    fun `turning indents off removes even the book's own first line indent`() {
+        // "첫 줄 들여쓰기: 끔" 은 책이 text-indent 로 정한 곳까지 끈다. 사용자 설정(2em)만 끄고 책의 1em 을
+        // 남기면 끔을 골랐는데 들여쓰기가 그대로 보인다.
+        val text = "가".repeat(6)
+        val s = spec(heightPx = 200f, indentEm = 2f).copy(indentOff = true)
+        assertEquals(0f, paginate(text, listOf(paragraph(text)), s).single().runs.first().xPx)
+        val css = paragraph(text, BlockStyle(firstLineIndentEm = 1f))
+        assertEquals(0f, paginate(text, listOf(css), s).single().runs.first().xPx)
+    }
+
+    @Test
+    fun `turning indents off keeps a hanging indent`() {
+        // 내어쓰기(음수)는 목록·대화문의 모양이다. 0 으로 펴면 둘째 줄부터 글자가 번호 밑으로 파고든다.
+        val text = "가".repeat(12)
+        val s = spec(heightPx = 200f).copy(indentOff = true)
+        val block = paragraph(text, BlockStyle(firstLineIndentEm = -1f, indentStartEm = 1f))
+        val byLine = lines(paginate(text, listOf(block), s).single())
+        assertEquals(0f, byLine[0].first().xPx)
+        assertEquals(10f, byLine[1].first().xPx)
+    }
+
+    // ── 정렬 덮어쓰기 ───────────────────────────────────────────────
+
+    /** 한 줄이 폭을 다 채우지 않는 두 줄짜리 문단. 첫 줄 끝이 오른쪽 끝에 붙었는지로 양쪽정렬을 본다. */
+    private fun firstLineEnd(style: BlockStyle, s: LayoutSpec): Float {
+        // 라틴 낱말 3글자(30px) + 공백(5px). 폭 90 에 두 낱말(65px)씩 → 첫 줄 오른쪽에 25px 이 남는다.
+        // (폭 100 이면 세 낱말이 꼭 차서 정렬과 상관없이 줄 끝이 100 이다 — 시험이 아무것도 못 본다.)
+        val text = "abc def ghi jkl"
+        val page = paginate(text, listOf(paragraph(text, style)), s).single()
+        val first = lines(page).first()
+        return first.maxOf { it.xPx + measurer.advance(text, it.start, it.endExclusive, it.style) }
+    }
+
+    @Test
+    fun `a chosen alignment replaces the book's justified and left aligned paragraphs`() {
+        val s = spec(widthPx = 90f, heightPx = 200f)
+        val justified = BlockStyle(align = TextAlign.Justify)
+        // 원본(덮어쓰기 없음): 책이 정한 양쪽정렬 그대로 — 첫 줄이 오른쪽 끝(90)까지 벌어진다.
+        assertEquals(90f, firstLineEnd(justified, s), 0.5f)
+        // "왼쪽" 을 고르면 책의 양쪽정렬도 왼쪽으로 붙는다.
+        assertEquals(65f, firstLineEnd(justified, s.copy(alignOverride = TextAlign.Start)), 0.5f)
+        // "양쪽" 을 고르면 책의 왼쪽 정렬도 양쪽으로 벌어진다.
+        assertEquals(90f, firstLineEnd(BlockStyle(align = TextAlign.Start), s.copy(alignOverride = TextAlign.Justify)), 0.5f)
+    }
+
+    @Test
+    fun `a chosen alignment leaves centred and right aligned text alone`() {
+        // 시 · 표제지 · 서명. "왼쪽" 을 골랐다고 가운데 제목이 왼쪽으로 쏠리면 안 된다.
+        val text = "abc"
+        val s = spec(heightPx = 200f).copy(alignOverride = TextAlign.Start)
+        val centred = paginate(text, listOf(paragraph(text, BlockStyle(align = TextAlign.Center))), s).single()
+        assertEquals(35f, centred.runs.first().xPx, 0.5f)
+        val right = paginate(text, listOf(paragraph(text, BlockStyle(align = TextAlign.End))), s).single()
+        assertEquals(70f, right.runs.first().xPx, 0.5f)
+    }
+
+    @Test
+    fun `the new settings keep the old cache key when left at their defaults`() {
+        // 판을 올렸다고 모든 책이 처음부터 다시 조판되면(느린 첫 열기) 안 된다. 기본값이면 키가 예전 그대로다.
+        val base = spec()
+        assertEquals(KEY_BEFORE_0_12, base.cacheKey)
+    }
+
+    @Test
     fun `block indents narrow the text column`() {
         // 인용문. 폭 100 에서 좌우 1em 씩 들여쓰면 본문 폭 80 → 한 줄에 전각 4자.
         val text = "가".repeat(8)
@@ -370,6 +434,10 @@ class PaginatorTest {
             "문단 간격" to base.copy(paragraphSpacingEm = 1f),
             "글자 단위 줄바꿈" to base.copy(breakBetweenCjk = false),
             "그림 표시" to base.copy(imagesEnabled = false),
+            "글꼴" to base.copy(fontId = "pretendard"),
+            "화면 밀도" to base.copy(cssPxScale = 2.6f),
+            "정렬 덮어쓰기" to base.copy(alignOverride = TextAlign.Start),
+            "들여쓰기 끄기" to base.copy(indentOff = true),
         )
         variants.forEach { (label, variant) ->
             assertTrue(variant.cacheKey != base.cacheKey, "$label 를 바꿨는데 캐시 키가 같다")
@@ -380,5 +448,10 @@ class PaginatorTest {
     fun `the cache key is stable for the same settings`() {
         assertEquals(spec().cacheKey, spec().cacheKey)
         assertEquals(16, spec().cacheKey.length)
+    }
+
+    private companion object {
+        /** 0.11.0 에서 [spec] 기본값의 캐시 키. 새 칸이 기본값일 때 키를 바꾸면 이 값과 달라진다. */
+        const val KEY_BEFORE_0_12 = "4e6d9fb6e923a4b6"
     }
 }

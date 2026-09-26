@@ -1,0 +1,35 @@
+plugins {
+    id("com.android.library")
+    id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
+}
+
+// CrossPoint GUI 의 부품(헤더·목록·상태바·팝업·탭·진행바)과 색 토큰. 화면 배치는 여기
+// 없고 부품만 있다 — 부품을 바꾸면 모든 화면이 같이 바뀌는 것이 이 모듈의 존재 이유다.
+//
+// Material 을 쓰지 않는다. 모양을 CrossPoint 쪽으로 직접 정하고, APK 에서 Material 한
+// 벌(수 MB)을 뺀다. foundation 만으로 부품 10개는 충분하다.
+android {
+    namespace = providers.gradleProperty("reader.namespace").get() + ".ui.design"
+    compileSdk = 35
+    defaultConfig { minSdk = 26 }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    buildFeatures { compose = true }
+}
+
+kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
+
+dependencies {
+    // 화면 모듈들이 이 모듈 하나로 Compose 를 받는다. BOM 을 api 로 내보내 버전이 한 곳에서 정해진다.
+    api(platform(libs.compose.bom))
+    api(libs.compose.foundation)
+    api(libs.compose.ui)
+    // 보기 설정 화면이 안쪽 화면(터치 영역 · 하단 정보)에서 뒤로 가기를 받는다.
+    implementation(libs.androidx.activity.compose)
+
+    testImplementation(libs.junit4)
+    testImplementation(libs.kotlin.test)
+}

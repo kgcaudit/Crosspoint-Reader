@@ -95,6 +95,16 @@ class XmlScannerTest {
     }
 
     @Test
+    fun `a slash inside an unquoted value is part of the path`() {
+        // `<img src=images/a.jpg>` 가 "images" 로 잘리고 자기닫힘으로 읽혀 그림이 사라지던 결함.
+        val img = starts("<p><img src=images/a.jpg><span>x</span></p>").first { it.isLocal("img") }
+        assertEquals("images/a.jpg", img.attribute("src"))
+        val closing = scan("<br class=x/><p>y</p>")
+        assertEquals("x", (closing[0] as XmlEvent.StartElement).attribute("class"))
+        assertTrue(closing[1] is XmlEvent.EndElement, "`x/>` 는 자기닫힘이다")
+    }
+
+    @Test
     fun `an attribute with no value reads as empty rather than dropping the element`() {
         val e = starts("<option selected/>").first()
         assertEquals("", e.attribute("selected"))

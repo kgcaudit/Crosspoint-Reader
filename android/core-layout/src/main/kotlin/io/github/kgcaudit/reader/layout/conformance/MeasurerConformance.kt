@@ -19,7 +19,7 @@ import kotlin.math.abs
  *
  * 쓰는 법:
  * ```
- * val problems = MeasurerConformance.check(AndroidTextMeasurer(paint))
+ * val problems = MeasurerConformance.check(AndroidTextMeasurer.forSpec(fonts, spec))
  * assertTrue(problems.isEmpty(), problems.joinToString("\n"))
  * ```
  */

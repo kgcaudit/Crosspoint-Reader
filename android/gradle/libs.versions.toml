@@ -4,43 +4,43 @@ kotlin = "2.1.21"
 agp = "8.7.3"
 coroutines = "1.9.0"
 androidxCore = "1.13.1"
+androidxAnnotation = "1.9.1"
 composeBom = "2024.10.01"
 activityCompose = "1.9.3"
-lifecycle = "2.8.7"
-navigation = "2.8.4"
-room = "2.6.1"
-datastore = "1.1.1"
-coil = "2.7.0"
-documentfile = "1.0.1"
+room = "2.7.2"
+ksp = "2.1.21-2.0.2"
 junit = "5.11.3"
+junit4 = "4.13.2"
+robolectric = "4.14.1"
+androidxTestCore = "1.6.1"
 
 [libraries]
-kotlin-stdlib        = { module = "org.jetbrains.kotlin:kotlin-stdlib",              version.ref = "kotlin" }
-coroutines-core      = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core",   version.ref = "coroutines" }
 coroutines-android   = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 androidx-core-ktx    = { module = "androidx.core:core-ktx",                          version.ref = "androidxCore" }
-androidx-documentfile= { module = "androidx.documentfile:documentfile",              version.ref = "documentfile" }
+androidx-annotation  = { module = "androidx.annotation:annotation",                  version.ref = "androidxAnnotation" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose",         version.ref = "activityCompose" }
-androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycle" }
-androidx-navigation-compose = { module = "androidx.navigation:navigation-compose",   version.ref = "navigation" }
 compose-bom          = { module = "androidx.compose:compose-bom",                    version.ref = "composeBom" }
 compose-ui           = { module = "androidx.compose.ui:ui" }
-compose-ui-graphics  = { module = "androidx.compose.ui:ui-graphics" }
-compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
-compose-material3    = { module = "androidx.compose.material3:material3" }
+compose-foundation   = { module = "androidx.compose.foundation:foundation" }
+compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4" }
+compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest" }
 room-runtime         = { module = "androidx.room:room-runtime",                      version.ref = "room" }
 room-ktx             = { module = "androidx.room:room-ktx",                          version.ref = "room" }
 room-compiler        = { module = "androidx.room:room-compiler",                     version.ref = "room" }
-datastore-preferences= { module = "androidx.datastore:datastore-preferences",        version.ref = "datastore" }
-coil-compose         = { module = "io.coil-kt:coil-compose",                         version.ref = "coil" }
 junit-jupiter        = { module = "org.junit.jupiter:junit-jupiter",                 version.ref = "junit" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
 kotlin-test          = { module = "org.jetbrains.kotlin:kotlin-test",                 version.ref = "kotlin" }
+junit4               = { module = "junit:junit",                                      version.ref = "junit4" }
+robolectric          = { module = "org.robolectric:robolectric",                     version.ref = "robolectric" }
+androidx-test-core   = { module = "androidx.test:core",                              version.ref = "androidxTestCore" }
 coroutines-test      = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test",    version.ref = "coroutines" }
 
-[plugins]
-kotlin-jvm     = { id = "org.jetbrains.kotlin.jvm",         version.ref = "kotlin" }
-kotlin-android = { id = "org.jetbrains.kotlin.android",     version.ref = "kotlin" }
-compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
-android-application = { id = "com.android.application",     version.ref = "agp" }
-android-library     = { id = "com.android.library",         version.ref = "agp" }
+# Gradle 플러그인은 [plugins] 가 아니라 라이브러리로 둔다. 루트 build.gradle.kts 의
+# buildscript 가 클래스패스에 한 번만 올리고, 모듈은 버전 없이 id(...) 로 적용한다.
+# 모듈마다 alias(버전 포함)로 적용하면 Kotlin 플러그인이 모듈마다 다른 클래스로더에
+# 올라간다 — Gradle 이 "빌드가 깨질 수 있다" 고 경고하는 구성이다.
+kotlin-gradle-plugin  = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin",          version.ref = "kotlin" }
+compose-gradle-plugin = { module = "org.jetbrains.kotlin:compose-compiler-gradle-plugin", version.ref = "kotlin" }
+android-gradle-plugin = { module = "com.android.tools.build:gradle",                     version.ref = "agp" }
+ksp-gradle-plugin     = { module = "com.google.devtools.ksp:symbol-processing-gradle-plugin", version.ref = "ksp" }
+room-gradle-plugin    = { module = "androidx.room:room-gradle-plugin",                   version.ref = "room" }

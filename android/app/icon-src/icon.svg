@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="432" height="432">
+<rect width="108" height="108" fill="#D4704C"/>
+<path d="M26.0,40.0 C34.4,36.8 44.4,36.8 52.8,42.88 L52.8,76.92 C44.4,72.4 34.4,72.4 26.0,73.72 Z" fill="#EEEDEB"/>
+<clipPath id="c0"><path d="M21.10,90 L47.90,90 L82.90,20 L56.10,20 Z"/></clipPath>
+<g transform="translate(0,0) rotate(0 0 0)"><path d="M55.6,42.88 C63.8,36.8 73.8,36.8 82.0,40.0 L82.0,73.72 C73.8,72.4 63.8,72.4 55.6,76.92 Z" fill="#EEEDEB" clip-path="url(#c0)"/></g>
+<clipPath id="c1"><path d="M50.10,90 L54.40,90 L89.40,20 L85.10,20 Z"/></clipPath>
+<g transform="translate(0.5,-2.0) rotate(3 58 76)"><path d="M55.6,42.88 C63.8,36.8 73.8,36.8 82.0,40.0 L82.0,73.72 C73.8,72.4 63.8,72.4 55.6,76.92 Z" fill="#EEEDEB" clip-path="url(#c1)"/></g>
+<clipPath id="c2"><path d="M56.60,90 L60.40,90 L95.40,20 L91.60,20 Z"/></clipPath>
+<g transform="translate(1.2,-4.4) rotate(6 64 76)"><path d="M55.6,42.88 C63.8,36.8 73.8,36.8 82.0,40.0 L82.0,73.72 C73.8,72.4 63.8,72.4 55.6,76.92 Z" fill="#EEEDEB" clip-path="url(#c2)"/></g>
+<clipPath id="c3"><path d="M62.60,90 L98.90,90 L133.90,20 L97.60,20 Z"/></clipPath>
+<g transform="translate(2.0,-7.2) rotate(9 70 76)"><path d="M55.6,42.88 C63.8,36.8 73.8,36.8 82.0,40.0 L82.0,73.72 C73.8,72.4 63.8,72.4 55.6,76.92 Z" fill="#EEEDEB" clip-path="url(#c3)"/></g>
+</svg>

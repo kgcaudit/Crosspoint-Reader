@@ -61,12 +61,21 @@ class CssSelectorTest {
     @Test
     fun `pseudo-classes and attribute selectors are stripped, keeping the rest`() {
         assertTrue(matches("p:first-child", el("p")))
-        assertTrue(matches("p::before", el("p")))
         assertTrue(matches("p[lang]", el("p")))
         assertTrue(matches("p[lang=\"ko\"].quote", el("p", classes = "quote")))
         // 태그 없이 의사 클래스만 남으면 버린다 — 전체에 잘못 적용되는 것보다 낫다.
         assertNull(CssSelector.parse(":root"))
         assertNull(CssSelector.parse(""))
+    }
+
+    @Test
+    fun `pseudo-element rules are dropped instead of styling the whole element`() {
+        // 드롭 캡(p::first-letter { font-size: 3em })을 문단 전체에 적용하면 모든 문단이 3배가 된다.
+        for (selector in listOf("p::first-letter", "p:first-letter", "p::before", "p:after", ".x::first-line", "p::marker")) {
+            assertNull(CssSelector.parse(selector), selector)
+        }
+        val sheet = CssParser.parse("p::first-letter { font-size: 3em } p:first-child { text-indent: 0 }")
+        assertEquals(1, sheet.rules.size, "의사 클래스 규칙은 남는다")
     }
 
     @Test

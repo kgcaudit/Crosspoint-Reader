@@ -28,6 +28,7 @@ val androidSdkAvailable: Boolean =
 val plannedAndroidModules = listOf(
     "text-platform",
     "data",
+    "listen",
     "reader-reflow",
     "reader-pdf",
     "ui-design",

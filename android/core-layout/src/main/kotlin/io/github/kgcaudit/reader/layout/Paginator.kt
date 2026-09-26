@@ -1,5 +1,7 @@
 package io.github.kgcaudit.reader.layout
 
+import io.github.kgcaudit.reader.layout.css.CssLength
+import io.github.kgcaudit.reader.layout.css.CssUnit
 import kotlin.math.max
 import kotlin.math.min
 
@@ -55,6 +57,12 @@ class Paginator(
     }
 
     /** 문단 사이 간격 설정. 문단끼리에만 적용한다(그림 앞뒤는 블록 여백이 맡는다). */
+    /** 사용자가 정한 본문 정렬([LayoutSpec.alignOverride]). 양쪽·왼쪽(시작) 문단에만 — 가운데·끝은 책의 뜻이다. */
+    private fun overridden(style: BlockStyle): BlockStyle {
+        val forced = spec.alignOverride ?: return style
+        return if (style.align == TextAlign.Justify || style.align == TextAlign.Start) style.copy(align = forced) else style
+    }
+
     private fun paragraphSpacing(block: Block): Float =
         if (block is Block.Paragraph) spec.paragraphSpacingEm * spec.baseSizePx else 0f
 
@@ -74,12 +82,14 @@ class Paginator(
 
         // CSS text-indent 가 정해졌으면 그걸 쓰고, 없으면 사용자 설정을 쓴다. 둘을
         // 더하면 들여쓰기가 두 배가 된다.
-        val firstLineIndent = (block.style.firstLineIndentEm ?: spec.paragraphIndentEm) * em
+        val indentEm = (block.style.firstLineIndentEm ?: spec.paragraphIndentEm)
+            .let { if (spec.indentOff) min(it, 0f) else it }
+        val firstLineIndent = indentEm * em
 
         val lines = lineBreaker.breakLines(
             text = text,
             runs = block.runs,
-            style = block.style,
+            style = overridden(block.style),
             constraints = LineConstraints(width, firstLineIndent),
             measurer = measurer,
         )
@@ -108,25 +118,72 @@ class Paginator(
     }
 
     /**
-     * 지면에 맞춘 그림 크기.
+     * 지면에 맞춘 그림 크기. Readium 의 방어 규칙과 같은 순서다:
      *
-     * 폭에 맞추고, 그래도 지면 높이를 넘으면 높이에 맞춘다. 원본보다 **크게 늘리지는
-     * 않는다** — 작은 아이콘이 지면을 가득 채우면 흐릿하게 확대돼 보기 나쁘다.
+     * 1. 책이 지정한 크기(HTML 속성·CSS)를 쓴다. 퍼센트는 본문 폭 기준.
+     * 2. 지정이 없으면 파일의 원래 크기를 dp 로 옮긴다([LayoutSpec.cssPxScale]).
+     * 3. **비율은 언제나 지킨다.** 한쪽만 정해졌으면 다른 쪽은 비율로 구한다.
+     * 4. 본문 폭·높이(와 max-width·max-height)를 넘으면 비율대로 **줄이기만** 한다.
+     *
+     * 지정이 없는 작은 그림은 키우지 않는다 — 118px 로고를 폭 가득 늘리면 흐려진다(실제로
+     * 그렇게 나와 "깨진 체스 기호" 처럼 보였다). 책이 `width:100%` 라고 **적었으면** 키운다.
      */
     private fun imageSize(block: Block.Image): Pair<Float, Float> {
-        val maxWidth = spec.contentWidthPx
-        val maxHeight = spec.contentHeightPx
+        val contentW = spec.contentWidthPx
+        val contentH = spec.contentHeightPx
+        val sizing = block.sizing
 
-        if (!block.hasIntrinsicSize) {
-            // 크기를 모른다. 폭에 맞추고 3:4 로 자리를 잡는다(넘쳐서 잘리는 것 방지).
-            val height = min(maxWidth * UNKNOWN_IMAGE_ASPECT, maxHeight)
-            return maxWidth to height
+        val aspect: Float? = if (block.hasIntrinsicSize) {
+            block.intrinsicHeight.toFloat() / block.intrinsicWidth
+        } else {
+            null
         }
 
-        val intrinsicW = block.intrinsicWidth.toFloat()
-        val intrinsicH = block.intrinsicHeight.toFloat()
-        val scale = min(min(maxWidth / intrinsicW, maxHeight / intrinsicH), 1f)
-        return intrinsicW * scale to intrinsicH * scale
+        var width = sizing.width?.let { length(it, contentW) }
+        // 높이 퍼센트는 기준이 없다 — 최대 높이로 다룬다(ImageSizing 참고).
+        var height = sizing.height?.takeIf { it.unit != CssUnit.Percent }?.let { length(it, contentH) }
+
+        var maxW = contentW
+        sizing.maxWidth?.let { maxW = min(maxW, length(it, contentW)) }
+        var maxH = contentH
+        sizing.maxHeight?.let { maxH = min(maxH, length(it, contentH)) }
+        sizing.height?.takeIf { it.unit == CssUnit.Percent }?.let { maxH = min(maxH, length(it, contentH)) }
+
+        // 비율: 파일에서, 없으면 책이 두 변을 다 적었을 때 그 값에서, 그것도 없으면 3:4.
+        val ratio = aspect
+            ?: if (width != null && height != null) height / width else UNKNOWN_IMAGE_ASPECT
+
+        when {
+            width != null && height != null -> {
+                // 두 변을 다 적었어도 파일 비율과 다르면 상자 안에 비율대로 넣는다
+                // (object-fit: contain). 늘려 채우면 지금 고치는 증상이 그대로 남는다.
+                val fit = min(width, height / ratio)
+                width = fit
+                height = fit * ratio
+            }
+            width != null -> height = width * ratio
+            height != null -> width = height / ratio
+            aspect != null -> {
+                width = block.intrinsicWidth * spec.cssPxScale
+                height = block.intrinsicHeight * spec.cssPxScale
+            }
+            else -> {
+                // 파일 크기를 끝내 모른다(머리가 깨졌거나 모르는 형식). 폭에 맞춰 자리를 잡는다.
+                width = contentW
+                height = contentW * UNKNOWN_IMAGE_ASPECT
+            }
+        }
+
+        val shrink = min(1f, min(maxW / width, maxH / height))
+        return max(1f, width * shrink) to max(1f, height * shrink)
+    }
+
+    /** CSS 길이를 화면 px 로. 퍼센트는 [percentBase] 기준. */
+    private fun length(value: CssLength, percentBase: Float): Float = when (value.unit) {
+        CssUnit.Percent -> percentBase * value.value / 100f
+        CssUnit.Px -> value.value * spec.cssPxScale
+        CssUnit.Pt -> value.value * CssLength.PT_TO_PX * spec.cssPxScale
+        CssUnit.Em, CssUnit.Rem -> value.value * spec.baseSizePx
     }
 
     // ── 구분선 ──────────────────────────────────────────────────────

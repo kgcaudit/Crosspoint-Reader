@@ -98,25 +98,12 @@ class ReadingSession(
      * 시작하는가" 이고, 그게 페이지를 열지 않고도 짐작할 수 있는 유일한 정보다.
      */
     private suspend fun snippetAt(position: ReadingPosition): String? {
-        val text = layout.chapterText(position.spineIndex) ?: return null
         val page = layout.page(position.spineIndex, position.pageIndex) ?: return null
-
-        val from = page.startChar.coerceIn(0, text.length)
-        val to = (from + SNIPPET_CHARS).coerceAtMost(text.length)
-        if (from >= to) return null
-
-        // 줄바꿈과 그림 자리 글자(U+FFFC)는 한 칸 공백으로 바꾼다. 한 줄로 보여 줄
-        // 문장이라 제어 문자가 섞이면 목록이 깨진다.
-        val snippet = text.substring(from, to)
-            .map { if (it < ' ' || it == '￼') ' ' else it }
-            .joinToString("")
-            .replace(WHITESPACE, " ")
-            .trim()
-        return snippet.takeIf { it.isNotEmpty() }
+        // 문단 경계에 한 칸을 넣어 뜬다(excerpt) — 장 텍스트를 그대로 뜨면 두 문단이 한 낱말로 붙는다.
+        return layout.excerpt(position.spineIndex, page.startChar, page.startChar + SNIPPET_CHARS).takeIf { it.isNotEmpty() }
     }
 
     private companion object {
         const val SNIPPET_CHARS = 80
-        val WHITESPACE = Regex("\\s+")
     }
 }

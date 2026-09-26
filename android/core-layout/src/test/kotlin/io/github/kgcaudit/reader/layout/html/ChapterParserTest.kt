@@ -1,9 +1,12 @@
 package io.github.kgcaudit.reader.layout.html
 
 import io.github.kgcaudit.reader.layout.Block
+import io.github.kgcaudit.reader.layout.ImageSizing
 import io.github.kgcaudit.reader.layout.TextAlign
 import io.github.kgcaudit.reader.layout.VerticalAlign
+import io.github.kgcaudit.reader.layout.css.CssLength
 import io.github.kgcaudit.reader.layout.css.CssParser
+import io.github.kgcaudit.reader.layout.css.CssUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -190,8 +193,10 @@ class ChapterParserTest {
         val chapter = parse("""<p>앞</p><img src="a/b.png" width="300" height="200"/><p>뒤</p>""")
         val image = chapter.blocks[1] as Block.Image
         assertEquals("a/b.png", image.href)
-        assertEquals(300, image.intrinsicWidth)
-        assertEquals(200, image.intrinsicHeight)
+        // width/height 속성은 크기 "지정" 이다. 파일 크기는 ChapterLoader 가 파일에서 읽는다.
+        assertEquals(CssLength(300f, CssUnit.Px), image.sizing.width)
+        assertEquals(CssLength(200f, CssUnit.Px), image.sizing.height)
+        assertFalse(image.hasIntrinsicSize)
         assertEquals("￼", chapter.rendered(1))
         assertEquals("앞￼뒤", chapter.text)
     }
@@ -202,6 +207,41 @@ class ChapterParserTest {
         val image = chapter.blocks.single() as Block.Image
         assertEquals("cover.jpg", image.href)
         assertFalse(image.hasIntrinsicSize)
+    }
+
+    @Test
+    fun `percent sizes in html attributes are kept`() {
+        // 편집기로 만든 책의 모양: 속성에 퍼센트(한 권에서 114번). 예전에는 숫자로 못 읽어
+        // 버렸고, 그래서 그림 116개가 전부 같은 상자를 받았다.
+        val chapter = parse("""<img src="a.jpg" width="100%"/><img src="b.jpg" width="80%" height="85%"/>""")
+        val (a, b) = chapter.blocks.filterIsInstance<Block.Image>()
+        assertEquals(CssLength(100f, CssUnit.Percent), a.sizing.width)
+        assertEquals(CssLength(80f, CssUnit.Percent), b.sizing.width)
+        assertEquals(CssLength(85f, CssUnit.Percent), b.sizing.height)
+    }
+
+    @Test
+    fun `a size set by a css class wins over the html attribute`() {
+        // Calibre 변환본의 모양: 클래스가 의도다(장 제목 그림을 폭의 45% 로).
+        val chapter = parse(
+            """<img class="calibre4" src="c.png" width="600"/>""",
+            css = ".calibre4 { height: auto; width: 45% }",
+        )
+        val image = chapter.blocks.single() as Block.Image
+        assertEquals(CssLength(45f, CssUnit.Percent), image.sizing.width)
+        assertEquals(null, image.sizing.height, "height:auto 는 지정하지 않은 것이다")
+    }
+
+    @Test
+    fun `nonsense image sizes are ignored rather than obeyed`() {
+        // 0·음수·auto 를 따르면 그림이 사라지거나 조판이 0 으로 나눈다.
+        val chapter = parse(
+            """<img src="a.png" width="0"/><img src="b.png" width="-5" height="auto"/><img class="z" src="c.png"/>""",
+            css = ".z { width: 0; max-width: -10px }",
+        )
+        chapter.blocks.filterIsInstance<Block.Image>().forEach {
+            assertEquals(ImageSizing.Auto, it.sizing, it.href)
+        }
     }
 
     @Test
@@ -235,6 +275,24 @@ class ChapterParserTest {
             css = ".gone { display: none }",
         )
         assertEquals("보임", chapter.text)
+    }
+
+    @Test
+    fun `dropped elements do not take their parent's style with them`() {
+        // <noscript>·<title> 의 내용은 버리지만, 닫히면서 **부모의** 프레임을 빼면 안 된다. 그러면
+        // 인용문 속 문단이 들여쓰기와 `.poem p` 서식을 잃고, <head><title> 뒤에서 html 의 서식이 사라진다.
+        val quote = parse(
+            "<blockquote class=\"poem\"><noscript>x</noscript><p>시 한 줄</p></blockquote>",
+            css = ".poem p { font-style: italic }",
+        ).paragraphs().single()
+        assertEquals(2f, quote.style.indentStartEm)
+        assertTrue(quote.runs.all { it.style.italic }, "후손 셀렉터가 계속 맞아야 한다")
+
+        val body = parse(
+            "<html><head><title>t</title></head><body><p>가운데</p></body></html>",
+            css = "html { text-align: center }",
+        ).paragraphs().single()
+        assertEquals(TextAlign.Center, body.style.align)
     }
 
     @Test

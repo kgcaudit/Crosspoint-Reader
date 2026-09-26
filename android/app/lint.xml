@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!-- lint 는 minSdk 가 26 이라 mipmap-anydpi-v26 의 -v26 이 필요 없다고 하지만, 떼면
+         aapt2 가 <adaptive-icon> 을 찾지 못해 링크가 실패한다(AGP 8.7.3 에서 확인).
+         빌드가 되는 쪽을 따른다. -->
+    <issue id="ObsoleteSdkInt">
+        <ignore path="src/main/res/mipmap-anydpi-v26" />
+    </issue>
+</lint>

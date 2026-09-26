@@ -1,10 +1,38 @@
-// 루트에는 플러그인을 선언하지 않는다.
+// Gradle 플러그인은 여기 buildscript 클래스패스에 **한 번만** 올린다.
 //
-// `plugins { alias(...) apply false }` 로 모아 두는 관례가 흔하지만, Gradle은 apply
-// false 여도 설정 시점에 플러그인 아티팩트를 해석한다. 그러면 Android SDK가 없는
-// 환경(CI의 빠른 JVM 게이트)에서 AGP 해석이 실패해 코어 모듈 테스트조차 돌지 않는다.
-// 버전은 어차피 version catalog가 고정하므로, 각 모듈이 필요한 플러그인만 직접
-// alias 로 선언한다.
+// 모듈마다 plugins { alias(...) } 로 버전을 적으면 Kotlin 플러그인이 모듈마다 다른
+// 클래스로더에 올라간다. Gradle 은 이를 "지원하지 않으며 빌드가 깨질 수 있다" 고
+// 경고하고, KSP·Compose 컴파일러처럼 Kotlin 플러그인에 붙는 플러그인이 늘수록 실제로
+// 깨진다. 그래서 모듈은 버전 없이 id(...) 로만 적용한다.
+//
+// 흔한 관례인 루트 `plugins { alias(...) apply false }` 를 쓰지 않는 이유: 그 블록은
+// 조건을 달 수 없어서 AGP 까지 항상 해석한다. AGP 는 dl.google.com 에만 있으므로,
+// 그 호스트가 막힌 환경(클라우드 기본 정책·CI 의 빠른 JVM 게이트)에서 코어 모듈
+// 테스트조차 돌지 않게 된다. buildscript 는 조건을 달 수 있다.
+buildscript {
+    // settings.gradle.kts 와 같은 판정이다. 둘이 어긋나면 안드로이드 모듈은 구성되는데
+    // AGP 가 클래스패스에 없거나, 그 반대가 된다.
+    val androidSdkAvailable = System.getenv("ANDROID_HOME") != null ||
+        System.getenv("ANDROID_SDK_ROOT") != null ||
+        file("local.properties").let { it.exists() && it.readText().contains("sdk.dir") }
+
+    repositories {
+        // Maven Central 을 먼저 본다. SDK 없는 환경에서는 google() 을 아예 넣지 않는다 —
+        // 막힌 호스트를 한 번이라도 조회하면 403 으로 구성이 실패할 수 있다.
+        mavenCentral()
+        if (androidSdkAvailable) google()
+        gradlePluginPortal()
+    }
+    dependencies {
+        classpath(libs.kotlin.gradle.plugin)
+        if (androidSdkAvailable) {
+            classpath(libs.android.gradle.plugin)
+            classpath(libs.ksp.gradle.plugin)
+            classpath(libs.room.gradle.plugin)
+            classpath(libs.compose.gradle.plugin)
+        }
+    }
+}
 
 /** 플랫폼 의존이 금지된 순수 Kotlin 모듈. */
 val pureKotlinModules = setOf("document", "core-layout")

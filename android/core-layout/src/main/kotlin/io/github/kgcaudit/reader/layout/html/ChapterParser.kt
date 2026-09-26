@@ -4,10 +4,13 @@ import io.github.kgcaudit.reader.document.xml.XmlEvent
 import io.github.kgcaudit.reader.document.xml.XmlScanner
 import io.github.kgcaudit.reader.layout.Block
 import io.github.kgcaudit.reader.layout.BlockStyle
+import io.github.kgcaudit.reader.layout.ImageSizing
 import io.github.kgcaudit.reader.layout.InlineRun
-import io.github.kgcaudit.reader.layout.TextStyle
+import io.github.kgcaudit.reader.layout.book.BookFontTable
 import io.github.kgcaudit.reader.layout.css.CssDeclarations
+import io.github.kgcaudit.reader.layout.css.CssLength
 import io.github.kgcaudit.reader.layout.css.CssParser
+import io.github.kgcaudit.reader.layout.css.CssUnit
 import io.github.kgcaudit.reader.layout.css.ElementInfo
 import io.github.kgcaudit.reader.layout.css.Stylesheet
 import java.io.Reader
@@ -25,6 +28,10 @@ data class Chapter(
     val blocks: List<Block>,
     /** `id` 속성 → 글자 오프셋. 목차의 `#fragment` 가 가리키는 자리다. */
     val anchors: Map<String, Int> = emptyMap(),
+    /** 본문의 링크(`<a href>`). 글자 구간과 가리키는 곳. 각주 표시도 여기 있다. */
+    val links: List<Link> = emptyList(),
+    /** 각주 · 미주 내용으로 표시된 요소의 id(`epub:type="footnote"` · `<aside>` 등). */
+    val noteIds: Set<String> = emptySet(),
 ) {
     companion object {
         val EMPTY: Chapter = Chapter("", emptyList())
@@ -54,6 +61,8 @@ class ChapterParser(
     /** 책의 외부 CSS 를 합친 것. `<style>` 블록은 파싱 중에 여기에 덧붙는다. */
     private val publisherStyles: Stylesheet = Stylesheet.EMPTY,
     private val context: StyleContext = StyleContext(),
+    /** 책 글꼴표. [StyleContext.useBookFonts] 가 꺼져 있으면 쓰이지 않는다. */
+    private val fonts: BookFontTable = BookFontTable.EMPTY,
 ) {
 
     fun parse(xhtml: String): Chapter = parse(StringReader(xhtml))
@@ -62,12 +71,14 @@ class ChapterParser(
 
     private inner class Session {
 
-        private var resolver = StyleResolver(publisherStyles, context)
+        private var resolver = StyleResolver(publisherStyles, context, fonts)
         private var embedded = Stylesheet.EMPTY
 
         private val text = StringBuilder()
         private val blocks = ArrayList<Block>()
         private val anchors = LinkedHashMap<String, Int>()
+        private val links = ArrayList<Link>()
+        private val noteIds = LinkedHashSet<String>()
 
         /** 여는 요소 하나마다 한 칸. CSS 후손 셀렉터가 이 목록을 본다. */
         private val elements = ArrayList<ElementInfo>()
@@ -103,7 +114,7 @@ class ChapterParser(
                 }
             }
             flushParagraph()
-            return Chapter(text.toString(), blocks.toList(), anchors)
+            return Chapter(text.toString(), blocks.toList(), anchors, links.toList(), noteIds.toSet())
         }
 
         // ── 요소 ────────────────────────────────────────────────────
@@ -120,6 +131,11 @@ class ChapterParser(
 
             val tag = event.name.local.lowercase()
             if (tag in TagDefaults.SKIPPED_TAGS) {
+                // 닫힐 때 프레임과 스택을 하나씩 뺀다(endElement). 여기서 넣지 않으면 **부모의 것**이
+                // 빠진다 — `<head><title>` 뒤에 `head` 프레임이, 인용문 속 `<noscript>` 뒤에 인용문의
+                // 들여쓰기와 `.poem p` 규칙이 사라진다.
+                elements.add(ElementInfo.of(tag, event.attribute("class"), event.attribute("id")))
+                frames.add(Frame(tag, current(), isBlock = false, restoreStyle = blockStyle))
                 skipDepth = 1
                 return
             }
@@ -143,7 +159,8 @@ class ChapterParser(
 
             val inherited = resolver.inherit(current(), declarations)
             val isBlock = tag in TagDefaults.BLOCK_TAGS
-            frames.add(Frame(tag, inherited, isBlock, blockStyle))
+            frames.add(Frame(tag, inherited, isBlock, blockStyle, link = openLink(tag, event, inherited)))
+            noteTarget(tag, event)
 
             if (isBlock) {
                 flushParagraph()
@@ -157,7 +174,7 @@ class ChapterParser(
 
             when (tag) {
                 "br" -> lineBreak()
-                "img", "image" -> image(event)
+                "img", "image" -> image(event, declarations)
                 "hr" -> rule()
                 in TagDefaults.PREFORMATTED_TAGS -> preDepth++
             }
@@ -186,11 +203,42 @@ class ChapterParser(
 
             val frame = frames.removeAt(frames.size - 1)
             if (elements.isNotEmpty()) elements.removeAt(elements.size - 1)
+            frame.link?.let { closeLink(it) }
             if (frame.tag in TagDefaults.PREFORMATTED_TAGS && preDepth > 0) preDepth--
             if (frame.isBlock) {
                 flushParagraph()
                 blockStyle = frame.restoreStyle
             }
+        }
+
+        /**
+         * `<a href>` 를 연다. 시작 자리는 **다음에 붙을 글자**의 자리다 — 앞에 접힌 공백이 한 칸 붙을
+         * 예정이면 그 뒤. 공백까지 링크로 잡으면 누르는 칸 · 칠하는 칸이 한 칸 앞으로 삐져나온다.
+         */
+        private fun openLink(tag: String, event: XmlEvent.StartElement, inherited: InheritedStyle): OpenLink? {
+            if (tag != "a") return null
+            val href = (event.attribute("href") ?: event.attribute("xlink", "href"))?.trim()
+            if (href.isNullOrEmpty()) return null
+            val types = listOfNotNull(event.attribute("epub", "type"), event.attribute("role")).joinToString(" ")
+            val lead = if (pendingSpace && text.length > paragraphStart) 1 else 0
+            return OpenLink(
+                href = href,
+                start = text.length + lead,
+                noteRef = types.split(' ').any { it == "noteref" || it == "doc-noteref" },
+                superscript = inherited.text.vertical == io.github.kgcaudit.reader.layout.VerticalAlign.Superscript,
+            )
+        }
+
+        private fun closeLink(open: OpenLink) {
+            val end = text.length
+            if (end > open.start) links.add(Link(open.start, end, open.href, open.noteRef, open.superscript))
+        }
+
+        /** 각주 · 미주 내용으로 표시된 요소. 링크가 짧은 숫자가 아니어도 이 id 를 가리키면 각주다. */
+        private fun noteTarget(tag: String, event: XmlEvent.StartElement) {
+            val id = event.attribute("id")?.takeIf { it.isNotBlank() } ?: return
+            val types = listOfNotNull(event.attribute("epub", "type"), event.attribute("role")).joinToString(" ").split(' ')
+            if (tag == "aside" || types.any { it in NOTE_TYPES }) noteIds.add(id)
         }
 
         private fun recordAnchor(event: XmlEvent.StartElement) {
@@ -201,7 +249,7 @@ class ChapterParser(
         private fun adoptEmbeddedCss() {
             if (css.isBlank()) return
             embedded += CssParser.parse(css.toString())
-            resolver = StyleResolver(publisherStyles + embedded, context)
+            resolver = StyleResolver(publisherStyles + embedded, context, fonts)
             css.setLength(0)
         }
 
@@ -285,7 +333,7 @@ class ChapterParser(
             blockStyle = style.copy(firstLineIndentEm = 0f, marginTopEm = 0f)
         }
 
-        private fun image(event: XmlEvent.StartElement) {
+        private fun image(event: XmlEvent.StartElement, declarations: CssDeclarations) {
             val href = event.attribute("src")
                 ?: event.attribute("xlink", "href")
                 ?: event.attribute("href")
@@ -302,9 +350,15 @@ class ChapterParser(
                     href = href,
                     charStart = start,
                     charEndExclusive = text.length,
-                    intrinsicWidth = event.attribute("width")?.toPixelsOrZero() ?: 0,
-                    intrinsicHeight = event.attribute("height")?.toPixelsOrZero() ?: 0,
                     style = blockStyle.copy(pageBreakBefore = takePageBreak()),
+                    // HTML 의 width/height 는 CSS 보다 약한 "표현 힌트" 다. CSS 가 정했으면
+                    // CSS 를 따른다 — Calibre 는 속성과 클래스를 함께 쓰는데 클래스 쪽이 의도다.
+                    sizing = ImageSizing(
+                        width = declarations.width ?: event.attribute("width")?.let(::htmlLength),
+                        height = declarations.height ?: event.attribute("height")?.let(::htmlLength),
+                        maxWidth = declarations.maxWidth,
+                        maxHeight = declarations.maxHeight,
+                    ),
                 ),
             )
             paragraphStart = text.length
@@ -367,17 +421,34 @@ class ChapterParser(
         val isBlock: Boolean,
         /** 이 블록이 닫힐 때 되돌릴 바깥 블록의 서식. */
         val restoreStyle: BlockStyle,
+        /** 이 요소가 연 링크(`<a href>`). 닫힐 때 구간이 정해진다. */
+        val link: OpenLink? = null,
     )
+
+    private class OpenLink(val href: String, val start: Int, val noteRef: Boolean, val superscript: Boolean)
 
     private companion object {
         const val OBJECT_REPLACEMENT = '￼'
+
+        /** EPUB 3 구조 어휘(epub:type)와 DPUB-ARIA(role)의 각주 · 미주 내용. */
+        val NOTE_TYPES = setOf("footnote", "endnote", "rearnote", "note", "doc-footnote", "doc-endnote")
 
         /** 줄바꿈으로 접히는 공백. NBSP 는 **접지 않는다** — 붙여 두려고 쓴 글자다. */
         fun isCollapsible(ch: Char): Boolean =
             ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || ch == '\u000C'
 
-        /** `width="300"` 과 `width="300px"` 를 모두 받는다. 퍼센트는 모름(0)으로 본다. */
-        fun String.toPixelsOrZero(): Int =
-            trim().removeSuffix("px").trim().toFloatOrNull()?.toInt()?.coerceAtLeast(0) ?: 0
+        /**
+         * HTML 속성의 길이. 단위 없는 숫자는 CSS px 이고(`width="600"`), 퍼센트도 된다
+         * (`width="100%"` — 한 권에서 106번 나왔다). 0 이하나 알아볼 수 없는 값은 지정 없음.
+         */
+        fun htmlLength(raw: String): CssLength? {
+            val text = raw.trim().lowercase()
+            val length = when {
+                text.endsWith("%") -> text.dropLast(1).trim().toFloatOrNull()?.let { CssLength(it, CssUnit.Percent) }
+                text.endsWith("px") -> text.dropLast(2).trim().toFloatOrNull()?.let { CssLength(it, CssUnit.Px) }
+                else -> text.toFloatOrNull()?.let { CssLength(it, CssUnit.Px) } ?: CssLength.parse(text)
+            }
+            return length?.takeIf { it.value > 0f }
+        }
     }
 }

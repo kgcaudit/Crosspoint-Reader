@@ -41,10 +41,49 @@ data class LayoutSpec(
      * 조판 결과가 통째로 달라진다 — 그래서 여기(캐시 키 안)에 있어야 한다.
      */
     val usePublisherStyles: Boolean = true,
+    /**
+     * 측정기가 쓰는 글꼴의 식별자.
+     *
+     * 코어는 이 값의 뜻을 모른다 — 글꼴을 고르는 것은 플랫폼 쪽 [TextMeasurer] 의 일이다.
+     * 그래도 여기 있어야 하는 이유: 글꼴을 바꾸면 글자 폭이 달라져 페이지 경계가 전부
+     * 움직이는데, 캐시 키에 글꼴이 없으면 바탕으로 잰 페이지를 고딕으로 그리게 된다.
+     * 증상은 "줄 끝이 지면을 넘거나 오른쪽이 들쭉날쭉하다" 로 나타난다.
+     *
+     * 폰트 파일을 바꿀 때도 이 값을 바꿔야 한다(같은 이름이라도 폭이 다르다).
+     */
+    val fontId: String = DEFAULT_FONT_ID,
+    /**
+     * CSS 1px 이 화면 몇 px 인가 — 안드로이드 밀도(dp 배율)다.
+     *
+     * 그림의 원래 크기(파일 픽셀)와 책이 적은 `width: 300px` 는 CSS px 이다. 브라우저·
+     * WebView 처럼 1 CSS px = 1dp 로 옮기지 않으면, 고밀도 폰(약 3배)에서 118px 로고가
+     * 손톱만 하게, SVG 표지가 화면 3분의 1 크기로 나온다.
+     */
+    val cssPxScale: Float = 1f,
+    /**
+     * 책에 든 글꼴(출판사 글꼴, CSS `@font-face`)로 조판할지.
+     *
+     * 끄면 모든 글자가 [fontId] 의 글꼴이다. 켜면 책이 `font-family` 로 지정한 곳만 책 글꼴이고
+     * 나머지는 [fontId] 다. 글꼴이 바뀌면 폭이 바뀌므로 캐시 키에 들어가야 한다.
+     */
+    val useBookFonts: Boolean = false,
+    /**
+     * 본문 정렬을 사용자가 **정했다**(null = 원본: 책이 정한 곳은 책대로, 안 정한 곳만 [align]).
+     *
+     * 책이 양쪽·왼쪽으로 정한 문단에만 덮어쓴다. 가운데·오른쪽 정렬(시, 제목, 서명)까지 덮으면 "왼쪽" 을
+     * 고른 순간 표제지와 시가 모두 왼쪽으로 쏠린다 — 사용자가 바꾸려던 것은 본문이지 그것들이 아니다.
+     */
+    val alignOverride: TextAlign? = null,
+    /**
+     * 첫 줄 들여쓰기를 끈다(책이 정했어도). 음수(내어쓰기)는 남긴다 — 목록·대화문의 내어쓰기를 0 으로
+     * 만들면 둘째 줄부터 글자가 번호 밑으로 파고든다.
+     */
+    val indentOff: Boolean = false,
 ) {
     init {
         require(viewportWidthPx > 0f && viewportHeightPx > 0f) { "viewport must be positive" }
         require(baseSizePx > 0f) { "baseSizePx must be positive" }
+        require(cssPxScale > 0f) { "cssPxScale must be positive" }
     }
 
     /** 본문이 놓이는 폭. */
@@ -60,7 +99,7 @@ data class LayoutSpec(
      * 바꾸면 모든 캐시가 한 번 무효화되므로(동작은 정상, 첫 열기만 느려짐) 바꿀 이유가
      * 없는 한 두는 게 낫다.
      */
-    val cacheKey: String get() = fnv1a(canonical())
+    val cacheKey: String get() = fnv1aHex(canonical())
 
     private fun canonical(): String = buildString {
         append(viewportWidthPx).append('|').append(viewportHeightPx).append('|')
@@ -70,17 +109,29 @@ data class LayoutSpec(
         append(align.name).append('|')
         append(paragraphIndentEm).append('|').append(paragraphSpacingEm).append('|')
         append(breakBetweenCjk).append('|').append(imagesEnabled).append('|')
-        append(usePublisherStyles)
+        append(usePublisherStyles).append('|').append(fontId).append('|').append(cssPxScale)
+        // 끈 상태(기본)의 키는 예전과 같게 둔다. 안 그러면 책 글꼴 없는 책까지 한 번씩 다시 조판한다.
+        if (useBookFonts) append("|bookfonts")
+        // 새 칸도 기본값이면 키에 넣지 않는다 — 판을 올릴 때 모든 책이 다시 조판되지 않게.
+        if (alignOverride != null) append("|align=").append(alignOverride.name)
+        if (indentOff) append("|noindent")
     }
 
-    private companion object {
-        fun fnv1a(text: String): String {
-            var hash = -0x340d631b7bdddcdbL // 14695981039346656037 (FNV offset basis)
-            for (ch in text) {
-                hash = hash xor ch.code.toLong()
-                hash *= 0x100000001b3L
-            }
-            return hash.toULong().toString(16).padStart(16, '0')
-        }
+    companion object {
+        /** 글꼴을 따로 정하지 않았을 때. 테스트의 가짜 측정기가 이 값으로 돈다. */
+        const val DEFAULT_FONT_ID: String = "default"
     }
+}
+
+/**
+ * FNV-1a 64비트 해시의 16진수. 짧고, 플랫폼·버전에 무관하게 같은 값이 나온다 — 캐시 디렉터리 이름
+ * ([LayoutSpec.cacheKey], 책 id)에 쓴다. 바꾸면 모든 캐시가 한 번 무효화된다(동작은 정상, 첫 열기만 느림).
+ */
+internal fun fnv1aHex(text: String): String {
+    var hash = -0x340d631b7bdddcdbL // 14695981039346656037 (FNV offset basis)
+    for (ch in text) {
+        hash = hash xor ch.code.toLong()
+        hash *= 0x100000001b3L
+    }
+    return hash.toULong().toString(16).padStart(16, '0')
 }

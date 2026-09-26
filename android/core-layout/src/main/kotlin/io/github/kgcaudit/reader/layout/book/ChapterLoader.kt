@@ -2,6 +2,9 @@ package io.github.kgcaudit.reader.layout.book
 
 import io.github.kgcaudit.reader.document.BookFormat
 import io.github.kgcaudit.reader.document.ReflowDocument
+import io.github.kgcaudit.reader.document.image.ImageHeader
+import io.github.kgcaudit.reader.document.image.ImageSize
+import io.github.kgcaudit.reader.layout.Block
 import io.github.kgcaudit.reader.layout.LayoutSpec
 import io.github.kgcaudit.reader.layout.css.CssParser
 import io.github.kgcaudit.reader.layout.css.Stylesheet
@@ -25,11 +28,16 @@ import java.io.InputStream
 class ChapterLoader(
     private val document: ReflowDocument,
     private val context: StyleContext = StyleContext(),
+    private val fonts: BookFontTable = BookFontTable.EMPTY,
 ) {
 
-    constructor(document: ReflowDocument, spec: LayoutSpec) : this(document, StyleContext.of(spec))
+    constructor(document: ReflowDocument, spec: LayoutSpec, fonts: BookFontTable = BookFontTable.EMPTY) :
+        this(document, StyleContext.of(spec), fonts)
 
     private val sheetCache = HashMap<String, Stylesheet>()
+
+    /** 그림 파일 크기. 빈 면 그림 하나가 한 책에 여섯 번 나오는 식이라 파일마다 한 번만 읽는다. */
+    private val imageSizeCache = HashMap<String, ImageSize?>()
 
     suspend fun load(index: Int): Chapter = when (document.meta.format) {
         BookFormat.TXT -> document.openChapter(index).use { TextChapter.parse(it, context) }
@@ -41,16 +49,42 @@ class ChapterLoader(
     /** 챕터의 `<head>` 만 훑어 이 챕터가 쓰는 스타일시트를 문서 순서대로 합친다. */
     suspend fun stylesheetFor(index: Int): Stylesheet {
         val head = document.openChapter(index).use { ChapterHead.scan(it) }
+        val chapterPath = document.spine().getOrNull(index)?.href.orEmpty()
         var sheet = Stylesheet.EMPTY
         for (href in head.stylesheetHrefs) {
-            sheet += sheetCache.getOrPut(href) { CssParser.parse(readCss(index, href)) }
+            // 캐시는 **풀린 경로**로 찾는다. `../style.css` 는 `Text/a.xhtml` 과 `Text/sub/b.xhtml` 에서
+            // 서로 다른 파일인데, 적힌 글자로 찾으면 두 번째 챕터가 첫 챕터의 CSS 를 받는다.
+            sheet += sheetCache.getOrPut(document.resolveHref(chapterPath, href)) { CssParser.parse(readCss(index, href)) }
         }
         return sheet
     }
 
     private suspend fun loadXhtml(index: Int): Chapter {
         val sheet = stylesheetFor(index)
-        return document.openChapter(index).use { ChapterParser(sheet, context).parse(it) }
+        val chapter = document.openChapter(index).use { ChapterParser(sheet, context, fonts).parse(it) }
+        return withImageSizes(index, chapter)
+    }
+
+    /**
+     * 그림 블록에 파일의 원래 크기를 채운다.
+     *
+     * 파서가 아니라 여기서 하는 이유: 파서는 글자만 받아 그림 파일에 닿을 수 없고, 닿게
+     * 만들면 파서 테스트마다 가짜 파일 묶음을 꾸며야 한다. 파일에 닿는 일은 문서를 쥔 이
+     * 클래스의 몫이다.
+     *
+     * 파일이 없거나 머리가 깨졌으면 크기를 모르는 채로 둔다 — 조판은 자리를 잡고 넘어간다.
+     */
+    private suspend fun withImageSizes(index: Int, chapter: Chapter): Chapter {
+        if (chapter.blocks.none { it is Block.Image && !it.hasIntrinsicSize }) return chapter
+        val directory = document.spine().getOrNull(index)?.href?.substringBeforeLast('/', "").orEmpty()
+        val blocks = chapter.blocks.map { block ->
+            if (block !is Block.Image || block.hasIntrinsicSize) return@map block
+            val size = imageSizeCache.getOrPut("$directory|${block.href}") {
+                runCatching { document.openChapterResource(index, block.href)?.use(ImageHeader::read) }.getOrNull()
+            }
+            if (size == null) block else block.copy(intrinsicWidth = size.width, intrinsicHeight = size.height)
+        }
+        return chapter.copy(blocks = blocks)
     }
 
     /**
@@ -64,17 +98,20 @@ class ChapterLoader(
             document.openChapterResource(index, href)?.use { it.readCssText() }
         }.getOrNull().orEmpty()
 
-    private fun InputStream.readCssText(): String {
-        // CSS 는 EPUB 규격상 UTF-8 이다. @charset 은 무시한다 — 다른 인코딩으로 적힌
-        // 스타일시트는 실제로 보기 어렵고, 틀려도 서식 일부가 빠지는 정도다.
-        val bytes = readBytes()
-        val offset = if (bytes.size >= 3 &&
-            bytes[0] == 0xEF.toByte() && bytes[1] == 0xBB.toByte() && bytes[2] == 0xBF.toByte()
-        ) {
-            3
-        } else {
-            0
-        }
-        return String(bytes, offset, bytes.size - offset, Charsets.UTF_8)
+}
+
+/**
+ * CSS 파일을 글자로. EPUB 규격상 UTF-8 이고 앞의 BOM 은 뗀다. @charset 은 무시한다 — 다른 인코딩으로
+ * 적힌 스타일시트는 실제로 보기 어렵고, 틀려도 서식 일부가 빠지는 정도다.
+ */
+internal fun InputStream.readCssText(): String {
+    val bytes = readBytes()
+    val offset = if (bytes.size >= 3 &&
+        bytes[0] == 0xEF.toByte() && bytes[1] == 0xBB.toByte() && bytes[2] == 0xBF.toByte()
+    ) {
+        3
+    } else {
+        0
     }
+    return String(bytes, offset, bytes.size - offset, Charsets.UTF_8)
 }

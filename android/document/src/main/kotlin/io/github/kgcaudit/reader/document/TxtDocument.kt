@@ -57,18 +57,6 @@ class TxtDocument private constructor(
             return TxtDocument(meta, EncodingDetector.detect(sample), source)
         }
 
-        /** 최대 [limit] 바이트를 읽는다. 스트림이 짧으면 있는 만큼만. */
-        private fun InputStream.readAtMost(limit: Int): ByteArray {
-            val buffer = ByteArray(limit)
-            var read = 0
-            while (read < limit) {
-                val n = read(buffer, read, limit - read)
-                if (n < 0) break
-                read += n
-            }
-            return if (read == limit) buffer else buffer.copyOf(read)
-        }
-
         /**
          * 정확히 [count] 바이트를 건너뛴다.
          *

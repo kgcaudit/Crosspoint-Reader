@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 화면 끄고 듣기(L6). 셋 다 설치할 때 저절로 허락되는 권한이다 — 사용자에게 묻는 창이 뜨지 않는다.
+         알림 권한(POST_NOTIFICATIONS)은 받지 않는다: 미디어 세션에 붙은 재생 알림은 안드로이드 13 부터
+         그 권한 없이도 보인다. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- 문장 사이에 기기가 잠들어 읽기가 끊기지 않게, 읽는 동안에만 CPU 를 깨워 둔다. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <application>
+        <service
+            android:name=".ListenService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+    </application>
+</manifest>

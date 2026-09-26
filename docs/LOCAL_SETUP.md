@@ -219,6 +219,25 @@ del document\src\main\kotlin\io\github\kgcaudit\reader\document\_Probe.kt
 
 ---
 
+### 5.4 휴대폰에 설치하기 — "내 파일" 앱으로
+
+메신저 · 브라우저로 받은 APK 를 바로 열어 설치하면 삼성 휴대폰이 "잠재적으로 유해한 앱 — 피싱 시도 후에
+설치되었습니다" 로 막아 실행되지 않는다. APK 를 휴대폰에 옮긴 뒤 **삼성 "내 파일" 앱에서 눌러 설치**한다.
+
+### 5.5 비공개 릴리스 키 (선택 — 공개 배포 전에)
+
+지금 APK 는 저장소에 들어 있는 개발용 키로 서명한다(파일 이름의 `-devkey`). 저장소가 공개라 누구나 같은 키로
+서명할 수 있으므로, 남에게 배포하기 전에는 이 PC 에만 있는 키로 바꾼다.
+
+1. `android\make-release-key.bat` 을 더블클릭한다. `C:\Users\<이름>\.olo\` 에 키가 생기고,
+   `C:\Users\<이름>\.gradle\gradle.properties` 에 `olo.release.*` 두 줄이 붙는다.
+2. **`.olo` 폴더를 USB 나 개인 클라우드에 따로 보관한다.** 이 키를 잃으면 앱을 업데이트할 수 없다.
+3. (클라우드 세션이 APK 를 만들게 하려면) 클라우드 환경 설정 → 환경 변수에 두 개를 넣는다:
+   `OLO_RELEASE_KEYSTORE_B64` = `.olo\olo-release.keystore.base64.txt` 의 내용,
+   `OLO_RELEASE_PASSWORD` = `.olo\olo-release.password.txt` 의 내용. 채팅창에는 붙여 넣지 않는다.
+
+키를 바꾼 첫 APK 는 옛 앱 위에 덮어 깔리지 않는다 — 지우고 깔아야 하고 책갈피 · 진도 · 형광펜이 사라진다.
+
 ## 6. 막혔을 때
 
 ### 6.1 `PKIX path building failed` / `SSLHandshakeException` — **사내망에서 가장 흔하다**
