@@ -1,3 +1,4 @@
+import java.time.LocalDate
 import java.util.Base64
 
 plugins {
@@ -43,9 +44,11 @@ android {
         applicationId = providers.gradleProperty("reader.applicationId").get()
         minSdk = 26
         targetSdk = 35
-        versionCode = 36
-        versionName = "0.20.7"
+        versionCode = 37
+        versionName = "0.21.0"
         resValue("string", "app_name", providers.gradleProperty("reader.appName").get())
+        // 앱 정보 화면의 날짜. 구성 캐시 때문에 빌드 파일(판 번호)이 바뀔 때 새로 잡힌다 — 곧 "그 판을 처음 빌드한 날".
+        buildConfigField("String", "BUILD_DATE", "\"${LocalDate.now()}\"")
         // 의존 라이브러리가 싣고 오는 80여 개 언어 번역을 뺀다. 화면이 한국어뿐이다.
         resourceConfigurations += listOf("ko", "en")
     }
@@ -94,6 +97,7 @@ android {
     buildFeatures {
         compose = true
         resValues = true
+        buildConfig = true
     }
     testOptions { unitTests.isIncludeAndroidResources = true }
     // 글꼴 넣기 테스트가 :text-platform 의 테스트 폰트를 쓴다. 같은 파일을 두 번 싣지 않는다.

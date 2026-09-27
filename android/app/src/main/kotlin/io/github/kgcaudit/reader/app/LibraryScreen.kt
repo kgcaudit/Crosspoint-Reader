@@ -61,6 +61,7 @@ fun LibraryScreen(
     /** 이번 실행에서 아직 훑지 않았다. 책을 닫고 돌아올 때마다 훑지 않게 부르는 쪽이 기억한다. */
     scanOnStart: Boolean = true,
     onStartScan: () -> Unit = {},
+    onAbout: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val container = context.container
@@ -135,6 +136,8 @@ fun LibraryScreen(
                 CpIconButton(CpIcons.Refresh, "새로고침", { rescan() })
                 CpIconButton(CpIcons.Folder, "책 폴더", { manageFolders = true })
             }
+            // 앱 정보는 책이 없어도 닿아야 한다 — 판 번호를 묻는 일은 무언가 안 될 때 생긴다.
+            CpIconButton(CpIcons.Info, "앱 정보", onAbout)
         }
         if (scanning) CpProgressBar(0.35f, Modifier.padding(horizontal = 16.dp), CpBarWeight.Thin)
 
