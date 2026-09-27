@@ -105,7 +105,7 @@ class PrefsStoreTest {
     fun `a value from a later version falls back to the default instead of failing`() {
         // 나중 판에서 없어진 이름이 남아 있어도 책은 열려야 한다(규칙 6).
         context.getSharedPreferences("reader", Context.MODE_PRIVATE).edit()
-            .putString("theme", "Sepia").putString("footerLeft", "Weather").putString("margin", "Huge")
+            .putString("theme", "Parchment").putString("footerLeft", "Weather").putString("margin", "Huge")
             .putString("pdfFit", "Height").putString("listenJoin", "Strong").commit()
         val loaded = PrefsStore(context).load()
         assertEquals(io.github.kgcaudit.reader.ui.design.PaperTheme.System, loaded.screen.theme)
@@ -114,6 +114,13 @@ class PrefsStoreTest {
         assertEquals(io.github.kgcaudit.reader.ui.design.PdfFit.Page, loaded.screen.pdfFit)
         // 0.19.0 의 "강하게" 는 없어졌다 — 그 값이 남은 폰은 일반으로 읽는다.
         assertEquals(io.github.kgcaudit.reader.layout.book.WordJoin.Off, loaded.listen.join)
+    }
+
+    @Test
+    fun `a paper colour chosen before sepia was added keeps its meaning`() {
+        // 0.22.1 에서 세피아를 아이보리와 회색 사이에 끼웠다. 순번으로 저장했다면 회색을 고른 사람이 세피아를 보게 된다.
+        context.getSharedPreferences("reader", Context.MODE_PRIVATE).edit().putString("theme", "Gray").commit()
+        assertEquals(io.github.kgcaudit.reader.ui.design.PaperTheme.Gray, PrefsStore(context).load().screen.theme)
     }
 
     @Test

@@ -154,6 +154,16 @@ class ReadingSettingsTest {
         backToPage()
         compose.waitForIdle()
         assertEquals(0xFFF4ECD8.toInt(), page().getPixel(4, page().height / 2))
+
+        // 세피아(0.22.1): 아이보리보다 한 단계 짙은 종이. 이름으로 저장된다.
+        openView()
+        shot("42-view-panel-sepia-swatch")
+        node(hasContentDescription("배경 세피아")).performClick()
+        backToPage()
+        compose.waitForIdle()
+        assertEquals(0xFFE9DCC0.toInt(), page().getPixel(4, page().height / 2), "지면이 세피아 지면색이 아니다")
+        assertEquals(PaperTheme.Sepia, app.container.prefs.load().screen.theme)
+        shot("41-theme-sepia")
     }
 
     @Test

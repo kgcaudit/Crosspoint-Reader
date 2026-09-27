@@ -62,6 +62,9 @@ enum class PaperTheme(val label: String, internal val paper: CpPaper?) {
     System("시스템", null),
     White("흰색", CpPaper(Color(0xFFFFFFFF), Color(0xFF1D1A16), Color(0xFF6B625A), dark = false)),
     Ivory("아이보리", CpPaper(Color(0xFFF4ECD8), Color(0xFF3A2E22), Color(0xFF6E5F4E), dark = false)),
+    // 아이보리보다 누런 빛이 한 단계 짙은 종이(0.22.1, 구상안 가안). 본문 대비 10.1 — 나안(#DCC7A1, 8.9)은 낮에 어둡다.
+    // 저장은 이름으로 하므로 사이에 끼워도 이미 고른 회색 · 검정이 밀리지 않는다.
+    Sepia("세피아", CpPaper(Color(0xFFE9DCC0), Color(0xFF3B2A1A), Color(0xFF6C5842), dark = false)),
     Gray("회색", CpPaper(Color(0xFFDAD8D3), Color(0xFF1F1D1A), Color(0xFF55504A), dark = false)),
     Black("검정", CpPaper(Color(0xFF121110), Color(0xFFD9D3C9), Color(0xFF9C948A), dark = true)),
     ;
