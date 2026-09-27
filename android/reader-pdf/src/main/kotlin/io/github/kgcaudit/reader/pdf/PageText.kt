@@ -3,6 +3,7 @@ package io.github.kgcaudit.reader.pdf
 import io.github.kgcaudit.reader.layout.book.Sentence
 import io.github.kgcaudit.reader.layout.book.splitSentences
 import kotlin.math.abs
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 
@@ -32,7 +33,15 @@ class PageText(val text: String, private val boxes: FloatArray, val source: Stri
      * 대응표 없는 글꼴의 글을 되살린 층([BrokenHangul]). 낱말은 **글자 네모로 가른 줄**에서도 끊는다 — 폰의 엔진은
      * 줄바꿈 글자를 주지 않는다.
      */
-    fun repaired(): PageText = withText(BrokenHangul.repair(text, rowStarts()))
+    fun repaired(): PageText = withText(BrokenHangul.repair(text, rowStarts(), ::gap))
+
+    /** 두 글자 네모 가운데 사이의 거리. 네모를 모르는 글자는 글자 층의 순서로 멀리 둔다(쪽 폭보다 먼 값). */
+    private fun gap(a: Int, b: Int): Float {
+        val p = box(a)
+        val q = box(b)
+        if (p == null || q == null) return 2f + abs(a - b)
+        return hypot((p.left + p.right - q.left - q.right) / 2f, (p.top + p.bottom - q.top - q.bottom) / 2f)
+    }
 
     /**
      * 높이가 바뀌어 새 줄이 시작하는 글자 자리. [lines] 와 달리 왼쪽으로 되돌아가도 끊지 않는다 — 폰의 엔진은 어떤 글꼴의
@@ -75,7 +84,9 @@ class PageText(val text: String, private val boxes: FloatArray, val source: Stri
         for ((k, from) in starts.withIndex()) {
             val range = from until (starts.getOrNull(k + 1) ?: text.length)
             var last = Float.NEGATIVE_INFINITY
-            val xs = range.map { i -> box(i)?.let { (it.left + it.right) / 2f }?.also { last = it } ?: last }
+            // 폭 없는 네모도 자리를 모르는 글자로 친다: 엔진이 낱말 사이에 끼워 넣은 공백은 앞 글자의 **왼쪽** 끝에 폭 0 으로
+            // 놓여, 그 자리로 줄을 세우면 공백이 앞 글자 앞으로 가 "traditional hanok" 이 "traditiona lhano k" 로 읽혔다.
+            val xs = range.map { i -> box(i)?.takeIf { it.right > it.left }?.let { (it.left + it.right) / 2f }?.also { last = it } ?: last }
             if ((1 until xs.size).all { xs[it] >= xs[it - 1] }) continue
             range.sortedBy { xs[it - from] }.forEachIndexed { j, at -> order[from + j] = at }
             changed = true
@@ -316,7 +327,7 @@ class PageText(val text: String, private val boxes: FloatArray, val source: Stri
         val lineHeight = median(body.map { it.bottom - it.top })
         val gaps = (1 until all.size).filter { !skipped[it] && !skipped[it - 1] }.map { all[it].top - all[it - 1].bottom }.filter { it > 0f }
         val usualGap = if (gaps.size >= 2) median(gaps) else lineHeight * 0.8f
-        fun odd(line: TextLine) = lineHeight > 0f && abs((line.bottom - line.top) - lineHeight) > lineHeight * 0.25f
+        fun height(line: TextLine) = line.bottom - line.top
         val of = IntArray(all.size)
         for (k in 1 until all.size) {
             val prev = all[k - 1]
@@ -325,9 +336,10 @@ class PageText(val text: String, private val boxes: FloatArray, val source: Stri
             val split = skipped[k] || skipped[k - 1] ||
                 cur.top - prev.bottom > max(usualGap * 1.5f, lineHeight * 0.3f) ||
                 cur.top < prev.top - lineHeight * 0.5f ||
-                // 글자 크기가 바뀌는 곳(제목 ↔ 본문). 크기가 같은 두 줄은 본문과 달라도 한 덩이다 — 여러 줄 글귀가 줄마다
-                // 끊겨 "대담한 여정" · "이다." 로 따로 읽혔다(좋은생각 109쪽).
-                odd(prev) != odd(cur) || (odd(prev) && abs((prev.bottom - prev.top) - (cur.bottom - cur.top)) > lineHeight * 0.25f)
+                // 글자 크기가 바뀌는 곳(제목 ↔ 본문). 두 줄끼리 견준다 — 본문 높이와 따로 견주면(0.20.6 까지), 본문보다 작은
+                // 글귀의 두 줄이 기준선 양쪽에 걸쳐 갈렸다: 첫 줄은 쉼표 · 받침 글자로 조금 높고 "이다." 는 조금 낮아, 한 줄만
+                // "크기가 다른 줄" 이 되어 "대담한 여정" · "이다." 로 끊어 읽혔다(좋은생각 109쪽).
+                abs(height(prev) - height(cur)) > lineHeight * 0.25f
             of[k] = of[k - 1] + if (split) 1 else 0
         }
         val count = (of.lastOrNull() ?: -1) + 1

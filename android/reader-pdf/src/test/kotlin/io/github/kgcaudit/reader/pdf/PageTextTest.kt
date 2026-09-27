@@ -259,6 +259,50 @@ class PageTextTest {
     }
 
     @Test
+    fun `a quote in a smaller font stays one sentence even when its lines measure slightly differently`() {
+        // 좋은생각 109쪽: 본문보다 작은 글귀의 두 줄. 첫 줄은 쉼표 · 받침 글자로 조금 높고 "이다." 는 조금 낮아, 본문 높이와
+        // 따로 견주던 때는 둘째 줄만 "크기가 다른 줄" 이 되어 "대담한 여정" · "이다." 로 끊겨 읽혔다.
+        val p = page(
+            listOf("본문 첫 줄이다.", "본문 둘째 줄이다.", "본문 셋째 줄이다.", "번역은 한 문화를 옮기는 대담한 여정", "이다."),
+            heights = listOf(0.02f, 0.02f, 0.02f, 0.0166f, 0.0147f),
+            tops = listOf(0.2f, 0.23f, 0.26f, 0.4f, 0.427f),
+            justified = setOf(3),
+        )
+        assertEquals("번역은 한 문화를 옮기는 대담한 여정이다.", spokenOf(p).last())
+    }
+
+    @Test
+    fun `a one letter word in a broken font takes the scheme of the words beside it on the page`() {
+        // 좋은생각 33쪽: 여백의 세로 글씨 "그림" 의 "그" 는 두 체계로 모두 흔한 글자("그" · "널")라 곁의 낱말을 따른다.
+        // 엔진은 이 글자를 아래쪽 딴 글꼴(Adobe-KR) 글귀 바로 뒤에 주지만, 쪽 위에서 곁에 있는 것은 본문이다.
+        fun seq(s: String) = s.map { c -> if (c in '가'..'힣') (97 + (c - '가')).toChar() else (c.code - 31).toChar() }.joinToString("")
+        fun adobe(s: String) = s.map { c -> if (c in ' '..'~') (c.code - 31).toChar() else AdobeKr.table.indexOf(c).toChar() }.joinToString("")
+        val body = "여기에도 누군가의 숨은 노력이 있지 않았을까."
+        val quote = "번역은 한 문화를 다른 문화로 옮기는 대담한 여정이다."
+        val raw = seq(body) + adobe(quote) + seq("그")
+        val boxes = FloatArray(raw.length * 4)
+        fun put(i: Int, x: Float, y: Float) = floatArrayOf(x, y, x + 0.01f, y + 0.02f).copyInto(boxes, i * 4)
+        body.indices.forEach { put(it, 0.1f + it * 0.01f, 0.3f) }
+        quote.indices.forEach { put(body.length + it, 0.1f + it * 0.01f, 0.8f) }
+        put(raw.length - 1, 0.05f, 0.3f)
+        assertEquals(body + quote + "그", PageText(raw, boxes).repaired().text)
+    }
+
+    @Test
+    fun `spaces the engine adds with no width stay between the words they separate`() {
+        // 엔진이 낱말 사이에 끼워 넣은 공백은 폭 0 네모로 앞 글자의 왼쪽 끝에 놓인다. 그 자리로 줄을 세우면 공백이 앞 글자
+        // 앞으로 가 "traditional hanok house" 가 "traditiona lhano khouse" 로 읽혔다(좋은생각 109쪽).
+        val line = "traditional hanok house"
+        val boxes = FloatArray(line.length * 4)
+        line.forEachIndexed { i, c ->
+            val x = if (c == ' ') 0.1f + (i - 1) * 0.02f else 0.1f + i * 0.02f
+            val w = if (c == ' ') 0f else 0.02f
+            floatArrayOf(x, 0.3f, x + w, 0.32f).copyInto(boxes, i * 4)
+        }
+        assertEquals(line, PageText(line, boxes).inVisualOrder().text)
+    }
+
+    @Test
     fun `print marks left outside the page are not read however long they are`() {
         // 씨네21 1569호 18쪽: 조판 프로그램의 인쇄용 표시("…016.indd 16 2026-08-07 오후…")가 쪽 아래 밖에 남아, 화면에는
         // 없는 글을 듣기가 알파벳 하나씩 읽었다. 가장자리의 짧은 줄만 건너뛰던 규칙으로는 긴 표시가 걸리지 않았다.

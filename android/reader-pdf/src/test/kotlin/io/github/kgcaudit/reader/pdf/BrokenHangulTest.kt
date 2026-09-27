@@ -1,5 +1,6 @@
 package io.github.kgcaudit.reader.pdf
 
+import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -116,6 +117,36 @@ class BrokenHangulTest {
         assertEquals(line.reversed(), BrokenHangul.repair(brokenAdobe(line).reversed()))
         // 멀쩡한 영문자 옆의 "@" 는 그대로(메일 주소).
         assertEquals("메일 user@mail.com 으로", BrokenHangul.repair("메일 user@mail.com 으로"))
+    }
+
+    @Test
+    fun `a short word both schemes can read follows the nearest word whose scheme is clear`() {
+        // 한 글자 낱말은 두 체계 모두 흔한 한글이 되어 점수가 같다: Adobe-KR 의 "다" 가 순번 체계로는 "깻".
+        assertEquals(broken("깻."), brokenAdobe("다."))
+        val body = "여기에도 누군가의 숨은 노력이 있지 않았을까."
+        val quote = "번역은 한 문화를 다른 문화로 옮기는 대담한 여정"
+        // 좋은생각 91쪽: 글귀가 "여정↵다." 처럼 줄을 넘기면, 새 줄의 "다." 는 바로 앞 글귀(Adobe-KR)를 따른다.
+        // 늘 순번 체계로 두던 때는 "여정깻." 으로 읽혔다.
+        val wrapped = broken(body) + brokenAdobe(quote) + brokenAdobe("다.")
+        val rows = listOf(0, body.length, body.length + quote.length)
+        assertEquals(body + quote + "다.", BrokenHangul.repair(wrapped, rows))
+    }
+
+    @Test
+    fun `a tie is settled by the nearest word on the page, not by the order the engine gives`() {
+        // 좋은생각 33쪽: 여백의 세로 글씨 "그림" 의 "그"(순번 체계)는 Adobe-KR 로는 "널". 엔진은 이 글자를 딴 글꼴의 글귀
+        // 바로 뒤에 준다 — 글자 층의 순서로 가까운 낱말을 따르면 "널림" 이 된다. 쪽 위에서 가까운 것은 본문이다.
+        assertEquals(broken("그"), brokenAdobe("널"))
+        val body = "여기에도 누군가의 숨은 노력이 있지 않았을까."
+        val quote = "번역은 한 문화를 다른 문화로 옮기는 대담한 여정이다."
+        val text = broken(body) + brokenAdobe(quote) + broken("그")
+        val rows = listOf(0, body.length, body.length + quote.length)
+        val credit = text.length - 1
+        // 세로 글씨는 쪽 위에서 본문 첫머리 곁에 있다.
+        val onPage = { a: Int, b: Int -> abs((if (a == credit) -1 else a) - (if (b == credit) -1 else b)).toFloat() }
+        assertEquals(body + quote + "그", BrokenHangul.repair(text, rows, onPage))
+        // 쪽 위의 자리를 모르면 글자 층 순서로 잰다 — 그러면 글귀를 따른다. 이 시험이 무엇을 지키는지 보인다.
+        assertEquals(body + quote + "널", BrokenHangul.repair(text, rows))
     }
 
     @Test

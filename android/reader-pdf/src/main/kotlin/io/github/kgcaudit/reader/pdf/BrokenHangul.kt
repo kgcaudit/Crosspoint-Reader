@@ -1,5 +1,8 @@
 package io.github.kgcaudit.reader.pdf
 
+import kotlin.math.abs
+import kotlin.math.sign
+
 /**
  * 글자 대응표(ToUnicode) 없이 들어간 한글 글꼴의 글을 되살린다.
  *
@@ -28,8 +31,16 @@ object BrokenHangul {
      *   엔진은 줄바꿈 글자("\r\n")를 주지 않아(작업 환경의 엔진은 준다), 줄바꿈 글자로만 끊으면 망가진 글의 공백이
      *   U+0001 이라 **여러 줄이 한 낱말**이 되었다 — 본문 끝줄과 아래 글귀가 한 덩이로 한 체계로 풀려, 좋은생각 109쪽에서
      *   "있지" 다음부터 깨져 읽혔다(폰이 준 글자 번호 · 위치로 재현).
+     * @param distance 두 글자 자리 사이의 거리(쪽 위에서). 두 체계의 점수가 같은 낱말(한두 글자 — "다." 가 "다" 로도
+     *   "깻" 으로도 풀린다)은 **가장 가까운, 체계가 갈린 낱말**을 따른다. 늘 순번 체계로 두면 Adobe-KR 글꼴 줄의 첫머리
+     *   한 글자가 깨졌고(좋은생각 91쪽 "것이↵다." 가 "것이깻."), 글자 층에서 바로 앞 낱말을 따르면 여백의 세로 글씨
+     *   "그림" 이 층에서 앞에 놓인 딴 글꼴 글귀를 따라 "널림" 이 되었다(33쪽). 모르면 글자 층의 순서로 잰다.
      */
-    fun repair(text: String, lineStarts: Collection<Int> = emptyList()): String {
+    fun repair(
+        text: String,
+        lineStarts: Collection<Int> = emptyList(),
+        distance: (Int, Int) -> Float = { a, b -> abs(a - b).toFloat() },
+    ): String {
         var candidates = 0
         var commonSequential = 0
         var commonAdobe = 0
@@ -47,6 +58,8 @@ object BrokenHangul {
         fun Int.isSeparator() = text[this] == ' ' || breaks[this]
         val sequential = CharArray(text.length)
         val adobe = CharArray(text.length)
+        // 먼저 낱말마다 체계를 가리고(+1 Adobe-KR, −1 순번, 0 동점), 동점은 다 가린 뒤 가까운 낱말로 정한다.
+        val words = ArrayList<IntArray>()
         var i = 0
         while (i < text.length) {
             if (i.isSeparator()) { i++; continue }
@@ -55,12 +68,19 @@ object BrokenHangul {
             if ((i until end).any { brokenMark(text[it]) || text[it] == '\r' || text[it] == '\n' }) {
                 repairSequential(text, i, end, sequential)
                 repairAdobe(text, i, end, adobe)
-                val best = if (likeness(text, i, end, adobe) > likeness(text, i, end, sequential)) adobe else sequential
-                best.copyInto(out, i, i, end)
-                loneMarks(text, i, end, out)
-                hideUnlikely(text, i, end, out)
+                words += intArrayOf(i, end, likeness(text, i, end, adobe).compareTo(likeness(text, i, end, sequential)).sign)
             }
             i = end
+        }
+        val decided = words.filter { it[2] != 0 }
+        for ((from, to, verdict) in words) {
+            val byAdobe = when {
+                verdict != 0 -> verdict > 0
+                else -> decided.minByOrNull { w -> (w[0] until w[1]).minOf { distance(from, it) } }?.let { it[2] > 0 } ?: false
+            }
+            (if (byAdobe) adobe else sequential).copyInto(out, from, from, to)
+            loneMarks(text, from, to, out)
+            hideUnlikely(text, from, to, out)
         }
         return hyphens(String(out))
     }
