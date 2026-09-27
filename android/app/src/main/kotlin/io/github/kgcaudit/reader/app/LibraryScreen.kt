@@ -4,6 +4,14 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.semantics.Role
+import io.github.kgcaudit.reader.ui.design.CpCover
+import io.github.kgcaudit.reader.ui.design.CpToast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -78,6 +86,23 @@ fun LibraryScreen(
     var scanning by remember { mutableStateOf(false) }
     var notice by remember { mutableStateOf<Pair<String, String?>?>(null) }
     var manageFolders by remember { mutableStateOf(false) }
+    // 길게 눌러 표지를 바꾸려는 책. 사진 고르기에서 돌아올 때까지 기억한다.
+    var coverMenu by remember { mutableStateOf<LibraryBook?>(null) }
+    var coverFor by remember { mutableStateOf<LibraryBook?>(null) }
+    var toast by remember { mutableStateOf<String?>(null) }
+    val pickCover = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        val book = coverFor ?: return@rememberLauncherForActivityResult
+        coverFor = null
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val ok = container.covers.setCustom(book.id) { context.contentResolver.openInputStream(uri) }
+            if (ok) {
+                toast = "‘${book.label}’ 표지를 바꿨습니다"
+            } else {
+                notice = "이 그림을 표지로 쓸 수 없습니다" to "그림 파일(jpg · png 등)을 골라 주세요. 파일이 깨졌을 수도 있습니다."
+            }
+        }
+    }
 
     fun rescan() {
         // 훑는 중에 새로고침을 또 누르면 두 스캔이 같은 표를 고치고, 먼저 끝난 쪽이 표시를 꺼 버린다.
@@ -151,14 +176,14 @@ fun LibraryScreen(
             LazyColumn(Modifier.fillMaxSize()) {
                 if (recent.isNotEmpty()) {
                     item { CpSectionLabel("최근에 읽은 책") }
-                    items(recent, key = { "r" + it.id.value }) { book ->
-                        BookRow(book, percents[book.id], onOpen = onOpen)
+                    item(key = "shelf") {
+                        Shelf(recent, percents, onOpen = onOpen, onLongClick = { coverMenu = it })
                     }
-                    item { Spacer(Modifier.height(8.dp)); CpDivider() }
+                    item { Spacer(Modifier.height(14.dp)); CpDivider() }
                 }
                 item { CpSectionLabel("모든 책") }
                 items(list.orEmpty(), key = { it.id.value }) { book ->
-                    BookRow(book, percents[book.id], onOpen = onOpen)
+                    BookRow(book, percents[book.id], onOpen = onOpen, onLongClick = { coverMenu = it })
                 }
                 item { Spacer(Modifier.height(24.dp)) }
             }
@@ -191,6 +216,29 @@ fun LibraryScreen(
         }
     }
 
+    coverMenu?.let { book ->
+        CoverMenu(
+            book,
+            onPick = {
+                coverMenu = null
+                coverFor = book
+                pickCover.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            },
+            onRevert = {
+                coverMenu = null
+                scope.launch {
+                    container.covers.clearCustom(book.id)
+                    toast = "‘${book.label}’ 표지를 되돌렸습니다"
+                }
+            },
+            onDismiss = { coverMenu = null },
+        )
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        CpToast(toast, { toast = null }, Modifier.align(Alignment.BottomCenter).padding(bottom = 40.dp))
+    }
+
     notice?.let { (title, message) ->
         CpPopup(title = title, message = message, onDismiss = { notice = null }) {
             Spacer(Modifier.height(16.dp))
@@ -199,30 +247,114 @@ fun LibraryScreen(
     }
 }
 
+/** 책 한 권의 표지. 메모리에 있으면 바로, 없으면 꺼내는 동안 대신 표지를 보인다. */
 @Composable
-private fun BookRow(
-    book: LibraryBook,
-    percent: Float?,
-    onOpen: (LibraryBook) -> Unit,
-) {
+private fun rememberCover(book: LibraryBook): Cover? {
+    val covers = LocalContext.current.container.covers
+    val version by covers.version.collectAsState()
+    var cover by remember(book.id) { mutableStateOf(covers.cached(book.id)) }
+    LaunchedEffect(book.id, version) { cover = covers.cover(book) }
+    return cover
+}
+
+@Composable
+private fun BookCover(book: LibraryBook, modifier: Modifier = Modifier, small: Boolean = false) {
     val tiles = CpTheme.colors.tiles
-    CpListRow(
+    CpCover(
+        image = rememberCover(book)?.image,
         title = book.label,
         subtitle = book.author ?: book.format.name,
+        fallback = when (book.format) {
+            BookFormat.EPUB -> tiles.book
+            BookFormat.TXT, BookFormat.PDF -> tiles.document
+        },
         icon = when (book.format) {
             BookFormat.EPUB -> CpIcons.Book
             BookFormat.TXT -> CpIcons.Text
             BookFormat.PDF -> CpIcons.Pdf
         },
-        // OLO Explorer 와 같은 뜻의 같은 색: TXT·PDF 는 문서(슬레이트). EPUB 은 Explorer 표에
-        // 없어 팔레트 3차색(틸)을 쓴다 — 목록에서 가장 흔한 종류가 한눈에 갈려야 한다.
-        tile = when (book.format) {
-            BookFormat.EPUB -> tiles.book
-            BookFormat.TXT, BookFormat.PDF -> tiles.document
-        },
+        modifier = modifier,
+        small = small,
+    )
+}
+
+/**
+ * 최근에 읽은 책: 큰 표지 · 제목 · 진도 막대. 늘 세 칸으로 나눈다 — 두 권뿐이어도 표지가 커지지 않아야 줄마다 크기가
+ * 같다.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun Shelf(
+    books: List<LibraryBook>,
+    percents: Map<BookId, Float>,
+    onOpen: (LibraryBook) -> Unit,
+    onLongClick: (LibraryBook) -> Unit,
+) {
+    val c = CpTheme.colors
+    Row(Modifier.fillMaxWidth().padding(horizontal = CpTheme.metrics.gutter), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        books.take(RECENT_SHOWN).forEach { book ->
+            val percent = percents[book.id] ?: 0f
+            Column(
+                Modifier.weight(1f)
+                    .combinedClickable(role = Role.Button, onLongClick = { onLongClick(book) }, onClick = { onOpen(book) }),
+            ) {
+                BookCover(book, Modifier.fillMaxWidth())
+                Spacer(Modifier.height(8.dp))
+                CpText(book.label, CpTheme.type.label, c.text)
+                Spacer(Modifier.height(6.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CpProgressBar(percent / 100f, Modifier.weight(1f), CpBarWeight.Thin)
+                    Spacer(Modifier.width(6.dp))
+                    CpText("${percent.roundToInt()}%", CpTheme.type.caption, c.textMuted)
+                }
+            }
+        }
+        repeat(RECENT_SHOWN - books.size.coerceAtMost(RECENT_SHOWN)) { Spacer(Modifier.weight(1f)) }
+    }
+}
+
+@Composable
+private fun BookRow(
+    book: LibraryBook,
+    percent: Float?,
+    onOpen: (LibraryBook) -> Unit,
+    onLongClick: (LibraryBook) -> Unit,
+) {
+    CpListRow(
+        title = book.label,
+        subtitle = book.author ?: book.format.name,
+        leading = { BookCover(book, Modifier.width(32.dp), small = true) },
         value = percent?.let { "${it.roundToInt()}%" },
         onClick = { onOpen(book) },
+        onLongClick = { onLongClick(book) },
     )
+}
+
+/** 길게 누른 책의 표지 판(구상안 확정: 사진 · 파일에서 고르기, 되돌리기). */
+@Composable
+private fun CoverMenu(book: LibraryBook, onPick: () -> Unit, onRevert: () -> Unit, onDismiss: () -> Unit) {
+    val cover = rememberCover(book)
+    val custom = cover?.custom == true
+    val message = when {
+        custom -> "직접 고른 표지를 쓰고 있습니다."
+        cover?.hasOwn == true && book.format == BookFormat.PDF -> "지금 표지는 파일 첫 쪽입니다."
+        cover?.hasOwn == true -> "지금 표지는 책에 든 표지 그림입니다."
+        else -> "이 책에는 표지 그림이 없어 대신 표지를 보여 줍니다."
+    }
+    CpPopup(title = book.label, message = message, onDismiss = onDismiss) {
+        Spacer(Modifier.height(8.dp))
+        CpListRow("사진 · 파일에서 표지 고르기", onPick, icon = CpIcons.Folder, compact = true)
+        CpListRow(
+            if (cover?.hasOwn == true) "원래 표지로 되돌리기" else "대신 표지로 되돌리기",
+            // 고른 표지가 없으면 되돌릴 것이 없다. 눌러도 판만 닫는다.
+            { if (custom) onRevert() else onDismiss() },
+            icon = CpIcons.Refresh,
+            compact = true,
+            enabled = custom,
+        )
+        Spacer(Modifier.height(12.dp))
+        CpButton("닫기", onDismiss, primary = false)
+    }
 }
 
 @Composable

@@ -1,5 +1,7 @@
 package io.github.kgcaudit.reader.pdf
 
+import android.graphics.Bitmap
+import android.graphics.Color
 import android.os.ParcelFileDescriptor
 import io.github.kgcaudit.reader.document.BookFormat
 import io.github.kgcaudit.reader.document.BookId
@@ -54,6 +56,20 @@ class PdfBook(
 
     /** 이미 잰 쪽이면 기다리지 않고 준다. 아직이면 null. */
     fun knownAspectRatio(index: Int): Float? = synchronized(aspects) { aspects[index] }
+
+    /**
+     * 첫 쪽을 [height] 픽셀 높이로 그린 그림(책장 표지). 흰 바탕을 먼저 깐다 — 엔진은 투명 바탕에 그려, 그대로
+     * JPEG 로 저장하면 글자 없는 곳이 검게 나온다. 첫 쪽을 못 그리면 null(대신 표지를 보인다).
+     */
+    fun coverImage(height: Int): Bitmap? = runCatching {
+        if (pageCount == 0) return null
+        val (w, h) = source.pageSize(0)
+        if (w <= 0 || h <= 0) return null
+        Bitmap.createBitmap((height.toLong() * w / h).toInt().coerceAtLeast(1), height, Bitmap.Config.ARGB_8888).also {
+            it.eraseColor(Color.WHITE)
+            source.render(0, it, PageRegion.WHOLE)
+        }
+    }.getOrNull()
 
     override fun close() = source.close()
 

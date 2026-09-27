@@ -4,6 +4,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -146,6 +147,8 @@ fun CpSectionLabel(text: String, modifier: Modifier = Modifier) {
  * 비활성 행도 누를 수 있다([onClick] 이 불린다). 왜 안 되는지 알려 주는 편이 아무
  * 반응이 없는 것보다 낫다 — 화면이 알림을 띄울지 정한다.
  */
+// 길게 누르기(combinedClickable)가 이 판의 Compose 에서는 아직 실험 딱지다. 쓰임새가 흔한 것이라 받아들인다.
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun CpListRow(
     title: String,
@@ -163,6 +166,10 @@ fun CpListRow(
      * 한 줄에도 쓰면 목차 39개 중 한 화면에 다섯 개만 보인다.
      */
     compact: Boolean = false,
+    /** 아이콘 자리에 대신 그릴 것(책장의 작은 표지). 주면 [icon] 은 쓰지 않는다. */
+    leading: (@Composable () -> Unit)? = null,
+    /** 길게 누름(책 표지 바꾸기). 없으면 길게 눌러도 [onClick] 과 같다. */
+    onLongClick: (() -> Unit)? = null,
 ) {
     val c = CpTheme.colors
     Row(
@@ -170,12 +177,15 @@ fun CpListRow(
             .fillMaxWidth()
             .heightIn(min = if (compact) CpTheme.metrics.touchTarget else CpTheme.metrics.rowHeight)
             .background(if (selected) c.accentContainer else Color.Transparent)
-            .clickable(role = Role.Button, onClick = onClick)
+            .combinedClickable(role = Role.Button, onLongClick = onLongClick, onClick = onClick)
             .padding(horizontal = CpTheme.metrics.gutter, vertical = if (compact) 4.dp else 8.dp)
             .alpha(if (enabled) 1f else 0.45f),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (icon != null) {
+        if (leading != null) {
+            leading()
+            Spacer(Modifier.width(14.dp))
+        } else if (icon != null) {
             if (tile != null) CpTile(icon, tile) else CpIcon(icon, if (selected) c.accent else c.textMuted)
             Spacer(Modifier.width(14.dp))
         }

@@ -91,6 +91,9 @@ class AppContainer(private val app: Application) {
 
     val prefs = PrefsStore(app)
 
+    /** 책장 표지. 앱 파일 영역 — 캐시 영역이면 사람이 고른 표지까지 시스템이 지운다. */
+    val covers = CoverStore(File(app.filesDir, "covers"), ::extractCover)
+
     /**
      * 본문 글꼴(휴대폰 글꼴 + 사용자 글꼴). 사용자가 넣은 폰트는 앱 파일 영역에 둔다 — 캐시
      * 영역이면 저장 공간이 부족할 때 시스템이 지운다.
@@ -222,6 +225,24 @@ class AppContainer(private val app: Application) {
                 reader.open()
                 OpenedBook.Pdf(reader)
             }
+        }
+    }
+
+    /** 책에서 표지를 꺼낸다: EPUB 은 표지 그림, PDF 는 첫 쪽, TXT 는 없다. */
+    private fun extractCover(book: LibraryBook): android.graphics.Bitmap? {
+        val uri = Uri.parse(book.id.value)
+        return when (book.format) {
+            BookFormat.EPUB -> {
+                val doc = EpubDocument.open(book.id, book.displayName, data.sources.seekableSource(uri))
+                try {
+                    doc.openCoverImage()?.use { CoverStore.decodeScaled(it.readBytes()) }
+                } finally {
+                    doc.close()
+                }
+            }
+            BookFormat.PDF -> PdfBook.open(book.id, book.displayName, data.sources.seekableDescriptor(uri), pdfEngine)
+                .use { it.coverImage(CoverStore.COVER_HEIGHT) }
+            BookFormat.TXT -> null
         }
     }
 
