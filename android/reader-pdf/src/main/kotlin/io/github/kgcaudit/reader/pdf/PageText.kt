@@ -67,6 +67,32 @@ class PageText(val text: String, private val boxes: FloatArray, val source: Stri
         return out
     }
 
+    /**
+     * 겹쳐 찍은 글자를 한 벌만 남긴다. 잡지 제목은 글자를 같은 자리에 두 번 찍어 굵게 보이게 하는 일이 있고(가짜 굵게),
+     * 글자 층에도 두 벌이 그대로 남아 "호메메로로스스의 의" 로 읽혔다(씨네21 1569호 17쪽). 바로 앞 몇 글자 안에 같은
+     * 글자가 **거의 같은 네모**로 있으면 뒤의 것을 소리 내지 않는 글자로 바꾼다. [inVisualOrder] **뒤에** 부른다 — 글자
+     * 층에는 줄 한 벌이 통째로 두 번 들어 있어, 화면 순서로 세운 뒤에야 두 벌이 나란히 선다. 글 길이는 그대로다 — 글자 자리(형광펜)가
+     * 밀리지 않는다. 자리가 다른 되풀이("하하")는 그대로다.
+     */
+    fun withoutOverprint(): PageText {
+        var out: CharArray? = null
+        for (i in text.indices) {
+            val c = text[i]
+            // 글자 · 숫자만 본다. 문장부호는 글꼴의 한 모양이 여러 글자("…" → "....")로 풀려 네 글자가 한 네모를 나눠
+            // 가지는 일이 흔하다 — 그걸 겹쳐 찍은 것으로 보면 말줄임표가 마침표 하나가 되어 문장이 거기서 끊겼다.
+            if (!c.isLetterOrDigit()) continue
+            val b = box(i)?.takeIf { it.right > it.left && it.bottom > it.top } ?: continue
+            val slack = (b.bottom - b.top) * OVERPRINT_SLACK
+            val twin = (maxOf(0, i - OVERPRINT_REACH) until i).any { j ->
+                text[j] == c && box(j)?.let {
+                    abs(it.left - b.left) < slack && abs(it.right - b.right) < slack && abs(it.top - b.top) < slack && abs(it.bottom - b.bottom) < slack
+                } == true
+            }
+            if (twin) (out ?: text.toCharArray().also { out = it })[i] = SILENT
+        }
+        return out?.let { withText(String(it)) } ?: this
+    }
+
     /** 같은 네모에 고친 글([BrokenHangul]). 글 길이가 같아야 한다 — 네모는 글자 자리로 짝지어진다. */
     fun withText(fixed: String): PageText = if (fixed == text) this else PageText(fixed, boxes, source)
 
@@ -466,6 +492,10 @@ class PageText(val text: String, private val boxes: FloatArray, val source: Stri
         private const val WORD_ENDS = "는은을를가고서며게에의도와과로면요"
         /** 소리 내지 않고 [speakable] 이 지우는 글자(폭 없는 공백). */
         private const val SILENT = '\u200B'
+        /** 겹쳐 찍은 글자를 찾는 거리: 같은 글자가 이만큼 앞까지(사이에 엔진이 끼운 공백이 온다 — "의 의"). */
+        private const val OVERPRINT_REACH = 3
+        /** 두 네모가 "같은 자리" 인 어긋남의 한계(글자 높이에 대한 비율). 가짜 굵게는 0.5pt 안팎 비켜 찍는다. */
+        private const val OVERPRINT_SLACK = 0.15f
 
         private fun isHangul(c: Char): Boolean = c in '\uAC00'..'\uD7A3'
 

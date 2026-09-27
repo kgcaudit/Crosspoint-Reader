@@ -115,6 +115,21 @@ class PdfReaderTest {
     }
 
     @Test
+    fun `a title printed twice over itself to look bold is read once`() = runTest {
+        // 씨네21 1569호 17쪽: 제목을 같은 자리에 두 번 찍어 굵게 보였고, 글자 층에는 줄 한 벌이 통째로 두 번 들어 있었다.
+        // "호메메로로스스의 의 위위대대한 한" 으로 읽혔다. 화면 순서로 세운 **뒤에** 두 벌을 가려야 나란히 선다.
+        val title = "호메로스의 위대한 대서사시"
+        val boxes = FloatArray(title.length * 2 * 4)
+        for (copy in 0..1) for (i in title.indices) {
+            floatArrayOf(0.1f + i * 0.03f, 0.1f, 0.13f + i * 0.03f, 0.13f).copyInto(boxes, (copy * title.length + i) * 4)
+        }
+        val r = reader(FakeSource(2, texts = emptyMap(), layers = mapOf(1 to PageText(title + title, boxes))))
+        r.open()
+        val speech = r.speech(1)
+        assertEquals(listOf(title), speech.sentences.map { io.github.kgcaudit.reader.layout.book.speakable(speech.text, it) })
+    }
+
+    @Test
     fun `turning pages saves the place and reopening returns to it`() = runTest {
         val first = reader()
         first.open()
@@ -373,11 +388,13 @@ private class FakeSource(
     private val broken: Set<Int> = emptySet(),
     /** 쪽마다의 글(줄은 "\r\n"). 없으면 글자 API 가 없는 엔진이다. */
     private val texts: Map<Int, String>? = null,
+    /** 글자 네모까지 있는 층(쪽마다). 주면 [texts] 대신 이것을 준다. */
+    private val layers: Map<Int, PageText> = emptyMap(),
 ) : PdfSource {
     var textCalls = 0
     override val readsText: Boolean get() = texts != null
     override fun pageText(index: Int): String? = texts?.let { textCalls++; it[index].orEmpty() }
-    override fun textLayer(index: Int): PageText? = texts?.let { PageText.textOnly(it[index].orEmpty()) }
+    override fun textLayer(index: Int): PageText? = layers[index] ?: texts?.let { PageText.textOnly(it[index].orEmpty()) }
 
     var renders = 0
     var lastRegion: PageRegion? = null

@@ -289,6 +289,19 @@ class PageTextTest {
     }
 
     @Test
+    fun `repeated letters in different places and an ellipsis sharing one box are kept`() {
+        // 망가뜨린 경우 둘: 겹쳐 찍은 것만 한 벌로 줄인다. 자리가 다른 되풀이("하하")는 그대로, 한 모양이 네 글자로 풀려
+        // 한 네모를 나눠 가진 말줄임표("....")도 그대로 — 줄이면 마침표 하나가 되어 문장이 거기서 끊겼다(좋은생각 21쪽).
+        val text = "하하 웃었다...."
+        val boxes = FloatArray(text.length * 4)
+        text.forEachIndexed { i, _ ->
+            val x = if (i >= text.length - 4) 0.1f + (text.length - 4) * 0.02f else 0.1f + i * 0.02f
+            floatArrayOf(x, 0.3f, x + 0.02f, 0.32f).copyInto(boxes, i * 4)
+        }
+        assertEquals(text, PageText(text, boxes).withoutOverprint().text)
+    }
+
+    @Test
     fun `spaces the engine adds with no width stay between the words they separate`() {
         // 엔진이 낱말 사이에 끼워 넣은 공백은 폭 0 네모로 앞 글자의 왼쪽 끝에 놓인다. 그 자리로 줄을 세우면 공백이 앞 글자
         // 앞으로 가 "traditional hanok house" 가 "traditiona lhano khouse" 로 읽혔다(좋은생각 109쪽).
