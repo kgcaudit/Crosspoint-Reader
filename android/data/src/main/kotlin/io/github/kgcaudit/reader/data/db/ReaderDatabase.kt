@@ -8,11 +8,12 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [BookEntity::class, ProgressEntity::class, BookmarkEntity::class, RecentEntity::class, AnnotationEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = true,
     // 1 → 2: 형광펜 표(annotations)를 더했다(0.15.0). 표를 더하기만 하므로 Room 이 만든 SQL 로 충분하다 —
     // 손으로 쓴 CREATE 문은 한 글자만 어긋나도 열 때 스키마 검사에 걸려 앱이 죽는다.
-    autoMigrations = [AutoMigration(from = 1, to = 2)],
+    // 2 → 3: 최근 표에 다 읽은 때(finishedAtEpochMs, 비어 있음)를 더했다(0.23.0). 열을 더하기만 한다.
+    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3)],
 )
 abstract class ReaderDatabase : RoomDatabase() {
     abstract fun books(): BookDao

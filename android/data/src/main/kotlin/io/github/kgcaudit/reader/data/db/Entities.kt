@@ -1,6 +1,7 @@
 package io.github.kgcaudit.reader.data.db
 
 import androidx.room.ColumnInfo
+import androidx.room.Embedded
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -60,11 +61,21 @@ data class BookmarkEntity(
     val createdAtEpochMs: Long,
 )
 
-/** 최근에 연 책. 책마다 한 행이고, 열 때마다 시각만 바뀐다. */
+/**
+ * 최근에 연 책. 책마다 한 행이고, 열 때마다 시각만 바뀐다. [finishedAtEpochMs] 는 다 읽은 때(0.23.0) — 없으면 읽는 중.
+ * 다시 열어도 지우지 않는다(다시 읽는 책이 "읽는 중" 줄을 어지럽히지 않게, 사용자 결정).
+ */
 @Entity(tableName = "recent")
 data class RecentEntity(
     @PrimaryKey val bookId: String,
     val openedAtEpochMs: Long,
+    @ColumnInfo(defaultValue = "NULL") val finishedAtEpochMs: Long? = null,
+)
+
+/** 책장 한 칸: 책과 다 읽은 때. */
+data class ShelfRow(
+    @Embedded val book: BookEntity,
+    val finishedAtEpochMs: Long?,
 )
 
 /**

@@ -8,6 +8,7 @@ import io.github.kgcaudit.reader.document.Annotation
 import io.github.kgcaudit.reader.document.BookId
 import io.github.kgcaudit.reader.document.HighlightColor
 import io.github.kgcaudit.reader.document.Locator
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.json.JSONObject
 import org.junit.After
@@ -42,8 +43,16 @@ class MigrationTest {
         context.deleteDatabase(ReaderDatabase.FILE_NAME)
     }
 
-    private fun writeVersion1(): Unit {
-        val schema = JSONObject(File("schemas/io.github.kgcaudit.reader.data.db.ReaderDatabase/1.json").readText())
+    private fun writeVersion1(): Unit = writeVersion(1) { db ->
+        db.execSQL(
+            "INSERT INTO bookmarks (bookId, locator, orderMajor, orderMinor, orderPatch, snippet, createdAtEpochMs) " +
+                "VALUES ('${book.value}', 'r:3:120', 3, 120, 0, '옛 책갈피', 5)",
+        )
+        db.execSQL("INSERT INTO progress (bookId, locator, percent, updatedAtEpochMs) VALUES ('${book.value}', 'r:3:130', 12.5, 6)")
+    }
+
+    private fun writeVersion(version: Int, fill: (SQLiteDatabase) -> Unit) {
+        val schema = JSONObject(File("schemas/io.github.kgcaudit.reader.data.db.ReaderDatabase/$version.json").readText())
             .getJSONObject("database")
         val file = context.getDatabasePath(ReaderDatabase.FILE_NAME).apply { parentFile?.mkdirs() }
         SQLiteDatabase.openOrCreateDatabase(file, null).use { db ->
@@ -59,12 +68,8 @@ class MigrationTest {
             }
             val setup = schema.getJSONArray("setupQueries")
             for (i in 0 until setup.length()) db.execSQL(setup.getString(i))
-            db.execSQL(
-                "INSERT INTO bookmarks (bookId, locator, orderMajor, orderMinor, orderPatch, snippet, createdAtEpochMs) " +
-                    "VALUES ('${book.value}', 'r:3:120', 3, 120, 0, '옛 책갈피', 5)",
-            )
-            db.execSQL("INSERT INTO progress (bookId, locator, percent, updatedAtEpochMs) VALUES ('${book.value}', 'r:3:130', 12.5, 6)")
-            db.version = 1
+            fill(db)
+            db.version = version
         }
     }
 
@@ -81,7 +86,30 @@ class MigrationTest {
             val notes = RoomAnnotationRepository(db.annotations())
             notes.add(Annotation(0, book, Locator.Reflow(3, 10), Locator.Reflow(3, 20), HighlightColor.Green, "메모", "칠한 글", 7))
             assertEquals(listOf("칠한 글"), notes.forBook(book).map { it.snippet })
-            assertEquals(2, db.openHelper.readableDatabase.version)
+            assertEquals(3, db.openHelper.readableDatabase.version)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `upgrading from version 2 keeps the recent shelf and every book starts as being read`() = runTest {
+        // 0.22 까지(스키마 2)의 최근 목록에는 다 읽은 때가 없다. 올린 뒤 모두 "읽는 중" 으로 남고, 다 읽음을 적을 수 있다.
+        writeVersion(2) { db ->
+            db.execSQL(
+                "INSERT INTO books (id, folderUri, displayName, format, sizeBytes, lastModifiedEpochMs, title, author, addedAtEpochMs, missing) " +
+                    "VALUES ('${book.value}', 'content://books/tree/root', 'a.epub', 'EPUB', 10, 1, NULL, NULL, 1, 0)",
+            )
+            db.execSQL("INSERT INTO recent (bookId, openedAtEpochMs) VALUES ('${book.value}', 7)")
+        }
+        val db = ReaderDatabase.open(context)
+        try {
+            val library = io.github.kgcaudit.reader.data.library.Library(db)
+            val shelf = library.shelf().first()
+            assertEquals(listOf("a.epub"), shelf.map { it.book.displayName })
+            assertEquals(null, shelf.single().finishedAtEpochMs)
+            library.setFinished(book, 9, nowEpochMs = 9)
+            assertEquals(9L, library.shelf().first().single().finishedAtEpochMs)
         } finally {
             db.close()
         }

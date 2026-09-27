@@ -131,6 +131,40 @@ class LibraryTest {
     }
 
     @Test
+    fun `every opened book stays on the shelf and a finished one keeps its mark when reopened`() = runTest {
+        // 0.22 까지는 최근 세 권만 보였다. 이제 연 책은 모두 책장에 있고, 끝까지 읽은 책은 따로 간다.
+        val names = listOf("a.epub", "b.txt", "c.pdf", "d.epub", "e.epub")
+        val scanned = names.map { book(it) }
+        library.applyScan(folder, ScanResult(scanned, complete = true), 1)
+        scanned.forEachIndexed { i, b -> library.markOpened(BookId(b.uri), 10L + i) }
+        assertEquals(names.reversed(), library.shelf().first().map { it.book.displayName })
+
+        val progress = RoomProgressRepository(db.progress(), db.recent())
+        val c = BookId(scanned[2].uri)
+        // 망가뜨린 경우: 97% 에서 멈춘 책은 아직 읽는 중이다.
+        progress.save(ReadingProgress(c, Locator.FixedPage(95), 97f, 20))
+        assertNull(library.shelf().first().first { it.book.id == c }.finishedAtEpochMs)
+        progress.save(ReadingProgress(c, Locator.FixedPage(99), 100f, 30))
+        assertEquals(30L, library.shelf().first().first { it.book.id == c }.finishedAtEpochMs)
+        // 다시 열어도, 끝 쪽을 다시 넘겨도 끝낸 날이 그대로다.
+        library.markOpened(c, 40)
+        progress.save(ReadingProgress(c, Locator.FixedPage(99), 100f, 50))
+        val again = library.shelf().first()
+        assertEquals("c.pdf", again.first().book.displayName)
+        assertEquals(30L, again.first().finishedAtEpochMs)
+    }
+
+    @Test
+    fun `a book can be marked finished by hand, even one never opened, and put back`() = runTest {
+        val a = book("a.epub"); val b = book("b.txt")
+        library.applyScan(folder, ScanResult(listOf(a, b), complete = true), 1)
+        library.setFinished(BookId(b.uri), 5, nowEpochMs = 5)
+        assertEquals(listOf("b.txt" to 5L), library.shelf().first().map { it.book.displayName to it.finishedAtEpochMs })
+        library.setFinished(BookId(b.uri), null, nowEpochMs = 6)
+        assertEquals(listOf("b.txt" to null), library.shelf().first().map { it.book.displayName to it.finishedAtEpochMs })
+    }
+
+    @Test
     fun `forgetting a folder keeps the reading position for when it comes back`() = runTest {
         val a = book("a.epub")
         val progress = RoomProgressRepository(db.progress())

@@ -141,6 +141,21 @@ class ReadingSessionTest {
     }
 
     @Test
+    fun `the last page of the book is saved as read to the end`() = runTest {
+        // 진도는 쪽 첫 글자로 재 마지막 쪽에서도 100 이 되지 않았다 — 책장이 "다 읽은 책" 을 알 수 없었다.
+        val session = newSession()
+        val start = session.restore()
+        val last = start.copy(pageIndex = start.pageCount - 1)
+        val chapters = layoutOf(session).spine().size
+        val end = if (chapters == 1) last else last.copy(spineIndex = chapters - 1)
+        assertEquals(100f, session.saveProgress(end).percent)
+        // 망가뜨린 경우: 끝에서 한 쪽 앞은 100 이 아니다. 두쪽보기에서 오른쪽이 끝 쪽이면 100.
+        val before = end.copy(pageIndex = end.pageIndex - 1)
+        assertTrue(session.saveProgress(before).percent < 100f)
+        assertEquals(100f, session.saveProgress(before, lastShown = end).percent)
+    }
+
+    @Test
     fun `saving twice keeps one place, not a history`() = runTest {
         val session = newSession()
         session.saveProgress(session.restore())

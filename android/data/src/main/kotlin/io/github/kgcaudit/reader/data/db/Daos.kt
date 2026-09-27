@@ -3,6 +3,7 @@ package io.github.kgcaudit.reader.data.db
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
@@ -68,6 +69,36 @@ interface RecentDao {
 
     @Upsert
     suspend fun upsert(recent: RecentEntity)
+
+    /**
+     * 열었다: 없던 책이면 새 행, 있던 책이면 연 시각만. [upsert] 로 통째로 쓰면 다 읽은 때가 지워져, 다 읽은 책을
+     * 다시 펼칠 때마다 "읽는 중" 으로 돌아갔다.
+     */
+    @Query("INSERT OR IGNORE INTO recent(bookId, openedAtEpochMs, finishedAtEpochMs) VALUES(:bookId, :at, NULL)")
+    suspend fun insertIfAbsent(bookId: String, at: Long)
+
+    @Query("UPDATE recent SET openedAtEpochMs = :at WHERE bookId = :bookId")
+    suspend fun touch(bookId: String, at: Long)
+
+    @Transaction
+    suspend fun opened(bookId: String, at: Long) {
+        insertIfAbsent(bookId, at)
+        touch(bookId, at)
+    }
+
+    /** 다 읽음 표시 · 풀기(null). */
+    @Query("UPDATE recent SET finishedAtEpochMs = :at WHERE bookId = :bookId")
+    suspend fun setFinished(bookId: String, at: Long?)
+
+    /** 끝까지 읽었다 — 처음 한 번만 적는다(끝 쪽을 다시 넘겨도 끝낸 날이 바뀌지 않게). */
+    @Query("UPDATE recent SET finishedAtEpochMs = :at WHERE bookId = :bookId AND finishedAtEpochMs IS NULL")
+    suspend fun finishOnce(bookId: String, at: Long)
+
+    @Query(
+        "SELECT books.*, recent.finishedAtEpochMs FROM recent JOIN books ON books.id = recent.bookId " +
+            "WHERE books.missing = 0 ORDER BY recent.openedAtEpochMs DESC",
+    )
+    fun observeShelf(): Flow<List<ShelfRow>>
 
     /** 숨겨진(스캔에서 사라진) 책은 뺀다. 눌러도 열리지 않는 항목을 보여 주면 안 된다. */
     @Query(

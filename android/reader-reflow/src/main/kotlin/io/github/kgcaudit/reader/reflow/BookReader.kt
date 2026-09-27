@@ -478,7 +478,8 @@ class BookReader(
         // 두쪽보기면 이 쪽이 든 펼침의 왼쪽부터 — 목차 · 책갈피가 오른쪽 쪽을 가리켜도 그 펼침이 보인다.
         val position = if (spread) l.spreadStart(target) else target
         val page = l.page(position.spineIndex, position.pageIndex)
-        val right = if (spread) l.spreadRight(position)?.let { l.page(it.spineIndex, it.pageIndex) } else null
+        val rightPosition = if (spread) l.spreadRight(position) else null
+        val right = rightPosition?.let { l.page(it.spineIndex, it.pageIndex) }
         val text = texts.getOrPut(position.spineIndex) { l.chapterText(position.spineIndex).orEmpty() }
         // 앞뒤 챕터 캐시가 너무 쌓이지 않게 지금 챕터 근처만 들고 있는다.
         texts.keys.retainAll { kotlin.math.abs(it - position.spineIndex) <= 1 }
@@ -487,7 +488,7 @@ class BookReader(
         val links = l.links(position.spineIndex)
         val length = l.chapterLength(position.spineIndex)
         val after = l.charsAfterChapter(position.spineIndex)
-        val saved = s.saveProgress(position)
+        val saved = s.saveProgress(position, lastShown = rightPosition ?: position)
         shownLocator = l.locatorAt(position.spineIndex, position.pageIndex)
         _state.value = ReaderState(
             page = page,

@@ -8,6 +8,9 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.semantics.Role
 import io.github.kgcaudit.reader.ui.design.CpCover
@@ -54,7 +57,9 @@ import io.github.kgcaudit.reader.ui.design.CpSectionLabel
 import io.github.kgcaudit.reader.ui.design.CpText
 import io.github.kgcaudit.reader.ui.design.CpTheme
 import io.github.kgcaudit.reader.ui.design.CpTile
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 /**
@@ -80,7 +85,11 @@ fun LibraryScreen(
     // Flow 를 remember 한다. 부를 때마다 새 Flow 라서, 그대로 두면 다시 그릴 때마다(알림·스캔 표시)
     // 세 질의를 끊고 다시 건다.
     val books by remember { data.library.books() }.collectAsState(initial = null)
-    val recent by remember { data.library.recent(limit = RECENT_SHOWN) }.collectAsState(initial = emptyList())
+    val shelf by remember { data.library.shelf() }.collectAsState(initial = emptyList())
+    val reading = shelf.filter { it.finishedAtEpochMs == null }.map { it.book }
+    // 다 읽은 책은 끝낸 차례(최근에 끝낸 책이 앞).
+    val finished = shelf.filter { it.finishedAtEpochMs != null }.sortedByDescending { it.finishedAtEpochMs }
+    val finishedIds = finished.mapTo(HashSet()) { it.book.id }
     val percents by remember { data.library.percents() }.collectAsState(initial = emptyMap())
     var folders by remember { mutableStateOf(data.folders.folders()) }
     var scanning by remember { mutableStateOf(false) }
@@ -174,16 +183,25 @@ fun LibraryScreen(
             }
         } else {
             LazyColumn(Modifier.fillMaxSize()) {
-                if (recent.isNotEmpty()) {
-                    item { CpSectionLabel("최근에 읽은 책") }
-                    item(key = "shelf") {
-                        Shelf(recent, percents, onOpen = onOpen, onLongClick = { coverMenu = it })
+                if (reading.isNotEmpty()) {
+                    item { ShelfLabel("읽는 중 · ${reading.size}권", more = reading.size > SHELF_COLUMNS) }
+                    item(key = "reading") {
+                        ShelfRow(reading) { book, width -> ShelfItem(book, width, percents[book.id], onOpen, onLongClick = { coverMenu = it }) }
                     }
-                    item { Spacer(Modifier.height(14.dp)); CpDivider() }
                 }
+                if (finished.isNotEmpty()) {
+                    item { ShelfLabel("다 읽은 책 · ${finished.size}권", more = finished.size > SHELF_COLUMNS) }
+                    item(key = "finished") {
+                        ShelfRow(finished.map { it.book }) { book, width ->
+                            val at = finished.first { it.book.id == book.id }.finishedAtEpochMs!!
+                            DoneItem(book, width, at, onOpen, onLongClick = { coverMenu = it })
+                        }
+                    }
+                }
+                if (shelf.isNotEmpty()) item { Spacer(Modifier.height(14.dp)); CpDivider() }
                 item { CpSectionLabel("모든 책") }
                 items(list.orEmpty(), key = { it.id.value }) { book ->
-                    BookRow(book, percents[book.id], onOpen = onOpen, onLongClick = { coverMenu = it })
+                    BookRow(book, percents[book.id], book.id in finishedIds, onOpen = onOpen, onLongClick = { coverMenu = it })
                 }
                 item { Spacer(Modifier.height(24.dp)) }
             }
@@ -217,8 +235,20 @@ fun LibraryScreen(
     }
 
     coverMenu?.let { book ->
+        val done = book.id in finishedIds
         CoverMenu(
             book,
+            finished = done,
+            onFinished = {
+                coverMenu = null
+                scope.launch {
+                    val now = System.currentTimeMillis()
+                    // 여러 줄을 한 번에 고치는(트랜잭션) 일이라 화면 스레드에서 하면 Room 이 막는다.
+                    withContext(Dispatchers.IO) { data.library.setFinished(book.id, if (done) null else now, now) }
+                    // 책 이름 뒤에 조사를 붙이지 않는다 — 받침에 따라 을/를이 갈려 틀리기 쉽다.
+                    toast = if (done) "‘${book.label}’ · 읽는 중으로 되돌렸습니다" else "‘${book.label}’ · 다 읽은 책으로 옮겼습니다"
+                }
+            },
             onPick = {
                 coverMenu = null
                 coverFor = book
@@ -278,45 +308,89 @@ private fun BookCover(book: LibraryBook, modifier: Modifier = Modifier, small: B
     )
 }
 
+/** 책장 줄 머리: "읽는 중 · 5권". 세 권을 넘으면 옆으로 넘길 수 있다고 알린다. */
+@Composable
+private fun ShelfLabel(text: String, more: Boolean) {
+    val c = CpTheme.colors
+    Row(
+        Modifier.fillMaxWidth().padding(start = CpTheme.metrics.gutter, end = CpTheme.metrics.gutter, top = 18.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CpText(text, CpTheme.type.label, c.textMuted, Modifier.weight(1f))
+        if (more) CpText("옆으로 넘겨 보기 ›", CpTheme.type.caption, c.textMuted)
+    }
+}
+
 /**
- * 최근에 읽은 책: 큰 표지 · 제목 · 진도 막대. 늘 세 칸으로 나눈다 — 두 권뿐이어도 표지가 커지지 않아야 줄마다 크기가
- * 같다.
+ * 책장 한 줄: 열어 본 책을 모두 옆으로 늘어놓는다(0.23.0 — 세 권만 보이던 때는 네 번째 책을 다시 찾으려면 모든 책
+ * 목록을 뒤져야 했다). 칸 폭은 화면에 세 권이 들어가는 만큼으로 늘 같다 — 두 권뿐이어도 표지가 커지지 않는다.
  */
+@Composable
+private fun ShelfRow(books: List<LibraryBook>, item: @Composable (LibraryBook, androidx.compose.ui.unit.Dp) -> Unit) {
+    val gutter = CpTheme.metrics.gutter
+    val screen = LocalConfiguration.current.screenWidthDp.dp
+    // 넷째 칸이 오른쪽 끝에 조금 보이게 한다(구상안) — 옆으로 넘길 수 있다는 것을 표지 자체가 알린다.
+    val width = (screen - gutter * 2 - SHELF_GAP * (SHELF_COLUMNS - 1) - SHELF_PEEK) / SHELF_COLUMNS
+    LazyRow(contentPadding = PaddingValues(horizontal = gutter), horizontalArrangement = Arrangement.spacedBy(SHELF_GAP)) {
+        items(books, key = { it.id.value }) { item(it, width) }
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun Shelf(
-    books: List<LibraryBook>,
-    percents: Map<BookId, Float>,
+private fun ShelfItem(
+    book: LibraryBook,
+    width: androidx.compose.ui.unit.Dp,
+    percent: Float?,
     onOpen: (LibraryBook) -> Unit,
     onLongClick: (LibraryBook) -> Unit,
 ) {
     val c = CpTheme.colors
-    Row(Modifier.fillMaxWidth().padding(horizontal = CpTheme.metrics.gutter), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-        books.take(RECENT_SHOWN).forEach { book ->
-            val percent = percents[book.id] ?: 0f
-            Column(
-                Modifier.weight(1f)
-                    .combinedClickable(role = Role.Button, onLongClick = { onLongClick(book) }, onClick = { onOpen(book) }),
-            ) {
-                BookCover(book, Modifier.fillMaxWidth())
-                Spacer(Modifier.height(8.dp))
-                CpText(book.label, CpTheme.type.label, c.text)
-                Spacer(Modifier.height(6.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    CpProgressBar(percent / 100f, Modifier.weight(1f), CpBarWeight.Thin)
-                    Spacer(Modifier.width(6.dp))
-                    CpText("${percent.roundToInt()}%", CpTheme.type.caption, c.textMuted)
-                }
-            }
+    val p = percent ?: 0f
+    Column(Modifier.width(width).combinedClickable(role = Role.Button, onLongClick = { onLongClick(book) }, onClick = { onOpen(book) })) {
+        BookCover(book, Modifier.fillMaxWidth())
+        Spacer(Modifier.height(8.dp))
+        CpText(book.label, CpTheme.type.label, c.text)
+        Spacer(Modifier.height(6.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            CpProgressBar(p / 100f, Modifier.weight(1f), CpBarWeight.Thin)
+            Spacer(Modifier.width(6.dp))
+            CpText("${p.roundToInt()}%", CpTheme.type.caption, c.textMuted)
         }
-        repeat(RECENT_SHOWN - books.size.coerceAtMost(RECENT_SHOWN)) { Spacer(Modifier.weight(1f)) }
     }
+}
+
+/** 다 읽은 책: 막대 대신 "다 읽음 · 끝낸 날". 표지 위에 띠를 얹지 않는다 — 대신 표지의 제목 · 저자를 가렸다(구상안). */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun DoneItem(
+    book: LibraryBook,
+    width: androidx.compose.ui.unit.Dp,
+    finishedAtEpochMs: Long,
+    onOpen: (LibraryBook) -> Unit,
+    onLongClick: (LibraryBook) -> Unit,
+) {
+    val c = CpTheme.colors
+    Column(Modifier.width(width).combinedClickable(role = Role.Button, onLongClick = { onLongClick(book) }, onClick = { onOpen(book) })) {
+        BookCover(book, Modifier.fillMaxWidth())
+        Spacer(Modifier.height(8.dp))
+        CpText(book.label, CpTheme.type.label, c.text)
+        Spacer(Modifier.height(4.dp))
+        CpText("다 읽음 · ${monthDay(finishedAtEpochMs)}", CpTheme.type.caption, c.accent)
+    }
+}
+
+/** "9월 21일". 해가 바뀌어도 책장에서는 날짜만으로 충분하다 — 해까지 적으면 칸 폭을 넘는다. */
+internal fun monthDay(epochMs: Long): String {
+    val date = java.time.Instant.ofEpochMilli(epochMs).atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+    return "${date.monthValue}월 ${date.dayOfMonth}일"
 }
 
 @Composable
 private fun BookRow(
     book: LibraryBook,
     percent: Float?,
+    finished: Boolean,
     onOpen: (LibraryBook) -> Unit,
     onLongClick: (LibraryBook) -> Unit,
 ) {
@@ -324,7 +398,7 @@ private fun BookRow(
         title = book.label,
         subtitle = book.author ?: book.format.name,
         leading = { BookCover(book, Modifier.width(32.dp), small = true) },
-        value = percent?.let { "${it.roundToInt()}%" },
+        value = if (finished) "다 읽음" else percent?.let { "${it.roundToInt()}%" },
         onClick = { onOpen(book) },
         onLongClick = { onLongClick(book) },
     )
@@ -332,7 +406,14 @@ private fun BookRow(
 
 /** 길게 누른 책의 표지 판(구상안 확정: 사진 · 파일에서 고르기, 되돌리기). */
 @Composable
-private fun CoverMenu(book: LibraryBook, onPick: () -> Unit, onRevert: () -> Unit, onDismiss: () -> Unit) {
+private fun CoverMenu(
+    book: LibraryBook,
+    finished: Boolean,
+    onFinished: () -> Unit,
+    onPick: () -> Unit,
+    onRevert: () -> Unit,
+    onDismiss: () -> Unit,
+) {
     val cover = rememberCover(book)
     val custom = cover?.custom == true
     val message = when {
@@ -343,6 +424,7 @@ private fun CoverMenu(book: LibraryBook, onPick: () -> Unit, onRevert: () -> Uni
     }
     CpPopup(title = book.label, message = message, onDismiss = onDismiss) {
         Spacer(Modifier.height(8.dp))
+        CpListRow(if (finished) "읽는 중으로 되돌리기" else "다 읽은 책으로 표시", onFinished, icon = CpIcons.Bookmark, compact = true)
         CpListRow("사진 · 파일에서 표지 고르기", onPick, icon = CpIcons.Folder, compact = true)
         CpListRow(
             if (cover?.hasOwn == true) "원래 표지로 되돌리기" else "대신 표지로 되돌리기",
@@ -385,5 +467,7 @@ private fun folderName(uri: Uri): String {
     return path.substringAfterLast('/').ifBlank { if (id.startsWith("primary")) "내장 저장소" else id }
 }
 
-/** 라이브러리 위쪽 "최근에 읽은 책" 의 줄 수. 한 화면에 목록과 함께 보이는 만큼. */
-private const val RECENT_SHOWN = 3
+/** 책장 한 줄에 한 화면으로 보이는 권수. 더 있으면 옆으로 넘긴다. */
+private const val SHELF_COLUMNS = 3
+private val SHELF_GAP = 14.dp
+private val SHELF_PEEK = 28.dp

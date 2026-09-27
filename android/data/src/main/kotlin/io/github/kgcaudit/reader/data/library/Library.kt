@@ -10,6 +10,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
 /** 라이브러리 목록 한 줄. */
+/** 책장의 책. [finishedAtEpochMs] 가 있으면 다 읽은 책. */
+data class ShelfBook(val book: LibraryBook, val finishedAtEpochMs: Long?)
+
 data class LibraryBook(
     val id: BookId,
     val format: BookFormat,
@@ -61,8 +64,25 @@ class Library(private val db: ReaderDatabase) {
         rows.associate { BookId(it.bookId) to it.percent.coerceIn(0f, 100f) }
     }
 
-    /** 책을 열었다. 최근 목록의 맨 앞으로 온다. */
-    suspend fun markOpened(id: BookId, nowEpochMs: Long) = recent.upsert(RecentEntity(id.value, nowEpochMs))
+    /**
+     * 책장: 열어 본 책 모두, 최근에 연 차례. [ShelfBook.finishedAtEpochMs] 가 있으면 "다 읽은 책" 줄에 간다. 몇 권으로
+     * 자르지 않는다 — 세 권만 보이던 때(0.22.x)는 네 번째로 연 책을 다시 찾으려면 모든 책 목록을 뒤져야 했다.
+     */
+    fun shelf(): Flow<List<ShelfBook>> = recent.observeShelf().map { rows ->
+        rows.mapNotNull { row -> toBook(row.book)?.let { ShelfBook(it, row.finishedAtEpochMs) } }
+    }
+
+    /** 책을 열었다. 최근 목록의 맨 앞으로 온다. 다 읽은 표시는 그대로 둔다. */
+    suspend fun markOpened(id: BookId, nowEpochMs: Long) = recent.opened(id.value, nowEpochMs)
+
+    /**
+     * 다 읽음을 손으로 표시하거나(시각) 푼다(null). 한 번도 열지 않은 책도 표시할 수 있다 — 종이책으로 읽은 책을
+     * 정리하는 사람이 있다. 그때는 책장에 새로 올린다.
+     */
+    suspend fun setFinished(id: BookId, finishedAtEpochMs: Long?, nowEpochMs: Long) = db.withTransaction {
+        if (finishedAtEpochMs != null) recent.insertIfAbsent(id.value, nowEpochMs)
+        recent.setFinished(id.value, finishedAtEpochMs)
+    }
 
     /** 책을 처음 열어 읽은 제목·저자를 기록한다. 다음부터 목록이 파일 이름 대신 보여 준다. */
     suspend fun updateMetadata(id: BookId, title: String?, author: String?) =

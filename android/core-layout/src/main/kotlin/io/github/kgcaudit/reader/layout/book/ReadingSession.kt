@@ -36,12 +36,17 @@ class ReadingSession(
     }
 
     /** 지금 자리를 이어읽기 위치로 저장한다. */
-    suspend fun saveProgress(position: ReadingPosition): ReadingProgress {
+    /**
+     * @param lastShown 화면에 보이는 마지막 쪽(두쪽보기면 오른쪽). 그것이 책의 마지막 쪽이면 진도를 100 으로 둔다 — 진도는
+     *   쪽의 **첫 글자** 자리로 재서 마지막 쪽에서도 97% 쯤에 멈췄고, 그러면 책장이 "다 읽은 책" 을 알 수 없었다.
+     */
+    suspend fun saveProgress(position: ReadingPosition, lastShown: ReadingPosition = position): ReadingProgress {
         val locator = layout.locatorAt(position.spineIndex, position.pageIndex)
+        val atEnd = lastShown.isLastPageOfChapter && lastShown.spineIndex >= layout.spine().size - 1
         val saved = ReadingProgress(
             bookId = bookId,
             locator = locator,
-            percent = layout.percent(locator),
+            percent = if (atEnd) 100f else layout.percent(locator),
             updatedAtEpochMs = clock(),
         )
         progress.save(saved)

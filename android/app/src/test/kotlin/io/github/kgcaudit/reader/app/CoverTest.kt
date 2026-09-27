@@ -110,7 +110,7 @@ class CoverTest {
         compose.onAllNodes(hasText("어린 왕자.epub"), useUnmergedTree = true)[0].performClick()
         waitFor(hasText("1 / ", substring = true))
         compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
-        waitFor(hasText("최근에 읽은 책"))
+        waitFor(hasText("읽는 중 · 1권"))
         // 책장(큰 표지)과 모든 책 목록(작은 표지)에 한 번씩. 큰 표지는 화면 폭의 1/3 가까이다.
         compose.waitUntil(30_000) { compose.onAllNodes(standIn("어린 왕자"), useUnmergedTree = true).fetchSemanticsNodes().size == 2 }
         val widths = compose.onAllNodes(standIn("어린 왕자"), useUnmergedTree = true).fetchSemanticsNodes().map { it.size.width }

@@ -32,7 +32,7 @@ class ReaderData(
     private val resolver = context.applicationContext.contentResolver
 
     val bookmarks: BookmarkRepository = RoomBookmarkRepository(database.bookmarks())
-    val progress: ProgressRepository = RoomProgressRepository(database.progress())
+    val progress: ProgressRepository = RoomProgressRepository(database.progress(), database.recent())
     val annotations: AnnotationRepository = RoomAnnotationRepository(database.annotations())
     val library: Library = Library(database)
     val folders: LibraryFolders = LibraryFolders(resolver)

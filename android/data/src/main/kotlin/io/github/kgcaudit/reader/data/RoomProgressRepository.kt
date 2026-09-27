@@ -2,12 +2,17 @@ package io.github.kgcaudit.reader.data
 
 import io.github.kgcaudit.reader.data.db.ProgressDao
 import io.github.kgcaudit.reader.data.db.ProgressEntity
+import io.github.kgcaudit.reader.data.db.RecentDao
 import io.github.kgcaudit.reader.document.BookId
 import io.github.kgcaudit.reader.document.Locator
 import io.github.kgcaudit.reader.document.ProgressRepository
 import io.github.kgcaudit.reader.document.ReadingProgress
 
-class RoomProgressRepository(private val dao: ProgressDao) : ProgressRepository {
+class RoomProgressRepository(
+    private val dao: ProgressDao,
+    /** 끝까지 읽으면 다 읽음을 적을 곳. 없으면(옛 시험) 적지 않는다. */
+    private val recent: RecentDao? = null,
+) : ProgressRepository {
 
     override suspend fun get(bookId: BookId): ReadingProgress? {
         val row = dao.get(bookId.value) ?: return null
@@ -24,14 +29,21 @@ class RoomProgressRepository(private val dao: ProgressDao) : ProgressRepository 
         )
     }
 
-    override suspend fun save(progress: ReadingProgress) = dao.upsert(
-        ProgressEntity(
-            bookId = progress.bookId.value,
-            locator = Locator.encode(progress.locator),
-            percent = progress.percent,
-            updatedAtEpochMs = progress.updatedAtEpochMs,
-        ),
-    )
+    override suspend fun save(progress: ReadingProgress) {
+        dao.upsert(
+            ProgressEntity(
+                bookId = progress.bookId.value,
+                locator = Locator.encode(progress.locator),
+                percent = progress.percent,
+                updatedAtEpochMs = progress.updatedAtEpochMs,
+            ),
+        )
+        // 마지막 쪽이 보이면 리더가 100 으로 적는다(EPUB 은 쪽 첫 글자로 재 끝 쪽도 97% 쯤이라 리더가 따로 판단한다).
+        if (progress.percent >= FINISHED_PERCENT) recent?.finishOnce(progress.bookId.value, progress.updatedAtEpochMs)
+    }
 
     override suspend fun remove(bookId: BookId) = dao.delete(bookId.value)
 }
+
+/** 이만큼이면 끝까지 읽었다. 부동소수 계산으로 100 이 99.99… 가 되는 것을 받아 준다. */
+private const val FINISHED_PERCENT = 99.95f
