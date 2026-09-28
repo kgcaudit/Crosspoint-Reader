@@ -15,6 +15,7 @@ ESP32 제약 때문에 존재하는 코드다.
 | `docs/HANDOFF.md` | **현재 상태 · 다음 할 일 · 미결 결정.** 세션을 이어받으면 여기부터 |
 | `docs/ANDROID_BUILD_SPEC.md` | 시행계획. §6.5 진행 상황 · §6.6 환경 제약 · §7 캐시 포맷 · §8 CSS 서브셋 |
 | `docs/ANDROID_ARCHITECTURE_DECISION.md` | 왜 네이티브 Canvas + 디스크 캐시인가 |
+| `docs/design-handoff/README.md` | 디자인 시스템 인계 묶음(아이콘 · 색 · 글자 · 치수 · 부품 · 규칙). 다른 앱 세션에 넘길 때 |
 | `docs/LOCAL_SETUP.md` | 윈도우 PC 에서 돌리는 법(프록시 · JDK 버전 등 실제로 걸린 것들) |
 
 ## 빌드

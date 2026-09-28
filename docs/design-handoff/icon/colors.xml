@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 앱 아이콘. OLO Explorer 의 런처 바탕과 **같은 값**(왼쪽 위 → 오른쪽 아래 그라데이션)에
+         밝은 그레이 도형. 두 앱이 홈 화면에 나란히 놓였을 때 같은 식구로 보여야 한다. -->
+    <color name="launcher_background_light">#FFE07B55</color>
+    <color name="launcher_background_dark">#FFC5613F</color>
+    <color name="launcher_shape">#FFEEEDEB</color>
+    <!-- 앱이 뜨기 전 창 배경. CpTheme 의 background 와 같아야 첫 화면이 번쩍이지 않는다. -->
+    <color name="window_background">#FFF7F4EF</color>
+</resources>
