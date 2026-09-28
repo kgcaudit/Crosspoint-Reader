@@ -121,6 +121,33 @@ class CoverTest {
     }
 
     @Test
+    fun `a cover of any shape is shown whole and stands on the shelf line`() {
+        // 씨네21(약 1 : 1.25)의 표지가 책장 칸(1 : 1.45)에 맞춰 양옆이 잘렸다. 표지는 원래 비율 그대로, 칸의 밑면에 선다.
+        File(folder, "소설/바다 그림책.epub").writeBytes(coverEpub(png(Color.rgb(40, 110, 140), width = 400, height = 300), title = "바다"))
+        compose.activityRule.scenario.recreate()
+        listOf("바다 그림책.epub", "그림 표지.epub").forEachIndexed { i, name ->
+            waitFor(hasText(name))
+            compose.onAllNodes(hasText(name), useUnmergedTree = true)[0].performClick()
+            waitFor(hasText("1 / ", substring = true))
+            compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
+            // 한 쪽짜리 책이라 열면 바로 "다 읽은 책" 줄에 선다 — 어느 줄이든 책장이다.
+            waitFor(hasText("다 읽은 책 · ${i + 1}권"))
+        }
+        // 한 번 열면 목록 이름이 책 제목이 된다. 책장(큰 표지)과 모든 책 목록(작은 표지)에 한 번씩.
+        compose.waitUntil(30_000) { compose.onAllNodes(cover("바다"), useUnmergedTree = true).fetchSemanticsNodes().size == 2 }
+        fun bounds(label: String) = compose.onAllNodes(cover(label), useUnmergedTree = true).fetchSemanticsNodes()
+            .map { it.boundsInRoot }.maxBy { it.width }
+        val wide = bounds("바다")
+        val tall = bounds("그림 표지")
+        assertEquals(4f / 3f, wide.width / wide.height, 0.03f, "넓은 표지가 잘리거나 늘어났다")
+        assertEquals(300f / 450f, tall.width / tall.height, 0.03f, "세로 표지가 잘리거나 늘어났다")
+        assertEquals(tall.bottom, wide.bottom, 2f, "표지의 밑면이 맞지 않는다")
+        // 세로 표지(1 : 1.5)는 칸 높이를 채운다 — 칸 폭은 그 높이 / 1.45. 넓은 표지는 그 폭을 딱 채운다.
+        assertEquals(tall.height / 1.45f, wide.width, 2f, "넓은 표지가 칸 폭을 넘거나 모자란다")
+        shot("96-cover-shapes")
+    }
+
+    @Test
     fun `a picture picked from the phone becomes the cover and reverting brings back the stand-in`() {
         File(folder, "문서/사진.png").writeBytes(png(Color.rgb(40, 60, 160), width = 1200, height = 1800))
         waitFor(standIn("옛 일기.txt"))
@@ -161,7 +188,7 @@ class CoverTest {
         }
 
         /** EPUB 3 의 표지 표시(`properties="cover-image"`)가 있는 책. */
-        fun coverEpub(cover: ByteArray): ByteArray {
+        fun coverEpub(cover: ByteArray, title: String = "그림 표지"): ByteArray {
             val out = ByteArrayOutputStream()
             ZipOutputStream(out).use { zip ->
                 val mime = "application/epub+zip".toByteArray()
@@ -178,7 +205,7 @@ class CoverTest {
                     "META-INF/container.xml" to """<container><rootfiles><rootfile full-path="OEBPS/content.opf"/></rootfiles></container>""",
                     "OEBPS/content.opf" to """
                         <package xmlns="http://www.idpf.org/2007/opf" version="3.0">
-                          <metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>그림 표지</dc:title></metadata>
+                          <metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>$title</dc:title></metadata>
                           <manifest>
                             <item id="c1" href="c1.xhtml" media-type="application/xhtml+xml"/>
                             <item id="img" href="Images/front.png" media-type="image/png" properties="cover-image"/>

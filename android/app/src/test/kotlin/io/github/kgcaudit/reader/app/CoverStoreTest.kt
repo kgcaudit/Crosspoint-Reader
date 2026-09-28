@@ -84,6 +84,9 @@ class CoverStoreTest {
         val big = CoverStore.decodeScaled(CoverTest.png(Color.GREEN, width = 2000, height = 3000))!!
         assertEquals(CoverStore.COVER_HEIGHT, big.height)
         assertEquals(320, big.width)
+        // 가로로 찍은 사진도 자르지 않고 비율대로 줄인다 — 책장이 그대로 보인다.
+        val landscape = CoverStore.decodeScaled(CoverTest.png(Color.GREEN, width = 2000, height = 1000))!!
+        assertEquals(960 to 480, landscape.width to landscape.height)
         assertNull(CoverStore.decodeScaled("그림이 아니다".toByteArray()))
         assertFalse(CoverStore(dir) { null }.setCustom(book.id) { "그림이 아니다".byteInputStream() })
         assertFalse(File(dir, "custom").listFiles().orEmpty().isNotEmpty())

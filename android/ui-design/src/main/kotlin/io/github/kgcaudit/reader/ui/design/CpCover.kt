@@ -22,14 +22,21 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
-/** 책 표지의 가로 : 세로. 국판 · 신국판 · 잡지가 모두 1 : 1.4–1.5 라 한 비율로 맞춰 책장 줄이 가지런하다. */
+/**
+ * 책장 칸의 가로 : 세로. 국판 · 신국판이 1 : 1.4–1.5 라 이 칸을 기준으로 줄을 맞춘다. 표지 그림은 이 칸에 **맞춰 자르지
+ * 않는다** — 칸 안에 원래 비율대로 넣는다([CpCover]).
+ */
 const val COVER_ASPECT: Float = 1f / 1.45f
 
 /**
- * 책 표지. 그림이 있으면 표지 비율에 맞춰 가운데를 잘라 채우고, 없으면 **대신 표지** — 종류 색(목록 타일과 같은 뜻의 색)
- * 위에 제목과 부제를 얹는다. 표지 없는 책도 책장에서 제목으로 알아볼 수 있어야 한다.
+ * 책 표지. 칸([COVER_ASPECT])의 크기는 늘 같고, 그림은 원래 비율 그대로 칸 안에 가장 크게 넣는다. 큰 표지는 칸의 밑면에,
+ * [small](목록 줄의 작은 표지)은 가운데에 둔다. 테두리 · 둥근 모서리는 그림에만 두르고 남는 자리는 바탕 그대로다.
  *
- * [small] 은 목록 줄의 작은 표지: 글자를 얹을 자리가 없어 종류 아이콘만 둔다.
+ * 0.24.1 까지는 칸에 맞춰 가운데를 잘라 채웠다. 잡지(약 1 : 1.25)는 양옆이, 가는 문고본은 위아래가 잘려 표지가 온전히
+ * 보이지 않았다(씨네21 의 제호가 잘림). 밑면을 맞추면 책꽂이처럼 줄이 가지런하고 제목 · 진도 줄도 흐트러지지 않는다.
+ *
+ * 그림이 없으면 **대신 표지** — 종류 색(목록 타일과 같은 뜻의 색) 위에 제목과 부제를 얹어 칸을 채운다. 표지 없는 책도
+ * 책장에서 제목으로 알아볼 수 있어야 한다. [small] 은 글자를 얹을 자리가 없어 종류 아이콘만 둔다.
  */
 @Composable
 fun CpCover(
@@ -43,18 +50,30 @@ fun CpCover(
 ) {
     val c = CpTheme.colors
     val shape = RoundedCornerShape(if (small) 4.dp else 8.dp)
+    if (image != null) {
+        val aspect = (image.width.toFloat() / image.height.coerceAtLeast(1)).takeIf { it.isFinite() && it > 0f } ?: COVER_ASPECT
+        Box(modifier.aspectRatio(COVER_ASPECT), contentAlignment = if (small) Alignment.Center else Alignment.BottomCenter) {
+            Image(
+                image, null,
+                Modifier
+                    // 칸보다 넓으면 폭에, 좁으면 높이에 맞춘다 — 어느 쪽도 칸 밖으로 나가지 않는다.
+                    .aspectRatio(aspect, matchHeightConstraintsFirst = aspect < COVER_ASPECT)
+                    .clip(shape)
+                    .border(1.dp, c.divider, shape)
+                    .semantics { contentDescription = "$title 표지" },
+                contentScale = ContentScale.FillBounds,
+            )
+        }
+        return
+    }
     Box(
         modifier
             .aspectRatio(COVER_ASPECT)
             .clip(shape)
             .border(1.dp, c.divider, shape)
-            .semantics { contentDescription = if (image != null) "$title 표지" else "$title 대신 표지" },
+            .background(fallback)
+            .semantics { contentDescription = "$title 대신 표지" },
     ) {
-        if (image != null) {
-            Image(image, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-            return@Box
-        }
-        Box(Modifier.fillMaxSize().background(fallback))
         if (small) {
             CpIcon(icon, Color.White, Modifier.align(Alignment.Center), size = 18.dp)
         } else {
