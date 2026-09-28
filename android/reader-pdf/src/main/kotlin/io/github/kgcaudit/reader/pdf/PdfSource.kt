@@ -55,7 +55,8 @@ class PlatformPdfSource(private val descriptor: ParcelFileDescriptor) : PdfSourc
         throw e
     }
 
-    override val pageCount: Int get() = renderer.pageCount
+    // 연 때 한 번 센다 — 닫힌 렌더러에 물으면 예외다. 책을 닫는 순간 막 그리기를 마친 코루틴이 쪽 수를 물어 앱이 닫혔다.
+    override val pageCount: Int = renderer.pageCount
 
     @Synchronized
     override fun pageSize(index: Int): Pair<Int, Int> = renderer.openPage(index).use { it.width to it.height }

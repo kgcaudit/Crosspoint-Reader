@@ -5,6 +5,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -90,14 +91,15 @@ fun ListenPlayer(
             // 조종판 안의 빈 곳을 눌러도 뒤의 지면이 쪽을 넘기지 않게.
             .clickable(indication = null, interactionSource = null) {}
             .padding(horizontal = 6.dp, vertical = 2.dp)
-            .semantics { contentDescription = "듣기 조종판" },
+            .semantics { contentDescription = "듣기 제어" },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         CpIconButton(CpIcons.SkipBack, "앞 문장", onPrevious)
         Box(
             Modifier.size(44.dp).clip(RoundedCornerShape(50)).background(c.accent)
                 .clickable(role = Role.Button, onClick = onToggle)
-                .semantics { contentDescription = if (state.playing) "멈춤" else "읽기" },
+                // 그림과 이름을 맞춘다: 엔진을 깨우는 중에도 멈춤 그림이면 이름도 "멈춤".
+                .semantics { contentDescription = if (state.playing || state.preparing) "멈춤" else "이어 듣기" },
             contentAlignment = Alignment.Center,
         ) { CpIcon(if (state.playing || state.preparing) CpIcons.Pause else CpIcons.Play, c.onAccent, size = 22.dp) }
         CpIconButton(CpIcons.SkipForward, "다음 문장", onNext)
@@ -108,7 +110,9 @@ fun ListenPlayer(
                 .padding(horizontal = 12.dp, vertical = 12.dp).semantics { contentDescription = "듣기 설정" },
         )
         Row(
-            Modifier.clip(RoundedCornerShape(12.dp)).clickable(role = Role.Button, onClick = onSettings).padding(horizontal = 4.dp, vertical = 12.dp),
+            Modifier.clip(RoundedCornerShape(12.dp)).clickable(role = Role.Button, onClick = onSettings).padding(horizontal = 4.dp, vertical = 12.dp)
+                // 타이머를 끄면 그림뿐이라 화면 읽기가 이름 없는 단추로 읽었다.
+                .semantics(mergeDescendants = true) { contentDescription = if (timer != null) "잠자기 타이머 $timer" else "잠자기 타이머" },
             verticalAlignment = Alignment.CenterVertically,
         ) {
             CpIcon(CpIcons.Timer, if (timer != null) c.accent else c.text, size = 20.dp)
@@ -251,7 +255,7 @@ private fun VoiceRow(name: String, selected: Boolean, onPick: () -> Unit, onList
     val m = CpTheme.metrics
     Row(
         Modifier.fillMaxWidth().heightIn(min = 56.dp).background(if (selected) c.accentContainer else Color.Transparent)
-            .clickable(role = Role.RadioButton, onClick = onPick)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onPick)
             .padding(start = m.gutter + m.levelIndent, end = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

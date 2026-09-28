@@ -3,16 +3,15 @@ package io.github.kgcaudit.reader.data.library
 import androidx.room.withTransaction
 import io.github.kgcaudit.reader.data.db.BookEntity
 import io.github.kgcaudit.reader.data.db.ReaderDatabase
-import io.github.kgcaudit.reader.data.db.RecentEntity
 import io.github.kgcaudit.reader.document.BookFormat
 import io.github.kgcaudit.reader.document.BookId
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
-/** 라이브러리 목록 한 줄. */
 /** 책장의 책. [finishedAtEpochMs] 가 있으면 다 읽은 책. */
 data class ShelfBook(val book: LibraryBook, val finishedAtEpochMs: Long?)
 
+/** 라이브러리 목록 한 줄. */
 data class LibraryBook(
     val id: BookId,
     val format: BookFormat,
@@ -27,7 +26,7 @@ data class LibraryBook(
 }
 
 /**
- * 라이브러리(등록 폴더에서 찾은 책들)와 최근 목록.
+ * 라이브러리(등록 폴더에서 찾은 책들)와 책장(열어 본 책).
  *
  * 스캔 결과를 반영할 때 **지우지 않는다.** 스캔이 책을 놓치는 일은 흔하다(SD 카드가
  * 빠짐, 클라우드 제공자가 잠시 응답 없음, 권한 일시 회수). 그때 행을 지우면 진도·책갈피를
@@ -39,9 +38,6 @@ class Library(private val db: ReaderDatabase) {
     private val recent = db.recent()
 
     fun books(): Flow<List<LibraryBook>> = books.observeVisible().map { rows -> rows.mapNotNull(::toBook) }
-
-    fun recent(limit: Int): Flow<List<LibraryBook>> =
-        recent.observe(limit).map { rows -> rows.mapNotNull(::toBook) }
 
     suspend fun get(id: BookId): LibraryBook? = books.get(id.value)?.let(::toBook)
 

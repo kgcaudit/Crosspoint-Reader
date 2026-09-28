@@ -33,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -92,46 +93,39 @@ fun LibraryScreen(
     val finishedIds = finished.mapTo(HashSet()) { it.book.id }
     val percents by remember { data.library.percents() }.collectAsState(initial = emptyMap())
     var folders by remember { mutableStateOf(data.folders.folders()) }
-    var scanning by remember { mutableStateOf(false) }
+    val scanning by container.scan.running.collectAsState()
+    // 일부 폴더를 못 읽은 훑기가 새로 생기면 한 번 알린다. 화면이 새로 생길 때 이미 있던 것은 다시 알리지 않는다.
+    val incomplete by container.scan.incomplete.collectAsState()
+    var seenIncomplete by remember { mutableIntStateOf(container.scan.incomplete.value) }
     var notice by remember { mutableStateOf<Pair<String, String?>?>(null) }
     var manageFolders by remember { mutableStateOf(false) }
     // 길게 눌러 표지를 바꾸려는 책. 사진 고르기에서 돌아올 때까지 기억한다.
     var coverMenu by remember { mutableStateOf<LibraryBook?>(null) }
-    var coverFor by remember { mutableStateOf<LibraryBook?>(null) }
+    // id 로 저장한다(rememberSaveable) — 사진을 고르는 사이 앱이 회수됐다 돌아와도 어느 책의 표지인지 안다.
+    var coverForId by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
     var toast by remember { mutableStateOf<String?>(null) }
     val pickCover = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        val book = coverFor ?: return@rememberLauncherForActivityResult
-        coverFor = null
+        val id = coverForId ?: return@rememberLauncherForActivityResult
+        coverForId = null
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
-            val ok = container.covers.setCustom(book.id) { context.contentResolver.openInputStream(uri) }
+            val ok = container.covers.setCustom(BookId(id)) { context.contentResolver.openInputStream(uri) }
             if (ok) {
-                toast = "‘${book.label}’ 표지를 바꿨습니다"
+                val label = data.library.get(BookId(id))?.label
+                toast = if (label != null) "‘$label’ 표지를 바꿨습니다" else "표지를 바꿨습니다"
             } else {
                 notice = "이 그림을 표지로 쓸 수 없습니다" to "그림 파일(jpg · png 등)을 골라 주세요. 파일이 깨졌을 수도 있습니다."
             }
         }
     }
 
-    fun rescan() {
-        // 훑는 중에 새로고침을 또 누르면 두 스캔이 같은 표를 고치고, 먼저 끝난 쪽이 표시를 꺼 버린다.
-        if (scanning) return
-        scanning = true
-        scope.launch {
-            val results = try {
-                data.rescanAll()
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                scanning = false
-                throw e
-            } catch (e: Exception) {
-                android.util.Log.w("OloLibrary", "rescan failed", e)
-                null
-            }
-            scanning = false
-            if (results == null || results.values.any { !it.complete }) {
+    fun rescan() = container.scan.request()
+
+    LaunchedEffect(incomplete) {
+        if (incomplete > seenIncomplete) {
+            seenIncomplete = incomplete
             notice = "일부 폴더를 읽지 못했습니다" to
                 "그 폴더의 책은 목록에 그대로 둡니다. 저장소가 연결돼 있는지 확인한 뒤 새로고침하세요."
-            }
         }
     }
 
@@ -179,7 +173,7 @@ fun LibraryScreen(
             EmptyLibrary { pickFolder.launch(null) }
         } else if (list != null && list.isEmpty() && !scanning) {
             Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-                CpText("등록한 폴더에 EPUB·TXT 파일이 없습니다", CpTheme.type.subtitle, colors.textMuted, maxLines = 2)
+                CpText("등록한 폴더에 EPUB · TXT · PDF 파일이 없습니다.", CpTheme.type.subtitle, colors.textMuted, maxLines = 2)
             }
         } else {
             LazyColumn(Modifier.fillMaxSize()) {
@@ -209,7 +203,7 @@ fun LibraryScreen(
     }
 
     if (manageFolders) {
-        CpPopup(title = "책 폴더", message = "폴더를 빼도 그 책들의 진도와 책갈피는 남습니다. 다시 추가하면 이어집니다.", onDismiss = { manageFolders = false }) {
+        CpPopup(title = "책 폴더", message = "폴더를 빼도 그 책들의 읽은 자리와 책갈피는 남습니다. 다시 추가하면 이어집니다.", onDismiss = { manageFolders = false }) {
             Spacer(Modifier.height(8.dp))
             CpListRow(
                 title = "폴더 추가",
@@ -246,12 +240,12 @@ fun LibraryScreen(
                     // 여러 줄을 한 번에 고치는(트랜잭션) 일이라 화면 스레드에서 하면 Room 이 막는다.
                     withContext(Dispatchers.IO) { data.library.setFinished(book.id, if (done) null else now, now) }
                     // 책 이름 뒤에 조사를 붙이지 않는다 — 받침에 따라 을/를이 갈려 틀리기 쉽다.
-                    toast = if (done) "‘${book.label}’ · 읽는 중으로 되돌렸습니다" else "‘${book.label}’ · 다 읽은 책으로 옮겼습니다"
+                    toast = if (done) "‘${book.label}’ — 읽는 중으로 되돌렸습니다" else "‘${book.label}’ — 다 읽은 책으로 옮겼습니다"
                 }
             },
             onPick = {
                 coverMenu = null
-                coverFor = book
+                coverForId = book.id.value
                 pickCover.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
             },
             onRevert = {
@@ -282,8 +276,8 @@ fun LibraryScreen(
 private fun rememberCover(book: LibraryBook): Cover? {
     val covers = LocalContext.current.container.covers
     val version by covers.version.collectAsState()
-    var cover by remember(book.id) { mutableStateOf(covers.cached(book.id)) }
-    LaunchedEffect(book.id, version) { cover = covers.cover(book) }
+    var cover by remember(book) { mutableStateOf(covers.cached(book)) }
+    LaunchedEffect(book, version) { cover = covers.cover(book) }
     return cover
 }
 
@@ -449,7 +443,7 @@ private fun EmptyLibrary(onAdd: () -> Unit) {
         CpText("아직 책이 없습니다", CpTheme.type.title, CpTheme.colors.text)
         Spacer(Modifier.height(8.dp))
         CpText(
-            "EPUB·TXT 파일이 든 폴더를 고르면\n그 아래의 책을 모두 찾아 보여 줍니다.",
+            "EPUB · TXT · PDF 파일이 든 폴더를 고르면\n그 아래의 책을 모두 찾아 보여 줍니다.",
             CpTheme.type.subtitle,
             CpTheme.colors.textMuted,
             maxLines = 3,

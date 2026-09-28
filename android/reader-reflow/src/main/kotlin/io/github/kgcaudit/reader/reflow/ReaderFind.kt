@@ -17,36 +17,20 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.kgcaudit.reader.document.TocEntry
@@ -55,14 +39,9 @@ import io.github.kgcaudit.reader.ui.design.CpButton
 import io.github.kgcaudit.reader.ui.design.CpSearchResultBar
 import io.github.kgcaudit.reader.ui.design.CpSearchRow
 import io.github.kgcaudit.reader.ui.design.CpSearchScreen
-import io.github.kgcaudit.reader.ui.design.CpDivider
-import io.github.kgcaudit.reader.ui.design.CpFullScreen
 import io.github.kgcaudit.reader.ui.design.CpIcon
-import io.github.kgcaudit.reader.ui.design.CpIconButton
 import io.github.kgcaudit.reader.ui.design.CpIcons
 import io.github.kgcaudit.reader.ui.design.CpPopup
-import io.github.kgcaudit.reader.ui.design.CpProgressBar
-import io.github.kgcaudit.reader.ui.design.CpSectionLabel
 import io.github.kgcaudit.reader.ui.design.CpText
 import io.github.kgcaudit.reader.ui.design.CpTheme
 import kotlinx.coroutines.CoroutineScope
@@ -81,15 +60,15 @@ class SearchSession {
     var query by mutableStateOf("")
     var results by mutableStateOf<List<Found>>(emptyList())
         private set
-    var searched by mutableStateOf(0)
+    var searched by mutableIntStateOf(0)
         private set
-    var chapters by mutableStateOf(0)
+    var chapters by mutableIntStateOf(0)
         private set
     var running by mutableStateOf(false)
         private set
 
     /** 지금 보고 있는 결과(목록에서 누른 것). -1 이면 결과 막대를 띄우지 않는다. */
-    var current by mutableStateOf(-1)
+    var current by mutableIntStateOf(-1)
 
     private var job: Job? = null
 
@@ -133,7 +112,7 @@ internal fun SearchScreen(
     onBack: () -> Unit,
 ) {
     val summary = when {
-        session.running -> "찾는 중… ${session.searched} / ${session.chapters} 장 · 지금까지 ${session.results.size}곳"
+        session.running -> "찾는 중… ${session.searched} / ${session.chapters}장 · 지금까지 ${session.results.size}곳"
         session.searched > 0 && session.results.isEmpty() -> "찾지 못했습니다"
         session.searched > 0 -> "${session.results.size}곳 · ${session.results.map { it.hit.spine }.distinct().size}장에서"
         else -> ""

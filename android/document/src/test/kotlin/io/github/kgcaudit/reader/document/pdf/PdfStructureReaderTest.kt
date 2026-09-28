@@ -245,6 +245,15 @@ class PdfStructureReaderTest {
     }
 
     @Test
+    fun `a page range with no numbering style has no label instead of an empty one`() {
+        // 잡지 표지는 흔히 양식도 머리말도 없는 구간이다. 빈 이름을 주면 책갈피가 숫자 없이 "쪽" 으로만 적혔다.
+        val labels = PdfPageLabels(
+            listOf(PdfPageLabels.Range(0, null, "", 1), PdfPageLabels.Range(1, 'D', "", 1)),
+        )
+        assertEquals(listOf(null, "1", "2"), (0 until 3).map(labels::label))
+    }
+
+    @Test
     fun `a looping outline is read once instead of forever`() {
         val pdf = book({ p ->
             obj(2, "<< /Type /Outlines /First 50 0 R >>")

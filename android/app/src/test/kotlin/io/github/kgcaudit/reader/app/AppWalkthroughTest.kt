@@ -140,7 +140,7 @@ class AppWalkthroughTest {
 
         // 9. 진행 막대를 끝쪽으로 눌러 멀리 간다. 마지막 장(3/3)으로 가야 한다.
         node(hasContentDescription("읽은 위치")).performTouchInput { click(centerRight.copy(x = width * 0.97f)) }
-        waitFor(hasText("3 / 3 장"), timeoutMs = 30_000)
+        waitFor(hasText("3 / 3장"), timeoutMs = 30_000)
 
         // 10. 지면을 누르면 메뉴가 닫히고, 바뀐 글꼴로 조판된 페이지가 보인다. 보기 판(0.12.0 부터 일곱 줄)이
         // 화면 가운데까지 올라오므로 판 위쪽의 지면을 누른다 — 가운데를 누르면 배경 견본이 눌린다.

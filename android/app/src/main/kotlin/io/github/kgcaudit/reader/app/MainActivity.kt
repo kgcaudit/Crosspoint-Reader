@@ -17,6 +17,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -151,10 +153,10 @@ private fun OloApp(
     var incomingFormat by rememberSaveable { mutableStateOf<String?>(null) }
     // 받을 때 읽은 이름·크기. 다시 열 때(되살아남) 제공자에게 또 묻지 않는다 — 묻는 것 자체가 느릴 수 있다.
     var incomingName by rememberSaveable { mutableStateOf<String?>(null) }
-    var incomingSize by rememberSaveable { mutableStateOf(-1L) }
+    var incomingSize by rememberSaveable { mutableLongStateOf(-1L) }
     // 받은 횟수. 같은 파일을 두 번 받으면 URI 가 같아 여는 효과가 다시 돌지 않는다 — 읽던 책은 닫혔는데
     // 새로 열지 않아 "책을 여는 중…" 에 멈춘다. 받을 때마다 올려 효과를 다시 돌린다.
-    var incomingRequest by rememberSaveable { mutableStateOf(0) }
+    var incomingRequest by rememberSaveable { mutableIntStateOf(0) }
     // 다른 앱에서 열었으면 닫을 때 그 앱으로 돌아간다. 라이브러리가 나오면 "파일을 봤을 뿐인데
     // 왜 다른 앱이 떠 있나" 가 된다.
     var fromOutside by rememberSaveable { mutableStateOf(false) }

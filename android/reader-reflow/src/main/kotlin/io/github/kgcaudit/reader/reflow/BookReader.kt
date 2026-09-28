@@ -26,7 +26,6 @@ import io.github.kgcaudit.reader.text.FontCatalog
 import io.github.kgcaudit.reader.layout.book.BookFontTable
 import io.github.kgcaudit.reader.layout.book.LinkTarget
 import io.github.kgcaudit.reader.layout.book.SearchHit
-import io.github.kgcaudit.reader.layout.book.Sentence
 import io.github.kgcaudit.reader.listen.ListenSource
 import io.github.kgcaudit.reader.listen.SpeechChapter
 import io.github.kgcaudit.reader.layout.book.splitSentences
@@ -104,6 +103,8 @@ class BookReader(
     private val annotationRepository: AnnotationRepository = InMemoryAnnotations(),
     private val clock: () -> Long = System::currentTimeMillis,
     private val layoutThread: CoroutineDispatcher = Dispatchers.Default.limitedParallelism(1),
+    /** 원본 파일의 판(크기). 조판 캐시 키에 넣는다([LayoutSpec.edition]). */
+    private val edition: String? = null,
 ) : ListenSource {
     private val _state = MutableStateFlow(ReaderState())
     val state: StateFlow<ReaderState> = _state.asStateFlow()
@@ -164,7 +165,8 @@ class BookReader(
      * 설정이 바뀌면 **읽던 글자**로 돌아간다. 페이지 번호로 돌아가면 글자 크기를 키운
      * 순간 몇 장 앞으로 튄다.
      */
-    suspend fun layOut(newSpec: LayoutSpec, twoPages: Boolean = false) = run {
+    suspend fun layOut(requested: LayoutSpec, twoPages: Boolean = false) = run {
+        val newSpec = requested.copy(edition = edition)
         if (newSpec == spec && twoPages == spread) return@run
         spread = twoPages
         if (newSpec == spec) {
@@ -194,8 +196,15 @@ class BookReader(
         spec = newSpec
         texts.clear()
 
-        val position = if (anchor != null) built.resolve(anchor) else newSession.restore()
-        show(position)
+        try {
+            val position = if (anchor != null) built.resolve(anchor) else newSession.restore()
+            show(position)
+        } catch (e: Exception) {
+            // 새 조판으로 보이지 못했다. 설정을 잊어 다음 요청이 다시 시도하게 한다 — 두면 같은 설정이라 바로 돌아가고,
+            // 화면의 쪽 번호는 옛 조판의 것이라 넘길 때 엉뚱한 쪽이 열렸다.
+            spec = null
+            throw e
+        }
         // 보인 쪽(두쪽이면 펼침)에는 읽던 글자가 들어 있다. 기준을 그 글자로 남긴다 — 펼침의 왼쪽 쪽 시작으로
         // 바꾸면 가로(두 쪽)로 돌렸다 세로로 돌아올 때마다 한 쪽씩 뒤로 밀린다(ScreenRotationTest 에서 발견).
         if (anchor != null) shownLocator = anchor

@@ -18,11 +18,13 @@ import io.github.kgcaudit.reader.document.ProgressRepository
 import io.github.kgcaudit.reader.document.ReadingProgress
 import io.github.kgcaudit.reader.document.TocEntry
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -119,7 +121,7 @@ class PdfReader(
         override fun sizeOf(key: Triple<Int, Int, Int>, value: Bitmap): Int = value.allocationByteCount
     }
 
-    /** 저장된 자리로 간다. 없거나 범위를 벗어났으면(파일이 바뀜) 첫 쪽. */
+    /** 저장된 자리로 간다. 없으면 첫 쪽, 범위를 벗어났으면(파일이 짧아짐) 마지막 쪽. */
     suspend fun open() {
         val saved = runCatching { progressRepository.get(book.meta.id)?.locator as? Locator.FixedPage }.getOrNull()
         show(saved?.page ?: 0, save = false)
@@ -287,10 +289,14 @@ class PdfReader(
         refreshBookmarked()
     }
 
-    /** 이 쪽에 책갈피가 있으면 빼고, 없으면 꽂는다. */
+    /**
+     * 보이는 쪽(두쪽보기면 두 쪽)에 책갈피가 있으면 빼고, 없으면 왼쪽 쪽에 꽂는다. 왼쪽만 보던 때는 한 쪽 보기에서
+     * 오른쪽 쪽에 꽂은 책갈피가 펼침에서 보이지 않았고, 다시 누르면 왼쪽에 하나 더 생겼다.
+     */
     suspend fun toggleBookmark() {
         val page = _state.value.page
-        val here = bookmarks().filter { (it.locator as? Locator.FixedPage)?.page == page }
+        val shown = shownPages()
+        val here = bookmarks().filter { (it.locator as? Locator.FixedPage)?.page in shown }
         if (here.isEmpty()) {
             bookmarkRepository.add(
                 Bookmark(Bookmark.NO_ID, book.meta.id, Locator.FixedPage(page), snippet = "${book.pageLabel(page) ?: (page + 1)}쪽", createdAtEpochMs = clock()),
@@ -325,8 +331,12 @@ class PdfReader(
     }
 
     fun close() {
-        pages.evictAll()
-        book.close()
+        // 그리는 스레드에서 닫는다. 메인에서 닫으면 그리는 중인 쪽이 열려 있어 엔진이 닫기를 거절했고(파일이 열린 채
+        // 남음), 닫는 순간 끝난 그리기가 비운 캐시에 그림을 다시 넣었다. 뒤에 줄 선 그리기는 닫힌 엔진에서 실패로 끝난다.
+        CoroutineScope(renderThread).launch {
+            pages.evictAll()
+            book.close()
+        }
     }
 
     private fun draw(page: Int, widthPx: Int, heightPx: Int, region: PageRegion): Bitmap? = runCatching {
@@ -355,9 +365,11 @@ class PdfReader(
         }
     }
 
+    private fun shownPages(): List<Int> = _state.value.shown.ifEmpty { listOf(_state.value.page) }
+
     private suspend fun refreshBookmarked() {
-        val page = _state.value.page
-        val marked = runCatching { bookmarks().any { (it.locator as? Locator.FixedPage)?.page == page } }
+        val shown = shownPages()
+        val marked = runCatching { bookmarks().any { (it.locator as? Locator.FixedPage)?.page in shown } }
             .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
             .getOrDefault(false)
         _state.value = _state.value.copy(bookmarked = marked)

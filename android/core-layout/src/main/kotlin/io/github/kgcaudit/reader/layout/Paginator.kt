@@ -56,13 +56,13 @@ class Paginator(
         builder.finish()?.let { yield(it) }
     }
 
-    /** 문단 사이 간격 설정. 문단끼리에만 적용한다(그림 앞뒤는 블록 여백이 맡는다). */
     /** 사용자가 정한 본문 정렬([LayoutSpec.alignOverride]). 양쪽·왼쪽(시작) 문단에만 — 가운데·끝은 책의 뜻이다. */
     private fun overridden(style: BlockStyle): BlockStyle {
         val forced = spec.alignOverride ?: return style
         return if (style.align == TextAlign.Justify || style.align == TextAlign.Start) style.copy(align = forced) else style
     }
 
+    /** 문단 사이 간격 설정. 문단끼리에만 적용한다(그림 앞뒤는 블록 여백이 맡는다). */
     private fun paragraphSpacing(block: Block): Float =
         if (block is Block.Paragraph) spec.paragraphSpacingEm * spec.baseSizePx else 0f
 

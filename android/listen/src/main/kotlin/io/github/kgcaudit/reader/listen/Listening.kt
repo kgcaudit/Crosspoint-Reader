@@ -88,12 +88,13 @@ class Listening(
      * 듣기를 켜고 [spine] 장의 글자 [offset] 에서 읽기 시작한다(보이는 쪽의 첫 문장). 엔진이 없으면 알리고 켜지 않는다.
      */
     suspend fun start(spine: Int, offset: Int, rate: Float, voice: String?, join: WordJoin = WordJoin.Off) {
+        val since = generation
         this.join = join
         _state.value = _state.value.copy(active = true, preparing = true, rate = rate, message = null, join = join)
         if (!prepared) {
             prepared = speaker.prepare()
             if (!prepared) {
-                _state.value = ListenState(message = "음성 엔진을 찾지 못했습니다. 휴대폰 설정 › 텍스트 음성 변환에서 엔진을 설치해 주세요")
+                _state.value = ListenState(message = "음성 엔진을 찾지 못했습니다. 휴대폰 설정 › 일반 › 텍스트 음성 변환에서 엔진을 설치해 주세요.")
                 return
             }
         }
@@ -102,7 +103,8 @@ class Listening(
         val c = load(spine)
         val n = c.sentences.indexAt(offset).let { if (it < 0) c.sentences.size else it }
         _state.value = _state.value.copy(preparing = false)
-        speakFrom(spine, n)
+        // 엔진을 깨우는 사이 끄거나 멈췄으면 speakFrom 이 세대를 보고 읽지 않는다.
+        speakFrom(spine, n, since)
     }
 
     fun toggle() = if (_state.value.playing) pause() else play()
@@ -110,7 +112,8 @@ class Listening(
     fun play() {
         val c = chapter ?: return
         if (_state.value.playing || !_state.value.active) return
-        scope.launch { speakFrom(c.spine, index.coerceAtLeast(0)) }
+        val since = generation
+        scope.launch { speakFrom(c.spine, index.coerceAtLeast(0), since) }
     }
 
     fun pause() {
@@ -128,10 +131,11 @@ class Listening(
     private fun step(by: Int) {
         val c = chapter ?: return
         val playing = _state.value.playing
+        val since = generation
         scope.launch {
             val target = index + by
             if (playing) {
-                speakFrom(c.spine, target)
+                speakFrom(c.spine, target, since)
             } else {
                 moveTo(c.spine, target)
             }
@@ -142,19 +146,27 @@ class Listening(
         speaker.setRate(rate)
         _state.value = _state.value.copy(rate = rate)
         // 빠르기는 다음 문장부터 먹는다. 지금 문장부터 바로 바뀌어야 고른 값을 들어 볼 수 있다.
-        if (_state.value.playing) chapter?.let { c -> scope.launch { speakFrom(c.spine, index) } }
+        restartSentence()
     }
 
     /** 어절 쉼 줄이기의 세기. 빠르기처럼 지금 문장부터 바뀌어 들린다. */
     fun setJoin(level: WordJoin) {
         join = level
         _state.value = _state.value.copy(join = level)
-        if (_state.value.playing) chapter?.let { c -> scope.launch { speakFrom(c.spine, index) } }
+        restartSentence()
     }
 
     fun setVoice(voice: String?) {
         speaker.setVoice(voice)
-        if (_state.value.playing) chapter?.let { c -> scope.launch { speakFrom(c.spine, index) } }
+        restartSentence()
+    }
+
+    /** 읽는 중이면 지금 문장부터 다시 읽는다 — 바꾼 빠르기 · 목소리를 바로 들어 볼 수 있게. */
+    private fun restartSentence() {
+        if (!_state.value.playing) return
+        val c = chapter ?: return
+        val since = generation
+        scope.launch { speakFrom(c.spine, index, since) }
     }
 
     fun setTimer(timer: ListenTimer) {
@@ -179,6 +191,7 @@ class Listening(
         if (!st.active || st.preparing) return
         val s = st.sentence
         if (st.spine == spine && s != null && s.start in start until endExclusive) return
+        val since = generation
         scope.launch {
             val c = load(spine)
             // 넘긴 쪽에서 **시작하는** 첫 문장부터. 쪽이 문장 한가운데서 시작하면 그 문장은 앞 쪽에서 시작해, 그것을
@@ -187,7 +200,7 @@ class Listening(
             val starting = c.sentences.indexOfFirst { it.start in start until endExclusive }
             val n = if (starting >= 0) starting else c.sentences.indexAt(start).let { if (it < 0) c.sentences.size else it }
             val keepPage = starting < 0
-            if (_state.value.playing) speakFrom(spine, n, follow = !keepPage) else moveTo(spine, n, follow = !keepPage)
+            if (_state.value.playing) speakFrom(spine, n, since, follow = !keepPage) else moveTo(spine, n, follow = !keepPage)
         }
     }
 
@@ -221,9 +234,12 @@ class Listening(
      * [spine] 장의 [n] 번째 문장부터 읽는다. 장 끝을 넘으면 다음 장(빈 장은 건너뛴다), 앞을 넘으면 앞 장의 끝.
      * 책 끝이면 멈추고 알린다.
      */
-    private suspend fun speakFrom(spine: Int, n: Int, follow: Boolean = true) {
+    private suspend fun speakFrom(spine: Int, n: Int, since: Int, follow: Boolean = true) {
         val from = chapter?.spine
         val resolved = resolve(spine, n)
+        // 장을 불러오는 사이에 멈춤 · 끄기가 왔다(이어폰이 빠짐 · 전화 · 잠자기 타이머 · 사람). 그대로 읽으면 멈춘 듣기가
+        // 스피커로 다시 읽기 시작했다. 요청한 때의 세대와 다르면 그 뒤의 명령이 이긴다.
+        if (generation != since) return
         if (resolved == null) {
             pause()
             _state.value = _state.value.copy(message = "책을 끝까지 읽었습니다")
@@ -314,7 +330,7 @@ class Listening(
         val c = load(spine)
         if (i >= c.sentences.size - 1) {
             // 장의 마지막 문장까지 읽었다 — 다음 장으로.
-            speakFrom(spine + 1, 0)
+            speakFrom(spine + 1, 0, gen)
         } else if (queued <= i + 1) {
             queueNext(c)
         }
@@ -324,7 +340,7 @@ class Listening(
         val (gen, spine, i) = parse(id) ?: return
         if (gen != generation || !_state.value.playing) return
         // 읽지 못한 문장(엔진이 거절한 기호 등)은 건너뛴다. 한 문장 때문에 듣기 전체가 멈추면 안 된다.
-        speakFrom(spine, i + 1)
+        speakFrom(spine, i + 1, gen)
     }
 }
 

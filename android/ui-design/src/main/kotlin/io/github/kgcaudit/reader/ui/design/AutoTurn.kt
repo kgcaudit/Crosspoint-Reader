@@ -18,8 +18,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
@@ -89,7 +87,7 @@ fun CpAutoTurnPill(state: AutoTurnState, modifier: Modifier = Modifier) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         CpText(
-            if (state.paused) "자동 넘김 · 멈춤" else "자동 넘김 · 다음 쪽까지 ${state.remaining}초",
+            if (state.paused) "자동 넘김 · 멈춰 있음" else "자동 넘김 · 다음 쪽까지 ${state.remaining}초",
             CpTheme.type.label, c.text,
         )
         CpIconButton(
@@ -97,6 +95,6 @@ fun CpAutoTurnPill(state: AutoTurnState, modifier: Modifier = Modifier) {
             if (state.paused) "자동 넘김 이어 하기" else "자동 넘김 멈춤",
             { state.paused = !state.paused },
         )
-        CpIconButton(CpIcons.Close, "자동 넘김 끄기", { state.stopped = true }, modifier = Modifier.semantics { contentDescription = "자동 넘김 끄기" })
+        CpIconButton(CpIcons.Close, "자동 넘김 끄기", { state.stopped = true })
     }
 }

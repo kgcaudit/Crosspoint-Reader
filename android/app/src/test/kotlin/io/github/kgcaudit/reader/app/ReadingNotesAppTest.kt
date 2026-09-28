@@ -2,8 +2,6 @@ package io.github.kgcaudit.reader.app
 
 import android.content.ClipboardManager
 import android.content.Intent
-import android.content.pm.ActivityInfo
-import android.content.pm.ResolveInfo
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import androidx.compose.ui.geometry.Offset
@@ -319,8 +317,11 @@ class ReadingNotesAppTest {
         compose.seeBriefly(hasText("낱말을 찾아 줄 사전 앱이 없습니다")) { node(hasText("사전")).performClick() }
 
         // 사전 앱이 하나 있으면 고른 말을 그 앱에 넘긴다(ACTION_PROCESS_TEXT).
-        val info = ResolveInfo().apply { activityInfo = ActivityInfo().apply { packageName = "org.example.dict"; name = "org.example.dict.Look" } }
-        shadowOf(app.packageManager).addResolveInfoForIntent(Intent(Intent.ACTION_PROCESS_TEXT).setType("text/plain"), info)
+        val dictionary = android.content.ComponentName("org.example.dict", "org.example.dict.Look")
+        shadowOf(app.packageManager).apply {
+            addActivityIfNotPresent(dictionary)
+            addIntentFilterForActivity(dictionary, android.content.IntentFilter(Intent.ACTION_PROCESS_TEXT).apply { addDataType("text/plain") })
+        }
         select(0)
         node(hasText("사전")).performClick()
         val sent = shadowOf(compose.activity).nextStartedActivity
@@ -443,6 +444,38 @@ class ReadingNotesAppTest {
         node(hasText("지우기")).performClick()
         compose.waitUntil(5_000) { !hasNode(hasText("사라진 자리")) }
         assertTrue(runBlocking { app.container.data.annotations.forBook(bookId()) }.isEmpty())
+    }
+
+    @Test
+    fun `the menu of the lowest note opens upward and stays on screen`() {
+        // 화면 아래쪽 행의 ⋮ 메뉴가 늘 아래로 펼쳐져 "지우기" 가 화면 밖으로 잘렸다. "색 바꾸기" 로 넓어지면 오른쪽으로
+        // 넘쳤다.
+        openWith()
+        compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        runBlocking {
+            repeat(12) { i ->
+                app.container.data.annotations.add(
+                    Annotation(0, bookId(), Locator.Reflow(0, i), Locator.Reflow(0, i + 1), HighlightColor.Yellow, null, "칠 $i", i.toLong()),
+                )
+            }
+        }
+        openWith()
+        compose.onRoot().performTouchInput { click(center) }
+        waitFor(hasText("독서노트"))
+        node(hasText("독서노트")).performClick()
+        waitFor(hasText("칠 0"))
+        val root = compose.onRoot().fetchSemanticsNode().boundsInRoot
+        val buttons = compose.onAllNodes(hasContentDescription("더 보기"), useUnmergedTree = true)
+        val lowest = buttons.fetchSemanticsNodes().withIndex().filter { it.value.boundsInRoot.bottom <= root.bottom }
+            .maxBy { it.value.boundsInRoot.bottom }.index
+        buttons[lowest].performClick()
+        waitFor(hasText("지우기"))
+        val remove = node(hasText("지우기")).fetchSemanticsNode().boundsInRoot
+        assertTrue(remove.bottom <= root.bottom, "지우기가 화면 밖이다: ${remove.bottom} > ${root.bottom}")
+        node(hasText("색 바꾸기")).performClick()
+        waitFor(hasContentDescription("파랑"))
+        val blue = node(hasContentDescription("파랑")).fetchSemanticsNode().boundsInRoot
+        assertTrue(blue.right <= root.right, "색 고르기가 오른쪽으로 넘쳤다")
     }
 
     @Test

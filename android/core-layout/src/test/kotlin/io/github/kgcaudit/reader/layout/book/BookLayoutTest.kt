@@ -261,14 +261,11 @@ class BookLayoutTest {
     }
 
     @Test
-    fun `searching the whole book reports each chapter in order`() = runTest {
+    fun `searching each chapter finds every occurrence without paginating`() = runTest {
         openEpub().use { doc ->
             val book = layout(doc)
-            val seen = ArrayList<Int>()
-            var total = 0
-            book.search("어린 왕자는") { spine, hits -> seen.add(spine); total += hits.size }
-            assertEquals(listOf(0, 1, 2), seen)
-            assertEquals(6 + 10, total, "제1장 6문단 + 제3장 10문단에 한 번씩")
+            val hits = (0 until 3).map { book.searchChapter(it, "어린 왕자는").size }
+            assertEquals(listOf(6, 0, 10), hits, "제1장 6문단 + 제3장 10문단에 한 번씩")
         }
     }
 
@@ -438,6 +435,44 @@ class BookLayoutTest {
                 val page = book.resolve(end)
                 assertEquals(page.pageCount - 1, page.pageIndex, "$p% 가 마지막 페이지가 아니다")
             }
+        }
+    }
+
+    // ── 깨진 장 ─────────────────────────────────────────────────────
+
+    /** [broken] 장을 열 때마다 압축이 깨진 것처럼 실패하는 책. [broken] 을 비우면 저장소가 돌아온 것이다. */
+    private class FlakyChapters(
+        private val inner: io.github.kgcaudit.reader.document.ReflowDocument,
+        var broken: Set<Int>,
+    ) : io.github.kgcaudit.reader.document.ReflowDocument by inner {
+        override suspend fun openChapter(index: Int): java.io.Reader =
+            if (index in broken) throw java.util.zip.ZipException("invalid stored block lengths") else inner.openChapter(index)
+    }
+
+    @Test
+    fun `a broken chapter is replaced by a notice and the pages after it can still be reached`() = runTest {
+        // 망가뜨린 입력: 가운데 장의 압축이 깨졌다. 예전에는 다음 장의 쪽 수를 구하다 예외가 나, 넘기기 · 목차 ·
+        // 진행 막대 모두 그 장 너머로 갈 수 없었다.
+        openEpub().use { epub ->
+            val book = layout(FlakyChapters(epub, broken = setOf(1)))
+            var position = book.resolve(Locator.Reflow(0, 0))
+            val visited = mutableListOf(position.spineIndex)
+            while (true) position = book.next(position)?.also { visited += it.spineIndex } ?: break
+            assertEquals(listOf(0, 1, 2), visited.distinct(), "깨진 장 너머로 넘어가지 못했다")
+            assertEquals(BookLayout.UNREADABLE_CHAPTER, book.chapterText(1))
+            assertEquals(Locator.Reflow(1, 0), book.locatorForAnchor(1, "절2"), "목차로 깨진 장을 골라도 닫히지 않는다")
+        }
+    }
+
+    @Test
+    fun `a chapter that failed once is read again when the file is readable`() = runTest {
+        // 저장소가 잠깐 빠져 못 읽었을 뿐이면, 안내 쪽을 "다 됐다" 고 굳히지 않고 다음에 본문을 읽는다.
+        openEpub().use { epub ->
+            val flaky = FlakyChapters(epub, broken = setOf(1))
+            layout(flaky).ensurePaginated(1)
+            flaky.broken = emptySet()
+            val text = layout(flaky).chapterText(1).orEmpty()
+            assertTrue(text != BookLayout.UNREADABLE_CHAPTER && text.isNotEmpty(), "안내 쪽이 굳었다")
         }
     }
 

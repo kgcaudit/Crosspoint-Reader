@@ -115,19 +115,19 @@ class LibraryTest {
     }
 
     @Test
-    fun `recent books are newest first and skip hidden ones`() = runTest {
+    fun `the shelf is newest first and skips hidden books`() = runTest {
         val a = book("a.epub"); val b = book("b.txt"); val c = book("c.pdf")
         library.applyScan(folder, ScanResult(listOf(a, b, c), complete = true), 1)
         library.markOpened(BookId(a.uri), 10)
         library.markOpened(BookId(c.uri), 20)
         library.markOpened(BookId(b.uri), 30)
         library.markOpened(BookId(a.uri), 40)
-        assertEquals(listOf("a.epub", "b.txt", "c.pdf"), library.recent(limit = 20).first().map { it.displayName })
-        assertEquals(listOf("a.epub", "b.txt"), library.recent(limit = 2).first().map { it.displayName })
+        suspend fun shelf() = library.shelf().first().map { it.book.displayName }
+        assertEquals(listOf("a.epub", "b.txt", "c.pdf"), shelf())
 
-        // 눌러도 열리지 않는 책을 최근 목록에 두지 않는다.
+        // 눌러도 열리지 않는 책을 책장에 두지 않는다.
         library.applyScan(folder, ScanResult(listOf(a, c), complete = true), 50)
-        assertEquals(listOf("a.epub", "c.pdf"), library.recent(limit = 20).first().map { it.displayName })
+        assertEquals(listOf("a.epub", "c.pdf"), shelf())
     }
 
     @Test

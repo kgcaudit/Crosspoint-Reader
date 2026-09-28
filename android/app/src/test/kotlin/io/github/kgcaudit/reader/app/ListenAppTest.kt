@@ -161,7 +161,7 @@ class ListenAppTest {
         waitFor(hasContentDescription("듣기"))
         shot("85-bar-listen")
         node(hasContentDescription("듣기")).performClick()
-        waitFor(hasContentDescription("듣기 조종판"))
+        waitFor(hasContentDescription("듣기 제어"))
         // 드물게(전체 점검에서만, 여러 번 돌려도 재현 안 됨) 여기서 엔진이 말을 시작하지 않은 채 남는다. 다음에 걸리면
         // 원인을 볼 수 있게 그때의 엔진 · 듣기 상태를 실패 문구에 남긴다.
         runCatching { compose.waitUntil(5_000) { speakers.isNotEmpty() && speaker.current != null } }.onFailure {
@@ -218,14 +218,14 @@ class ListenAppTest {
         compose.waitForIdle()
         assertTrue(speaker.stops > 0)
         assertEquals(null, speaker.current)
-        waitFor(hasContentDescription("읽기"))
+        waitFor(hasContentDescription("이어 듣기"))
 
         // 멈춘 채 다음 문장: 읽지 않고 자리만 옮긴다. 다시 읽으면 그 문장부터.
         val before = speaker.spoken.size
         node(hasContentDescription("다음 문장")).performClick()
         compose.waitForIdle()
         assertEquals(before, speaker.spoken.size)
-        node(hasContentDescription("읽기")).performClick()
+        node(hasContentDescription("이어 듣기")).performClick()
         compose.waitUntil(5_000) { speaker.current != null }
         assertEquals("둘째 문장이다.", speaker.current)
 
@@ -292,7 +292,21 @@ class ListenAppTest {
         waitFor(hasContentDescription("듣기"))
         node(hasContentDescription("듣기")).performClick()
         waitFor(hasText("음성 엔진을 찾지 못했습니다", substring = true))
-        assertFalse(hasNode(hasContentDescription("듣기 조종판")))
+        assertFalse(hasNode(hasContentDescription("듣기 제어")))
+    }
+
+    @Test
+    fun `after installing a speech engine the listen button works without reopening the book`() {
+        // 엔진이 없어 실패한 듣기가 책에 붙은 채 남아, 엔진을 깔고 돌아와 눌러도 아무 일이 없었다(책을 닫아야 됐다).
+        engineWorks = false
+        openWith()
+        compose.onRoot().performTouchInput { click(center) }
+        waitFor(hasContentDescription("듣기"))
+        node(hasContentDescription("듣기")).performClick()
+        waitFor(hasText("음성 엔진을 찾지 못했습니다", substring = true))
+        engineWorks = true
+        startListening()
+        assertEquals("첫 문장이다.", speaker.current)
     }
 
     @Test
@@ -314,18 +328,18 @@ class ListenAppTest {
         assertEquals(4, card.actions.size)
 
         // 잠금 화면의 멈춤 · 다음 문장은 화면의 조종판과 같은 듣기를 움직인다.
-        controller.withIntent(Intent(service, ListenService::class.java).setAction(ListenService.ACTION_TOGGLE)).startCommand(0, 2)
+        service.onStartCommand(Intent(service, ListenService::class.java).setAction(ListenService.ACTION_TOGGLE), 0, 2)
         compose.waitForIdle()
-        waitFor(hasContentDescription("읽기"))
-        controller.withIntent(Intent(service, ListenService::class.java).setAction(ListenService.ACTION_TOGGLE)).startCommand(0, 3)
+        waitFor(hasContentDescription("이어 듣기"))
+        service.onStartCommand(Intent(service, ListenService::class.java).setAction(ListenService.ACTION_TOGGLE), 0, 3)
         compose.waitForIdle()
         waitFor(hasContentDescription("멈춤"))
-        controller.withIntent(Intent(service, ListenService::class.java).setAction(ListenService.ACTION_NEXT)).startCommand(0, 4)
+        service.onStartCommand(Intent(service, ListenService::class.java).setAction(ListenService.ACTION_NEXT), 0, 4)
         compose.waitUntil(5_000) { speaker.current == "둘째 문장이다." }
 
         // ✕: 듣기가 끝나고 조종판도 사라진다.
-        controller.withIntent(Intent(service, ListenService::class.java).setAction(ListenService.ACTION_CLOSE)).startCommand(0, 5)
-        compose.waitUntil(5_000) { !hasNode(hasContentDescription("듣기 조종판")) }
+        service.onStartCommand(Intent(service, ListenService::class.java).setAction(ListenService.ACTION_CLOSE), 0, 5)
+        compose.waitUntil(5_000) { !hasNode(hasContentDescription("듣기 제어")) }
         controller.destroy()
     }
 
@@ -342,10 +356,10 @@ class ListenAppTest {
         while (speaker.current != null && guard++ < 60) finish()
         // 둘째 장을 읽기 시작하지 않고 멈춘다.
         assertFalse(speaker.spoken.any { it.startsWith("둘째 장의") }, speaker.spoken.takeLast(3).toString())
-        waitFor(hasContentDescription("읽기"))
+        waitFor(hasContentDescription("이어 듣기"))
 
         // 다시 읽으면 둘째 장부터, 그리고 책 끝에서 알린다.
-        node(hasContentDescription("읽기")).performClick()
+        node(hasContentDescription("이어 듣기")).performClick()
         compose.waitUntil(5_000) { speaker.current == "둘째 장의 첫 문장이다." }
         finish(2)
         waitFor(hasText("책을 끝까지 읽었습니다"))
@@ -366,7 +380,7 @@ class ListenAppTest {
         assertTrue(speaker.current != null, "29분에 멈췄다")
         compose.runOnUiThread { shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMinutes(2)) }
         compose.waitForIdle()
-        waitFor(hasContentDescription("읽기"))
+        waitFor(hasContentDescription("이어 듣기"))
         assertEquals(null, speaker.current)
     }
 

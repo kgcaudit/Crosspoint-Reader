@@ -15,7 +15,6 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.displayCutout
@@ -40,6 +39,7 @@ import io.github.kgcaudit.reader.ui.design.PdfFit
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -82,7 +82,6 @@ import io.github.kgcaudit.reader.ui.design.CpButton
 import io.github.kgcaudit.reader.ui.design.CpChoice
 import io.github.kgcaudit.reader.ui.design.CpFullScreen
 import io.github.kgcaudit.reader.ui.design.CpHeader
-import io.github.kgcaudit.reader.ui.design.CpIconButton
 import io.github.kgcaudit.reader.ui.design.CpIcons
 import io.github.kgcaudit.reader.ui.design.CpListRow
 import io.github.kgcaudit.reader.ui.design.CpPopup
@@ -159,7 +158,7 @@ fun PdfScreen(
     val colors = CpTheme.colors
     var panel by remember { mutableStateOf(PdfPanel.None) }
     var toast by remember { mutableStateOf<String?>(null) }
-    var toastCount by remember { mutableStateOf(0) }
+    var toastCount by remember { mutableIntStateOf(0) }
     // 하단 정보의 "장 제목" · "이 장 남은 쪽". 목차는 파일마다 한 번 읽는다.
     var contents by remember { mutableStateOf<List<TocEntry>>(emptyList()) }
     LaunchedEffect(reader) { contents = runCatching { reader.outline() }.getOrDefault(emptyList()) }
@@ -168,7 +167,7 @@ fun PdfScreen(
     var dragBrightness by remember { mutableStateOf<Float?>(null) }
     val latestPrefs by androidx.compose.runtime.rememberUpdatedState(prefs)
     val context = androidx.compose.ui.platform.LocalContext.current
-    var speedRevision by remember { mutableStateOf(0) }
+    var speedRevision by remember { mutableIntStateOf(0) }
     // 읽는 속도: 앞으로 넘길 때마다 방금 본 쪽 수와 머문 시간으로 잰다.
     val turn = remember { longArrayOf(0L, -1L, 0L) } // [시각, 첫 쪽, 쪽 수]
     LaunchedEffect(state.page) {
@@ -195,7 +194,7 @@ fun PdfScreen(
     val scroller = remember { PageScroller() }
     // 앞 쪽으로 돌아갈 때 그 쪽을 끝에서 보이게 할 쪽. 다른 쪽으로 가면 지운다 — 남겨 두면 나중에 그 쪽에 앞으로
     // 넘어 들어와도 끝부터 보인다.
-    var enterBottom by remember { mutableStateOf(-1) }
+    var enterBottom by remember { mutableIntStateOf(-1) }
     LaunchedEffect(state.page) { if (state.page != enterBottom) enterBottom = -1 }
     val fitWidth = prefs.pdfFit == PdfFit.Width
 
@@ -246,7 +245,7 @@ fun PdfScreen(
         }
     }
     fun hiddenHint() {
-        if (!latestPrefs.showHighlights) say("형광펜을 숨겨 둔 상태라 보이지 않습니다. 보기 설정에서 켤 수 있습니다")
+        if (!latestPrefs.showHighlights) say("형광펜을 숨겨 둔 상태라 보이지 않습니다. 보기 설정에서 켤 수 있습니다.")
     }
     fun longPress(at: Offset) {
         if (!reader.readsText) return
@@ -304,19 +303,24 @@ fun PdfScreen(
     fun openHit(i: Int) {
         val hit = search.results.getOrNull(i) ?: return
         search.current = i
-        text.found = search.results.groupBy({ it.spine }, { it.start until it.endExclusive })
-        text.current = hit.spine to (hit.start until hit.endExclusive)
+        val ordinal = search.results.take(i).count { it.spine == hit.spine }
+        text.foundQuery = search.searchedQuery
+        text.foundPages = search.results.mapTo(HashSet()) { it.spine }
+        text.current = hit.spine to ordinal
         panel = PdfPanel.None
         scope.go {
             reader.goTo(hit.spine)
-            val box = reader.textLayer(hit.spine).rects(hit.start, hit.endExclusive).firstOrNull()
+            val layer = reader.textLayer(hit.spine)
+            // 층에서 찾은 수가 엔진의 글과 다르면(하이픈으로 끊긴 말은 층에서만 이어진다) 가장 가까운 것으로 간다.
+            val range = layerHits(layer, text.foundQuery).let { it.getOrNull(ordinal) ?: it.lastOrNull() }
+            val box = range?.let { layer.rects(it.first, it.last + 1).firstOrNull() }
             text.layers++
             if (box != null) focus = hit.spine to box
         }
     }
     fun closeSearch() {
         search.current = -1
-        text.found = emptyMap()
+        text.foundPages = emptySet()
         text.current = null
     }
 
@@ -538,14 +542,14 @@ fun PdfScreen(
         PdfPanel.None -> Unit
         PdfPanel.Bar, PdfPanel.View -> CpReaderBar(
             title = reader.title,
-            subtitle = "${state.page + 1} / ${state.pageCount} 쪽",
+            subtitle = "${state.page + 1} / ${state.pageCount}쪽",
             bookmarked = state.bookmarked,
             onBookmark = ::toggleBookmark,
             onBack = closeBook,
             onDismiss = { panel = PdfPanel.None },
             // 찾기 · 듣기(4단계 PDF). 글자를 꺼낼 수 없는 휴대폰(안드로이드 14 이하)에서는 단추가 없다.
             onSearch = if (reader.readsText) ({ whenReadable { panel = PdfPanel.Search } }) else null,
-            onListen = if (reader.readsText) ({ if (listening != null) { panel = PdfPanel.None; listening.play() } else startListening() }) else null,
+            onListen = if (reader.readsText) ({ if (listening?.state?.value?.active == true) { panel = PdfPanel.None; listening.play() } else startListening() }) else null,
             progress = if (state.pageCount > 1) state.page / (state.pageCount - 1f) else 1f,
             progressLabel = { pageAt(it, state.pageCount).let { p -> "${reader.book.pageLabel(p) ?: (p + 1)}쪽" } },
             onSeek = { target -> scope.go { reader.seek(target) } },
@@ -736,9 +740,7 @@ private fun PageView(
         if (fitWidth) PageViewport.fitWidth(viewW, viewH, aspect, bottom) else PageViewport.fit(viewW, viewH, aspect)
     var viewport by remember(page, viewW, viewH, pageAspect, fitWidth) { mutableStateOf(rest(pageAspect, fromBottom)) }
     // 바탕 그림은 쉬는 크기 그대로 그린다. 폭 맞춤을 쪽 전체 크기로 그려 늘리면 쉬는 동안 내내 글자가 흐리다.
-    val restView = rest(pageAspect)
-    val fitW = restView.width.roundToInt()
-    val fitH = restView.height.roundToInt()
+    val (fitW, fitH) = baseSize(rest(pageAspect))
     if (scroller != null && fitWidth) {
         DisposableEffect(scroller, page) {
             val mine: (Boolean) -> Boolean = { forward -> viewport.scroll(forward)?.also { viewport = it } != null }
@@ -754,7 +756,8 @@ private fun PageView(
 
     // 미리 그려 둔 쪽이면 첫 프레임부터 보인다. 기다렸다 받으면 넘길 때마다 빈 종이가 한 번 번쩍인다.
     var base by remember(page, fitW, fitH) { mutableStateOf(reader.cachedPage(page, fitW, fitH)) }
-    var broken by remember(page) { mutableStateOf(false) }
+    // 크기까지 열쇠로 둔다 — 폭 맞춤에서 한 번 실패한 뒤 쪽 맞춤으로 바꾸면 쪽은 멀쩡히 그려졌는데 실패 안내가 남았다.
+    var broken by remember(page, fitW, fitH) { mutableStateOf(false) }
     LaunchedEffect(page, fitW, fitH) {
         if (base == null) {
             val bitmap = reader.page(page, fitW, fitH)
@@ -762,8 +765,8 @@ private fun PageView(
         }
         for (near in intArrayOf(page + 1, page - 1)) {
             if (near !in 0 until reader.book.pageCount) continue
-            val near0 = rest(reader.book.pageAspectRatio(near))
-            reader.page(near, near0.width.roundToInt(), near0.height.roundToInt())
+            val (w, h) = baseSize(rest(reader.book.pageAspectRatio(near)))
+            reader.page(near, w, h)
         }
     }
 
@@ -1109,9 +1112,9 @@ private fun PdfLists(
                     chips = reader.readsText,
                     caption = if (reader.readsText) null else "이 휴대폰(안드로이드 14 이하)에서는 PDF 글자를 고를 수 없어 책갈피만 모입니다",
                     empty = if (reader.readsText) {
-                        "독서노트가 비어 있습니다. 글자를 길게 눌러 칠하거나 쪽 오른쪽 위를 눌러 책갈피를 꽂으면 여기에 모입니다"
+                        "독서노트가 비어 있습니다. 글자를 길게 눌러 칠하거나 쪽 오른쪽 위를 눌러 책갈피를 꽂으면 여기에 모입니다."
                     } else {
-                        "책갈피가 없습니다. 쪽 오른쪽 위를 누르거나 가운데를 누르고 위쪽 책갈피 단추로 꽂을 수 있습니다"
+                        "책갈피가 없습니다. 쪽 오른쪽 위를 누르거나 가운데를 누르고 위쪽 책갈피 단추로 꽂을 수 있습니다."
                     },
                 )
             } else {
@@ -1128,7 +1131,7 @@ private fun PdfLists(
 private fun ContentsList(entries: List<TocEntry>?, page: Int, labelOf: (Int) -> String, onOpen: (TocEntry) -> Unit) {
     when {
         entries == null -> Unit
-        entries.isEmpty() -> Empty("목차가 없는 파일입니다. 진행 막대로 원하는 쪽에 갈 수 있습니다")
+        entries.isEmpty() -> Empty("목차가 없는 파일입니다. 진행 막대로 원하는 쪽에 갈 수 있습니다.")
         else -> {
             val current = currentContentsIndex(entries, page)
             val list = rememberLazyListState()
@@ -1173,3 +1176,19 @@ private fun CoroutineScope.go(block: suspend () -> Unit) {
 private const val SETTLE_MS = 150L
 
 private const val TAG = "OloPdf"
+
+/**
+ * 바탕 그림의 픽셀 크기. 폭 맞춤에서 세로로 아주 긴 쪽(웹툰형 PDF)은 화면 폭 그대로면 한 장이 100MB 를 넘어, 그리는
+ * 순간 "too large bitmap" 으로 앱이 닫혔다. 넘으면 비율을 지켜 줄인다 — 늘려 그리므로 자리는 같고, 확대하면 보이는
+ * 구역을 따로 선명하게 그린다. 보통 쪽은 가로 화면 폭 맞춤(약 1400만 픽셀)도 줄이지 않는다.
+ */
+internal fun baseSize(view: PageViewport): Pair<Int, Int> {
+    val pixels = view.width * view.height
+    if (pixels <= MAX_BASE_PIXELS) return view.width.roundToInt() to view.height.roundToInt()
+    // 내림 — 반올림하면 상한을 몇 픽셀 넘는다.
+    val scale = kotlin.math.sqrt(MAX_BASE_PIXELS / pixels)
+    return (view.width * scale).toInt().coerceAtLeast(1) to (view.height * scale).toInt().coerceAtLeast(1)
+}
+
+/** 바탕 그림 한 장의 최대 픽셀(64MB). 쪽 그림 캐시 전체와 같은 몫이라 이보다 크면 캐시에도 못 든다. */
+private const val MAX_BASE_PIXELS = 16_000_000f

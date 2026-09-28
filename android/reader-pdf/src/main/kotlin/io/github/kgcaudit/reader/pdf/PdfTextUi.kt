@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import io.github.kgcaudit.reader.document.Annotation
 import io.github.kgcaudit.reader.document.HighlightColor
 import io.github.kgcaudit.reader.layout.book.SearchHit
+import io.github.kgcaudit.reader.layout.book.findAll
 import io.github.kgcaudit.reader.ui.design.CpFloatingMenu
 import io.github.kgcaudit.reader.ui.design.CpSelectionHandles
 import io.github.kgcaudit.reader.ui.design.HANDLE_RADIUS
@@ -63,9 +64,14 @@ internal class PdfTextState {
     var tapped by mutableStateOf<Annotation?>(null)
     var memo by mutableStateOf<PdfMemo?>(null)
 
-    /** 찾은 곳들(쪽 → 구간)과 지금 보고 있는 결과. */
-    var found by mutableStateOf<Map<Int, List<IntRange>>>(emptyMap())
-    var current by mutableStateOf<Pair<Int, IntRange>?>(null)
+    /**
+     * 찾은 말과 찾은 곳이 있는 쪽, 지금 보고 있는 결과(쪽, 그 쪽에서 몇 번째). 구간 번호를 두지 않는다 — 찾기는 엔진의
+     * 글에서, 칠은 글자 층에서 하는데 두 글은 번호가 달라(줄 끝 하이픈 "-\r\n" 이 층에서는 한 글자, 층은 보이는 순서로
+     * 다시 줄 세움) 찾기의 번호로 칠하면 하이픈 줄마다 두 글자씩 밀렸다. 칠할 때 층에서 같은 말을 다시 찾는다.
+     */
+    var foundQuery by mutableStateOf("")
+    var foundPages by mutableStateOf<Set<Int>>(emptySet())
+    var current by mutableStateOf<Pair<Int, Int>?>(null)
 
     /** 글자 층을 새로 꺼낼 때마다 는다(층은 리더가 쥐고 있어 그리기가 다시 불리게 하려고). */
     var layers by mutableIntStateOf(0)
@@ -87,6 +93,10 @@ internal class PdfSearch {
     var running by mutableStateOf(false)
         private set
     var current by mutableIntStateOf(-1)
+
+    /** [results] 를 낸 말. 결과를 연 뒤 칸의 글을 고쳐도 칠은 찾은 말을 따른다. */
+    var searchedQuery = ""
+        private set
     private var job: Job? = null
 
     fun start(reader: PdfReader, scope: CoroutineScope) {
@@ -95,6 +105,7 @@ internal class PdfSearch {
         searched = 0
         current = -1
         val q = query.trim()
+        searchedQuery = q
         if (q.isEmpty()) return
         running = true
         job = scope.launch {
@@ -118,7 +129,7 @@ internal class PdfSearch {
     }
 
     fun summary(pageCount: Int): String = when {
-        running -> "찾는 중… $searched / $pageCount 쪽 · 지금까지 ${results.size}곳"
+        running -> "찾는 중… $searched / ${pageCount}쪽 · 지금까지 ${results.size}곳"
         searched > 0 && results.isEmpty() -> "찾지 못했습니다"
         searched > 0 -> "${results.size}곳 · ${results.map { it.spine }.distinct().size}쪽에서"
         else -> ""
@@ -146,7 +157,7 @@ internal fun PdfTextOverlay(
     val shownPages = text.placed.map { it.page }
     val visibleNotes = if (showNotes) notes.filter { it.start.spine in shownPages } else emptyList()
     // 칠할 것이 있는 쪽만 글자 층을 꺼낸다 — 층은 쪽마다 엔진을 수천 번 부르므로, 넘길 때마다 꺼내면 쪽 그리기가 밀린다.
-    val needed = (visibleNotes.map { it.start.spine } + text.found.keys.filter { it in shownPages } +
+    val needed = (visibleNotes.map { it.start.spine } + text.foundPages.filter { it in shownPages } +
         listOfNotNull(text.selection?.page, text.tapped?.start?.spine, sentence?.first)).distinct()
     LaunchedEffect(needed) {
         for (page in needed) {
@@ -170,10 +181,11 @@ internal fun PdfTextOverlay(
             boxes.forEach { drawRect(pen.fill(false), it.topLeft, it.size) }
             if (note.note != null) boxes.lastOrNull()?.let { box -> drawMemoGlyph(Offset(box.right, box.top), (box.height * 0.55f).coerceAtLeast(6f), pen.mark(false)) }
         }
-        for ((page, ranges) in text.found) {
-            if (page !in shownPages) continue
-            for (range in ranges) {
-                val strong = text.current == page to range
+        for (page in shownPages) {
+            if (page !in text.foundPages) continue
+            val layer = reader.cachedLayer(page) ?: continue
+            layerHits(layer, text.foundQuery).forEachIndexed { i, range ->
+                val strong = text.current == page to i
                 rects(page, range).forEach { drawRect(accent.copy(alpha = if (strong) 0.55f else 0.25f), it.topLeft, it.size) }
             }
         }
@@ -245,3 +257,7 @@ internal fun Modifier.selectionHandles(reader: PdfReader, text: PdfTextState): M
         }
     }
 }
+
+/** 글자 층에서 [query] 가 나오는 구간들. 찾기와 같은 규칙([findAll]: 대소문자 · 공백 개수를 가리지 않음)이라 차례가 맞는다. */
+internal fun layerHits(layer: PageText, query: String): List<IntRange> =
+    if (query.isBlank()) emptyList() else findAll(layer.text, query, 0).map { it.start until it.endExclusive }

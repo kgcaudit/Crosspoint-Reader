@@ -245,7 +245,7 @@ class PdfTextAppTest {
         compose.onRoot().performTouchInput { click(center) }
         waitFor(hasContentDescription("듣기"))
         node(hasContentDescription("듣기")).performClick()
-        waitFor(hasContentDescription("듣기 조종판"))
+        waitFor(hasContentDescription("듣기 제어"))
         compose.waitUntil(5_000) { speakers.isNotEmpty() && speaker.current != null }
         // 머리말("OLO 사용 설명서")이 아니라 제목부터. 제목은 마침표가 없어도 따로 읽는다.
         assertEquals("제 1 쪽 · 사용 설명서", speaker.current)

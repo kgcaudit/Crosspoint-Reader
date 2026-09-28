@@ -79,6 +79,12 @@ data class LayoutSpec(
      * 만들면 둘째 줄부터 글자가 번호 밑으로 파고든다.
      */
     val indentOff: Boolean = false,
+    /**
+     * 원본 파일의 판(바이트 크기). 코어가 여는 것은 문서라 파일이 바뀌었는지 모른다 — 같은 이름으로 개정판을 덮어쓰면
+     * 캐시 디렉터리가 같아 옛 본문 쪽이 그대로 보였고, 새 파일로 다시 읽은 링크 · 찾기 · 형광펜은 엉뚱한 글자에 놓였다.
+     * null 이면(시험 · 모르는 원천) 넣지 않는다.
+     */
+    val edition: String? = null,
 ) {
     init {
         require(viewportWidthPx > 0f && viewportHeightPx > 0f) { "viewport must be positive" }
@@ -115,6 +121,7 @@ data class LayoutSpec(
         // 새 칸도 기본값이면 키에 넣지 않는다 — 판을 올릴 때 모든 책이 다시 조판되지 않게.
         if (alignOverride != null) append("|align=").append(alignOverride.name)
         if (indentOff) append("|noindent")
+        if (edition != null) append("|ed=").append(edition)
     }
 
     companion object {

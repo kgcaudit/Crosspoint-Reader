@@ -4,6 +4,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -224,7 +225,7 @@ fun CpTabBar(tabs: List<String>, selected: Int, onSelect: (Int) -> Unit, modifie
                 Modifier
                     .weight(1f)
                     .heightIn(min = CpTheme.metrics.touchTarget)
-                    .clickable(role = Role.Tab) { onSelect(i) },
+                    .selectable(selected = on, role = Role.Tab) { onSelect(i) },
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
@@ -250,29 +251,6 @@ fun CpProgressBar(fraction: Float, modifier: Modifier = Modifier, weight: CpBarW
                 .height(weight.height)
                 .background(c.accent),
         )
-    }
-}
-
-/**
- * 리더 아래쪽 한 줄. 왼쪽 제목 · 가운데 쪽 · 오른쪽 퍼센트 + 얇은 진행바.
- * CrossPoint `drawStatusBar` 에서 배터리를 뺐다 — 휴대폰은 시스템이 보여 준다.
- */
-@Composable
-fun CpStatusBar(
-    title: String,
-    page: String,
-    percent: String,
-    progress: Float,
-    color: Color,
-    modifier: Modifier = Modifier,
-) {
-    Column(modifier.fillMaxWidth().padding(horizontal = CpTheme.metrics.gutter)) {
-        CpProgressBar(progress, weight = CpBarWeight.Thin)
-        Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            CpText(title, CpTheme.type.caption, color, Modifier.weight(1f))
-            CpText(page, CpTheme.type.caption, color, Modifier.padding(horizontal = 12.dp))
-            CpText(percent, CpTheme.type.caption, color, Modifier.widthIn(min = 40.dp), align = TextAlign.End)
-        }
     }
 }
 
@@ -374,7 +352,7 @@ fun CpChoice(label: String, options: List<String>, selected: Int, onSelect: (Int
                     .clip(RoundedCornerShape(CpTheme.metrics.cornerSmall))
                     .background(if (on) c.accent else Color.Transparent)
                     .border(1.dp, if (on) c.accent else c.outline, RoundedCornerShape(CpTheme.metrics.cornerSmall))
-                    .clickable(role = Role.RadioButton) { onSelect(i) }
+                    .selectable(selected = on, role = Role.RadioButton) { onSelect(i) }
                     .padding(horizontal = 16.dp),
                 contentAlignment = Alignment.Center,
             ) { CpText(option, CpTheme.type.label, if (on) c.onAccent else c.text) }
@@ -426,7 +404,7 @@ fun CpRadioRow(
         modifier
             .fillMaxWidth()
             .heightIn(min = CpTheme.metrics.rowHeight)
-            .clickable(role = Role.RadioButton, onClick = onClick)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
             .padding(start = CpTheme.metrics.gutter, end = 4.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

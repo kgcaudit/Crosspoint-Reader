@@ -6,8 +6,6 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import io.github.kgcaudit.reader.data.ReaderData
 import io.github.kgcaudit.reader.data.db.ReaderDatabase
-import io.github.kgcaudit.reader.data.library.LibraryScanner
-import io.github.kgcaudit.reader.document.BookId
 import io.github.kgcaudit.reader.document.TxtDocument
 import io.github.kgcaudit.reader.document.epub.EpubDocument
 import io.github.kgcaudit.reader.document.readFully

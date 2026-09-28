@@ -3,6 +3,7 @@ package io.github.kgcaudit.reader.ui.design
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,7 +11,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -30,6 +30,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.semantics.Role
@@ -39,7 +40,6 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.text.SimpleDateFormat
@@ -177,7 +177,7 @@ fun CpReadingNotesList(
     onShare: ((NoteItem) -> Unit)? = null,
     chips: Boolean = true,
     caption: String? = null,
-    empty: String = "독서노트가 비어 있습니다. 글자를 길게 눌러 칠하거나 쪽 오른쪽 위를 눌러 책갈피를 꽂으면 여기에 모입니다",
+    empty: String = "독서노트가 비어 있습니다. 글자를 길게 눌러 칠하거나 쪽 오른쪽 위를 눌러 책갈피를 꽂으면 여기에 모입니다.",
 ) {
     val c = CpTheme.colors
     val m = CpTheme.metrics
@@ -194,7 +194,7 @@ fun CpReadingNotesList(
                             Modifier.padding(end = 8.dp).heightIn(min = 36.dp).clip(RoundedCornerShape(50))
                                 .background(if (on) c.accent else Color.Transparent)
                                 .border(1.dp, if (on) c.accent else c.outline, RoundedCornerShape(50))
-                                .clickable(role = Role.Tab) { onFilter(f) }
+                                .selectable(selected = on, role = Role.Tab) { onFilter(f) }
                                 .padding(horizontal = 14.dp),
                             contentAlignment = Alignment.Center,
                         ) { CpText("${f.label} ${items.count { f.shows(it) }}", CpTheme.type.label, if (on) c.onAccent else c.text) }
@@ -220,11 +220,22 @@ fun CpReadingNotesList(
         menu?.let { (item, at) ->
             // 바깥을 누르면 닫힌다(투명한 막).
             Box(Modifier.fillMaxSize().clickable(indication = null, interactionSource = null) { menu = null })
-            val width = 168.dp
             Column(
                 Modifier
-                    .offset { IntOffset((at.x - width.toPx()).roundToInt().coerceAtLeast(8.dp.roundToPx()), at.y.roundToInt()) }
-                    .width(if (recolor) 224.dp else width)
+                    // 단추의 오른쪽 아래에 붙여 펼치되 화면 안에 둔다. 아래쪽 행에서 늘 아래로 펼치면 "지우기" 가 화면 밖으로
+                    // 잘렸고, "색 바꾸기" 로 넓어지면 오른쪽으로 넘쳤다. 아래가 모자라면 단추 위로 펼친다.
+                    .layout { measurable, constraints ->
+                        val menuBox = measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
+                        layout(constraints.maxWidth, constraints.maxHeight) {
+                            val edge = 8.dp.roundToPx()
+                            val x = (at.x.roundToInt() - menuBox.width).coerceIn(edge, (constraints.maxWidth - menuBox.width - edge).coerceAtLeast(edge))
+                            val below = at.y.roundToInt()
+                            val y = if (below + menuBox.height + edge <= constraints.maxHeight) below
+                                else (below - MENU_BUTTON.roundToPx() - menuBox.height).coerceAtLeast(edge)
+                            menuBox.place(x, y)
+                        }
+                    }
+                    .width(if (recolor) 224.dp else 168.dp)
                     .shadow(8.dp, RoundedCornerShape(m.cornerMedium))
                     .clip(RoundedCornerShape(m.cornerMedium)).background(c.dialog)
                     .padding(vertical = 6.dp),
@@ -279,7 +290,7 @@ private fun NoteRow(item: NoteItem, onOpen: () -> Unit, onMenu: (Offset) -> Unit
                 CpText(item.where, CpTheme.type.caption, c.textMuted, Modifier.padding(top = 4.dp))
             }
             Box(
-                Modifier.size(40.dp).clip(RoundedCornerShape(50))
+                Modifier.size(MENU_BUTTON).clip(RoundedCornerShape(50))
                     .onGloballyPositioned { val p = it.positionInRoot(); button = Offset(p.x + it.size.width, p.y + it.size.height) }
                     .clickable(role = Role.Button) { onMenu(button) }
                     .semantics { contentDescription = "더 보기" },
@@ -294,3 +305,6 @@ private fun NoteRow(item: NoteItem, onOpen: () -> Unit, onMenu: (Offset) -> Unit
         }
     }
 }
+
+/** ⋮ 단추의 크기. 메뉴를 위로 펼칠 때 단추를 가리지 않게 그만큼 올린다. */
+private val MENU_BUTTON = 40.dp

@@ -54,9 +54,6 @@ import io.github.kgcaudit.reader.document.HighlightColor
 import io.github.kgcaudit.reader.layout.Page
 import io.github.kgcaudit.reader.text.AndroidTextMeasurer
 import io.github.kgcaudit.reader.ui.design.CpButton
-import io.github.kgcaudit.reader.ui.design.CpFloatingMenu
-import io.github.kgcaudit.reader.ui.design.CpMemoSheet
-import io.github.kgcaudit.reader.ui.design.CpSelectionHandles
 import io.github.kgcaudit.reader.ui.design.CpPenDots
 import io.github.kgcaudit.reader.ui.design.CpText
 import io.github.kgcaudit.reader.ui.design.CpTheme

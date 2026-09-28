@@ -67,12 +67,9 @@ interface BookmarkDao {
 @Dao
 interface RecentDao {
 
-    @Upsert
-    suspend fun upsert(recent: RecentEntity)
-
     /**
-     * 열었다: 없던 책이면 새 행, 있던 책이면 연 시각만. [upsert] 로 통째로 쓰면 다 읽은 때가 지워져, 다 읽은 책을
-     * 다시 펼칠 때마다 "읽는 중" 으로 돌아갔다.
+     * 열었다: 없던 책이면 새 행, 있던 책이면 연 시각만. 행을 통째로 덮어쓰면 다 읽은 때가 지워져, 다 읽은 책을
+     * 다시 펼칠 때마다 "읽는 중" 으로 돌아갔다(그래서 upsert 를 두지 않는다).
      */
     @Query("INSERT OR IGNORE INTO recent(bookId, openedAtEpochMs, finishedAtEpochMs) VALUES(:bookId, :at, NULL)")
     suspend fun insertIfAbsent(bookId: String, at: Long)
@@ -94,18 +91,12 @@ interface RecentDao {
     @Query("UPDATE recent SET finishedAtEpochMs = :at WHERE bookId = :bookId AND finishedAtEpochMs IS NULL")
     suspend fun finishOnce(bookId: String, at: Long)
 
+    /** 책장. 숨겨진(스캔에서 사라진) 책은 뺀다 — 눌러도 열리지 않는 항목을 보여 주면 안 된다. */
     @Query(
         "SELECT books.*, recent.finishedAtEpochMs FROM recent JOIN books ON books.id = recent.bookId " +
             "WHERE books.missing = 0 ORDER BY recent.openedAtEpochMs DESC",
     )
     fun observeShelf(): Flow<List<ShelfRow>>
-
-    /** 숨겨진(스캔에서 사라진) 책은 뺀다. 눌러도 열리지 않는 항목을 보여 주면 안 된다. */
-    @Query(
-        "SELECT books.* FROM recent JOIN books ON books.id = recent.bookId " +
-            "WHERE books.missing = 0 ORDER BY recent.openedAtEpochMs DESC LIMIT :limit",
-    )
-    fun observe(limit: Int): Flow<List<BookEntity>>
 }
 
 @Dao

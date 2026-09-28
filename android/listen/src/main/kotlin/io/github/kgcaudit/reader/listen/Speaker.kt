@@ -58,12 +58,17 @@ class AndroidSpeaker(private val context: Context, private val engine: String?) 
 
     override suspend fun prepare(): Boolean {
         if (ready) return true
+        // 전에 실패한 것이 남아 있으면 끈다 — 새로 만들며 옛 엔진 연결을 버리면 책을 닫을 때까지 붙들고 있었다.
+        shutdown()
         val done = CompletableDeferred<Boolean>()
         val created = TextToSpeech(context.applicationContext, { status -> done.complete(status == TextToSpeech.SUCCESS) }, engine)
         tts = created
         // 엔진이 대답하지 않는 기기가 있다(엔진을 지운 직후 등). 끝없이 기다리면 단추가 먹통이 된다.
         ready = withTimeoutOrNull(8_000) { done.await() } == true
-        if (!ready) return false
+        if (!ready) {
+            shutdown()
+            return false
+        }
         created.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String) { events?.onStart(utteranceId) }
             override fun onDone(utteranceId: String) { events?.onDone(utteranceId) }
@@ -127,7 +132,7 @@ class AndroidSpeaker(private val context: Context, private val engine: String?) 
                         // 인터넷이 있어야 읽는 목소리는 뺀다. 앱은 인터넷을 쓰지 않는다는 약속을 엔진을 통해 깨지 않는다.
                         .filter { it.locale.language == Locale.KOREAN.language && !it.isNetworkConnectionRequired }
                         .sortedBy { it.name }
-                    korean.forEachIndexed { i, v -> out += VoiceChoice(engine.name, engine.label, v.name, voiceLabel(v, i), needsDownload(v)) }
+                    korean.forEachIndexed { i, v -> out += VoiceChoice(engine.name, engine.label, v.name, voiceLabel(i), needsDownload(v)) }
                 }
                 speaker.shutdown()
             }
@@ -137,7 +142,6 @@ class AndroidSpeaker(private val context: Context, private val engine: String?) 
         private fun needsDownload(v: Voice): Boolean = v.features?.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED) == true
 
         /** 엔진이 주는 이름("ko-kr-x-kob-local")은 사람이 읽을 수 없다 — 순번으로 부른다. */
-        @Suppress("UNUSED_PARAMETER")
-        private fun voiceLabel(v: Voice, index: Int): String = "한국어 ${index + 1}"
+        private fun voiceLabel(index: Int): String = "한국어 ${index + 1}"
     }
 }

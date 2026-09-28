@@ -119,10 +119,6 @@ class PageViewport private constructor(
         bottom = (min(height, viewHeight - top) / height).coerceIn(0f, 1f),
     )
 
-    /** 오른쪽 끝까지 끌었는가. 확대 중에 더 밀면 다음 쪽으로 넘기는 판단에 쓴다. */
-    val atRightEdge: Boolean get() = width <= viewWidth + EPS || left <= viewWidth - width + EPS
-    val atLeftEdge: Boolean get() = width <= viewWidth + EPS || left >= -EPS
-
     private fun clamped(scale: Float, left: Float, top: Float): PageViewport {
         val w = fitWidth * scale
         val h = fitHeight * scale

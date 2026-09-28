@@ -44,49 +44,62 @@ class CoverStore(
     val version: StateFlow<Int> = _version.asStateFlow()
 
     /** 메모리에 있으면 기다리지 않고 준다(목록을 다시 그릴 때 깜빡이지 않게). */
-    fun cached(id: BookId): Cover? = memory.get(key(id))
+    fun cached(book: LibraryBook): Cover? = memory.get(memoryKey(book))
 
     suspend fun cover(book: LibraryBook): Cover = withContext(Dispatchers.IO) {
-        val key = key(book.id)
+        val key = memoryKey(book)
         memory.get(key)?.let { return@withContext it }
         // 한 번에 한 권씩 꺼낸다. PDF 엔진 · 큰 EPUB 을 여러 권 동시에 열면 메모리가 모자란다.
         extracting.withLock {
             memory.get(key)?.let { return@withLock it }
-            val custom = File(dir, "custom/$key.jpg").takeIf { it.isFile }?.let(::decodeFile)
-            val own = ownCover(book, key)
-            Cover(custom ?: own, custom = custom != null, hasOwn = own != null).also { memory.put(key, it) }
+            val version = _version.value
+            val custom = File(dir, "custom/${key(book.id)}.jpg").takeIf { it.isFile }?.let(::decodeFile)
+            val own = ownCover(book)
+            val cover = Cover(custom ?: own.image, custom = custom != null, hasOwn = own.image != null)
+            // 꺼내는 사이에 표지를 고르거나 되돌렸으면 담지 않는다 — 고르기 전에 읽은 옛 표지가 메모리에 남아, 바꿨다는
+            // 알림이 뜬 뒤에도 책장에 옛 표지가 보였다. 못 읽은 책도 담지 않는다 — 저장소가 돌아오면 다시 찾아야 한다.
+            // 담은 뒤에 다시 본다: [changed] 가 판을 먼저 올리고 비우므로, 어느 순서로 겹쳐도 옛 표지가 남지 않는다.
+            if (own.settled) {
+                memory.put(key, cover)
+                if (version != _version.value) memory.remove(key)
+            }
+            cover
         }
     }
 
     /**
-     * 사람이 고른 그림을 표지로 둔다. 그림으로 읽히지 않으면(그림이 아닌 파일 · 깨진 파일) false 이고 아무것도 바꾸지
-     * 않는다 — 깨진 그림으로 멀쩡한 표지를 덮지 않는다.
+     * 사람이 고른 그림을 표지로 둔다. 그림으로 읽히지 않으면(그림이 아닌 파일 · 깨진 파일) · 저장하지 못하면(저장 공간
+     * 부족) false 이고 아무것도 바꾸지 않는다 — 깨진 그림으로 멀쩡한 표지를 덮지 않는다.
      */
     suspend fun setCustom(id: BookId, input: () -> InputStream?): Boolean = withContext(Dispatchers.IO) {
         // runCatching 은 Error(메모리 부족)까지 받는다 — 고른 그림이 너무 커도 "쓸 수 없습니다" 로 끝난다.
         val bitmap = runCatching { input()?.use { decodeScaled(it.readBytes()) } }.getOrNull() ?: return@withContext false
-        val file = File(dir, "custom/${key(id)}.jpg")
-        file.parentFile?.mkdirs()
-        writeJpeg(bitmap, file)
-        changed(id)
+        if (!writeJpeg(bitmap, File(dir, "custom/${key(id)}.jpg"))) return@withContext false
+        changed()
         true
     }
 
     suspend fun clearCustom(id: BookId) = withContext(Dispatchers.IO) {
         File(dir, "custom/${key(id)}.jpg").delete()
-        changed(id)
+        changed()
     }
 
-    private fun changed(id: BookId) {
-        memory.remove(key(id))
+    private fun changed() {
+        // 어느 책의 메모리 항목인지는 크기까지 붙은 열쇠라 여기서 모른다. 표지 고르기는 드물어 통째로 비운다.
         _version.value++
+        memory.evictAll()
     }
 
-    private suspend fun ownCover(book: LibraryBook, key: String): ImageBitmap? {
+    /** 책에서 꺼낸 표지. [settled] 가 false 면 책을 못 읽어 모르는 것이다 — 담아 두지 않고 다음에 다시 찾는다. */
+    private class Own(val image: ImageBitmap?, val settled: Boolean)
+
+    private suspend fun ownCover(book: LibraryBook): Own {
+        // 파일 크기를 열쇠에 넣는다 — 같은 이름으로 개정판을 덮어쓰면 옛 판의 표지가 계속 보였다.
+        val key = key(book.id, book.sizeBytes)
         val file = File(dir, "auto/$key.jpg")
-        if (file.isFile) return decodeFile(file)
+        if (file.isFile) return Own(decodeFile(file), settled = true)
         val none = File(dir, "auto/$key.none")
-        if (none.exists()) return null
+        if (none.exists()) return Own(null, settled = true)
         val bitmap = try {
             extract(book)
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -95,25 +108,33 @@ class CoverStore(
             // 오류(Error)까지 받는다: 큰 표지 그림이 메모리를 넘기거나(OutOfMemoryError) 엔진이 깨진 PDF 에서 무너져도,
             // 표지 하나 때문에 책장이 닫히면 안 된다 — 대신 표지를 보이면 된다.
             android.util.Log.w("OloCovers", "cover of ${book.displayName} unreadable", e)
-            return null
+            return Own(null, settled = false)
         }
-        file.parentFile?.mkdirs()
         if (bitmap == null) {
-            none.createNewFile()
-            return null
+            // 표시를 못 남겨도(저장 공간 부족) 표지가 없다는 것은 안다. 다음 실행에 한 번 더 찾을 뿐이다.
+            runCatching { none.parentFile?.mkdirs(); none.createNewFile() }
+            return Own(null, settled = true)
         }
         val scaled = scaleToHeight(bitmap)
         writeJpeg(scaled, file)
-        return scaled.asImageBitmap()
+        return Own(scaled.asImageBitmap(), settled = true)
     }
 
     private fun decodeFile(file: File): ImageBitmap? = BitmapFactory.decodeFile(file.path)?.asImageBitmap()
 
-    private fun writeJpeg(bitmap: Bitmap, file: File) {
+    /** 줄인 표지를 쓴다. 저장 공간이 모자라 못 쓰면 false — 표지 하나 때문에 앱이 닫히면 안 된다. */
+    private fun writeJpeg(bitmap: Bitmap, file: File): Boolean {
         val tmp = File(file.path + ".tmp")
-        tmp.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, it) }
-        // 다 쓴 뒤 바꿔 끼운다 — 쓰다 멈추면(앱이 닫힘) 반쪽 그림이 표지로 남는다.
-        tmp.renameTo(file)
+        return try {
+            file.parentFile?.mkdirs()
+            tmp.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, it) }
+            // 다 쓴 뒤 바꿔 끼운다 — 쓰다 멈추면(앱이 닫힘) 반쪽 그림이 표지로 남는다.
+            tmp.renameTo(file)
+        } catch (e: java.io.IOException) {
+            android.util.Log.w("OloCovers", "cannot write ${file.name}", e)
+            tmp.delete()
+            false
+        }
     }
 
     companion object {
@@ -122,9 +143,13 @@ class CoverStore(
         private const val JPEG_QUALITY = 85
         private const val MEMORY_COVERS = 64
 
-        private fun key(id: BookId): String =
-            java.security.MessageDigest.getInstance("SHA-1").digest(id.value.toByteArray())
+        /** 고른 표지는 책마다 하나(파일을 바꿔도 사람이 고른 것은 남는다), 책의 표지는 파일 크기마다 하나. */
+        private fun key(id: BookId, sizeBytes: Long? = null): String =
+            java.security.MessageDigest.getInstance("SHA-1")
+                .digest((if (sizeBytes == null) id.value else "${id.value}|$sizeBytes").toByteArray())
                 .joinToString("") { "%02x".format(it) }.take(20)
+
+        private fun memoryKey(book: LibraryBook) = "${book.id.value}|${book.sizeBytes}"
 
         /**
          * 그림 바이트를 표지 크기로 읽는다. 먼저 크기만 재고 알맞게 솎아 읽는다 — 폰 사진(4000×3000)을 통째로 풀면

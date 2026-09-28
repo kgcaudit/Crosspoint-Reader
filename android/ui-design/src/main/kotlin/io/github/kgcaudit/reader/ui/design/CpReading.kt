@@ -12,6 +12,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.animation.togetherWith
@@ -51,6 +52,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
@@ -230,7 +232,7 @@ fun CpThemeSwatches(selected: PaperTheme, onSelect: (PaperTheme) -> Unit, modifi
             val on = theme == selected
             Column(
                 Modifier.padding(start = 6.dp).clip(RoundedCornerShape(CpTheme.metrics.cornerSmall))
-                    .clickable { onSelect(theme) }
+                    .selectable(selected = on, role = Role.RadioButton) { onSelect(theme) }
                     .semantics { contentDescription = "배경 ${theme.label}" }
                     .padding(horizontal = 2.dp, vertical = 2.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,

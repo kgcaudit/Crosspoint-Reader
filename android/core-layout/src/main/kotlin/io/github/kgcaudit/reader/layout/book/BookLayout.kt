@@ -11,6 +11,7 @@ import io.github.kgcaudit.reader.layout.TextMeasurer
 import io.github.kgcaudit.reader.layout.cache.ChapterCache
 import io.github.kgcaudit.reader.layout.cache.PageStore
 import io.github.kgcaudit.reader.layout.html.StyleContext
+import io.github.kgcaudit.reader.layout.html.TextChapter
 
 /** 책 안의 한 자리. 화면을 그리는 데 필요한 최소한이다. */
 data class ReadingPosition(
@@ -68,7 +69,21 @@ class BookLayout(
             if (header.complete) return header.pageCount
         }
 
-        val chapter = loader.load(spineIndex)
+        val chapter = try {
+            loader.load(spineIndex)
+        } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // 이 장만 버리고 계속 읽는다(깨진 입력에 관대하게). 예외를 올리면 다음 장의 쪽 수를 구하는 넘기기 · 목차 ·
+            // 진행 막대가 모두 같은 오류로 끝나, 깨진 장 너머로는 갈 수 없었다. 안내 한 쪽을 두되 끝났다고 적지 않는다
+            // — 저장소가 잠깐 빠져 못 읽은 것이면 다음에 다시 읽는다.
+            val notice = TextChapter.parse(UNREADABLE_CHAPTER)
+            cache.writer(notice.text).use { writer ->
+                // 끝내지 않고 닫으면 부분 캐시로 남는다 — 쪽은 보이되 다음에 다시 읽어 본다.
+                Paginator(spec, measurer).paginate(notice.text, notice.blocks).forEach(writer::add)
+                return writer.pageCount
+            }
+        }
         val paginator = Paginator(spec, measurer)
         var notified = false
 
@@ -192,19 +207,6 @@ class BookLayout(
 
     private fun decode(path: String): String = runCatching { java.net.URLDecoder.decode(path.replace("+", "%2B"), "UTF-8") }.getOrDefault(path)
 
-    /**
-     * 책 전체에서 [query] 를 찾는다. 장마다 찾는 대로 [onChapter] 로 알린다 — 큰 책에서 끝까지 기다리지 않고
-     * 앞 장의 결과부터 목록에 보인다(E2). 조판하지 않는다(글자만 읽는다) — 검색 때문에 모든 장을 쪽으로
-     * 나누면 몇 분이 걸린다.
-     */
-    suspend fun search(query: String, onChapter: suspend (spineIndex: Int, hits: List<SearchHit>) -> Unit) {
-        for (i in spine().indices) {
-            val text = runCatching { chapter(i).text }.getOrNull() ?: continue
-            onChapter(i, findAll(text, query, i))
-        }
-    }
-
-    /** 장 하나에서 찾기. 리더가 장마다 따로 불러, 찾는 동안에도 쪽을 넘길 수 있게 한다. */
     /** 장의 [from]..[to] 를 한 줄 글로(문단 사이 한 칸). 장을 읽지 못하면 빈 문자열. */
     suspend fun excerpt(spineIndex: Int, from: Int, to: Int): String =
         runCatching {
@@ -218,6 +220,7 @@ class BookLayout(
     private fun paragraphStarts(c: io.github.kgcaudit.reader.layout.html.Chapter): Set<Int> =
         c.blocks.mapNotNull { (it as? io.github.kgcaudit.reader.layout.Block.Paragraph)?.runs?.firstOrNull()?.start }.toHashSet()
 
+    /** 장 하나에서 찾기. 리더가 장마다 따로 불러, 찾는 동안에도 쪽을 넘길 수 있게 한다. */
     suspend fun searchChapter(spineIndex: Int, query: String): List<SearchHit> =
         runCatching {
             val c = chapter(spineIndex)
@@ -295,7 +298,9 @@ class BookLayout(
      */
     suspend fun locatorForAnchor(spineIndex: Int, anchor: String?): Locator.Reflow {
         if (anchor == null) return Locator.Reflow(spineIndex, 0)
-        val offset = loader.load(spineIndex).anchors[anchor] ?: 0
+        val offset = runCatching { chapter(spineIndex).anchors[anchor] }
+            .onFailure { if (it is kotlin.coroutines.cancellation.CancellationException) throw it }
+            .getOrNull() ?: 0
         return Locator.Reflow(spineIndex, offset)
     }
 
@@ -379,8 +384,11 @@ class BookLayout(
     /** 이 책의 다른 조판 캐시를 정리한다. 설정을 바꾼 직후에 부른다. */
     fun pruneStaleCaches() = store.pruneOtherLayouts(document.meta.id, spec)
 
-    private companion object {
+    companion object {
         /** 이만큼 나오면 화면을 띄운다. 한 화면 + 앞뒤 한 장이면 넘김이 끊기지 않는다. */
-        const val FIRST_PAGES = 3
+        private const val FIRST_PAGES = 3
+
+        /** 읽지 못한 장 자리에 보이는 쪽. */
+        const val UNREADABLE_CHAPTER = "이 장을 읽지 못했습니다. 파일의 이 부분이 깨졌을 수 있습니다. 다음 쪽으로 넘기면 이어서 읽습니다."
     }
 }

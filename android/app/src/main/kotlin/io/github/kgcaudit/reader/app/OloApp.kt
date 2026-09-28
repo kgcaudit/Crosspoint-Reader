@@ -91,6 +91,12 @@ class AppContainer(private val app: Application) {
 
     val prefs = PrefsStore(app)
 
+    /** 앱이 살아 있는 동안 도는 일(폴더 훑기). 화면이 사라져도 이어진다. */
+    private val appScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.Main.immediate)
+
+    /** 폴더 훑기. 라이브러리 화면이 아니라 여기 둔다 — 책을 여느라 화면이 사라져도 끝까지 훑는다. */
+    val scan = LibraryScan(appScope) { data.rescanAll().values.all { it.complete } }
+
     /** 책장 표지. 앱 파일 영역 — 캐시 영역이면 사람이 고른 표지까지 시스템이 지운다. */
     val covers = CoverStore(File(app.filesDir, "covers"), ::extractCover)
 
@@ -108,7 +114,6 @@ class AppContainer(private val app: Application) {
     internal var pdfEngine: (android.os.ParcelFileDescriptor) -> PdfSource = ::PlatformPdfSource
 
     /** 듣기 엔진(4단계). 테스트가 가짜로 바꾼다 — Robolectric 에는 음성 엔진이 없다. */
-    @androidx.annotation.VisibleForTesting
     internal var listenKit: ListenKit = ListenKit.android(app)
 
     /**
@@ -133,7 +138,7 @@ class AppContainer(private val app: Application) {
 
     /** 책을 연다. */
     suspend fun open(book: LibraryBook): OpenedBook = withContext(Dispatchers.IO) {
-        val opened = read(book.id, book.displayName, book.format, Uri.parse(book.id.value))
+        val opened = read(book.id, book.displayName, book.format, Uri.parse(book.id.value), book.sizeBytes)
         closingOnFailure(opened) {
             // 목록이 파일 이름 대신 책 제목·저자를 보여 주게 한다. TXT 는 제목이 곧 파일 이름이고, PDF 는
             // 파일에 적혀 있을 때만(없으면 파일 이름 그대로 둔다).
@@ -166,7 +171,7 @@ class AppContainer(private val app: Application) {
                 android.util.Log.w("OloApp", "library copy of ${file.displayName} did not open", e)
             }
         }
-        read(BookId(file.uri.toString()), file.displayName, file.format, file.uri)
+        read(BookId(file.uri.toString()), file.displayName, file.format, file.uri, file.sizeBytes)
     }
 
     /**
@@ -184,7 +189,7 @@ class AppContainer(private val app: Application) {
      * 책 글꼴표를 읽어 리더를 만든다. 글꼴은 여기서 꺼내지 않는다 — 출판사 글꼴을 끈 사람에게
      * 수십 MB 를 풀 이유가 없다. 처음으로 책 글꼴로 조판할 때 꺼낸다.
      */
-    private suspend fun reader(document: ReflowDocument): BookReader {
+    private suspend fun reader(document: ReflowDocument, edition: Long?): BookReader {
         val table = try {
             BookFontTable.load(document)
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -202,6 +207,7 @@ class AppContainer(private val app: Application) {
             bookmarkRepository = data.bookmarks,
             progressRepository = data.progress,
             annotationRepository = data.annotations,
+            edition = edition?.toString(),
         )
     }
 
@@ -215,9 +221,13 @@ class AppContainer(private val app: Application) {
         return File(app.cacheDir, "book-fonts/$hash")
     }
 
-    private suspend fun read(id: BookId, name: String, format: BookFormat, uri: Uri): OpenedBook = when (format) {
-        BookFormat.EPUB -> reflow(EpubDocument.open(id, name, data.sources.seekableSource(uri)))
-        BookFormat.TXT -> reflow(TxtDocument.open(id, name, data.sources.byteSource(uri)))
+    private suspend fun read(id: BookId, name: String, format: BookFormat, uri: Uri, sizeBytes: Long?): OpenedBook = when (format) {
+        BookFormat.EPUB -> {
+            // 목록의 크기보다 지금 연 파일의 크기가 정확하다 — 훑기 전에 바뀐 파일도 잡는다.
+            val source = data.sources.seekableSource(uri)
+            reflow(EpubDocument.open(id, name, source), source.size)
+        }
+        BookFormat.TXT -> reflow(TxtDocument.open(id, name, data.sources.byteSource(uri)), sizeBytes)
         BookFormat.PDF -> {
             val book = PdfBook.open(id, name, data.sources.seekableDescriptor(uri), pdfEngine)
             closingOnFailure(book) {
@@ -246,8 +256,8 @@ class AppContainer(private val app: Application) {
         }
     }
 
-    private suspend fun reflow(document: ReflowDocument): OpenedBook =
-        closingOnFailure(document) { OpenedBook.Reflow(reader(document)) }
+    private suspend fun reflow(document: ReflowDocument, edition: Long?): OpenedBook =
+        closingOnFailure(document) { OpenedBook.Reflow(reader(document, edition)) }
 }
 
 /**

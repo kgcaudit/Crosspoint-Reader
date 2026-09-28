@@ -24,6 +24,8 @@ import org.robolectric.annotation.GraphicsMode
 import java.io.File
 import java.io.FileInputStream
 import kotlin.test.Test
+import io.github.kgcaudit.reader.layout.book.findAll
+import kotlin.math.roundToInt
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
@@ -359,6 +361,45 @@ class PdfReaderTest {
         assertEquals(0, pagesLeftInSection(entries, 11, 84), "다음 쪽이 새 항목이면 마지막 쪽")
         assertEquals(43, pagesLeftInSection(entries, 40, 84), "마지막 항목은 파일 끝까지")
         assertEquals(83, pagesLeftInSection(emptyList(), 0, 84), "목차가 없으면 파일 끝까지")
+    }
+
+    @Test
+    fun `a bookmark on the right page of a spread shows and is not doubled`() = runTest {
+        // 한 쪽 보기에서 4쪽(오른쪽 쪽)에 꽂았다. 펼침에서 왼쪽 쪽만 보면 리본이 안 보이고, 다시 누르면 3쪽에
+        // 책갈피가 하나 더 생겼다.
+        val r = reader(FakeSource(6))
+        r.open()
+        r.goTo(3)
+        r.toggleBookmark()
+        r.setSpread(coverAlone = true)
+        assertEquals(listOf(3, 4), r.state.value.shown)
+        assertTrue(r.state.value.bookmarked, "오른쪽 쪽의 책갈피가 보이지 않는다")
+        r.toggleBookmark()
+        assertTrue(r.bookmarks().isEmpty(), "펼침에서 누르면 그 펼침의 책갈피를 뺀다")
+    }
+
+    @Test
+    fun `a very tall page in fit width is drawn at a size the screen can hold`() {
+        // 망가뜨린 입력: 웹툰형 쪽(가로:세로 0.3)을 가로 화면(3120px) 폭에 맞췄다. 그대로면 3120×10400 = 130MB 라
+        // 그리는 순간 앱이 닫혔다. 비율은 지키고 픽셀만 줄인다. 보통 쪽은 줄이지 않는다.
+        val (w, h) = baseSize(PageViewport.fitWidth(3120f, 1400f, 0.3f))
+        assertTrue(w.toLong() * h <= 16_000_000, "${w}×$h")
+        assertEquals(0.3f, w.toFloat() / h, 0.01f)
+        val (aw, ah) = baseSize(PageViewport.fitWidth(3120f, 1400f, 595f / 842f))
+        assertEquals(3120, aw)
+        assertEquals((3120 / (595f / 842f)).roundToInt(), ah)
+    }
+
+    @Test
+    fun `a found word is painted on itself even after hyphenated lines`() {
+        // 엔진의 글은 줄 끝 하이픈을 "-\r\n" 세 글자로, 글자 층은 한 글자로 센다. 찾기의 번호로 층을 칠하면 하이픈 줄
+        // 하나마다 두 글자씩 밀렸다. 칠은 층에서 같은 말을 다시 찾은 구간이다.
+        val plain = "manu-\r\nal page, manu-\r\nal target"
+        val layer = PageText.textOnly("manu\u0002al page, manu\u0002al target")
+        val fromSearch = findAll(plain, "target", 0).single()
+        val painted = layerHits(layer, "target").single()
+        assertEquals("target", layer.text.substring(painted.first, painted.last + 1))
+        assertEquals(fromSearch.start - 4, painted.first, "하이픈 줄 둘만큼(4글자) 앞이어야 한다")
     }
 
     @Test

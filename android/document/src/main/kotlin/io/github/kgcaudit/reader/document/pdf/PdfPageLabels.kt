@@ -14,7 +14,7 @@ class PdfPageLabels internal constructor(private val ranges: List<Range>) {
     internal data class Range(val start: Int, val style: Char?, val prefix: String, val first: Int)
 
     /** [pageIndex](0부터) 쪽의 이름. 이름표가 없는 앞쪽(첫 구간이 0 에서 시작하지 않음)은 파일 순서(1부터). */
-    fun label(pageIndex: Int): String {
+    fun label(pageIndex: Int): String? {
         val range = ranges.lastOrNull { it.start <= pageIndex } ?: return "${pageIndex + 1}"
         val n = range.first + (pageIndex - range.start)
         val number = when (range.style) {
@@ -25,7 +25,9 @@ class PdfPageLabels internal constructor(private val ranges: List<Range>) {
             'a' -> letters(n).lowercase()
             else -> ""
         }
-        return range.prefix + number
+        // 양식도 머리말도 없는 구간(잡지 표지에 흔함)은 이름이 없다. 빈 문자열을 주면 부르는 쪽의 "없으면 파일 순서" 가
+        // 걸리지 않아 책갈피가 숫자 없이 "쪽" 으로만 적혔다.
+        return (range.prefix + number).ifEmpty { null }
     }
 
     /** 모든 쪽의 이름이 파일 순서(1, 2, 3 …)와 같다 — 따로 보일 까닭이 없다. */

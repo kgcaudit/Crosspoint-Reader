@@ -15,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
@@ -65,7 +66,7 @@ internal fun FontsPanel(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var revision by remember { mutableStateOf(0) }
+    var revision by remember { mutableIntStateOf(0) }
     val options = remember(revision) { catalog.options() }
     // 출판사 글꼴이 켜져 있으면 그 줄에만 불이 들어온다. 책이 정하지 않은 곳은 늘 휴대폰 글꼴이라
     // (ReaderPrefs.bodyFont) 아래 줄에 따로 불을 켤 것이 없다 — 설명 한 줄로 충분하다.
@@ -105,7 +106,7 @@ internal fun FontsPanel(
                     // 넣은 글꼴로 바로 바꾼다. 넣고 나서 다시 찾아 누르게 하면 한 번 더 헤맨다.
                     result.families.firstOrNull()?.let { onPrefsChange(prefs.copy(font = it.key, publisherFonts = false)) }
                     if (result.withoutHangul) {
-                        notice = "한글이 없는 글꼴입니다" to "영문·숫자는 이 글꼴로, 한글은 휴대폰 글꼴로 보입니다."
+                        notice = "한글이 없는 글꼴입니다" to "영문 · 숫자는 이 글꼴로, 한글은 휴대폰 글꼴로 보입니다."
                     }
                 }
                 is ImportResult.Rejected -> notice = "글꼴을 넣지 못했습니다" to describe(result.reason)

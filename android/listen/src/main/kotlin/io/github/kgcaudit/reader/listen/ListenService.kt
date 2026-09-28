@@ -52,7 +52,7 @@ object ListenHub {
         _current.value = listening
         val intent = Intent(context, ListenService::class.java)
         runCatching {
-            if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent) else context.startService(intent)
+            context.startForegroundService(intent)
         }
     }
 
@@ -181,6 +181,10 @@ class ListenService : Service() {
     private fun stop() {
         releaseFocus()
         releaseWake()
+        // 앞에 서기 전에 내려가도 한 번은 앞에 선다. 듣기를 켜자마자 끄면(✕ · 책 닫기 · 엔진 실패) 상태 수집이
+        // onStartCommand 보다 먼저 와 여기로 오는데, startForegroundService 로 띄운 서비스가 앞에 서지 않고 내려가면
+        // 안드로이드 9 이상은 앱을 죽인다.
+        if (!foreground) runCatching { goForeground(null, ListenState()) }
         if (foreground) {
             stopForeground(STOP_FOREGROUND_REMOVE)
             foreground = false
@@ -195,19 +199,20 @@ class ListenService : Service() {
         }
         val timer = state.timerEndsAtMs?.let { " · 잠자기 ${((it - System.currentTimeMillis()) / 60_000L).coerceAtLeast(0) + 1}분" }
             ?: if (state.timer == ListenTimer.ChapterEnd) " · 장 끝에서 멈춤" else ""
-        val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CHANNEL) else @Suppress("DEPRECATION") Notification.Builder(this)
+        val builder = Notification.Builder(this, CHANNEL)
         return builder
             .setSmallIcon(R.drawable.ic_listen)
             .setContentTitle(listening?.title ?: "듣기")
             .setContentText(state.sentenceText.ifEmpty { "듣기 준비 중" })
-            .setSubText(if (state.playing) "듣는 중$timer" else "멈춤$timer")
+            // 상태는 "멈춰 있음", 단추는 "멈춤" — 둘 다 "멈춤" 이면 카드에서 지금 상태인지 누를 단추인지 헷갈린다.
+            .setSubText(if (state.playing) "듣는 중$timer" else "멈춰 있음$timer")
             .setContentIntent(open)
             .setOngoing(state.playing)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
             .addAction(action(android.R.drawable.ic_media_previous, "앞 문장", ACTION_PREVIOUS))
             .addAction(
                 if (state.playing) action(android.R.drawable.ic_media_pause, "멈춤", ACTION_TOGGLE)
-                else action(android.R.drawable.ic_media_play, "읽기", ACTION_TOGGLE),
+                else action(android.R.drawable.ic_media_play, "이어 듣기", ACTION_TOGGLE),
             )
             .addAction(action(android.R.drawable.ic_media_next, "다음 문장", ACTION_NEXT))
             .addAction(action(android.R.drawable.ic_menu_close_clear_cancel, "듣기 끝내기", ACTION_CLOSE))
@@ -223,7 +228,6 @@ class ListenService : Service() {
     }
 
     private fun channel() {
-        if (Build.VERSION.SDK_INT < 26) return
         val manager = getSystemService(NotificationManager::class.java)
         // 낮은 중요도: 소리 · 진동 없이 카드만. 문장이 바뀔 때마다 울리면 듣기를 방해한다.
         manager.createNotificationChannel(NotificationChannel(CHANNEL, "듣기", NotificationManager.IMPORTANCE_LOW))

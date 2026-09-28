@@ -13,6 +13,8 @@ import io.github.kgcaudit.reader.document.TocEntry
 import io.github.kgcaudit.reader.document.pdf.PdfPageLabels
 import io.github.kgcaudit.reader.document.pdf.PdfStructure
 import io.github.kgcaudit.reader.document.pdf.PdfStructureReader
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
@@ -45,13 +47,17 @@ class PdfBook(
         contents.filter { (it.locator as Locator.FixedPage).page < pageCount }
 
     /** 페이지 가로/세로 비. 깨진 페이지는 A 판형으로 본다 — 한 쪽 때문에 책이 멈추지 않게. */
-    override suspend fun pageAspectRatio(index: Int): Float = synchronized(aspects) {
-        aspects.getOrPut(index) {
+    override suspend fun pageAspectRatio(index: Int): Float {
+        knownAspectRatio(index)?.let { return it }
+        // 메인 밖에서 잰다. 엔진은 한 번에 한 쪽만 열어 그리기와 잠금을 나눈다 — 찾은 곳으로 건너뛰며 글자 층을 뽑는
+        // 동안 메인에서 재면 뽑기가 끝날 때까지 화면이 멈췄다.
+        val ratio = withContext(Dispatchers.IO) {
             runCatching { source.pageSize(index) }.getOrNull()
                 ?.takeIf { (w, h) -> w > 0 && h > 0 }
                 ?.let { (w, h) -> w.toFloat() / h }
                 ?: PageViewport.DEFAULT_ASPECT
         }
+        return synchronized(aspects) { aspects.getOrPut(index) { ratio } }
     }
 
     /** 이미 잰 쪽이면 기다리지 않고 준다. 아직이면 null. */

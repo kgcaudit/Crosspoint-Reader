@@ -87,7 +87,7 @@ class ListenReturnTest {
         compose.onRoot().performTouchInput { click(center) }
         waitFor(hasContentDescription("듣기"))
         compose.onAllNodes(hasContentDescription("듣기"), useUnmergedTree = true)[0].performClick()
-        waitFor(hasContentDescription("듣기 조종판"))
+        waitFor(hasContentDescription("듣기 제어"))
         // 드물게(전체 점검에서만, 여러 번 돌려도 재현 안 됨) 여기서 엔진이 말을 시작하지 않은 채 남는다. 다음에 걸리면
         // 원인을 볼 수 있게 그때의 엔진 · 듣기 상태를 실패 문구에 남긴다.
         runCatching { compose.waitUntil(5_000) { speakers.isNotEmpty() && speakers.last().current != null } }.onFailure {
@@ -121,7 +121,7 @@ class ListenReturnTest {
         launch(card)
         // 라이브러리가 아니라 듣던 책이, 같은 듣기가 붙은 채로 뜬다(조종판이 보인다).
         waitFor(hasText("1 / ", substring = true))
-        waitFor(hasContentDescription("듣기 조종판"))
+        waitFor(hasContentDescription("듣기 제어"))
         assertSame(listening, ListenHub.current.value)
         assertEquals(0, app.container.dropped, "듣는 책은 닫지 않는다 — 닫으면 듣기가 닫힌 파일을 읽는다")
     }
@@ -141,7 +141,7 @@ class ListenReturnTest {
         assertFalse(listening.state.value.active, "닫힌 책의 듣기가 아직 켜져 있다")
         // 받은 파일은 듣기 없이 열린다.
         waitFor(hasText("1 / ", substring = true))
-        assertFalse(hasNode(hasContentDescription("듣기 조종판")))
+        assertFalse(hasNode(hasContentDescription("듣기 제어")))
     }
 
     @Test

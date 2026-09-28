@@ -39,7 +39,6 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.displayCutout
@@ -58,6 +57,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -77,7 +77,6 @@ import io.github.kgcaudit.reader.ui.design.CpButton
 import io.github.kgcaudit.reader.ui.design.CpChoice
 import io.github.kgcaudit.reader.ui.design.CpFullScreen
 import io.github.kgcaudit.reader.ui.design.CpHeader
-import io.github.kgcaudit.reader.ui.design.CpIconButton
 import io.github.kgcaudit.reader.ui.design.CpIcons
 import io.github.kgcaudit.reader.ui.design.CpLinkRow
 import io.github.kgcaudit.reader.ui.design.CpListRow
@@ -142,9 +141,9 @@ fun ReaderScreen(
     val colors = CpTheme.colors
     var panel by remember { mutableStateOf(Panel.None) }
     // 글꼴을 넣거나 뺀 횟수. 같은 설정 값이라도 굵은 파일이 더해지면 글꼴 ID 가 바뀐다.
-    var fontsRevision by remember { mutableStateOf(0) }
+    var fontsRevision by remember { mutableIntStateOf(0) }
     var toast by remember { mutableStateOf<String?>(null) }
-    var toastCount by remember { mutableStateOf(0) }
+    var toastCount by remember { mutableIntStateOf(0) }
     // 하단 정보의 "장 제목". 목차는 책마다 한 번 읽는다.
     var toc by remember { mutableStateOf<List<TocEntry>>(emptyList()) }
     LaunchedEffect(reader) { toc = runCatching { reader.outline() }.getOrDefault(emptyList()) }
@@ -156,7 +155,7 @@ fun ReaderScreen(
     var dragBrightness by remember { mutableStateOf<Float?>(null) }
     val latestPrefs by androidx.compose.runtime.rememberUpdatedState(prefs)
     val context = androidx.compose.ui.platform.LocalContext.current
-    var speedRevision by remember { mutableStateOf(0) }
+    var speedRevision by remember { mutableIntStateOf(0) }
     // 독서노트(N1–N4): 고른 구간 · 누른 형광펜 · 쓰는 중인 메모. 마지막에 고른 색을 다음 메모의 색으로.
     var selection by remember { mutableStateOf<Selection?>(null) }
     var tapped by remember { mutableStateOf<io.github.kgcaudit.reader.document.Annotation?>(null) }
@@ -186,7 +185,7 @@ fun ReaderScreen(
     }
     // 형광펜을 숨긴 채 칠하면 아무 일도 없어 보인다 — 저장은 됐다고 알린다.
     fun hiddenHint() {
-        if (!latestPrefs.screen.showHighlights) say("형광펜을 숨겨 둔 상태라 보이지 않습니다. 보기 설정에서 켤 수 있습니다")
+        if (!latestPrefs.screen.showHighlights) say("형광펜을 숨겨 둔 상태라 보이지 않습니다. 보기 설정에서 켤 수 있습니다.")
     }
 
     // ── 듣기(4단계) ──
@@ -704,7 +703,7 @@ fun ReaderScreen(
                 onPanel = { panel = it },
                 onBookmark = ::toggleBookmark,
                 onSearch = { panel = Panel.Search },
-                onListen = { if (listening != null) { panel = Panel.None; listening.play() } else startListening() },
+                onListen = { if (listening?.state?.value?.active == true) { panel = Panel.None; listening.play() } else startListening() },
                 scope = scope,
             )
             Panel.Search -> SearchScreen(
@@ -815,7 +814,7 @@ fun ReaderScreen(
             ExternalLinkPopup(url, onOpen = { external = null; runCatching { opener.openUri(url) } }, onDismiss = { external = null })
         }
 
-        if (state.busy && state.page == null) CpPopup(title = "책을 펼치는 중…", progress = null)
+        if (state.busy && state.page == null) CpPopup(title = "책을 여는 중…", progress = null)
         state.error?.let { message ->
             if (state.page == null) {
                 CpPopup(title = "이 책을 열지 못했습니다", message = message, onDismiss = onClose) {
@@ -879,7 +878,7 @@ private fun ReaderBar(
     val position = state.position
     CpReaderBar(
         title = reader.title,
-        subtitle = if (position != null) "${position.spineIndex + 1} / ${state.chapterCount} 장" else null,
+        subtitle = if (position != null) "${position.spineIndex + 1} / ${state.chapterCount}장" else null,
         bookmarked = state.bookmarked,
         onBookmark = onBookmark,
         onSearch = onSearch,
@@ -1081,15 +1080,15 @@ private fun ViewSettings(
 
 /** 모든 보기 설정의 문단 묶음. 셋 다 조판을 바꾼다(LayoutSpec). */
 @Composable
-private fun ParagraphSettings(prefs: ReaderPrefs, onChange: (ReaderPrefs) -> Unit, child: Modifier) {
+private fun ParagraphSettings(prefs: ReaderPrefs, onChange: (ReaderPrefs) -> Unit, modifier: Modifier) {
     val aligns = ReaderPrefs.ParagraphAlign.entries
-    CpChoice("정렬", aligns.map { it.label }, aligns.indexOf(prefs.align), { onChange(prefs.copy(align = aligns[it])) }, child)
+    CpChoice("정렬", aligns.map { it.label }, aligns.indexOf(prefs.align), { onChange(prefs.copy(align = aligns[it])) }, modifier)
     val indents = ReaderPrefs.Indent.entries
-    CpChoice("첫 줄 들여쓰기", indents.map { it.label }, indents.indexOf(prefs.indent), { onChange(prefs.copy(indent = indents[it])) }, child)
+    CpChoice("첫 줄 들여쓰기", indents.map { it.label }, indents.indexOf(prefs.indent), { onChange(prefs.copy(indent = indents[it])) }, modifier)
     val gaps = ReaderPrefs.ParagraphSpacing.entries
     CpChoice("문단 간격", gaps.map { it.label }, gaps.indexOf(prefs.paragraphSpacing), {
         onChange(prefs.copy(paragraphSpacing = gaps[it]))
-    }, child)
+    }, modifier)
 }
 
 @Composable

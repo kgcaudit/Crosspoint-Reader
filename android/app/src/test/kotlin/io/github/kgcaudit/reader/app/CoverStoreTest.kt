@@ -7,6 +7,7 @@ import androidx.test.core.app.ApplicationProvider
 import io.github.kgcaudit.reader.data.library.LibraryBook
 import io.github.kgcaudit.reader.document.BookFormat
 import io.github.kgcaudit.reader.document.BookId
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -86,5 +87,51 @@ class CoverStoreTest {
         assertNull(CoverStore.decodeScaled("그림이 아니다".toByteArray()))
         assertFalse(CoverStore(dir) { null }.setCustom(book.id) { "그림이 아니다".byteInputStream() })
         assertFalse(File(dir, "custom").listFiles().orEmpty().isNotEmpty())
+    }
+
+    @Test
+    fun `a book replaced by a new edition gets the new edition's cover`() = runBlocking {
+        // 같은 이름으로 개정판을 덮어쓰면 크기가 달라진다. 첫 판은 경로만 열쇠로 써서 옛 판의 표지가 계속 보였다.
+        CoverStore(dir) { red() }.cover(book.copy(sizeBytes = 100))
+        val blue = Bitmap.createBitmap(300, 450, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.BLUE) }
+        val cover = CoverStore(dir) { blue }.cover(book.copy(sizeBytes = 200))
+        assertTrue(isBlue(cover.image!!.asAndroidBitmap().getPixel(10, 10)), "개정판에 옛 표지가 보인다")
+    }
+
+    @Test
+    fun `a book that could not be read is looked at again in the same run`() = runBlocking {
+        // 망가뜨린 경우: 저장소가 잠깐 빠졌다. 실패를 메모리에 담으면 앱을 다시 켤 때까지 대신 표지만 보였다.
+        var fail = true
+        val store = CoverStore(dir) { if (fail) throw IOException("gone") else red() }
+        assertNull(store.cover(book).image)
+        fail = false
+        assertNotNull(store.cover(book).image)
+        Unit
+    }
+
+    @Test
+    fun `a cover picked while the book's own cover is being read is the one that stays`() = runBlocking {
+        // 책의 표지를 꺼내는 사이에 사진을 골랐다. 꺼내기가 끝나며 고르기 전에 읽은 결과를 담으면 옛 표지가 남는다.
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val started = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val store = CoverStore(dir) { started.complete(Unit); gate.await(); red() }
+        val first = kotlinx.coroutines.GlobalScope.async(kotlinx.coroutines.Dispatchers.IO) { store.cover(book) }
+        started.await()
+        val photo = CoverTest.png(Color.BLUE)
+        assertTrue(store.setCustom(book.id) { photo.inputStream() })
+        gate.complete(Unit)
+        first.await()
+        assertTrue(store.cover(book).custom, "고른 표지 대신 꺼내기 전의 결과가 남았다")
+        Unit
+    }
+
+    @Test
+    fun `a full disk refuses the picked picture instead of closing the app`() = runBlocking {
+        // 망가뜨린 경우: 표지 폴더 자리에 파일이 있어 쓸 수 없다(저장 공간 부족과 같은 결과). 예외가 올라가면 앱이 닫힌다.
+        dir.mkdirs()
+        File(dir, "custom").writeText("폴더가 아니다")
+        val photo = CoverTest.png(Color.BLUE)
+        assertFalse(CoverStore(dir) { null }.setCustom(book.id) { photo.inputStream() })
+        Unit
     }
 }
