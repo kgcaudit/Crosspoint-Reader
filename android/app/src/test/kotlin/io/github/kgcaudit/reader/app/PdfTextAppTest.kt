@@ -93,7 +93,10 @@ class PdfTextAppTest {
         )
         runBlocking { app.container.data.folders.register(FolderProvider.treeUri) }
         // 회색 지면: 흰 PDF 쪽의 가장자리가 보인다.
-        app.container.prefs.save(ReaderPrefs(screen = ScreenPrefs(theme = PaperTheme.Gray)))
+        // 회색 지면 위의 흰 쪽으로 쪽 자리를 찾는다 — 그림 흰 바탕을 지면색으로 맞추면(0.24.0 기본) 쪽도 회색이 되어 못 찾는다.
+        app.container.prefs.save(
+            ReaderPrefs(screen = ScreenPrefs(theme = PaperTheme.Gray, imageBlend = io.github.kgcaudit.reader.ui.design.ImageBlend.Original)),
+        )
         compose.activityRule.scenario.recreate()
         waitFor(hasText("설명서.pdf"))
     }

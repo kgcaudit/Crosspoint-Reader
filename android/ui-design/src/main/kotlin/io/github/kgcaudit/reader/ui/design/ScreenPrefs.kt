@@ -38,6 +38,8 @@ data class ScreenPrefs(
     val showHighlights: Boolean = true,
     /** PDF 쪽 맞춤: 쪽 전체(기본) · 폭. 가로 화면에서 잡지 글자가 작아 폭에 맞춰 위아래로 밀어 읽는다. */
     val pdfFit: PdfFit = PdfFit.Page,
+    /** 책 속 그림 · PDF 쪽의 흰 바탕을 지면색에 맞출지(0.24.0). 기본 켬 — 흰 네모가 따로 떠 보이지 않게. */
+    val imageBlend: ImageBlend = ImageBlend.Paper,
 ) {
     /**
      * 지금 화면에서 두 쪽을 펼칠지. 세로 두쪽은 기기의 가장 짧은 폭이 [WIDE_SCREEN_DP] 이상일 때만 — 휴대폰
@@ -156,4 +158,10 @@ enum class PdfFit(val label: String) {
     Page("쪽 전체"),
     /** 쪽 폭을 화면 폭에 맞춘다. 한 쪽씩, 위아래로 밀어 본다. */
     Width("폭"),
+}
+
+/** 그림 흰 바탕을 어떻게 보일지. 저장은 이름으로 한다. */
+enum class ImageBlend(val label: String) {
+    Paper("지면색으로"),
+    Original("그대로"),
 }

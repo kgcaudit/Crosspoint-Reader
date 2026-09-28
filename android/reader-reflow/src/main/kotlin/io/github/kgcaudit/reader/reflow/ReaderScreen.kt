@@ -94,6 +94,8 @@ import io.github.kgcaudit.reader.ui.design.systemBrightness
 import io.github.kgcaudit.reader.ui.design.CpReadingFooter
 import io.github.kgcaudit.reader.ui.design.CpRibbon
 import io.github.kgcaudit.reader.ui.design.CpThemeSwatches
+import io.github.kgcaudit.reader.ui.design.CpImageBlendRow
+import io.github.kgcaudit.reader.ui.design.paperImageFilter
 import io.github.kgcaudit.reader.ui.design.CpToast
 import io.github.kgcaudit.reader.ui.design.CpViewSettingsScreen
 import io.github.kgcaudit.reader.ui.design.FooterInfo
@@ -405,11 +407,12 @@ fun ReaderScreen(
         // 넘김 효과(E7): 쪽이 바뀔 때만. 그리는 것만 움직이고 누르기 · 밀기는 아래의 고정된 층이 받는다.
         CpPageTurn(frameKey, prefs.screen.pageTurn, forward = { from, to -> from == null || to == null || isAfter(to.first to to.second, from.first to from.second) }) { key ->
             val shown = frames[key] ?: frame
+            val imageFilter = paperImageFilter(colors.paper, prefs.screen.imageBlend)
             Canvas(Modifier.fillMaxSize().background(colors.paper)) {
                 val page = shown.page
                 val paint = shown.painter
                 if (page != null && paint != null) {
-                    drawPage(page, shown.text, paint, colors.ink, shown.images, shown.marks)
+                    drawPage(page, shown.text, paint, colors.ink, shown.images, shown.marks, imageFilter)
                     if (shown.spread) {
                         val half = size.width / 2f
                         // 책등: 옅은 선 한 줄. 그림자까지 그리면 e-ink 원형과 멀고 글자 옆이 탁해 보인다.
@@ -421,7 +424,7 @@ fun ReaderScreen(
                         )
                         shown.right?.let { right ->
                             translate(left = half) {
-                                drawPage(right, shown.text, paint, colors.ink, shown.rightImages, shown.marks)
+                                drawPage(right, shown.text, paint, colors.ink, shown.rightImages, shown.marks, imageFilter)
                             }
                         }
                     }
@@ -1052,6 +1055,7 @@ private fun ViewSettings(
     val catalog = reader.fonts
     Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
         CpThemeSwatches(prefs.screen.theme, { onChange(prefs.copy(screen = prefs.screen.copy(theme = it))) })
+        CpImageBlendRow(prefs.screen.imageBlend, { onChange(prefs.copy(screen = prefs.screen.copy(imageBlend = it))) })
         CpBrightnessRow(prefs.screen.brightness, { onChange(prefs.copy(screen = prefs.screen.copy(brightness = it))) })
         CpStepper("글자 크기", "${prefs.fontSizeSp}", { onChange(prefs.withSize(-1)) }, { onChange(prefs.withSize(+1)) })
         // 고른 값이 목록에 없으면(지운 사용자 글꼴, 없어진 옛 설정) 실제로 쓰이는 글꼴 이름을 보인다.

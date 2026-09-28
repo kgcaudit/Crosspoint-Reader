@@ -44,6 +44,9 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -181,6 +184,38 @@ private fun batteryPercent(context: Context): Int? {
 }
 
 // ── 보기 판의 줄들 ─────────────────────────────────────────────────
+
+/**
+ * 그림 · PDF 쪽에 씌울 색 거르개(0.24.0, 구상안 확정). 책 속 그림(차례 · 간지 · 설명 그림)과 PDF 쪽은 흰 바탕으로 만들어져,
+ * 아이보리 · 세피아 지면 위에서 흰 네모가 따로 떠 보였다.
+ *
+ * - 밝은 지면: 그림에 지면색을 **곱한다**. 흰 곳은 정확히 지면색, 검은 글자는 검은 그대로, 색은 지면 빛이 조금 밴다.
+ *   흰색만 빼는 방식(밝은 곳만 지면색으로)은 글자 가장자리의 옅은 테두리가 남았다.
+ * - 어두운 지면: 곱하면 그림이 통째로 검어지고, 흰색만 빼면 그림 속 검은 글자가 지면에 묻혀 사라진다. 밝기를 78% 로만
+ *   낮춰 눈부심을 줄인다(사진도 안전). 밝기 뒤집기는 사진이 음화가 되어 뺐다.
+ * - 흰 지면 · "그대로": 거르지 않는다.
+ *
+ * 색 행렬이라 모든 안드로이드 판에서 같다(BlendMode 는 10 이상).
+ */
+fun paperImageFilter(paper: Color, blend: ImageBlend): ColorFilter? {
+    if (blend == ImageBlend.Original) return null
+    if (paper.luminance() < 0.5f) return ColorFilter.colorMatrix(ColorMatrix().apply { setToScale(DARK_DIM, DARK_DIM, DARK_DIM, 1f) })
+    if (paper.red > 0.995f && paper.green > 0.995f && paper.blue > 0.995f) return null
+    return ColorFilter.colorMatrix(ColorMatrix().apply { setToScale(paper.red, paper.green, paper.blue, 1f) })
+}
+
+/** 어두운 지면에서 그림 밝기. 흰 바탕이 #C7 쯤 — 검정 지면 옆에서 눈부시지 않으면서 사진 속 어두운 곳이 뭉개지지 않는다. */
+private const val DARK_DIM = 0.78f
+
+/** 리더가 지금 지면에 맞춰 둔 그림 거르개. 쪽을 그리는 곳마다 설정을 넘겨받지 않게 한 곳에서 준다. */
+val LocalPaperImageFilter = androidx.compose.runtime.staticCompositionLocalOf<ColorFilter?> { null }
+
+/** 보기 판의 "그림 흰 바탕" 줄. 배경 바로 아래 — 배경을 바꾸면 그림이 어떻게 보일지가 함께 바뀐다. */
+@Composable
+fun CpImageBlendRow(selected: ImageBlend, onSelect: (ImageBlend) -> Unit, modifier: Modifier = Modifier) {
+    val options = ImageBlend.entries
+    CpChoice("그림 흰 바탕", options.map { it.label }, options.indexOf(selected), { onSelect(options[it]) }, modifier)
+}
 
 /** 배경 고르기: 동그라미 견본. 첫째 "시스템" 은 반반 칠(휴대폰 다크 모드를 따름). */
 @Composable

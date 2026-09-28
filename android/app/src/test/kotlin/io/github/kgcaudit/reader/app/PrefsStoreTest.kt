@@ -90,6 +90,7 @@ class PrefsStoreTest {
                 autoTurn = io.github.kgcaudit.reader.ui.design.AutoTurn.S30,
                 showHighlights = false,
                 pdfFit = io.github.kgcaudit.reader.ui.design.PdfFit.Width,
+                imageBlend = io.github.kgcaudit.reader.ui.design.ImageBlend.Original,
             ),
             listen = io.github.kgcaudit.reader.listen.ListenPrefs(rate = 1.3f, engine = "com.samsung.SMT", voice = "ko-kr-x-1", voiceLabel = "Samsung TTS · 한국어 1", join = io.github.kgcaudit.reader.layout.book.WordJoin.Light),
         )

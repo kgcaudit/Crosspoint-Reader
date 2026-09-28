@@ -97,6 +97,9 @@ import io.github.kgcaudit.reader.ui.design.CpLinkRow
 import io.github.kgcaudit.reader.ui.design.CpReadingFooter
 import io.github.kgcaudit.reader.ui.design.CpRibbon
 import io.github.kgcaudit.reader.ui.design.CpThemeSwatches
+import io.github.kgcaudit.reader.ui.design.CpImageBlendRow
+import io.github.kgcaudit.reader.ui.design.LocalPaperImageFilter
+import io.github.kgcaudit.reader.ui.design.paperImageFilter
 import io.github.kgcaudit.reader.ui.design.CpToast
 import io.github.kgcaudit.reader.ui.design.CpViewSettingsScreen
 import io.github.kgcaudit.reader.ui.design.FooterInfo
@@ -418,6 +421,10 @@ fun PdfScreen(
                     effect = prefs.pageTurn,
                     forward = { from, to -> (to.firstOrNull() ?: 0) > (from.firstOrNull() ?: 0) },
                 ) { shown ->
+                    // 쪽 그림의 흰 바탕을 지면색으로(0.24.0). 쪽 · 펼침 그리는 곳이 여기서 받는다.
+                    androidx.compose.runtime.CompositionLocalProvider(
+                        LocalPaperImageFilter provides paperImageFilter(colors.paper, prefs.imageBlend),
+                    ) {
                     if (twoPages) {
                         SpreadView(reader, shown, viewW, viewH, onTap, onSwipe, ::longPress, onPlaced, text)
                     } else {
@@ -436,6 +443,7 @@ fun PdfScreen(
                             text = text,
                             focus = focus?.takeIf { it.first == shown.first() }?.second,
                         )
+                    }
                     }
                 }
                 // 칠 · 찾은 곳 · 읽는 문장 · 고르기(쪽 그림 위에 얹는다, 누름은 받지 않는다).
@@ -547,6 +555,7 @@ fun PdfScreen(
                 if (panel == PdfPanel.View) {
                     Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
                         CpThemeSwatches(prefs.theme, { onPrefsChange(prefs.copy(theme = it)) })
+                        CpImageBlendRow(prefs.imageBlend, { onPrefsChange(prefs.copy(imageBlend = it)) })
                         CpBrightnessRow(prefs.brightness, { onPrefsChange(prefs.copy(brightness = it)) })
                         val rotations = ScreenRotation.entries
                         // 쪽 맞춤(③)을 회전 위에 둔다 — 가로로 돌리는 까닭이 대개 글자를 크게 보려는 것이라, 돌린 뒤
@@ -828,6 +837,7 @@ private fun PageView(
                 }
             },
     ) {
+        val imageFilter = LocalPaperImageFilter.current
         Canvas(Modifier.fillMaxSize()) {
             val shown = base
             val left = viewport.left.roundToInt()
@@ -838,6 +848,7 @@ private fun PageView(
                     dstOffset = IntOffset(left, top),
                     dstSize = IntSize(viewport.width.roundToInt(), viewport.height.roundToInt()),
                     filterQuality = FilterQuality.Medium,
+                    colorFilter = imageFilter,
                 )
             }
             val detail = sharp?.takeIf { it.key == viewport }
@@ -846,6 +857,7 @@ private fun PageView(
                     detail.bitmap.asImageBitmap(),
                     dstOffset = IntOffset(left.coerceAtLeast(0), top.coerceAtLeast(0)),
                     dstSize = IntSize(detail.bitmap.width, detail.bitmap.height),
+                    colorFilter = imageFilter,
                 )
             }
         }
@@ -981,6 +993,7 @@ private fun SpreadView(
                 ) { _, amount -> dragged += amount }
             },
     ) {
+        val imageFilter = LocalPaperImageFilter.current
         Canvas(Modifier.fillMaxSize()) {
             val f = fits ?: return@Canvas
             val shown = bitmaps ?: return@Canvas
@@ -995,6 +1008,7 @@ private fun SpreadView(
                         dstOffset = IntOffset(x.roundToInt(), top.roundToInt()),
                         dstSize = IntSize(w, h),
                         filterQuality = FilterQuality.Medium,
+                        colorFilter = imageFilter,
                     )
                 }
                 x += w

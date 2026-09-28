@@ -4,6 +4,7 @@ import io.github.kgcaudit.reader.ui.design.drawMemoGlyph
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
@@ -33,6 +34,8 @@ fun DrawScope.drawPage(
     ink: Color,
     images: Map<PlacedImage, ImageBitmap>,
     marks: PageMarks = PageMarks.NONE,
+    /** 그림에 씌울 거르개(흰 바탕을 지면색으로, `paperImageFilter`). */
+    imageFilter: ColorFilter? = null,
 ) {
     val argb = ink.toArgb()
 
@@ -127,6 +130,7 @@ fun DrawScope.drawPage(
             bitmap,
             dstOffset = IntOffset((placed.xPx + (placed.widthPx - w) / 2f).toInt(), (placed.yPx + (placed.heightPx - h) / 2f).toInt()),
             dstSize = IntSize(w.toInt(), h.toInt()),
+            colorFilter = imageFilter,
         )
     }
 }
