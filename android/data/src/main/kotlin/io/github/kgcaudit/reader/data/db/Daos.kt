@@ -54,6 +54,10 @@ interface ProgressDao {
 @Dao
 interface BookmarkDao {
 
+    /** 책마다 책갈피 수(목록 보기의 "책갈피 2"). */
+    @Query("SELECT bookId, COUNT(*) AS count FROM bookmarks GROUP BY bookId")
+    fun observeCounts(): Flow<List<BookCount>>
+
     @Query("SELECT * FROM bookmarks WHERE bookId = :bookId ORDER BY orderMajor, orderMinor, orderPatch, id")
     suspend fun forBook(bookId: String): List<BookmarkEntity>
 
@@ -83,6 +87,10 @@ interface RecentDao {
         touch(bookId, at)
     }
 
+    /** 책장에서 뺀다 — 읽을 책으로 되돌린다. 진도 · 책갈피는 남아 다시 열면 이어진다. */
+    @Query("DELETE FROM recent WHERE bookId = :bookId")
+    suspend fun delete(bookId: String)
+
     /** 다 읽음 표시 · 풀기(null). */
     @Query("UPDATE recent SET finishedAtEpochMs = :at WHERE bookId = :bookId")
     suspend fun setFinished(bookId: String, at: Long?)
@@ -102,6 +110,10 @@ interface RecentDao {
 @Dao
 interface AnnotationDao {
 
+    /** 책마다 칠 수와 그중 메모가 달린 수(목록 보기의 "형광펜 5 · 메모 1"). */
+    @Query("SELECT bookId, COUNT(*) AS count, SUM(CASE WHEN note IS NULL THEN 0 ELSE 1 END) AS memos FROM annotations GROUP BY bookId")
+    fun observeCounts(): Flow<List<AnnotationCount>>
+
     @Query("SELECT * FROM annotations WHERE bookId = :bookId ORDER BY orderMajor, orderMinor, id")
     suspend fun forBook(bookId: String): List<AnnotationEntity>
 
@@ -114,3 +126,8 @@ interface AnnotationDao {
     @Query("DELETE FROM annotations WHERE id = :id")
     suspend fun delete(id: Long)
 }
+
+/** 책 한 권의 수. Room 이 질의 결과 칸 이름(bookId · count)으로 채운다. */
+data class BookCount(val bookId: String, val count: Int)
+
+data class AnnotationCount(val bookId: String, val count: Int, val memos: Int)

@@ -6,10 +6,14 @@ import io.github.kgcaudit.reader.data.db.ReaderDatabase
 import io.github.kgcaudit.reader.document.BookFormat
 import io.github.kgcaudit.reader.document.BookId
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 
 /** 책장의 책. [finishedAtEpochMs] 가 있으면 다 읽은 책. */
 data class ShelfBook(val book: LibraryBook, val finishedAtEpochMs: Long?)
+
+/** 책 한 권의 독서노트 수. 메모는 칠 가운데 메모가 달린 것이다. */
+data class NoteCounts(val bookmarks: Int = 0, val highlights: Int = 0, val memos: Int = 0)
 
 /** 라이브러리 목록 한 줄. */
 data class LibraryBook(
@@ -20,6 +24,8 @@ data class LibraryBook(
     val title: String?,
     val author: String?,
     val sizeBytes: Long?,
+    /** 라이브러리에 처음 들어온 때(읽을 책 목록의 "9월 25일 추가" · 추가한 순). */
+    val addedAtEpochMs: Long? = null,
 ) {
     /** 목록에 보일 이름. 제목을 모르면 파일 이름이다. */
     val label: String get() = title?.takeIf { it.isNotBlank() } ?: displayName
@@ -67,6 +73,21 @@ class Library(private val db: ReaderDatabase) {
     fun shelf(): Flow<List<ShelfBook>> = recent.observeShelf().map { rows ->
         rows.mapNotNull { row -> toBook(row.book)?.let { ShelfBook(it, row.finishedAtEpochMs) } }
     }
+
+    /** 책장에서 빼 읽을 책으로 되돌린다. 한 번 열어 본 책이 0% 로 "읽는 중" 에 남지 않게. 진도 · 책갈피는 남는다. */
+    suspend fun returnToUnread(id: BookId) = recent.delete(id.value)
+
+    /** 책마다 독서노트 수. 없는 책은 빠진다. */
+    fun noteCounts(): Flow<Map<BookId, NoteCounts>> =
+        combine(db.bookmarks().observeCounts(), db.annotations().observeCounts()) { marks, notes ->
+            val out = HashMap<BookId, NoteCounts>()
+            marks.forEach { out[BookId(it.bookId)] = NoteCounts(bookmarks = it.count) }
+            notes.forEach { n ->
+                val id = BookId(n.bookId)
+                out[id] = (out[id] ?: NoteCounts()).copy(highlights = n.count, memos = n.memos)
+            }
+            out
+        }
 
     /** 책을 열었다. 최근 목록의 맨 앞으로 온다. 다 읽은 표시는 그대로 둔다. */
     suspend fun markOpened(id: BookId, nowEpochMs: Long) = recent.opened(id.value, nowEpochMs)
@@ -140,6 +161,7 @@ class Library(private val db: ReaderDatabase) {
             title = row.title,
             author = row.author,
             sizeBytes = row.sizeBytes,
+            addedAtEpochMs = row.addedAtEpochMs,
         )
     }
 }

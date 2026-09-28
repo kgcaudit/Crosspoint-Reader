@@ -17,6 +17,7 @@ import androidx.test.core.app.ApplicationProvider
 import io.github.kgcaudit.reader.document.pdf.TestPdf
 import io.github.kgcaudit.reader.document.pdf.TestPdf.Companion.pages
 import io.github.kgcaudit.reader.document.pdf.TestPdf.Companion.utf16
+import kotlinx.coroutines.flow.first
 import org.junit.After
 import org.junit.Before
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -159,7 +160,9 @@ class PdfAppTest {
         compose.activity.onBackPressedDispatcher.onBackPressed()
         // 라이브러리도 이제 파일 이름 대신 파일에 적힌 제목 · 저자를 보인다.
         waitFor(hasText("OLO 사용 설명서"))
-        waitFor(hasText("OLO 팀"))
+        // 저자는 책장에 보이지 않는다(읽는 중 줄은 진도를 보인다) — 목록이 쓰는 기록에 적혔는지 본다.
+        val library = ApplicationProvider.getApplicationContext<OloApp>().container.data.library
+        compose.waitUntil(10_000) { kotlinx.coroutines.runBlocking { library.books().first() }.any { it.author == "OLO 팀" } }
         shot("26-pdf-library-title")
         node(hasText("OLO 사용 설명서")).performClick()
         waitFor(hasText("5 / 6"))

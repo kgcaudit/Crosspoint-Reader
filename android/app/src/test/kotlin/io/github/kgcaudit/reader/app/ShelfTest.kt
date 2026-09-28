@@ -23,6 +23,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.File
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -89,24 +90,23 @@ class ShelfTest {
     @Test
     fun `marking a book finished moves it to its own shelf and back`() {
         waitFor(hasText("읽는 중 · 4권"))
-        compose.onAllNodes(hasText("옛 일기.txt"), useUnmergedTree = true).fetchSemanticsNodes().size.let { assertTrue(it >= 2, "책장과 목록에 있어야 한다") }
+        // 연 책은 책장에만 있다 — 읽을 책에 한 번 더 보이지 않는다(0.25.0, 모든 책 목록을 없앰).
+        // 대신 표지는 제목을 얹어 글자로 세면 둘이다 — 표지로 센다.
+        assertEquals(1, compose.onAllNodes(hasContentDescription("옛 일기.txt 대신 표지"), useUnmergedTree = true).fetchSemanticsNodes().size, "연 책이 두 곳에 있다")
         compose.onAllNodes(hasText("옛 일기.txt"), useUnmergedTree = true)[0].performTouchInput { longClick() }
-        waitFor(hasText("다 읽은 책으로 표시"))
-        compose.onAllNodes(hasText("다 읽은 책으로 표시"), useUnmergedTree = true)[0].performClick()
-        waitFor(hasText("다 읽은 책 · 1권"))
+        waitFor(hasText("읽은 책으로 표시"))
+        compose.onAllNodes(hasText("읽은 책으로 표시"), useUnmergedTree = true)[0].performClick()
+        waitFor(hasText("읽은 책 · 1권"))
         waitFor(hasText("읽는 중 · 3권"))
         assertTrue(has(hasText("다 읽음 · ", substring = true)), "끝낸 날이 없다")
         shot("97-shelf-finished")
-        // 목록의 오른쪽 값이 퍼센트 대신 "다 읽음". 목록은 책장 두 줄 아래라, 이 시험은 키 큰 화면으로 띄운다 — 찾아
-        // 내리기(performScrollToNode)는 옆으로 넘기는 책장 줄을 붙잡고 끝없이 찾다가 메모리가 모자랐다.
-        assertTrue(has(hasText("다 읽음")), "목록에 다 읽음이 없다")
         assertNotNull(runBlocking { app.container.data.library.shelf().first() }.first { it.book.id == idOf("옛 일기.txt") }.finishedAtEpochMs)
 
         compose.onAllNodes(hasText("옛 일기.txt"), useUnmergedTree = true)[0].performTouchInput { longClick() }
         waitFor(hasText("읽는 중으로 되돌리기"))
         compose.onAllNodes(hasText("읽는 중으로 되돌리기"), useUnmergedTree = true)[0].performClick()
         waitFor(hasText("읽는 중 · 4권"))
-        assertFalse(has(hasText("다 읽은 책 · ", substring = true)))
+        assertFalse(has(hasText("읽은 책 · ", substring = true)))
         assertNull(runBlocking { app.container.data.library.shelf().first() }.first { it.book.id == idOf("옛 일기.txt") }.finishedAtEpochMs)
     }
 
@@ -115,9 +115,9 @@ class ShelfTest {
         // 종이책으로 읽은 책을 정리하는 경우. 한 번도 열지 않은 데미안이 다 읽은 책 줄에 올라간다.
         waitFor(hasText("데미안.epub"))
         compose.onAllNodes(hasText("데미안.epub"), useUnmergedTree = true)[0].performTouchInput { longClick() }
-        waitFor(hasText("다 읽은 책으로 표시"))
-        compose.onAllNodes(hasText("다 읽은 책으로 표시"), useUnmergedTree = true)[0].performClick()
-        waitFor(hasText("다 읽은 책 · 1권"))
+        waitFor(hasText("읽은 책으로 표시"))
+        compose.onAllNodes(hasText("읽은 책으로 표시"), useUnmergedTree = true)[0].performClick()
+        waitFor(hasText("읽은 책 · 1권"))
         assertTrue(has(hasText("읽는 중 · 4권")))
     }
 }

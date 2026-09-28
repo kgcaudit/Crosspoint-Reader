@@ -254,6 +254,35 @@ fun CpProgressBar(fraction: Float, modifier: Modifier = Modifier, weight: CpBarW
     }
 }
 
+/**
+ * 아이콘 몇 개 중 하나를 고르는 두세 칸 단추(격자 | 목록). 고른 칸만 강조색 바탕 — 지금 어떤 보기인지 단추가 알린다.
+ * 화면 읽기에는 칸마다 [labels] 와 고른 상태(`selectable`)를 알린다.
+ */
+@Composable
+fun CpIconToggle(
+    icons: List<ImageVector>,
+    labels: List<String>,
+    selected: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val c = CpTheme.colors
+    val shape = RoundedCornerShape(CpTheme.metrics.cornerSmall + 2.dp)
+    Row(modifier.clip(shape).border(1.dp, c.outline, shape)) {
+        icons.forEachIndexed { i, icon ->
+            val on = i == selected
+            Box(
+                Modifier
+                    .size(40.dp, 34.dp)
+                    .background(if (on) c.accentContainer else Color.Transparent)
+                    .selectable(selected = on, role = Role.RadioButton) { onSelect(i) }
+                    .semantics { contentDescription = labels[i] },
+                contentAlignment = Alignment.Center,
+            ) { CpIcon(icon, if (on) c.accent else c.textMuted, size = 20.dp) }
+        }
+    }
+}
+
 // ── 8. 팝업 ─────────────────────────────────────────────────────────
 
 /**

@@ -50,6 +50,11 @@ object CpIcons {
     /** 보기 설정. 큰 가·작은 가 — 글자 크기를 바꾸는 곳이라는 뜻. */
     val TextSize = line("M3 19 L8.5 5 L14 19 M5 14 H12 M15 19 L18 11.5 L21 19 M16.2 16.5 H19.8")
 
+    /** 격자로 보기(네 칸). */
+    val Grid = line("M4.5 4.5 H10.5 V10.5 H4.5 Z M13.5 4.5 H19.5 V10.5 H13.5 Z M4.5 13.5 H10.5 V19.5 H4.5 Z M13.5 13.5 H19.5 V19.5 H13.5 Z")
+    /** 목록으로 보기(작은 표지 + 글 두 줄씩). */
+    val Rows = line("M4.5 5 H8.5 V9.5 H4.5 Z M11.5 6 H19.5 M11.5 8.5 H16.5 M4.5 14.5 H8.5 V19 H4.5 Z M11.5 15.5 H19.5 M11.5 18 H16.5")
+
     private fun line(d: String): ImageVector = ImageVector.Builder(
         defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f,
     ).addPath(

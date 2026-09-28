@@ -43,6 +43,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import io.github.kgcaudit.reader.data.library.LibraryBook
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import io.github.kgcaudit.reader.ui.design.CpRadioRow
+import io.github.kgcaudit.reader.ui.design.CpIconToggle
+import io.github.kgcaudit.reader.data.library.NoteCounts
 import io.github.kgcaudit.reader.document.BookFormat
 import io.github.kgcaudit.reader.document.BookId
 import io.github.kgcaudit.reader.ui.design.CpBarWeight
@@ -54,7 +64,6 @@ import io.github.kgcaudit.reader.ui.design.CpIcons
 import io.github.kgcaudit.reader.ui.design.CpListRow
 import io.github.kgcaudit.reader.ui.design.CpPopup
 import io.github.kgcaudit.reader.ui.design.CpProgressBar
-import io.github.kgcaudit.reader.ui.design.CpSectionLabel
 import io.github.kgcaudit.reader.ui.design.CpText
 import io.github.kgcaudit.reader.ui.design.CpTheme
 import io.github.kgcaudit.reader.ui.design.CpTile
@@ -91,7 +100,12 @@ fun LibraryScreen(
     // 다 읽은 책은 끝낸 차례(최근에 끝낸 책이 앞).
     val finished = shelf.filter { it.finishedAtEpochMs != null }.sortedByDescending { it.finishedAtEpochMs }
     val finishedIds = finished.mapTo(HashSet()) { it.book.id }
+    val shelfIds = shelf.mapTo(HashSet()) { it.book.id }
     val percents by remember { data.library.percents() }.collectAsState(initial = emptyMap())
+    val notes by remember { data.library.noteCounts() }.collectAsState(initial = emptyMap())
+    val layout by container.libraryView.layout.collectAsState()
+    val sort by container.libraryView.sort.collectAsState()
+    var sortMenu by remember { mutableStateOf(false) }
     var folders by remember { mutableStateOf(data.folders.folders()) }
     val scanning by container.scan.running.collectAsState()
     // 일부 폴더를 못 읽은 훑기가 새로 생기면 한 번 알린다. 화면이 새로 생길 때 이미 있던 것은 다시 알리지 않는다.
@@ -176,15 +190,16 @@ fun LibraryScreen(
                 CpText("등록한 폴더에 EPUB · TXT · PDF 파일이 없습니다.", CpTheme.type.subtitle, colors.textMuted, maxLines = 2)
             }
         } else {
+            val columns = shelfColumns()
             LazyColumn(Modifier.fillMaxSize()) {
                 if (reading.isNotEmpty()) {
-                    item { ShelfLabel("읽는 중 · ${reading.size}권", more = reading.size > SHELF_COLUMNS) }
+                    item { ShelfLabel("읽는 중 · ${reading.size}권", more = reading.size > columns) }
                     item(key = "reading") {
                         ShelfRow(reading) { book, width -> ShelfItem(book, width, percents[book.id], onOpen, onLongClick = { coverMenu = it }) }
                     }
                 }
                 if (finished.isNotEmpty()) {
-                    item { ShelfLabel("다 읽은 책 · ${finished.size}권", more = finished.size > SHELF_COLUMNS) }
+                    item { ShelfLabel("읽은 책 · ${finished.size}권", more = finished.size > columns) }
                     item(key = "finished") {
                         ShelfRow(finished.map { it.book }) { book, width ->
                             val at = finished.first { it.book.id == book.id }.finishedAtEpochMs!!
@@ -192,10 +207,25 @@ fun LibraryScreen(
                         }
                     }
                 }
-                if (shelf.isNotEmpty()) item { Spacer(Modifier.height(14.dp)); CpDivider() }
-                item { CpSectionLabel("모든 책") }
-                items(list.orEmpty(), key = { it.id.value }) { book ->
-                    BookRow(book, percents[book.id], book.id in finishedIds, onOpen = onOpen, onLongClick = { coverMenu = it })
+                // 읽을 책: 한 번도 열지 않은 책. 모든 책 목록(0.24.x)은 책장의 책을 한 번 더 보여 줘 길기만 했다.
+                val toRead = sort.sort(list.orEmpty().filter { it.id !in shelfIds })
+                if (toRead.isNotEmpty()) {
+                    if (shelf.isNotEmpty()) item { Spacer(Modifier.height(14.dp)); CpDivider() }
+                    item(key = "to-read") {
+                        ToReadLabel(
+                            "읽을 책 · ${toRead.size}권", sort, layout,
+                            onSort = { sortMenu = true },
+                            onLayout = container.libraryView::setLayout,
+                        )
+                    }
+                    when (layout) {
+                        LibraryLayout.Grid -> items(toRead.chunked(columns), key = { "g" + it.first().id.value }) { row ->
+                            GridRow(row) { book, width -> GridItem(book, width, onOpen, onLongClick = { coverMenu = it }) }
+                        }
+                        LibraryLayout.List -> items(toRead, key = { "l" + it.id.value }) { book ->
+                            DetailRow(book, notes[book.id], onOpen, onMenu = { coverMenu = it })
+                        }
+                    }
                 }
                 item { Spacer(Modifier.height(24.dp)) }
             }
@@ -228,11 +258,31 @@ fun LibraryScreen(
         }
     }
 
+    if (sortMenu) {
+        CpPopup(title = "읽을 책 차례", onDismiss = { sortMenu = false }) {
+            Spacer(Modifier.height(8.dp))
+            LibrarySort.entries.forEach { s ->
+                CpRadioRow(s.label, s == sort, { container.libraryView.setSort(s); sortMenu = false })
+            }
+        }
+    }
+
     coverMenu?.let { book ->
         val done = book.id in finishedIds
         CoverMenu(
             book,
             finished = done,
+            onUnread = if (book.id in shelfIds) {
+                {
+                    coverMenu = null
+                    scope.launch {
+                        withContext(Dispatchers.IO) { data.library.returnToUnread(book.id) }
+                        toast = "‘${book.label}’ — 읽을 책으로 되돌렸습니다"
+                    }
+                }
+            } else {
+                null
+            },
             onFinished = {
                 coverMenu = null
                 scope.launch {
@@ -240,7 +290,7 @@ fun LibraryScreen(
                     // 여러 줄을 한 번에 고치는(트랜잭션) 일이라 화면 스레드에서 하면 Room 이 막는다.
                     withContext(Dispatchers.IO) { data.library.setFinished(book.id, if (done) null else now, now) }
                     // 책 이름 뒤에 조사를 붙이지 않는다 — 받침에 따라 을/를이 갈려 틀리기 쉽다.
-                    toast = if (done) "‘${book.label}’ — 읽는 중으로 되돌렸습니다" else "‘${book.label}’ — 다 읽은 책으로 옮겼습니다"
+                    toast = if (done) "‘${book.label}’ — 읽는 중으로 되돌렸습니다" else "‘${book.label}’ — 읽은 책으로 옮겼습니다"
                 }
             },
             onPick = {
@@ -324,7 +374,8 @@ private fun ShelfRow(books: List<LibraryBook>, item: @Composable (LibraryBook, a
     val gutter = CpTheme.metrics.gutter
     val screen = LocalConfiguration.current.screenWidthDp.dp
     // 넷째 칸이 오른쪽 끝에 조금 보이게 한다(구상안) — 옆으로 넘길 수 있다는 것을 표지 자체가 알린다.
-    val width = (screen - gutter * 2 - SHELF_GAP * (SHELF_COLUMNS - 1) - SHELF_PEEK) / SHELF_COLUMNS
+    val columns = shelfColumns()
+    val width = (screen - gutter * 2 - SHELF_GAP * (columns - 1) - SHELF_PEEK) / columns
     LazyRow(contentPadding = PaddingValues(horizontal = gutter), horizontalArrangement = Arrangement.spacedBy(SHELF_GAP)) {
         items(books, key = { it.id.value }) { item(it, width) }
     }
@@ -380,29 +431,116 @@ internal fun monthDay(epochMs: Long): String {
     return "${date.monthValue}월 ${date.dayOfMonth}일"
 }
 
+/** 읽을 책 머리: "읽을 책 · 9권" | 차례 ▾ | 격자 · 목록. */
 @Composable
-private fun BookRow(
-    book: LibraryBook,
-    percent: Float?,
-    finished: Boolean,
-    onOpen: (LibraryBook) -> Unit,
-    onLongClick: (LibraryBook) -> Unit,
-) {
-    CpListRow(
-        title = book.label,
-        subtitle = book.author ?: book.format.name,
-        leading = { BookCover(book, Modifier.width(32.dp), small = true) },
-        value = if (finished) "다 읽음" else percent?.let { "${it.roundToInt()}%" },
-        onClick = { onOpen(book) },
-        onLongClick = { onLongClick(book) },
-    )
+private fun ToReadLabel(text: String, sort: LibrarySort, layout: LibraryLayout, onSort: () -> Unit, onLayout: (LibraryLayout) -> Unit) {
+    val c = CpTheme.colors
+    Row(
+        Modifier.fillMaxWidth().padding(start = CpTheme.metrics.gutter, end = 8.dp, top = 12.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CpText(text, CpTheme.type.label, c.textMuted, Modifier.weight(1f))
+        CpText(
+            "${sort.label} ▾", CpTheme.type.caption, c.text,
+            Modifier.clip(RoundedCornerShape(8.dp)).clickable(role = Role.Button, onClick = onSort)
+                .padding(horizontal = 10.dp, vertical = 10.dp).semantics { contentDescription = "차례: ${sort.label}" },
+        )
+        CpIconToggle(
+            listOf(CpIcons.Grid, CpIcons.Rows),
+            LibraryLayout.entries.map { it.label },
+            layout.ordinal,
+            { onLayout(LibraryLayout.entries[it]) },
+        )
+    }
 }
+
+/** 격자 한 줄(세 칸). 칸 폭은 화면에서 나온다 — 표지는 칸 밑면에 서므로 한 줄의 표지 밑면이 맞는다. */
+@Composable
+private fun GridRow(books: List<LibraryBook>, item: @Composable (LibraryBook, androidx.compose.ui.unit.Dp) -> Unit) {
+    val gutter = CpTheme.metrics.gutter
+    val columns = shelfColumns()
+    val width = (LocalConfiguration.current.screenWidthDp.dp - gutter * 2 - SHELF_GAP * (columns - 1)) / columns
+    Row(Modifier.padding(horizontal = gutter, vertical = 9.dp), horizontalArrangement = Arrangement.spacedBy(SHELF_GAP)) {
+        books.forEach { item(it, width) }
+    }
+}
+
+/** 읽을 책 한 칸: 표지 · 제목 · 저자(모르면 형식). 진도가 없으니 막대 대신 저자다. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun GridItem(book: LibraryBook, width: androidx.compose.ui.unit.Dp, onOpen: (LibraryBook) -> Unit, onLongClick: (LibraryBook) -> Unit) {
+    val c = CpTheme.colors
+    Column(Modifier.width(width).combinedClickable(role = Role.Button, onLongClick = { onLongClick(book) }, onClick = { onOpen(book) })) {
+        BookCover(book, Modifier.fillMaxWidth())
+        Spacer(Modifier.height(8.dp))
+        CpText(book.label, CpTheme.type.label, c.text)
+        Spacer(Modifier.height(4.dp))
+        CpText(book.author ?: book.format.name, CpTheme.type.caption, c.textMuted)
+    }
+}
+
+/**
+ * 읽을 책 목록 한 줄(구상안 확정 — 리디보다 풍성하게): 표지 · 제목 · 저자 · 형식 · 크기 · 든 폴더 · 추가한 날 ·
+ * 독서노트 수 · ⋮. 저자를 모르면 줄을 뺀다 — 형식 표시와 겹친다.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun DetailRow(book: LibraryBook, notes: NoteCounts?, onOpen: (LibraryBook) -> Unit, onMenu: (LibraryBook) -> Unit) {
+    val c = CpTheme.colors
+    Row(
+        Modifier.fillMaxWidth()
+            .combinedClickable(role = Role.Button, onLongClick = { onMenu(book) }, onClick = { onOpen(book) })
+            .padding(start = CpTheme.metrics.gutter, end = 4.dp, top = 10.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        BookCover(book, Modifier.width(56.dp), small = true)
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            CpText(book.label, CpTheme.type.body, c.text, maxLines = 2)
+            book.author?.let { CpText(it, CpTheme.type.subtitle, c.textMuted) }
+            Spacer(Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val shape = RoundedCornerShape(4.dp)
+                Box(Modifier.border(1.dp, c.outline, shape).padding(horizontal = 5.dp, vertical = 1.dp)) {
+                    CpText(book.format.name, CpTheme.type.caption, c.textMuted)
+                }
+                val meta = listOfNotNull(book.sizeBytes?.let(::sizeLabel), bookFolder(book.id)).joinToString(" · ")
+                if (meta.isNotEmpty()) CpText("  $meta", CpTheme.type.caption, c.textMuted)
+            }
+            book.addedAtEpochMs?.let {
+                Spacer(Modifier.height(6.dp))
+                CpText("${monthDay(it)} 추가", CpTheme.type.caption, c.textMuted)
+            }
+            notes?.let(::notesLabel)?.let { CpText(it, CpTheme.type.caption, c.textMuted, Modifier.padding(top = 2.dp)) }
+        }
+        Box(
+            Modifier.size(40.dp).clip(RoundedCornerShape(50)).clickable(role = Role.Button) { onMenu(book) }
+                .semantics { contentDescription = "${book.label} 더 보기" },
+            contentAlignment = Alignment.Center,
+        ) { CpText("⋮", CpTheme.type.title, c.textMuted) }
+    }
+}
+
+/** "책갈피 2 · 형광펜 5 · 메모 1". 없는 것은 뺀다. 모두 없으면 null. */
+internal fun notesLabel(n: NoteCounts): String? = listOfNotNull(
+    n.bookmarks.takeIf { it > 0 }?.let { "책갈피 $it" },
+    n.highlights.takeIf { it > 0 }?.let { "형광펜 $it" },
+    n.memos.takeIf { it > 0 }?.let { "메모 $it" },
+).joinToString(" · ").ifEmpty { null }
+
+/** 책이 든 폴더 이름(`primary:Books/소설/책.epub` → `소설`). 등록 폴더 바로 안이면 그 폴더 이름. 모르면 null. */
+private fun bookFolder(id: BookId): String? = runCatching {
+    val doc = DocumentsContract.getDocumentId(Uri.parse(id.value))
+    doc.substringAfter(':', doc).substringBeforeLast('/', "").substringAfterLast('/').ifBlank { null }
+}.getOrNull()
 
 /** 길게 누른 책의 표지 판(구상안 확정: 사진 · 파일에서 고르기, 되돌리기). */
 @Composable
 private fun CoverMenu(
     book: LibraryBook,
     finished: Boolean,
+    /** 책장에 있는 책만: 읽을 책으로 되돌린다. */
+    onUnread: (() -> Unit)?,
     onFinished: () -> Unit,
     onPick: () -> Unit,
     onRevert: () -> Unit,
@@ -418,7 +556,8 @@ private fun CoverMenu(
     }
     CpPopup(title = book.label, message = message, onDismiss = onDismiss) {
         Spacer(Modifier.height(8.dp))
-        CpListRow(if (finished) "읽는 중으로 되돌리기" else "다 읽은 책으로 표시", onFinished, icon = CpIcons.Bookmark, compact = true)
+        CpListRow(if (finished) "읽는 중으로 되돌리기" else "읽은 책으로 표시", onFinished, icon = CpIcons.Bookmark, compact = true)
+        onUnread?.let { CpListRow("읽을 책으로 되돌리기", it, icon = CpIcons.Back, compact = true) }
         CpListRow("사진 · 파일에서 표지 고르기", onPick, icon = CpIcons.Folder, compact = true)
         CpListRow(
             if (cover?.hasOwn == true) "원래 표지로 되돌리기" else "대신 표지로 되돌리기",
@@ -461,7 +600,19 @@ private fun folderName(uri: Uri): String {
     return path.substringAfterLast('/').ifBlank { if (id.startsWith("primary")) "내장 저장소" else id }
 }
 
-/** 책장 한 줄에 한 화면으로 보이는 권수. 더 있으면 옆으로 넘긴다. */
+/**
+ * 한 줄에 보이는 권수(책장 · 격자). 세로 폰은 셋, 넓으면 표지 폭이 [SHELF_ITEM] 쯤 되게 늘린다 — 셋으로 고정하면 가로
+ * 화면에서 표지 하나가 263dp 로 화면보다 커져 제목이 화면 밖으로 밀렸다.
+ */
+@Composable
+private fun shelfColumns(): Int {
+    val screen = LocalConfiguration.current.screenWidthDp.dp
+    val fit = ((screen - CpTheme.metrics.gutter * 2 + SHELF_GAP) / (SHELF_ITEM + SHELF_GAP)).toInt()
+    return fit.coerceAtLeast(SHELF_COLUMNS)
+}
+
+/** 책장 한 줄에 한 화면으로 보이는 최소 권수(세로 폰). 더 있으면 옆으로 넘긴다. */
 private const val SHELF_COLUMNS = 3
+private val SHELF_ITEM = 102.dp
 private val SHELF_GAP = 14.dp
 private val SHELF_PEEK = 28.dp

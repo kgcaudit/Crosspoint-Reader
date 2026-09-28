@@ -111,8 +111,8 @@ class CoverTest {
         waitFor(hasText("1 / ", substring = true))
         compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
         waitFor(hasText("읽는 중 · 1권"))
-        // 책장(큰 표지)과 모든 책 목록(작은 표지)에 한 번씩. 큰 표지는 화면 폭의 1/3 가까이다.
-        compose.waitUntil(30_000) { compose.onAllNodes(standIn("어린 왕자"), useUnmergedTree = true).fetchSemanticsNodes().size == 2 }
+        // 연 책은 책장에만 있다 — 읽을 책에서는 빠진다(0.25.0). 큰 표지는 화면 폭의 1/3 가까이다.
+        compose.waitUntil(30_000) { compose.onAllNodes(standIn("어린 왕자"), useUnmergedTree = true).fetchSemanticsNodes().size == 1 }
         val widths = compose.onAllNodes(standIn("어린 왕자"), useUnmergedTree = true).fetchSemanticsNodes().map { it.size.width }
         val density = compose.activity.resources.displayMetrics.density
         assertTrue(widths.max() / density > 90f, "책장의 표지가 작다: ${widths.map { it / density }}")
@@ -131,10 +131,10 @@ class CoverTest {
             waitFor(hasText("1 / ", substring = true))
             compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
             // 한 쪽짜리 책이라 열면 바로 "다 읽은 책" 줄에 선다 — 어느 줄이든 책장이다.
-            waitFor(hasText("다 읽은 책 · ${i + 1}권"))
+            waitFor(hasText("읽은 책 · ${i + 1}권"))
         }
-        // 한 번 열면 목록 이름이 책 제목이 된다. 책장(큰 표지)과 모든 책 목록(작은 표지)에 한 번씩.
-        compose.waitUntil(30_000) { compose.onAllNodes(cover("바다"), useUnmergedTree = true).fetchSemanticsNodes().size == 2 }
+        // 한 번 열면 목록 이름이 책 제목이 된다.
+        compose.waitUntil(30_000) { compose.onAllNodes(cover("바다"), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
         fun bounds(label: String) = compose.onAllNodes(cover(label), useUnmergedTree = true).fetchSemanticsNodes()
             .map { it.boundsInRoot }.maxBy { it.width }
         val wide = bounds("바다")

@@ -152,7 +152,7 @@ class AppWalkthroughTest {
         // 11. 라이브러리로 돌아오면 책장에 있다. 진행 막대로 마지막 장의 끝 쪽(3/3, 100%)까지 갔으므로 저절로 "다 읽은
         // 책" 줄이다(0.23.0).
         compose.activity.onBackPressedDispatcher.onBackPressed()
-        waitFor(hasText("다 읽은 책 · 1권"))
+        waitFor(hasText("읽은 책 · 1권"))
         waitFor(hasText("다 읽음 · ", substring = true))
         shot("10-library-with-recent")
 

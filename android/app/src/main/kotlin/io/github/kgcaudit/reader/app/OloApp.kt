@@ -90,6 +90,7 @@ class AppContainer(private val app: Application) {
     val pages = PageStore(File(app.filesDir, "pages"))
 
     val prefs = PrefsStore(app)
+    val libraryView = LibraryViewStore(app)
 
     /** 앱이 살아 있는 동안 도는 일(폴더 훑기). 화면이 사라져도 이어진다. */
     private val appScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.Main.immediate)
