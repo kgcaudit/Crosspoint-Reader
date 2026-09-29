@@ -117,7 +117,7 @@ fun ListenPlayer(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             CpIcon(CpIcons.Timer, if (timer != null) c.accent else c.text, size = 20.dp)
-            if (timer != null) CpText(timer, CpTheme.type.label, c.accent, Modifier.padding(start = 4.dp))
+            if (timer != null) CpText(timer, CpTheme.type.label, c.accentText, Modifier.padding(start = 4.dp))
         }
         CpIconButton(CpIcons.Close, "듣기 끝내기", onClose)
     }
@@ -268,7 +268,7 @@ private fun VoiceRow(name: String, selected: Boolean, onPick: () -> Unit, onList
         CpText(name, CpTheme.type.body, c.text, Modifier.weight(1f))
         if (onListen != null) {
             CpText(
-                "들어 보기", CpTheme.type.label, c.accent,
+                "들어 보기", CpTheme.type.label, c.accentText,
                 Modifier.clip(RoundedCornerShape(12.dp)).clickable(role = Role.Button, onClick = onListen).padding(12.dp)
                     .semantics { contentDescription = "$name 들어 보기" },
             )

@@ -196,7 +196,7 @@ fun CpListRow(
         }
         if (value != null) {
             Spacer(Modifier.width(12.dp))
-            CpText(value, CpTheme.type.caption, if (selected) c.accent else c.textMuted)
+            CpText(value, CpTheme.type.caption, if (selected) c.accentText else c.textMuted)
         }
     }
 }
@@ -229,7 +229,7 @@ fun CpTabBar(tabs: List<String>, selected: Int, onSelect: (Int) -> Unit, modifie
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                CpText(label, CpTheme.type.label, if (on) c.accent else c.textMuted, Modifier.padding(vertical = 10.dp))
+                CpText(label, CpTheme.type.label, if (on) c.accentText else c.textMuted, Modifier.padding(vertical = 10.dp))
                 Box(Modifier.fillMaxWidth().height(if (on) 3.dp else 1.dp).background(if (on) c.accent else c.divider))
             }
         }
@@ -419,7 +419,7 @@ fun CpLinkRow(label: String, value: String, onClick: () -> Unit, modifier: Modif
         verticalAlignment = Alignment.CenterVertically,
     ) {
         CpText(label, CpTheme.type.body, c.text, Modifier.weight(1f))
-        CpText(value, CpTheme.type.label, c.accent, Modifier.widthIn(max = 200.dp))
+        CpText(value, CpTheme.type.label, c.accentText, Modifier.widthIn(max = 200.dp))
         CpIcon(CpIcons.Forward, c.textMuted, Modifier.padding(start = 4.dp), size = 20.dp)
     }
 }

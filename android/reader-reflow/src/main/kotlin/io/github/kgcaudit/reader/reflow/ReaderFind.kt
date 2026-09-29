@@ -173,7 +173,7 @@ internal fun NoteSheet(title: String, text: String, onGoTo: () -> Unit, onClose:
                 .padding(horizontal = CpTheme.metrics.gutter).padding(top = 10.dp, bottom = 24.dp),
         ) {
             Box(Modifier.align(Alignment.CenterHorizontally).size(width = 36.dp, height = 4.dp).clip(RoundedCornerShape(50)).background(c.divider))
-            CpText(title, CpTheme.type.label, c.accent, Modifier.padding(top = 14.dp, bottom = 8.dp))
+            CpText(title, CpTheme.type.label, c.accentText, Modifier.padding(top = 14.dp, bottom = 8.dp))
             Box(Modifier.heightIn(max = maxText.coerceAtLeast(80.dp)).verticalScroll(rememberScrollState())) {
                 BasicText(text, style = CpTheme.type.body.copy(color = c.text, lineHeight = 26.sp))
             }
@@ -197,7 +197,7 @@ internal fun ReturnChip(onClick: () -> Unit, modifier: Modifier = Modifier) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         CpIcon(CpIcons.Back, c.accent, Modifier.padding(8.dp), size = 20.dp)
-        CpText("읽던 곳으로", CpTheme.type.label, c.accent)
+        CpText("읽던 곳으로", CpTheme.type.label, c.accentText)
     }
 }
 

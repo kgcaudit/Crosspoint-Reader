@@ -36,6 +36,18 @@ class ContrastTest {
     }
 
     @Test
+    fun `accent coloured words read on every surface they sit on`() {
+        // 설정 값 · 탭 · 팝업 안 링크 · 고른 행의 값. 브랜드 클레이로 쓰던 때는 팝업 3.72, 고른 행 3.58 이었다.
+        for ((name, c) in themes) {
+            for ((where, bg) in listOf("바탕" to c.background, "메뉴" to c.surface, "팝업" to c.dialog, "고른 행" to c.accentContainer)) {
+                assertAtLeast(4.5, c.accentText, bg, "$name: $where 위 강조색 글자")
+            }
+        }
+        // 가드가 무는지: 브랜드 클레이를 글자에 쓰면 걸려야 한다.
+        assertTrue(contrast(LightColors.accent, LightColors.dialog) < 4.5, "검사가 브랜드 클레이 글자를 통과시켰다")
+    }
+
+    @Test
     fun `the page and the status line under it are readable`() {
         // 리더는 몇 시간씩 보는 화면이다. 상태바 글자(inkMuted)도 본문 기준으로 본다.
         for ((name, c) in themes) {

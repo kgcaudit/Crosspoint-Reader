@@ -44,6 +44,12 @@ data class CpColors(
     /** 테두리 단추의 선(OLO outline). */
     val outline: Color,
     val accent: Color,
+    /**
+     * 강조색 **글자**(설정 값 · 고른 행의 값 · 팝업 안 링크 · 탭 · "다 읽음"). 채운 단추 · 막대 · 리본은 브랜드 [accent] 그대로.
+     * 브랜드 클레이로 글자를 쓰면 팝업(3.72) · 고른 행(3.58)에서 본문 기준 4.5:1 에 못 미쳤다 — 글자에만 한 단계 짙게
+     * (다크는 밝게) 둔다. 브랜드 색째 짙게 하면 단추가 다른 OLO 앱과 달라진다(구상안 나를 버린 까닭).
+     */
+    val accentText: Color,
     val onAccent: Color,
     /** 고른 행의 바탕(OLO primaryContainer). */
     val accentContainer: Color,
@@ -84,6 +90,7 @@ val LightColors = CpColors(
     divider = Color(0xFFD6CCC1),
     outline = Color(0xFF8B7F74),
     accent = Clay,
+    accentText = Color(0xFF9A4A2C),
     onAccent = Color(0xFFFFFFFF),
     accentContainer = Color(0xFFF6E0D6),
     onAccentContainer = Color(0xFF4A1E0C),
@@ -109,6 +116,7 @@ val DarkColors = CpColors(
     divider = Color(0xFF49423A),
     outline = Color(0xFF978C80),
     accent = ClayLight,
+    accentText = Color(0xFFF6C4AE),
     onAccent = Color(0xFF4A1E0C),
     accentContainer = Color(0xFF8A3E22),
     onAccentContainer = Color(0xFFFBE0D4),

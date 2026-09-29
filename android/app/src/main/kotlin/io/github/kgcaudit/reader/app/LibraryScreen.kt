@@ -431,7 +431,7 @@ private fun DoneItem(
         Spacer(Modifier.height(8.dp))
         CpText(book.label, CpTheme.type.label, c.text)
         Spacer(Modifier.height(4.dp))
-        CpText("다 읽음 · ${monthDay(finishedAtEpochMs)}", CpTheme.type.caption, c.accent)
+        CpText("다 읽음 · ${monthDay(finishedAtEpochMs)}", CpTheme.type.caption, c.accentText)
     }
 }
 
