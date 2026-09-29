@@ -63,36 +63,8 @@ fun CpSearchScreen(
     onBack: () -> Unit,
 ) {
     val c = CpTheme.colors
-    val focus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { if (rows.isEmpty()) runCatching { focus.requestFocus() } }
     CpFullScreen {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            CpIconButton(CpIcons.Back, "뒤로", onBack)
-            Row(
-                Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(CpTheme.metrics.cornerMedium))
-                    .border(2.dp, c.accent, RoundedCornerShape(CpTheme.metrics.cornerMedium)).padding(horizontal = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                CpIcon(CpIcons.Search, c.textMuted, size = 20.dp)
-                Box(Modifier.weight(1f).padding(start = 10.dp)) {
-                    if (query.isEmpty()) CpText("책에서 찾기", CpTheme.type.body, c.textMuted)
-                    BasicTextField(
-                        value = query,
-                        onValueChange = onQuery,
-                        singleLine = true,
-                        textStyle = CpTheme.type.body.copy(color = c.text),
-                        cursorBrush = SolidColor(c.accent),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(onSearch = { onSearch() }),
-                        modifier = Modifier.fillMaxWidth().focusRequester(focus).semantics { contentDescription = "찾을 말" },
-                    )
-                }
-                if (query.isNotEmpty()) {
-                    CpIconButton(CpIcons.Close, "지우기", onClear, tint = c.textMuted)
-                }
-            }
-            Spacer(Modifier.width(12.dp))
-        }
+        CpSearchField(query, onQuery, onClear, placeholder = "책에서 찾기", onBack = onBack, onSearch = onSearch, focusFirst = rows.isEmpty())
         if (summary.isNotEmpty()) {
             CpText(summary, CpTheme.type.caption, c.textMuted, Modifier.padding(horizontal = CpTheme.metrics.gutter, vertical = 6.dp))
         }
@@ -106,6 +78,52 @@ fun CpSearchScreen(
                 HitRow(row, onClick = { onOpen(i) })
             }
         }
+    }
+}
+
+/**
+ * 찾기 입력칸: 뒤로 · 강조색 테두리 칸(돋보기 · 입력 · 지우기). 책 속 찾기와 라이브러리 책 찾기가 같은 칸을 쓴다 —
+ * 모양이 다르면 같은 일을 하는 두 화면이 다른 앱처럼 보인다. [focusFirst] 면 열자마자 자판을 올린다.
+ */
+@Composable
+fun CpSearchField(
+    query: String,
+    onQuery: (String) -> Unit,
+    onClear: () -> Unit,
+    placeholder: String,
+    onBack: () -> Unit,
+    onSearch: () -> Unit = {},
+    focusFirst: Boolean = true,
+) {
+    val c = CpTheme.colors
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { if (focusFirst) runCatching { focus.requestFocus() } }
+    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        CpIconButton(CpIcons.Back, "뒤로", onBack)
+        Row(
+            Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(CpTheme.metrics.cornerMedium))
+                .border(2.dp, c.accent, RoundedCornerShape(CpTheme.metrics.cornerMedium)).padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CpIcon(CpIcons.Search, c.textMuted, size = 20.dp)
+            Box(Modifier.weight(1f).padding(start = 10.dp)) {
+                if (query.isEmpty()) CpText(placeholder, CpTheme.type.body, c.textMuted)
+                BasicTextField(
+                    value = query,
+                    onValueChange = onQuery,
+                    singleLine = true,
+                    textStyle = CpTheme.type.body.copy(color = c.text),
+                    cursorBrush = SolidColor(c.accent),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+                    modifier = Modifier.fillMaxWidth().focusRequester(focus).semantics { contentDescription = "찾을 말" },
+                )
+            }
+            if (query.isNotEmpty()) {
+                CpIconButton(CpIcons.Close, "지우기", onClear, tint = c.textMuted)
+            }
+        }
+        Spacer(Modifier.width(12.dp))
     }
 }
 

@@ -43,6 +43,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import io.github.kgcaudit.reader.data.library.LibraryBook
+import androidx.compose.ui.text.withStyle
+import io.github.kgcaudit.reader.ui.design.CpSearchField
+import io.github.kgcaudit.reader.ui.design.CpFullScreen
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.foundation.layout.size
@@ -106,6 +109,9 @@ fun LibraryScreen(
     val layout by container.libraryView.layout.collectAsState()
     val sort by container.libraryView.sort.collectAsState()
     var sortMenu by remember { mutableStateOf(false) }
+    // 책 찾기(0.26.0). 찾던 말은 화면이 다시 만들어져도(회전) 남는다.
+    var searching by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var query by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
     var folders by remember { mutableStateOf(data.folders.folders()) }
     val scanning by container.scan.running.collectAsState()
     // 일부 폴더를 못 읽은 훑기가 새로 생기면 한 번 알린다. 화면이 새로 생길 때 이미 있던 것은 다시 알리지 않는다.
@@ -185,6 +191,7 @@ fun LibraryScreen(
             // 폴더(관리 — 그 안에 다시 추가)가 따로 있어 같은 일로 가는 길이 둘이었다.
             // 폴더가 없을 때는 화면 가운데의 "폴더 추가" 가 그 자리를 대신한다.
             if (folders.isNotEmpty()) {
+                CpIconButton(CpIcons.Search, "책 찾기", { searching = true })
                 CpIconButton(CpIcons.Refresh, "새로고침", { rescan() })
                 CpIconButton(CpIcons.Folder, "책 폴더", { manageFolders = true })
             }
@@ -240,6 +247,21 @@ fun LibraryScreen(
                 item { Spacer(Modifier.height(24.dp)) }
             }
         }
+    }
+
+    if (searching) {
+        androidx.activity.compose.BackHandler { searching = false }
+        val readingIds = reading.mapTo(HashSet()) { it.id }
+        BookSearch(
+            query = query,
+            onQuery = { query = it },
+            total = books?.size ?: 0,
+            hits = findBooks(books.orEmpty(), readingIds, finishedIds, query),
+            percents = percents,
+            onOpen = onOpen,
+            onMenu = { coverMenu = it },
+            onBack = { searching = false },
+        )
     }
 
     if (manageFolders) {
@@ -439,6 +461,94 @@ private fun DoneItem(
 internal fun monthDay(epochMs: Long): String {
     val date = java.time.Instant.ofEpochMilli(epochMs).atZone(java.time.ZoneId.systemDefault()).toLocalDate()
     return "${date.monthValue}월 ${date.dayOfMonth}일"
+}
+
+/**
+ * 책 찾기(구상안 가 확정): 입력칸 · 몇 권 찾았는지 · 결과 목록. 결과마다 홈의 어느 갈래인지(읽는 중은 진도까지)를
+ * 붙이고 찾은 글자를 칠한다 — 걸러진 선반 · 격자(나)는 결과가 흩어져 한눈에 보이지 않았다.
+ */
+@Composable
+private fun BookSearch(
+    query: String,
+    onQuery: (String) -> Unit,
+    total: Int,
+    hits: List<BookHit>,
+    percents: Map<BookId, Float>,
+    onOpen: (LibraryBook) -> Unit,
+    onMenu: (LibraryBook) -> Unit,
+    onBack: () -> Unit,
+) {
+    val c = CpTheme.colors
+    CpFullScreen {
+        CpSearchField(query, onQuery, onClear = { onQuery("") }, placeholder = "책 제목 · 저자 · 파일 이름", onBack = onBack)
+        when {
+            query.isBlank() -> CpText(
+                "책 ${total}권에서 찾습니다", CpTheme.type.subtitle, c.textMuted,
+                Modifier.fillMaxWidth().padding(start = CpTheme.metrics.gutter, end = CpTheme.metrics.gutter, top = 80.dp),
+            )
+            hits.isEmpty() -> CpText(
+                "‘${query.trim()}’ — 맞는 책이 없습니다", CpTheme.type.subtitle, c.textMuted,
+                Modifier.fillMaxWidth().padding(start = CpTheme.metrics.gutter, end = CpTheme.metrics.gutter, top = 80.dp), maxLines = 2,
+            )
+            else -> {
+                CpText("${hits.size}권 · 제목 · 저자 · 파일 이름에서", CpTheme.type.caption, c.textMuted, Modifier.padding(horizontal = CpTheme.metrics.gutter, vertical = 6.dp))
+                CpDivider()
+                LazyColumn(Modifier.fillMaxSize()) {
+                    items(hits, key = { it.book.id.value }) { hit -> HitRow(hit, query, percents[hit.book.id], onOpen, onMenu) }
+                }
+            }
+        }
+    }
+}
+
+/** 찾은 책 한 줄: 작은 표지 · 제목 · 저자(찾은 글자 칠) · 형식 · 크기 · 폴더 · 오른쪽에 갈래. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun HitRow(hit: BookHit, query: String, percent: Float?, onOpen: (LibraryBook) -> Unit, onMenu: (LibraryBook) -> Unit) {
+    val c = CpTheme.colors
+    val book = hit.book
+    Row(
+        Modifier.fillMaxWidth()
+            .combinedClickable(role = Role.Button, onLongClick = { onMenu(book) }, onClick = { onOpen(book) })
+            .padding(horizontal = CpTheme.metrics.gutter, vertical = 10.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        BookCover(book, Modifier.width(48.dp), small = true)
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Marked(book.label, query, CpTheme.type.body, c.text, maxLines = 2)
+            book.author?.let { Marked(it, query, CpTheme.type.subtitle, c.textMuted) }
+            // 제목이 따로 있으면 파일 이름에서 찾은 것일 수 있다 — 그때는 파일 이름을 보여 어디서 맞았는지 알린다.
+            if (book.title != null && matchRange(book.label, query) == null && book.author?.let { matchRange(it, query) } == null) {
+                Marked(book.displayName, query, CpTheme.type.caption, c.textMuted)
+            }
+            Spacer(Modifier.height(4.dp))
+            val meta = listOfNotNull(book.sizeBytes?.let(::sizeLabel), bookFolder(book.id)).joinToString(" · ")
+            CpText(listOf(book.format.name, meta).filter { it.isNotEmpty() }.joinToString("  "), CpTheme.type.caption, c.textMuted)
+        }
+        Spacer(Modifier.width(8.dp))
+        val shape = RoundedCornerShape(50)
+        val label = if (hit.shelf == Shelf.Reading) "${hit.shelf.label} ${(percent ?: 0f).roundToInt()}%" else hit.shelf.label
+        Box(Modifier.clip(shape).border(1.dp, c.outline, shape).padding(horizontal = 10.dp, vertical = 3.dp)) {
+            CpText(label, CpTheme.type.caption, c.textMuted)
+        }
+    }
+}
+
+/** 찾은 글자에 고른 행 바탕색을 칠한 글. */
+@Composable
+private fun Marked(text: String, query: String, style: androidx.compose.ui.text.TextStyle, color: androidx.compose.ui.graphics.Color, maxLines: Int = 1) {
+    val range = matchRange(text, query)
+    val marked = androidx.compose.ui.text.buildAnnotatedString {
+        if (range == null) append(text) else {
+            append(text.substring(0, range.first))
+            withStyle(androidx.compose.ui.text.SpanStyle(background = CpTheme.colors.accentContainer)) { append(text.substring(range.first, range.last + 1)) }
+            append(text.substring(range.last + 1))
+        }
+    }
+    androidx.compose.foundation.text.BasicText(
+        marked, style = style.copy(color = color), maxLines = maxLines, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+    )
 }
 
 /** 읽을 책 머리: "읽을 책 · 9권" | 차례 ▾ | 격자 · 목록. */

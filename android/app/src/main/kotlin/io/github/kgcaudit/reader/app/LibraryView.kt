@@ -65,3 +65,50 @@ internal fun sizeLabel(bytes: Long): String = when {
     bytes >= 1024L -> "${bytes / 1024}KB"
     else -> "${bytes}B"
 }
+
+/** 책이 홈의 어느 갈래에 있는가. 찾기 결과가 이 차례로 선다(이어 읽을 책이 먼저). */
+enum class Shelf(val label: String) { Reading("읽는 중"), Read("읽은 책"), ToRead("읽을 책") }
+
+/** 찾은 책 한 권과 그 갈래. */
+data class BookHit(val book: LibraryBook, val shelf: Shelf)
+
+/**
+ * 라이브러리에서 [query] 가 제목 · 저자 · 파일 이름에 든 책. 대소문자와 띄어쓰기를 가리지 않는다("어린왕자" 로 "어린
+ * 왕자" 를 찾는다) — 사람은 책 이름의 띄어쓰기를 기억하지 못한다. 정규식이 아니라 글자로 찾는다: "(" · "[" 를 쳐도
+ * 오류가 나지 않는다.
+ *
+ * 차례는 읽는 중 → 읽은 책 → 읽을 책, 같은 갈래 안에서는 이름순(가나다).
+ */
+fun findBooks(books: List<LibraryBook>, reading: Set<io.github.kgcaudit.reader.document.BookId>, read: Set<io.github.kgcaudit.reader.document.BookId>, query: String): List<BookHit> {
+    val q = squash(query)
+    if (q.isEmpty()) return emptyList()
+    return books
+        .filter { b -> listOfNotNull(b.label, b.author, b.displayName).any { squash(it).contains(q) } }
+        .map { b -> BookHit(b, if (b.id in reading) Shelf.Reading else if (b.id in read) Shelf.Read else Shelf.ToRead) }
+        .sortedWith(compareBy<BookHit> { it.shelf.ordinal }.thenBy(Collator.getInstance(Locale.KOREAN)) { it.book.label })
+}
+
+/** 비교용: 소문자, 띄어쓰기 없음. */
+private fun squash(text: String): String = text.lowercase(Locale.ROOT).filterNot { it.isWhitespace() }
+
+/**
+ * [text] 안에서 [query] 가 든 구간(칠할 곳). 띄어쓰기를 가리지 않고 찾으므로, 원문의 띄어쓰기를 건너뛰며 맞춘다 — "어린왕자"
+ * 로 찾은 "어린 왕자" 는 "어린 왕자" 전체를 칠한다. 없으면 null.
+ */
+fun matchRange(text: String, query: String): IntRange? {
+    val q = squash(query)
+    if (q.isEmpty()) return null
+    for (start in text.indices) {
+        if (text[start].isWhitespace()) continue
+        var i = start
+        var k = 0
+        while (i < text.length && k < q.length) {
+            val ch = text[i]
+            if (ch.isWhitespace()) { i++; continue }
+            if (ch.lowercaseChar() != q[k]) break
+            i++; k++
+        }
+        if (k == q.length) return start until i
+    }
+    return null
+}
