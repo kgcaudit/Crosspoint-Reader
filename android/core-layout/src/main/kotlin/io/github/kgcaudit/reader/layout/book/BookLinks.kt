@@ -60,13 +60,16 @@ internal fun noteText(text: String, blocks: List<Block>, anchorOffsets: Collecti
 
 /**
  * [query] 가 [text] 에 나오는 자리들. 대소문자와 공백의 개수는 가리지 않는다("Boa  Constrictor" = "boa constrictor").
- * 겹치는 자리는 세지 않는다(한 번 찾은 뒤 그 끝부터 다시).
+ * 겹치는 자리는 세지 않는다(한 번 찾은 뒤 그 끝부터 다시). [paragraphStarts] 를 넘는 자리는 찾지 않는다.
  */
 fun findAll(text: String, query: String, spine: Int, paragraphStarts: Collection<Int> = emptyList()): List<SearchHit> {
     val words = query.trim().split(WHITESPACE).filter { it.isNotEmpty() }
     if (words.isEmpty()) return emptyList()
     val pattern = Regex(words.joinToString("\\s+") { Regex.escape(it) }, RegexOption.IGNORE_CASE)
-    return pattern.findAll(text).map { m ->
+    // 문단을 사이 글자 없이 이어 붙인 글이라, 한 문단의 끝과 다음 문단의 처음이 붙어 가짜로 찾힌다("…삼킨다" + "어른…"
+    // = "다어"). 문단 경계를 넘는 자리는 버린다 — 사람이 찾는 말은 한 문단 안에 있다.
+    val starts = paragraphStarts as? Set<Int> ?: paragraphStarts.toHashSet()
+    return pattern.findAll(text).filter { m -> (m.range.first + 1..m.range.last).none { it in starts } }.map { m ->
         val from = (m.range.first - CONTEXT).coerceAtLeast(0)
         val to = (m.range.last + 1 + CONTEXT).coerceAtMost(text.length)
         val lead = if (from > 0) "…" else ""

@@ -126,7 +126,7 @@ fun CpFullScreen(content: @Composable ColumnScope.() -> Unit) {
             .fillMaxSize()
             .background(CpTheme.colors.background)
             .windowInsetsPadding(WindowInsets.systemBars)
-            .clickable(indication = null, interactionSource = null) {},
+            .blockTouches(),
         content = content,
     )
 }

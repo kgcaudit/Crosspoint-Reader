@@ -166,7 +166,7 @@ class BookReader(
      * 순간 몇 장 앞으로 튄다.
      */
     suspend fun layOut(requested: LayoutSpec, twoPages: Boolean = false) = run {
-        val newSpec = requested.copy(edition = edition)
+        var newSpec = requested.copy(edition = edition)
         if (newSpec == spec && twoPages == spread) return@run
         spread = twoPages
         if (newSpec == spec) {
@@ -187,6 +187,16 @@ class BookReader(
                 } catch (e: Exception) {
                     BookTypefaces.EMPTY
                 }
+            }
+        }
+        if (newSpec.useBookFonts && typefaces?.isEmpty == true) {
+            // 꺼내 보니 쓸 수 있는 책 글꼴이 없다(WOFF 뿐 · 깨짐). 휴대폰 글꼴로 그릴 것이므로 캐시 키도 책 글꼴 없이 —
+            // 두면 "책 글꼴" 키로 한 번 조판한 뒤, 화면이 글꼴 없음을 알고 다시 요청해 열 때마다 두 번 조판했다.
+            newSpec = newSpec.copy(useBookFonts = false)
+            if (newSpec == spec) {
+                _state.value = _state.value.copy(busy = false)
+                _state.value.position?.let { show(it) }
+                return@run
             }
         }
         val built = BookLayout(document, newSpec, store, measurer(newSpec), fonts = bookFonts)

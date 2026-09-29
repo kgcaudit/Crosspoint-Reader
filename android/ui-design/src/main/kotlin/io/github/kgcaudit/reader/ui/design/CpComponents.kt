@@ -283,6 +283,13 @@ fun CpIconToggle(
     }
 }
 
+/**
+ * 누름을 받아 뒤로 흘리지 않는다 — 판 안을 눌러도 뒤의 막이 판을 닫거나 쪽이 넘어가지 않게. 빈 `clickable {}` 로 막던
+ * 때는 그 틀이 "누를 수 있는 한 덩어리" 가 되어, 화면 읽기(TalkBack)가 안의 제목 · 안내를 하나씩 읽지 못하고 화면만 한
+ * 누름 단추로 읽었다. 이것은 의미 정보를 더하지 않는다.
+ */
+fun Modifier.blockTouches(): Modifier = pointerInput(Unit) { detectTapGestures { } }
+
 // ── 8. 팝업 ─────────────────────────────────────────────────────────
 
 /**
@@ -299,13 +306,18 @@ fun CpPopup(
     content: @Composable () -> Unit = {},
 ) {
     val c = CpTheme.colors
-    Box(
-        modifier
-            .fillMaxSize()
-            .background(Color(0x66000000))
-            .clickable(enabled = onDismiss != null, indication = null, interactionSource = null) { onDismiss?.invoke() },
-        contentAlignment = Alignment.Center,
-    ) {
+    Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        // 바깥 막은 판의 형제로 뒤에 둔다. 판을 감싸는 부모가 누를 수 있으면 판 안의 글이 모두 그 한 덩어리에 묶여 화면
+        // 읽기가 하나씩 읽지 못했다. 막은 그 자체로 "닫기" 단추로 읽힌다.
+        Box(
+            Modifier
+                .matchParentSize()
+                .background(Color(0x66000000))
+                .then(
+                    if (onDismiss != null) Modifier.clickable(indication = null, interactionSource = null, onClickLabel = "닫기") { onDismiss() }
+                    else Modifier.blockTouches(),
+                ),
+        )
         Column(
             Modifier
                 .padding(32.dp)
@@ -314,7 +326,7 @@ fun CpPopup(
                 .clip(RoundedCornerShape(CpTheme.metrics.cornerDialog))
                 .background(c.dialog)
                 // 틀 안을 눌러도 닫히지 않게 한다.
-                .clickable(indication = null, interactionSource = null) {}
+                .blockTouches()
                 .padding(20.dp),
         ) {
             CpText(title, CpTheme.type.label.copy(fontSize = CpTheme.type.body.fontSize), c.text, maxLines = 2)

@@ -40,6 +40,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.kgcaudit.reader.ui.design.CpButton
+import io.github.kgcaudit.reader.ui.design.blockTouches
 import io.github.kgcaudit.reader.ui.design.CpChoice
 import io.github.kgcaudit.reader.ui.design.CpDivider
 import io.github.kgcaudit.reader.ui.design.CpFullScreen
@@ -89,7 +90,7 @@ fun ListenPlayer(
         modifier.shadow(8.dp, RoundedCornerShape(28.dp)).clip(RoundedCornerShape(28.dp)).background(c.surface)
             .border(1.dp, c.divider, RoundedCornerShape(28.dp))
             // 조종판 안의 빈 곳을 눌러도 뒤의 지면이 쪽을 넘기지 않게.
-            .clickable(indication = null, interactionSource = null) {}
+            .blockTouches()
             .padding(horizontal = 6.dp, vertical = 2.dp)
             .semantics { contentDescription = "듣기 제어" },
         verticalAlignment = Alignment.CenterVertically,
@@ -147,7 +148,7 @@ fun ListenSheet(
         Column(
             Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                 .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)).background(c.surface)
-                .clickable(indication = null, interactionSource = null) {}
+                .blockTouches()
                 .padding(top = 10.dp, bottom = 20.dp),
         ) {
             Box(Modifier.align(Alignment.CenterHorizontally).size(width = 36.dp, height = 4.dp).clip(RoundedCornerShape(50)).background(c.divider))

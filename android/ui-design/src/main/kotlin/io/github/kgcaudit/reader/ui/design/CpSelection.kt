@@ -81,7 +81,7 @@ fun CpFloatingMenu(
             Column(
                 Modifier.shadow(8.dp, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp)).background(PILL)
                     // 알약 안을 눌러도 뒤의 "고르기 풀기" 가 불리지 않게.
-                    .clickable(indication = null, interactionSource = null) {}
+                    .blockTouches()
                     .padding(horizontal = 6.dp, vertical = 4.dp)
                     .semantics { contentDescription = "고른 글 메뉴" },
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -180,7 +180,7 @@ fun CpMemoSheet(
         Column(
             Modifier.align(Alignment.BottomCenter).fillMaxWidth().imePadding()
                 .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)).background(c.surface)
-                .clickable(indication = null, interactionSource = null) {}
+                .blockTouches()
                 .padding(horizontal = m.gutter).padding(top = 10.dp, bottom = 24.dp),
         ) {
             Box(Modifier.align(Alignment.CenterHorizontally).size(width = 36.dp, height = 4.dp).clip(RoundedCornerShape(50)).background(c.divider))

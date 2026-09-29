@@ -52,6 +52,15 @@ class BookLinksTest {
     }
 
     @Test
+    fun `a word made by gluing the end of one paragraph to the next is not found`() {
+        // 망가뜨린 입력: 두 문단 "…삼킨다" · "어른들은…" 을 사이 글자 없이 이은 장. "다어" 는 어디에도 없는 말이다.
+        val text = "보아 구렁이는 먹이를 삼킨다" + "어른들은 모자라고 했다"
+        val starts = listOf(0, text.indexOf("어른"))
+        assertTrue(findAll(text, "다어", 0, starts).isEmpty(), "문단 경계를 넘어 찾았다")
+        assertEquals(1, findAll(text, "어른", 0, starts).size, "문단의 첫 낱말은 찾아야 한다")
+    }
+
+    @Test
     fun `paragraphs in the context are kept apart`() {
         // 챕터 텍스트는 문단을 이어 붙인다. 문맥에서 "링크.누리집" 처럼 붙으면 한 낱말로 읽힌다.
         val text = "장미 링크.누리집 링크.보아 구렁이"

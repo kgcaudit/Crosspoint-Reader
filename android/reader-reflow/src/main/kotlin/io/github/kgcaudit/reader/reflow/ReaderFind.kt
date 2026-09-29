@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import io.github.kgcaudit.reader.document.TocEntry
 import io.github.kgcaudit.reader.layout.book.SearchHit
 import io.github.kgcaudit.reader.ui.design.CpButton
+import io.github.kgcaudit.reader.ui.design.blockTouches
 import io.github.kgcaudit.reader.ui.design.CpSearchResultBar
 import io.github.kgcaudit.reader.ui.design.CpSearchRow
 import io.github.kgcaudit.reader.ui.design.CpSearchScreen
@@ -168,7 +169,7 @@ internal fun NoteSheet(title: String, text: String, onGoTo: () -> Unit, onClose:
             Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                 .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)).background(c.surface)
                 // 판 안을 눌러도 닫히지 않게.
-                .clickable(indication = null, interactionSource = null) {}
+                .blockTouches()
                 .padding(horizontal = CpTheme.metrics.gutter).padding(top = 10.dp, bottom = 24.dp),
         ) {
             Box(Modifier.align(Alignment.CenterHorizontally).size(width = 36.dp, height = 4.dp).clip(RoundedCornerShape(50)).background(c.divider))

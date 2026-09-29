@@ -34,4 +34,45 @@ class LibraryFolders(private val resolver: ContentResolver) {
         resolver.persistedUriPermissions
             .filter { it.isReadPermission && DocumentsContract.isTreeUri(it.uri) }
             .map { it.uri }
+
+    /**
+     * [treeUri] 와 겹치는 등록 폴더와, [treeUri] 가 그 안에 드는지(true) 그것을 감싸는지(false). 겹치지 않거나 같은
+     * 폴더면 null.
+     *
+     * 겹친 두 폴더를 모두 등록하면 같은 파일이 트리마다 다른 URI 로 두 번 보였다 — 진도 · 책갈피도 URI 마다 따로라
+     * 어느 쪽으로 열었는지에 따라 읽던 자리가 달랐다.
+     */
+    fun overlapping(treeUri: Uri): Pair<Uri, Boolean>? {
+        val newId = treeId(treeUri) ?: return null
+        for (folder in folders()) {
+            val id = treeId(folder) ?: continue
+            if (folder.authority != treeUri.authority) continue
+            when (treeRelation(id, newId)) {
+                TreeRelation.Inside -> return folder to true
+                TreeRelation.Contains -> return folder to false
+                else -> Unit
+            }
+        }
+        return null
+    }
+
+    private fun treeId(uri: Uri): String? = runCatching { DocumentsContract.getTreeDocumentId(uri) }.getOrNull()
+}
+
+enum class TreeRelation { Same, Inside, Contains, Apart }
+
+/**
+ * 두 트리 문서 id(`primary:Books` · `primary:Books/소설`)의 관계. [child] 가 [parent] 안이면 Inside. 경로 조각 단위로
+ * 본다 — 글자로만 앞부분을 비교하면 `Books2` 가 `Books` 안에 든 것으로 읽힌다.
+ */
+fun treeRelation(parent: String, child: String): TreeRelation {
+    fun path(id: String) = id.trimEnd('/')
+    val a = path(parent)
+    val b = path(child)
+    return when {
+        a == b -> TreeRelation.Same
+        b.startsWith("$a/") || (a.endsWith(":") && b.startsWith(a)) -> TreeRelation.Inside
+        a.startsWith("$b/") || (b.endsWith(":") && a.startsWith(b)) -> TreeRelation.Contains
+        else -> TreeRelation.Apart
+    }
 }

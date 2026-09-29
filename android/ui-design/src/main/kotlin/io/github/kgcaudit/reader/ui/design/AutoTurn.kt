@@ -2,7 +2,6 @@ package io.github.kgcaudit.reader.ui.design
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -82,7 +81,7 @@ fun CpAutoTurnPill(state: AutoTurnState, modifier: Modifier = Modifier) {
     Row(
         modifier.shadow(8.dp, RoundedCornerShape(24.dp)).clip(RoundedCornerShape(24.dp)).background(c.surface)
             .border(1.dp, c.divider, RoundedCornerShape(24.dp))
-            .clickable(indication = null, interactionSource = null) {}
+            .blockTouches()
             .padding(start = 16.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

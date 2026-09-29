@@ -144,7 +144,17 @@ fun LibraryScreen(
     }
 
     val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        if (uri != null) {
+        val clash = uri?.let { data.folders.overlapping(it) }
+        if (uri != null && clash != null) {
+            // 겹친 두 폴더를 모두 등록하면 같은 책이 두 번 보이고, 어느 쪽으로 열었는지에 따라 읽던 자리가 달랐다.
+            val (other, inside) = clash
+            notice = if (inside) {
+                "이미 등록한 폴더 안에 있습니다" to "‘${folderName(uri)}’ 폴더의 책은 이미 등록한 ‘${folderName(other)}’ 폴더에서 보입니다."
+            } else {
+                "이미 등록한 폴더를 감쌉니다" to "‘${folderName(uri)}’ 안에 이미 등록한 ‘${folderName(other)}’ 폴더가 있습니다. " +
+                    "책이 두 번 보이지 않게, 책 폴더에서 그 폴더를 뺀 뒤 다시 추가해 주세요."
+            }
+        } else if (uri != null) {
             runCatching { data.folders.register(uri) }
                 .onFailure { notice = "이 폴더를 등록하지 못했습니다" to it.message }
             folders = data.folders.folders()
