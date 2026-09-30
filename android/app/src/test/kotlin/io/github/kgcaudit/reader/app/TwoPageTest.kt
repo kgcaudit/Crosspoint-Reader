@@ -9,7 +9,7 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.core.app.ApplicationProvider
 import io.github.kgcaudit.reader.document.pdf.TestPdf
@@ -181,8 +181,10 @@ class TwoPageTest {
         node(hasText("보기")).performClick()
         node(hasText("모든 보기 설정")).performClick()
         waitFor(hasText("두 쪽 보기에서 표지"))
-        // 맨 아래 줄이다 — 줄이 48dp 로 커져(0.29.0) 화면 밖에 있을 수 있다. 굴려서 누른다.
-        node(hasText("함께")).performScrollTo().performClick()
+        // 맨 아래 줄이다 — 줄이 48dp 로 커져(0.29.0) 화면 밖에 있을 수 있다. 누르기 동작으로 고른다(performScrollTo 는
+        // 이 시험 환경에서 메모리를 다 썼다).
+        compose.onAllNodes(hasText("함께"))[0].performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
+        compose.waitForIdle()
         assertFalse(app.container.prefs.load().screen.pdfCoverAlone)
         repeat(3) { compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() } }
         turn("+land")

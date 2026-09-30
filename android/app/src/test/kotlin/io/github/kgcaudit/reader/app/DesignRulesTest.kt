@@ -46,10 +46,25 @@ import kotlin.test.assertTrue
 @Config(sdk = [35], qualifiers = "w360dp-h780dp-xhdpi")
 class DesignRulesTest {
 
-    @get:Rule
+    /**
+     * 부품만 띄우는 빈 화면(ComponentActivity)은 시험용 매니페스트가 디버그에만 들어 있어 릴리스 시험에서는 뜨지 않는다.
+     * 규칙은 디버그 시험이 모두 본다. 빈 화면을 띄우는 규칙보다 먼저 건너뛴다.
+     */
+    @get:Rule(order = 0)
+    val debugOnly = org.junit.rules.TestRule { base, _ ->
+        object : org.junit.runners.model.Statement() {
+            override fun evaluate() {
+                org.junit.Assume.assumeTrue(BuildConfig.DEBUG)
+                base.evaluate()
+            }
+        }
+    }
+
+    @get:Rule(order = 1)
     val compose = createAndroidComposeRule<ComponentActivity>()
 
     private val density get() = compose.activity.resources.displayMetrics.density
+
 
     private fun show(fontScale: Float = 1f, content: @androidx.compose.runtime.Composable () -> Unit) {
         compose.setContent {
