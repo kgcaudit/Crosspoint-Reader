@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -77,11 +78,22 @@ fun CpCover(
         if (small) {
             CpIcon(icon, Color.White, Modifier.align(Alignment.Center), size = 18.dp)
         } else {
-            Column(Modifier.fillMaxSize().padding(10.dp)) {
-                CpText(title, CpTheme.type.body, Color.White, maxLines = 3)
+            // 글자 밑에 어두운 띠를 깐다(0.29.0, 구상안 가안). 타일 색은 흰 그림을 얹으려고 고른 색이라, 그 위의 흰 글자는
+            // 어두운 테마에서 3.0(부제 2.3)으로 읽기 어려웠다. 띠 위에서는 어느 타일이든 7 이상이다.
+            Column(Modifier.fillMaxSize()) {
+                Box(Modifier.fillMaxWidth().background(COVER_BAND).padding(10.dp)) {
+                    CpText(title, CpTheme.type.body, Color.White, maxLines = 3)
+                }
                 Spacer(Modifier.weight(1f))
-                if (subtitle != null) CpText(subtitle, CpTheme.type.caption, Color.White.copy(alpha = 0.8f))
+                if (subtitle != null) {
+                    Box(Modifier.fillMaxWidth().background(COVER_BAND).padding(horizontal = 10.dp, vertical = 8.dp)) {
+                        CpText(subtitle, CpTheme.type.caption, Color.White)
+                    }
+                }
             }
         }
     }
 }
+
+/** 대신 표지 글자 밑 띠. 60% 검정 — 가장 밝은 타일(다크의 틸)에서도 흰 글자 대비가 7 을 넘는다. */
+private val COVER_BAND = Color(0x99000000)

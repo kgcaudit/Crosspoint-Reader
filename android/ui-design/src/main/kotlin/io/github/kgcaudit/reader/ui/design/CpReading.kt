@@ -144,7 +144,9 @@ fun CpReadingFooter(info: FooterInfo, footer: Footer, color: Color, modifier: Mo
         FooterItem.BookTime -> info.bookMinutesLeft?.let { "책 ${minutesText(it)} 남음" }.orEmpty()
     }
     Column(modifier.fillMaxWidth().padding(horizontal = CpTheme.metrics.gutter)) {
-        CpProgressBar(info.percent / 100f, weight = CpBarWeight.Thin)
+        // 빈 곳은 지면의 흐린 글자색을 옅게(0.29.0). UI 의 progressTrack 은 세피아 1.09 · 회색 1.04 로 지면에 묻혀 얼마
+        // 남았는지 보이지 않았다.
+        CpProgressBar(info.percent / 100f, weight = CpBarWeight.Thin, track = CpTheme.colors.inkMuted.copy(alpha = 0.28f))
         Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             // 양쪽 칸이 같은 몫을 가져야 가운데가 화면 가운데에 선다. 제목이 길면 말줄임으로 끊긴다.
             CpText(text(footer.left), CpTheme.type.caption, color, Modifier.weight(1f))
@@ -237,26 +239,29 @@ fun CpThemeSwatches(selected: PaperTheme, onSelect: (PaperTheme) -> Unit, modifi
         modifier.fillMaxWidth().padding(horizontal = CpTheme.metrics.gutter, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        CpText("배경", CpTheme.type.body, c.text, Modifier.weight(1f))
+        // 견본마다 이름을 달던 때는 360dp 폰 · 큰 글자에서 "배경" 이 사라지고 마지막 견본이 찌그러졌다(0.29.0, 구상안
+        // 가안). 고른 것의 이름만 "배경" 밑에 보인다 — 나머지는 화면 읽기가 이름을 읽는다.
+        Column(Modifier.weight(1f)) {
+            CpText("배경", CpTheme.type.body, c.text)
+            CpText(if (selected == PaperTheme.System) "휴대폰 설정" else selected.label, CpTheme.type.caption, c.accentText)
+        }
         PaperTheme.entries.forEach { theme ->
             val on = theme == selected
-            Column(
-                Modifier.padding(start = 6.dp).clip(RoundedCornerShape(CpTheme.metrics.cornerSmall))
+            Box(
+                Modifier.size(width = 40.dp, height = CpTheme.metrics.touchTarget)
                     .selectable(selected = on, role = Role.RadioButton) { onSelect(theme) }
-                    .semantics { contentDescription = if (theme == PaperTheme.System) "배경 휴대폰 설정" else "배경 ${theme.label}" }
-                    .padding(horizontal = 2.dp, vertical = 2.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
+                    .semantics { contentDescription = if (theme == PaperTheme.System) "배경 휴대폰 설정" else "배경 ${theme.label}" },
+                contentAlignment = Alignment.Center,
             ) {
                 val fill = theme.swatch
                 Box(
-                    Modifier.size(34.dp).clip(RoundedCornerShape(50))
+                    Modifier.size(32.dp).clip(RoundedCornerShape(50))
                         .background(
                             if (fill == null) Brush.linearGradient(0.5f to LightColors.paper, 0.5f to DarkColors.paper)
                             else Brush.linearGradient(listOf(fill, fill)),
                         )
                         .border(if (on) 3.dp else 1.dp, if (on) c.accent else c.outline, RoundedCornerShape(50)),
                 )
-                CpText(theme.label, CpTheme.type.caption, c.textMuted, Modifier.padding(top = 2.dp))
             }
         }
     }
@@ -275,15 +280,12 @@ fun CpBrightnessRow(value: Float?, onChange: (Float?) -> Unit, modifier: Modifie
     ) {
         CpText("밝기", CpTheme.type.body, c.text, Modifier.width(72.dp))
         CpSlider(value ?: 0.5f, onChange = { onChange(it) }, onCommit = { onChange(it) }, Modifier.weight(1f), description = "밝기")
-        CpText(
+        CpTextButton(
             "휴대폰",
-            CpTheme.type.label,
-            if (value == null) c.accent else c.textMuted,
-            Modifier.padding(start = 8.dp).clip(RoundedCornerShape(CpTheme.metrics.cornerSmall))
-                .clickable { onChange(null) }
-                // 배경 견본에도 "휴대폰" 이 있다. 화면 읽기로는 둘이 같은 말로 들린다.
-                .semantics { contentDescription = "휴대폰 설정 밝기" }
-                .padding(horizontal = 8.dp, vertical = 12.dp),
+            { onChange(null) },
+            // 배경 견본에도 "휴대폰" 이 있다. 화면 읽기로는 둘이 같은 말로 들린다.
+            Modifier.padding(start = 4.dp).semantics { contentDescription = "휴대폰 설정 밝기" },
+            color = if (value == null) c.accentText else c.textMuted,
         )
     }
 }

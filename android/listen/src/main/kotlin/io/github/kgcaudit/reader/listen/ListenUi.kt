@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -39,7 +40,11 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import io.github.kgcaudit.reader.ui.design.CpBottomSheet
 import io.github.kgcaudit.reader.ui.design.CpButton
+import io.github.kgcaudit.reader.ui.design.CpTextButton
+import io.github.kgcaudit.reader.ui.design.CpRadioRow
+import io.github.kgcaudit.reader.ui.design.CpPopupButtons
 import io.github.kgcaudit.reader.ui.design.blockTouches
 import io.github.kgcaudit.reader.ui.design.CpChoice
 import io.github.kgcaudit.reader.ui.design.CpDivider
@@ -97,7 +102,8 @@ fun ListenPlayer(
     ) {
         CpIconButton(CpIcons.SkipBack, "앞 문장", onPrevious)
         Box(
-            Modifier.size(44.dp).clip(RoundedCornerShape(50)).background(c.accent)
+            // 누르는 곳 48dp(0.29.0 — 44dp 였다). 동그라미도 그만큼.
+            Modifier.size(CpTheme.metrics.touchTarget).clip(RoundedCornerShape(50)).background(c.accent)
                 .clickable(role = Role.Button, onClick = onToggle)
                 // 그림과 이름을 맞춘다: 엔진을 깨우는 중에도 멈춤 그림이면 이름도 "멈춤".
                 .semantics { contentDescription = if (state.playing || state.preparing) "멈춤" else "이어 듣기" },
@@ -107,11 +113,11 @@ fun ListenPlayer(
         Box(Modifier.width(1.dp).height(24.dp).background(c.divider))
         CpText(
             rateLabel(state.rate), CpTheme.type.label, c.text,
-            Modifier.clip(RoundedCornerShape(12.dp)).clickable(role = Role.Button, onClick = onSettings)
-                .padding(horizontal = 12.dp, vertical = 12.dp).semantics { contentDescription = "듣기 설정" },
+            Modifier.heightIn(min = CpTheme.metrics.touchTarget).clip(RoundedCornerShape(12.dp)).clickable(role = Role.Button, onClick = onSettings)
+                .wrapContentHeight(Alignment.CenterVertically).padding(horizontal = 12.dp).semantics { contentDescription = "듣기 설정" },
         )
         Row(
-            Modifier.clip(RoundedCornerShape(12.dp)).clickable(role = Role.Button, onClick = onSettings).padding(horizontal = 4.dp, vertical = 12.dp)
+            Modifier.heightIn(min = CpTheme.metrics.touchTarget).clip(RoundedCornerShape(12.dp)).clickable(role = Role.Button, onClick = onSettings).padding(horizontal = 4.dp)
                 // 타이머를 끄면 그림뿐이라 화면 읽기가 이름 없는 단추로 읽었다.
                 .semantics(mergeDescendants = true) { contentDescription = if (timer != null) "잠자기 타이머 $timer" else "잠자기 타이머" },
             verticalAlignment = Alignment.CenterVertically,
@@ -140,18 +146,8 @@ fun ListenSheet(
 ) {
     val c = CpTheme.colors
     val m = CpTheme.metrics
-    BackHandler(onBack = onClose)
-    Box(
-        Modifier.fillMaxSize().background(Color(0x44000000))
-            .clickable(indication = null, interactionSource = null, onClick = onClose),
-    ) {
-        Column(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)).background(c.surface)
-                .blockTouches()
-                .padding(top = 10.dp, bottom = 20.dp),
-        ) {
-            Box(Modifier.align(Alignment.CenterHorizontally).size(width = 36.dp, height = 4.dp).clip(RoundedCornerShape(50)).background(c.divider))
+    // 설정 행이 저마다 좌우 여백을 두므로 판 여백은 0.
+    CpBottomSheet(onClose, horizontalPadding = 0.dp) {
             CpText("듣기", CpTheme.type.title, c.text, Modifier.padding(horizontal = m.gutter, vertical = 12.dp))
             CpStepper("읽는 속도", rateLabel(prefs.rate), { onRate(prefs.stepRate(-1)) }, { onRate(prefs.stepRate(+1)) })
             CpLinkRow("목소리", prefs.voiceLabel ?: "휴대폰 기본", onVoices)
@@ -170,10 +166,7 @@ fun ListenSheet(
                 "휴대폰의 음성 엔진으로 읽습니다. 인터넷을 쓰지 않습니다.",
                 CpTheme.type.caption, c.textMuted, Modifier.padding(horizontal = m.gutter, vertical = 4.dp), maxLines = 2,
             )
-            Row(Modifier.fillMaxWidth().padding(horizontal = m.gutter, vertical = 8.dp), horizontalArrangement = Arrangement.End) {
-                CpButton("닫기", onClose, primary = false)
-            }
-        }
+            Box(Modifier.padding(horizontal = m.gutter)) { CpPopupButtons { CpButton("닫기", onClose, primary = false) } }
     }
 }
 
@@ -215,7 +208,7 @@ fun VoiceScreen(
             else -> LazyColumn(Modifier.fillMaxSize()) {
                 item { CpSectionLabel("기본") }
                 item {
-                    VoiceRow("휴대폰 기본 목소리", current.engine == null && current.voice == null, onPick = {
+                    VoiceRow("휴대폰 기본 목소리", false, current.engine == null && current.voice == null, onPick = {
                         onPick(current.copy(engine = null, voice = null, voiceLabel = null))
                     }, onListen = null)
                 }
@@ -224,7 +217,8 @@ fun VoiceScreen(
                     item { CpSectionLabel(engine) }
                     items(rows, key = { it.engine + "/" + it.name }) { v ->
                         VoiceRow(
-                            v.label + if (v.needsDownload) " (내려받기 필요)" else "",
+                            v.label,
+                            v.needsDownload,
                             current.engine == v.engine && current.voice == v.name,
                             onPick = { onPick(current.copy(engine = v.engine, voice = v.name, voiceLabel = "${v.engineLabel} · ${v.label}")) },
                             onListen = { listen(v) },
@@ -251,28 +245,19 @@ fun VoiceScreen(
 }
 
 @Composable
-private fun VoiceRow(name: String, selected: Boolean, onPick: () -> Unit, onListen: (() -> Unit)?) {
-    val c = CpTheme.colors
+private fun VoiceRow(name: String, needsDownload: Boolean, selected: Boolean, onPick: () -> Unit, onListen: (() -> Unit)?) {
     val m = CpTheme.metrics
-    Row(
-        Modifier.fillMaxWidth().heightIn(min = 56.dp).background(if (selected) c.accentContainer else Color.Transparent)
-            .selectable(selected = selected, role = Role.RadioButton, onClick = onPick)
-            .padding(start = m.gutter + m.levelIndent, end = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    // 공용 라디오 행(0.29.0). 손으로 그리던 때는 동그라미 · 행 높이 · 고른 바탕이 다른 라디오 목록(글꼴 · 순서)과 달랐고,
+    // 이름 뒤에 붙인 "… (내려받기 필요)" 가 한 줄에서 잘렸다. 그 표시는 부제로 내린다.
+    CpRadioRow(
+        title = name,
+        selected = selected,
+        onClick = onPick,
+        subtitle = if (needsDownload) "내려받기 필요" else null,
+        // 엔진 이름보다 한 단 안쪽(위계).
+        inset = m.gutter + m.levelIndent,
     ) {
-        Box(
-            Modifier.size(20.dp).clip(RoundedCornerShape(50)).border(2.dp, if (selected) c.accent else c.outline, RoundedCornerShape(50)),
-            contentAlignment = Alignment.Center,
-        ) { if (selected) Box(Modifier.size(10.dp).clip(RoundedCornerShape(50)).background(c.accent)) }
-        Spacer(Modifier.width(m.childIndent - 20.dp))
-        CpText(name, CpTheme.type.body, c.text, Modifier.weight(1f))
-        if (onListen != null) {
-            CpText(
-                "들어 보기", CpTheme.type.label, c.accentText,
-                Modifier.clip(RoundedCornerShape(12.dp)).clickable(role = Role.Button, onClick = onListen).padding(12.dp)
-                    .semantics { contentDescription = "$name 들어 보기" },
-            )
-        }
+        if (onListen != null) CpTextButton("들어 보기", onListen, Modifier.semantics { contentDescription = "$name 들어 보기" })
     }
 }
 

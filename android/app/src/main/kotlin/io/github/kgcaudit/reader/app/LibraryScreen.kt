@@ -10,7 +10,6 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.semantics.Role
 import io.github.kgcaudit.reader.ui.design.CpCover
@@ -23,6 +22,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
@@ -62,10 +62,12 @@ import io.github.kgcaudit.reader.ui.design.CpBarWeight
 import io.github.kgcaudit.reader.ui.design.CpButton
 import io.github.kgcaudit.reader.ui.design.CpDivider
 import io.github.kgcaudit.reader.ui.design.CpHeader
+import io.github.kgcaudit.reader.ui.design.CpIcon
 import io.github.kgcaudit.reader.ui.design.CpIconButton
 import io.github.kgcaudit.reader.ui.design.CpIcons
 import io.github.kgcaudit.reader.ui.design.CpListRow
 import io.github.kgcaudit.reader.ui.design.CpPopup
+import io.github.kgcaudit.reader.ui.design.CpPopupButtons
 import io.github.kgcaudit.reader.ui.design.CpProgressBar
 import io.github.kgcaudit.reader.ui.design.CpText
 import io.github.kgcaudit.reader.ui.design.CpTheme
@@ -178,7 +180,11 @@ fun LibraryScreen(
         }
     }
 
-    Column(Modifier.fillMaxSize().background(colors.background).windowInsetsPadding(WindowInsets.safeDrawing)) {
+    // 칸 폭은 이 화면이 실제로 쓰는 폭에서 셈한다(0.29.0). 화면 전체 폭으로 세면 가로 화면에서 탐색 막대 · 카메라 구멍만큼
+    // 좁아진 자리에 칸이 넘쳐 마지막 칸의 표지만 작아졌다("칸 크기는 같게").
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().background(colors.background).windowInsetsPadding(WindowInsets.safeDrawing)) {
+    androidx.compose.runtime.CompositionLocalProvider(LocalShelfWidth provides maxWidth) {
+    Column(Modifier.fillMaxSize()) {
         val list = books
         CpHeader(
             title = "OLO eBook",
@@ -199,7 +205,7 @@ fun LibraryScreen(
             // 앱 정보는 책이 없어도 닿아야 한다 — 판 번호를 묻는 일은 무언가 안 될 때 생긴다.
             CpIconButton(CpIcons.Info, "앱 정보", onAbout)
         }
-        if (scanning) CpProgressBar(0.35f, Modifier.padding(horizontal = 16.dp), CpBarWeight.Thin)
+        if (scanning) CpProgressBar(0.35f, Modifier.padding(horizontal = CpTheme.metrics.gutter), CpBarWeight.Thin)
 
         if (folders.isEmpty()) {
             EmptyLibrary { pickFolder.launch(null) }
@@ -249,6 +255,8 @@ fun LibraryScreen(
             }
         }
     }
+    }
+    }
 
     if (searching) {
         androidx.activity.compose.BackHandler { searching = false }
@@ -268,16 +276,20 @@ fun LibraryScreen(
     if (manageFolders) {
         CpPopup(title = "책 폴더", message = "폴더를 빼도 그 책들의 읽은 자리와 책갈피는 남습니다. 다시 추가하면 이어집니다.", onDismiss = { manageFolders = false }) {
             Spacer(Modifier.height(8.dp))
+            // "폴더 추가" 도 폴더 행과 같은 모양 · 같은 시작선(0.29.0). 목록 행(여백 16dp)으로 그리던 때는 이 행만 16dp
+            // 안쪽에서 시작해, 같은 급의 선택지인데 폴더들 아래 딸린 것처럼 보였다.
             CpListRow(
                 title = "폴더 추가",
                 icon = CpIcons.Plus,
+                tile = colors.accent,
                 onClick = { manageFolders = false; pickFolder.launch(null) },
                 compact = true,
+                inset = 0.dp,
             )
             folders.forEach { uri ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.heightIn(min = CpTheme.metrics.touchTarget), verticalAlignment = Alignment.CenterVertically) {
                     CpTile(CpIcons.Folder, colors.tiles.folder)
-                    Spacer(Modifier.width(12.dp))
+                    Spacer(Modifier.width(14.dp))
                     CpText(folderName(uri), CpTheme.type.body, colors.text, Modifier.weight(1f))
                     CpIconButton(CpIcons.Close, "${folderName(uri)} 빼기", {
                         scope.launch {
@@ -295,7 +307,7 @@ fun LibraryScreen(
         CpPopup(title = "읽을 책 순서", onDismiss = { sortMenu = false }) {
             Spacer(Modifier.height(8.dp))
             LibrarySort.entries.forEach { s ->
-                CpRadioRow(s.label, s == sort, { container.libraryView.setSort(s); sortMenu = false })
+                CpRadioRow(s.label, s == sort, { container.libraryView.setSort(s); sortMenu = false }, inset = 0.dp)
             }
         }
     }
@@ -348,8 +360,7 @@ fun LibraryScreen(
 
     notice?.let { (title, message) ->
         CpPopup(title = title, message = message, onDismiss = { notice = null }) {
-            Spacer(Modifier.height(16.dp))
-            CpButton("확인", { notice = null })
+            CpPopupButtons { CpButton("확인", { notice = null }) }
         }
     }
 }
@@ -405,7 +416,7 @@ private fun ShelfLabel(text: String, more: Boolean) {
 @Composable
 private fun ShelfRow(books: List<LibraryBook>, item: @Composable (LibraryBook, androidx.compose.ui.unit.Dp) -> Unit) {
     val gutter = CpTheme.metrics.gutter
-    val screen = LocalConfiguration.current.screenWidthDp.dp
+    val screen = LocalShelfWidth.current
     // 넷째 칸이 오른쪽 끝에 조금 보이게 한다(구상안) — 옆으로 넘길 수 있다는 것을 표지 자체가 알린다.
     val columns = shelfColumns()
     val width = (screen - gutter * 2 - SHELF_GAP * (columns - 1) - SHELF_PEEK) / columns
@@ -561,11 +572,15 @@ private fun ToReadLabel(text: String, sort: LibrarySort, layout: LibraryLayout, 
         verticalAlignment = Alignment.CenterVertically,
     ) {
         CpText(text, CpTheme.type.label, c.textMuted, Modifier.weight(1f))
-        CpText(
-            "${sort.label} ▾", CpTheme.type.caption, c.text,
-            Modifier.clip(RoundedCornerShape(8.dp)).clickable(role = Role.Button, onClick = onSort)
-                .padding(horizontal = 10.dp, vertical = 10.dp).semantics { contentDescription = "순서: ${sort.label}" },
-        )
+        // 누르는 곳 48dp(0.29.0 — 36dp 였다). ▾ 는 글자 대신 아이콘: 삼성 글꼴 스타일에 따라 모양이 바뀌었다.
+        Row(
+            Modifier.heightIn(min = CpTheme.metrics.touchTarget).clip(RoundedCornerShape(8.dp)).clickable(role = Role.Button, onClick = onSort)
+                .padding(start = 10.dp, end = 4.dp).semantics(mergeDescendants = true) { contentDescription = "순서: ${sort.label}" },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CpText(sort.label, CpTheme.type.caption, c.text)
+            CpIcon(CpIcons.ChevronDown, c.textMuted, size = 18.dp)
+        }
         CpIconToggle(
             listOf(CpIcons.Grid, CpIcons.Rows),
             LibraryLayout.entries.map { it.label },
@@ -580,7 +595,7 @@ private fun ToReadLabel(text: String, sort: LibrarySort, layout: LibraryLayout, 
 private fun GridRow(books: List<LibraryBook>, item: @Composable (LibraryBook, androidx.compose.ui.unit.Dp) -> Unit) {
     val gutter = CpTheme.metrics.gutter
     val columns = shelfColumns()
-    val width = (LocalConfiguration.current.screenWidthDp.dp - gutter * 2 - SHELF_GAP * (columns - 1)) / columns
+    val width = (LocalShelfWidth.current - gutter * 2 - SHELF_GAP * (columns - 1)) / columns
     Row(Modifier.padding(horizontal = gutter, vertical = 9.dp), horizontalArrangement = Arrangement.spacedBy(SHELF_GAP)) {
         books.forEach { item(it, width) }
     }
@@ -634,11 +649,7 @@ private fun DetailRow(book: LibraryBook, notes: NoteCounts?, onOpen: (LibraryBoo
             }
             notes?.let(::notesLabel)?.let { CpText(it, CpTheme.type.caption, c.textMuted, Modifier.padding(top = 2.dp)) }
         }
-        Box(
-            Modifier.size(40.dp).clip(RoundedCornerShape(50)).clickable(role = Role.Button) { onMenu(book) }
-                .semantics { contentDescription = "${book.label} 더 보기" },
-            contentAlignment = Alignment.Center,
-        ) { CpText("⋮", CpTheme.type.title, c.textMuted) }
+        CpIconButton(CpIcons.More, "${book.label} 더 보기", { onMenu(book) }, tint = c.textMuted)
     }
 }
 
@@ -677,9 +688,11 @@ private fun CoverMenu(
     }
     CpPopup(title = book.label, message = message, onDismiss = onDismiss) {
         Spacer(Modifier.height(8.dp))
-        CpListRow(if (finished) "읽는 중으로 되돌리기" else "읽은 책으로 옮기기", onFinished, icon = CpIcons.Bookmark, compact = true)
-        onUnread?.let { CpListRow("읽을 책으로 되돌리기", it, icon = CpIcons.Back, compact = true) }
-        CpListRow("사진 · 파일에서 표지 고르기", onPick, icon = CpIcons.Folder, compact = true)
+        // 판 안의 행은 판 글자 시작선에서(inset 0). 판 여백에 행 여백이 더해져 제목 · 문장보다 16dp 안쪽에서 시작하면
+        // 이 행들이 문장에 "속한" 것처럼 보였다(0.29.0).
+        CpListRow(if (finished) "읽는 중으로 되돌리기" else "읽은 책으로 옮기기", onFinished, icon = CpIcons.Bookmark, compact = true, inset = 0.dp)
+        onUnread?.let { CpListRow("읽을 책으로 되돌리기", it, icon = CpIcons.Back, compact = true, inset = 0.dp) }
+        CpListRow("사진 · 파일에서 표지 고르기", onPick, icon = CpIcons.Folder, compact = true, inset = 0.dp)
         CpListRow(
             if (cover?.hasOwn == true) "원래 표지로 되돌리기" else "대신 표지로 되돌리기",
             // 고른 표지가 없으면 되돌릴 것이 없다. 눌러도 판만 닫는다.
@@ -687,9 +700,9 @@ private fun CoverMenu(
             icon = CpIcons.Refresh,
             compact = true,
             enabled = custom,
+            inset = 0.dp,
         )
-        Spacer(Modifier.height(12.dp))
-        CpButton("닫기", onDismiss, primary = false)
+        CpPopupButtons { CpButton("닫기", onDismiss, primary = false) }
     }
 }
 
@@ -727,10 +740,13 @@ private fun folderName(uri: Uri): String {
  */
 @Composable
 private fun shelfColumns(): Int {
-    val screen = LocalConfiguration.current.screenWidthDp.dp
+    val screen = LocalShelfWidth.current
     val fit = ((screen - CpTheme.metrics.gutter * 2 + SHELF_GAP) / (SHELF_ITEM + SHELF_GAP)).toInt()
     return fit.coerceAtLeast(SHELF_COLUMNS)
 }
+
+/** 라이브러리가 실제로 쓰는 폭(시스템 막대 · 카메라 구멍을 뺀 것). 칸 수 · 칸 폭을 여기서 셈한다. */
+private val LocalShelfWidth = androidx.compose.runtime.compositionLocalOf { 360.dp }
 
 /** 책장 한 줄에 한 화면으로 보이는 최소 권수(세로 폰). 더 있으면 옆으로 넘긴다. */
 private const val SHELF_COLUMNS = 3

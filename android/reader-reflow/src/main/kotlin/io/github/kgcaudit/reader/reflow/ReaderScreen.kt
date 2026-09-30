@@ -81,6 +81,7 @@ import io.github.kgcaudit.reader.ui.design.CpIcons
 import io.github.kgcaudit.reader.ui.design.CpLinkRow
 import io.github.kgcaudit.reader.ui.design.CpListRow
 import io.github.kgcaudit.reader.ui.design.CpPopup
+import io.github.kgcaudit.reader.ui.design.CpPopupButtons
 import io.github.kgcaudit.reader.ui.design.CpReaderBar
 import io.github.kgcaudit.reader.layout.book.LinkTarget
 import io.github.kgcaudit.reader.layout.html.Link
@@ -105,6 +106,9 @@ import io.github.kgcaudit.reader.ui.design.actionAt
 import io.github.kgcaudit.reader.ui.design.CpStepper
 import io.github.kgcaudit.reader.ui.design.CpTabBar
 import io.github.kgcaudit.reader.ui.design.CpText
+import io.github.kgcaudit.reader.ui.design.CpSelectionHandles
+import io.github.kgcaudit.reader.ui.design.CpFloatingMenu
+import io.github.kgcaudit.reader.ui.design.CpTextButton
 import io.github.kgcaudit.reader.ui.design.CpTheme
 import io.github.kgcaudit.reader.ui.design.CpToolButton
 import kotlinx.coroutines.CoroutineScope
@@ -391,7 +395,8 @@ fun ReaderScreen(
             highlight = state.highlight?.let { it.start until it.endExclusive },
             highlightColor = accent.copy(alpha = 0.3f),
             accent = noteMarks,
-            accentColor = accent,
+            // 각주 번호는 작은 위첨자 글자다. 채우는 색(accent)으로 쓰면 세피아 3.35 · 회색 3.19 로 읽기 어려웠다(0.29.0).
+            accentColor = colors.accentText,
             // 지금 읽는 문장(L3)을 먼저 깐다 — 형광펜이 그 위에 보인다. 강조색이라 4색 형광펜과 헷갈리지 않는다.
             tints = listOfNotNull(
                 listen.sentence?.takeIf { listen.active && listen.spine == state.position?.spineIndex }
@@ -566,15 +571,16 @@ fun ReaderScreen(
             val canContinue = position != null && sel.endExclusive >= lastVisible(state.text, shownStart, shownEnd) &&
                 position.pageIndex + (if (state.rightPage != null) 1 else 0) < position.pageCount - 1
             if (boxes.isNotEmpty()) {
-                SelectionHandles(boxes.first(), boxes.last(), accent, showStart = !fromBefore)
+                CpSelectionHandles(boxes.first(), boxes.last(), accent, showStart = !fromBefore)
                 if (fromBefore) {
                     ContinueBanner(shownStart - sel.start, Modifier.align(Alignment.TopCenter).windowInsetsPadding(cutout).padding(top = 4.dp))
                 }
                 // 메모 판이 떠 있는 동안에는 메뉴를 숨긴다. 고른 칠 · 손잡이는 남겨 "무엇에 대한 메모인지" 보이게 하되,
                 // 판 뒤에 같은 색 단추가 한 벌 더 있으면 어느 것이 판의 것인지 헷갈린다.
-                if (memo == null) FloatingMenu(
+                if (memo == null) CpFloatingMenu(
                     anchor = boxes.bounds(),
                     current = null,
+                    accentWord = CONTINUE,
                     words = listOf("메모", "복사", "공유", "사전") + if (canContinue) listOf(CONTINUE) else emptyList(),
                     onPen = { pen ->
                         lastPen = pen
@@ -605,7 +611,7 @@ fun ReaderScreen(
         tapped?.let { note ->
             val boxes = boxesOf(note.start.charOffset, note.end.charOffset)
             if (boxes.isNotEmpty()) {
-                FloatingMenu(
+                CpFloatingMenu(
                     anchor = boxes.bounds(),
                     current = note.color.pen,
                     words = listOf("메모", "복사", "공유", "지우기"),
@@ -825,8 +831,7 @@ fun ReaderScreen(
         state.error?.let { message ->
             if (state.page == null) {
                 CpPopup(title = "이 책을 열지 못했습니다", message = message, onDismiss = onClose) {
-                    Spacer(Modifier.height(16.dp))
-                    CpButton("홈으로", onClose)
+                    CpPopupButtons { CpButton("홈으로", onClose) }
                 }
             }
         }
@@ -905,7 +910,7 @@ private fun ReaderBar(
         CpToolButton(CpIcons.Toc, "목차", { onPanel(Panel.Contents) })
         // 책갈피 도구는 독서노트에 합쳤다(N5). 꽂기는 위쪽 책갈피 단추 · 오른쪽 위 모서리 누르기 그대로.
         CpToolButton(CpIcons.Note, "독서노트", { onPanel(Panel.Notes) })
-        CpToolButton(CpIcons.TextSize, "보기", { onPanel(if (showView) Panel.Bar else Panel.View) }, selected = showView)
+        CpToolButton(CpIcons.View, "보기", { onPanel(if (showView) Panel.Bar else Panel.View) }, selected = showView)
     }
 }
 
@@ -940,12 +945,7 @@ private fun ReaderLists(
     CpFullScreen {
         CpHeader(title = reader.title, subtitle = reader.document.meta.author, onBack = { onPanel(Panel.Bar) }) {
             if (showNotes && !notes?.items.isNullOrEmpty()) {
-                CpText(
-                    "내보내기", CpTheme.type.label, CpTheme.colors.accent,
-                    Modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
-                        .clickable { exporting = true }
-                        .padding(horizontal = 12.dp, vertical = 12.dp),
-                )
+                CpTextButton("내보내기", { exporting = true })
             }
         }
         CpTabBar(

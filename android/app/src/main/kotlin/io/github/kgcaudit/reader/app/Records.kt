@@ -29,6 +29,7 @@ import io.github.kgcaudit.reader.data.backup.RecordsSummary
 import io.github.kgcaudit.reader.ui.design.CpButton
 import io.github.kgcaudit.reader.ui.design.CpListRow
 import io.github.kgcaudit.reader.ui.design.CpPopup
+import io.github.kgcaudit.reader.ui.design.CpPopupButtons
 import io.github.kgcaudit.reader.ui.design.CpSectionLabel
 import io.github.kgcaudit.reader.ui.design.CpText
 import io.github.kgcaudit.reader.ui.design.CpTheme
@@ -189,8 +190,7 @@ internal fun ReadingRecordsPopups(ui: RecordsUi) {
 
 @Composable
 private fun OkButton(onClick: () -> Unit) {
-    Spacer(Modifier.height(16.dp))
-    CpButton("확인", onClick)
+    CpPopupButtons { CpButton("확인", onClick) }
 }
 
 @Composable
@@ -214,9 +214,8 @@ private fun PreviewPopup(plan: ImportPlan, onCancel: () -> Unit, onImport: () ->
             CpText("아직 못 찾은 책 ${plan.missing.size}권", CpTheme.type.body, c.text)
             CpText("책 폴더를 추가하면 그때 이어집니다", CpTheme.type.caption, c.textMuted)
         }
-        Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.End) {
+        CpPopupButtons {
             CpButton("취소", onCancel, primary = false)
-            Spacer(Modifier.width(10.dp))
             CpButton("가져오기", onImport)
         }
     }

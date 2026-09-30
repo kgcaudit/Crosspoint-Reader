@@ -3,6 +3,8 @@ package io.github.kgcaudit.reader.ui.design
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -79,8 +81,8 @@ fun CpPenDots(current: Pen?, onPick: (Pen) -> Unit, ring: Color, modifier: Modif
             val on = pen == current
             Box(
                 Modifier
-                    // 동그라미는 26dp 여도 누르는 자리는 44dp — 손가락이 옆 색을 누르지 않게.
-                    .size(dotSize + 18.dp)
+                    // 동그라미는 26dp 여도 누르는 자리는 48dp — 손가락이 옆 색을 누르지 않게.
+                    .size((dotSize + 18.dp).coerceAtLeast(CpTheme.metrics.touchTarget))
                     .clip(RoundedCornerShape(50))
                     .clickable(role = Role.Button) { onPick(pen) }
                     .semantics { contentDescription = pen.label + (if (on) " (지금 색)" else "") },
@@ -187,11 +189,13 @@ fun CpReadingNotesList(
     Box(modifier.fillMaxSize().onGloballyPositioned { origin = it.positionInRoot() }) {
         Column(Modifier.fillMaxSize()) {
             if (chips && items != null) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = m.gutter, vertical = 10.dp)) {
+                // 옆으로 밀어 본다(0.29.0, 구상안 가안). 한 줄에 우겨 넣으면 360dp 폰에서 마지막 칩이 찌그러졌다. 칩 높이는
+                // 누르는 곳 48dp.
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = m.gutter, vertical = 4.dp)) {
                     NoteFilter.entries.forEach { f ->
                         val on = f == filter
                         Box(
-                            Modifier.padding(end = 8.dp).heightIn(min = 36.dp).clip(RoundedCornerShape(50))
+                            Modifier.padding(end = 8.dp).heightIn(min = m.touchTarget).clip(RoundedCornerShape(50))
                                 .background(if (on) c.accent else Color.Transparent)
                                 .border(1.dp, if (on) c.accent else c.outline, RoundedCornerShape(50))
                                 .selectable(selected = on, role = Role.Tab) { onFilter(f) }
@@ -298,16 +302,16 @@ private fun NoteRow(item: NoteItem, onOpen: () -> Unit, onMenu: (Offset) -> Unit
                     // 행마다 "더 보기" 로만 읽으면 화면 읽기 사용자는 어느 노트의 메뉴인지 모른다. 종류와 자리를 붙인다.
                     .semantics { contentDescription = "${if (item.isBookmark) "책갈피" else if (item.memo != null) "메모" else "형광펜"} 더 보기 · ${item.where}" },
                 contentAlignment = Alignment.Center,
-            ) { CpText("⋮", CpTheme.type.title, c.textMuted) }
+            ) { CpIcon(CpIcons.More, c.textMuted) }
         }
         if (item.memo != null) {
             Box(
-                Modifier.padding(start = m.childIndent, end = 40.dp, top = 8.dp).fillMaxWidth()
+                Modifier.padding(start = m.childIndent, end = MENU_BUTTON, top = 8.dp).fillMaxWidth()
                     .clip(RoundedCornerShape(m.cornerSmall)).background(c.dialog).padding(12.dp),
             ) { CpText(item.memo, CpTheme.type.subtitle, c.text, maxLines = 6) }
         }
     }
 }
 
-/** ⋮ 단추의 크기. 메뉴를 위로 펼칠 때 단추를 가리지 않게 그만큼 올린다. */
-private val MENU_BUTTON = 40.dp
+/** ⋮ 단추의 크기(누르는 곳 48dp, 0.29.0). 메뉴를 위로 펼칠 때 단추를 가리지 않게 그만큼 올린다. */
+private val MENU_BUTTON = 48.dp

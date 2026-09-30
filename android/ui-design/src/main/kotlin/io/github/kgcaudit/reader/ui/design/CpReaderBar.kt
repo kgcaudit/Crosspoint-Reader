@@ -18,6 +18,10 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -63,7 +67,7 @@ fun CpReaderBar(
     androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
         val maxPanel = maxHeight * 0.55f
         Column(Modifier.fillMaxSize()) {
-            Column(Modifier.fillMaxWidth().background(colors.surface).windowInsetsPadding(WindowInsets.statusBars)) {
+            Column(Modifier.fillMaxWidth().background(colors.surface).windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top)))) {
                 CpHeader(title = title, subtitle = subtitle, onBack = onBack) {
                     if (onSearch != null) CpIconButton(CpIcons.Search, "책에서 찾기", onClick = onSearch)
                     if (onListen != null) CpIconButton(CpIcons.Headphones, "듣기", onClick = onListen)
@@ -84,7 +88,7 @@ fun CpReaderBar(
                 Modifier
                     .fillMaxWidth()
                     .background(colors.surface)
-                    .windowInsetsPadding(WindowInsets.navigationBars),
+                    .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))),
             ) {
                 // 판은 화면 높이의 55% 까지만, 넘으면 스크롤한다. 가로 화면(높이 393dp)에서는 일곱 줄 판이 화면을 넘어
                 // 아래 줄("모든 보기 설정")이 잘려 누를 수 없었다. 진행 막대 · 도구 단추는 늘 보인다.
@@ -92,7 +96,7 @@ fun CpReaderBar(
                 // (TwoPageTest 에서 "Compose did not get idle") — 높이의 상한을 숫자로 준다.
                 Column(Modifier.heightIn(max = maxPanel).verticalScroll(rememberScrollState())) { above() }
                 val shown = dragging ?: progress
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = CpTheme.metrics.gutter), verticalAlignment = Alignment.CenterVertically) {
                     CpSlider(
                         value = shown,
                         onChange = { dragging = it },
@@ -125,7 +129,8 @@ fun CpFullScreen(content: @Composable ColumnScope.() -> Unit) {
         Modifier
             .fillMaxSize()
             .background(CpTheme.colors.background)
-            .windowInsetsPadding(WindowInsets.systemBars)
+            // 카메라 구멍도 피한다(0.29.0). 가로로 읽다 목차 · 설정 · 찾기를 열면 행 앞머리나 뒤로 단추가 구멍에 가렸다.
+            .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout))
             .blockTouches(),
         content = content,
     )

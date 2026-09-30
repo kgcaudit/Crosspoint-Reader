@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.kgcaudit.reader.document.TocEntry
 import io.github.kgcaudit.reader.layout.book.SearchHit
+import io.github.kgcaudit.reader.ui.design.CpBottomSheet
 import io.github.kgcaudit.reader.ui.design.CpButton
 import io.github.kgcaudit.reader.ui.design.blockTouches
 import io.github.kgcaudit.reader.ui.design.CpSearchResultBar
@@ -43,6 +44,7 @@ import io.github.kgcaudit.reader.ui.design.CpSearchScreen
 import io.github.kgcaudit.reader.ui.design.CpIcon
 import io.github.kgcaudit.reader.ui.design.CpIcons
 import io.github.kgcaudit.reader.ui.design.CpPopup
+import io.github.kgcaudit.reader.ui.design.CpPopupButtons
 import io.github.kgcaudit.reader.ui.design.CpText
 import io.github.kgcaudit.reader.ui.design.CpTheme
 import kotlinx.coroutines.CoroutineScope
@@ -159,29 +161,15 @@ internal fun SearchResultBar(
 @Composable
 internal fun NoteSheet(title: String, text: String, onGoTo: () -> Unit, onClose: () -> Unit) {
     val c = CpTheme.colors
-    BackHandler(onBack = onClose)
-    BoxWithConstraints(
-        Modifier.fillMaxSize().background(Color(0x44000000))
-            .clickable(indication = null, interactionSource = null, onClick = onClose),
-    ) {
+    CpBottomSheet(onClose) { maxHeight ->
         val maxText = maxHeight * 0.6f - 120.dp
-        Column(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)).background(c.surface)
-                // 판 안을 눌러도 닫히지 않게.
-                .blockTouches()
-                .padding(horizontal = CpTheme.metrics.gutter).padding(top = 10.dp, bottom = 24.dp),
-        ) {
-            Box(Modifier.align(Alignment.CenterHorizontally).size(width = 36.dp, height = 4.dp).clip(RoundedCornerShape(50)).background(c.divider))
-            CpText(title, CpTheme.type.label, c.accentText, Modifier.padding(top = 14.dp, bottom = 8.dp))
-            Box(Modifier.heightIn(max = maxText.coerceAtLeast(80.dp)).verticalScroll(rememberScrollState())) {
-                BasicText(text, style = CpTheme.type.body.copy(color = c.text, lineHeight = 26.sp))
-            }
-            Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.End) {
-                CpButton("각주 자리로 가기", onGoTo, primary = false)
-                Spacer(Modifier.width(10.dp))
-                CpButton("닫기", onClose)
-            }
+        CpText(title, CpTheme.type.label, c.accentText, Modifier.padding(top = 14.dp, bottom = 8.dp))
+        Box(Modifier.heightIn(max = maxText.coerceAtLeast(80.dp)).verticalScroll(rememberScrollState())) {
+            BasicText(text, style = CpTheme.type.body.copy(color = c.text, lineHeight = 26.sp))
+        }
+        CpPopupButtons {
+            CpButton("각주 자리로 가기", onGoTo, primary = false)
+            CpButton("닫기", onClose)
         }
     }
 }
@@ -191,7 +179,8 @@ internal fun NoteSheet(title: String, text: String, onGoTo: () -> Unit, onClose:
 internal fun ReturnChip(onClick: () -> Unit, modifier: Modifier = Modifier) {
     val c = CpTheme.colors
     Row(
-        modifier.shadow(8.dp, RoundedCornerShape(24.dp)).clip(RoundedCornerShape(24.dp)).background(c.surface)
+        // 누르는 곳 48dp(0.29.0 — 44dp 였다).
+        modifier.heightIn(min = CpTheme.metrics.touchTarget).shadow(8.dp, RoundedCornerShape(24.dp)).clip(RoundedCornerShape(24.dp)).background(c.surface)
             .border(1.dp, c.divider, RoundedCornerShape(24.dp)).clickable(onClick = onClick)
             .padding(start = 8.dp, end = 18.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -206,9 +195,8 @@ internal fun ReturnChip(onClick: () -> Unit, modifier: Modifier = Modifier) {
 internal fun ExternalLinkPopup(url: String, onOpen: () -> Unit, onDismiss: () -> Unit) {
     BackHandler(onBack = onDismiss)
     CpPopup(title = "브라우저로 열까요?", message = url, onDismiss = onDismiss) {
-        Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.End) {
+        CpPopupButtons {
             CpButton("취소", onDismiss, primary = false)
-            Spacer(Modifier.width(10.dp))
             CpButton("열기", onOpen)
         }
     }

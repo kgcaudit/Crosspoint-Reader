@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
@@ -178,6 +179,8 @@ fun CpListRow(
     leading: (@Composable () -> Unit)? = null,
     /** 길게 누름(책 표지 바꾸기). 없으면 길게 눌러도 [onClick] 과 같다. */
     onLongClick: (() -> Unit)? = null,
+    /** 좌우 안쪽 여백. 팝업 안에서는 0 — 판의 글자 시작선에 맞춘다(판이 이미 안쪽 여백을 두었다). */
+    inset: Dp = CpTheme.metrics.gutter,
 ) {
     val c = CpTheme.colors
     Row(
@@ -186,7 +189,7 @@ fun CpListRow(
             .heightIn(min = if (compact) CpTheme.metrics.touchTarget else CpTheme.metrics.rowHeight)
             .background(if (selected) c.accentContainer else Color.Transparent)
             .combinedClickable(role = Role.Button, onLongClick = onLongClick, onClick = onClick)
-            .padding(horizontal = CpTheme.metrics.gutter, vertical = if (compact) 4.dp else 8.dp)
+            .padding(horizontal = inset, vertical = if (compact) 4.dp else 8.dp)
             .alpha(if (enabled) 1f else 0.45f),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -249,9 +252,15 @@ enum class CpBarWeight(val height: Dp) { Thin(2.dp), Medium(4.dp) }
 
 /** CrossPoint `drawProgressBar`. 굵기 3단계. */
 @Composable
-fun CpProgressBar(fraction: Float, modifier: Modifier = Modifier, weight: CpBarWeight = CpBarWeight.Thin) {
+fun CpProgressBar(
+    fraction: Float,
+    modifier: Modifier = Modifier,
+    weight: CpBarWeight = CpBarWeight.Thin,
+    /** 빈 곳 색. 지면 위(하단 정보)는 지면에 맞춘 색을 준다 — progressTrack 은 UI 바탕용이라 세피아 · 회색에서 묻혔다. */
+    track: Color = CpTheme.colors.progressTrack,
+) {
     val c = CpTheme.colors
-    Box(modifier.fillMaxWidth().height(weight.height).clip(RoundedCornerShape(50)).background(c.progressTrack)) {
+    Box(modifier.fillMaxWidth().height(weight.height).clip(RoundedCornerShape(50)).background(track)) {
         Box(
             Modifier
                 .fillMaxWidth(fraction.coerceIn(0f, 1f))
@@ -275,17 +284,23 @@ fun CpIconToggle(
 ) {
     val c = CpTheme.colors
     val shape = RoundedCornerShape(CpTheme.metrics.cornerSmall + 2.dp)
-    Row(modifier.clip(shape).border(1.dp, c.outline, shape)) {
-        icons.forEachIndexed { i, icon ->
-            val on = i == selected
-            Box(
-                Modifier
-                    .size(40.dp, 34.dp)
-                    .background(if (on) c.accentContainer else Color.Transparent)
-                    .selectable(selected = on, role = Role.RadioButton) { onSelect(i) }
-                    .semantics { contentDescription = labels[i] },
-                contentAlignment = Alignment.Center,
-            ) { CpIcon(icon, if (on) c.accent else c.textMuted, size = 20.dp) }
+    // 칸마다 누르는 곳은 48dp(0.29.0). 보이는 틀은 36dp 높이 그대로 — 40×34dp 칸은 엄지로 옆 칸을 누르기 쉬웠다.
+    Box(modifier) {
+        Box(Modifier.matchParentSize().padding(vertical = 6.dp).clip(shape).border(1.dp, c.outline, shape))
+        Row {
+            icons.forEachIndexed { i, icon ->
+                val on = i == selected
+                Box(
+                    Modifier
+                        .size(CpTheme.metrics.touchTarget)
+                        .selectable(selected = on, role = Role.RadioButton) { onSelect(i) }
+                        .semantics { contentDescription = labels[i] }
+                        .padding(vertical = 6.dp)
+                        .clip(shape)
+                        .background(if (on) c.accentContainer else Color.Transparent),
+                    contentAlignment = Alignment.Center,
+                ) { CpIcon(icon, if (on) c.accent else c.textMuted, size = 20.dp) }
+            }
         }
     }
 }
@@ -360,6 +375,20 @@ fun CpPopup(
 
 // ── 단추 ────────────────────────────────────────────────────────────
 
+/**
+ * 팝업 아래 단추 줄. 언제나 오른쪽 끝에 붙인다(0.29.0, 구상안 가안) — 팝업마다 왼쪽 · 오른쪽 · 반반으로 달라 확인 단추를
+ * 찾아 손이 헤맸다. 여럿이면 덜 중요한 것이 왼쪽, 할 일이 맨 오른쪽.
+ */
+@Composable
+fun CpPopupButtons(content: @Composable RowScope.() -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(top = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End),
+        verticalAlignment = Alignment.CenterVertically,
+        content = content,
+    )
+}
+
 @Composable
 fun CpButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, primary: Boolean = true) {
     val c = CpTheme.colors
@@ -373,6 +402,25 @@ fun CpButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, p
             .padding(horizontal = 22.dp),
         contentAlignment = Alignment.Center,
     ) { CpText(text, CpTheme.type.label, if (primary) c.onAccent else c.text) }
+}
+
+/**
+ * 테두리 없는 글자 단추("내보내기" · "목록" · "들어 보기"). 글자는 accentText — accent 는 채우는 색이라 밝은 바탕 위
+ * 글자로는 대비가 4.5 에 못 미쳤다(0.29.0). 누르는 곳은 48dp.
+ */
+@Composable
+fun CpTextButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, color: Color = CpTheme.colors.accentText) {
+    CpText(
+        text,
+        CpTheme.type.label,
+        color,
+        modifier
+            .heightIn(min = CpTheme.metrics.touchTarget)
+            .clip(RoundedCornerShape(CpTheme.metrics.cornerSmall))
+            .clickable(role = Role.Button, onClick = onClick)
+            .wrapContentHeight(Alignment.CenterVertically)
+            .padding(horizontal = 12.dp),
+    )
 }
 
 /** 설정 한 줄: 이름 · [−] 값 [+]. 글자 크기 같은 단계 값에 쓴다. */
@@ -394,24 +442,53 @@ fun CpStepper(label: String, value: String, onMinus: () -> Unit, onPlus: () -> U
 @Composable
 fun CpChoice(label: String, options: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
     val c = CpTheme.colors
-    Row(
-        modifier.fillMaxWidth().padding(horizontal = CpTheme.metrics.gutter, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        CpText(label, CpTheme.type.body, c.text, Modifier.weight(1f))
-        options.forEachIndexed { i, option ->
-            val on = i == selected
-            Box(
-                Modifier
-                    .padding(start = 6.dp)
-                    .heightIn(min = 40.dp)
-                    .clip(RoundedCornerShape(CpTheme.metrics.cornerSmall))
-                    .background(if (on) c.accent else Color.Transparent)
-                    .border(1.dp, if (on) c.accent else c.outline, RoundedCornerShape(CpTheme.metrics.cornerSmall))
-                    .selectable(selected = on, role = Role.RadioButton) { onSelect(i) }
-                    .padding(horizontal = 16.dp),
-                contentAlignment = Alignment.Center,
-            ) { CpText(option, CpTheme.type.label, if (on) c.onAccent else c.text) }
+    // 이름과 선택지가 한 줄에 들어가면 나란히, 모자라면 선택지를 이름 아래 줄로 내린다(0.29.0, 구상안 가안). 한 줄에
+    // 우겨 넣던 때는 360dp 폰에서 "자동 넘…" 으로 잘렸고, 큰 글자에서는 이름이 "…" 만 남았다. 아래 줄의 선택지는 이름
+    // 글자 시작선에서 시작한다 — 이 줄에 속한 것이다.
+    androidx.compose.ui.layout.Layout(
+        contents = listOf(
+            { CpText(label, CpTheme.type.body, c.text, maxLines = 3) },
+            {
+                Row {
+                    options.forEachIndexed { i, option ->
+                        val on = i == selected
+                        Box(
+                            Modifier
+                                .padding(end = if (i == options.lastIndex) 0.dp else 6.dp)
+                                // 누르는 곳은 48dp, 보이는 칸은 40dp.
+                                .heightIn(min = CpTheme.metrics.touchTarget)
+                                .selectable(selected = on, role = Role.RadioButton) { onSelect(i) }
+                                .padding(vertical = 4.dp)
+                                .clip(RoundedCornerShape(CpTheme.metrics.cornerSmall))
+                                .background(if (on) c.accent else Color.Transparent)
+                                .border(1.dp, if (on) c.accent else c.outline, RoundedCornerShape(CpTheme.metrics.cornerSmall))
+                                .padding(horizontal = 16.dp),
+                            contentAlignment = Alignment.Center,
+                        ) { CpText(option, CpTheme.type.label, if (on) c.onAccent else c.text) }
+                    }
+                }
+            },
+        ),
+        modifier = modifier.fillMaxWidth().padding(horizontal = CpTheme.metrics.gutter, vertical = 2.dp),
+    ) { (labelM, optionsM), constraints ->
+        val width = constraints.maxWidth
+        val gap = 12.dp.roundToPx()
+        val chips = optionsM.first().measure(androidx.compose.ui.unit.Constraints())
+        val labelWant = labelM.first().maxIntrinsicWidth(chips.height)
+        if (labelWant + gap + chips.width <= width) {
+            val text = labelM.first().measure(androidx.compose.ui.unit.Constraints(maxWidth = width - gap - chips.width))
+            val h = maxOf(text.height, chips.height)
+            layout(width, h) {
+                text.place(0, (h - text.height) / 2)
+                chips.place(width - chips.width, (h - chips.height) / 2)
+            }
+        } else {
+            val text = labelM.first().measure(androidx.compose.ui.unit.Constraints(maxWidth = width))
+            val top = 10.dp.roundToPx()
+            layout(width, top + text.height + chips.height) {
+                text.place(0, top)
+                chips.place(0, top + text.height)
+            }
         }
     }
 }
@@ -453,6 +530,8 @@ fun CpRadioRow(
     modifier: Modifier = Modifier,
     subtitle: String? = null,
     titleStyle: TextStyle = CpTheme.type.body,
+    /** 왼쪽 안쪽 여백. 팝업 안에서는 0([CpListRow] 와 같다). */
+    inset: Dp = CpTheme.metrics.gutter,
     trailing: @Composable RowScope.() -> Unit = {},
 ) {
     val c = CpTheme.colors
@@ -461,7 +540,7 @@ fun CpRadioRow(
             .fillMaxWidth()
             .heightIn(min = CpTheme.metrics.rowHeight)
             .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
-            .padding(start = CpTheme.metrics.gutter, end = 4.dp, top = 8.dp, bottom = 8.dp),
+            .padding(start = inset, end = 4.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
@@ -504,7 +583,8 @@ fun CpToolButton(
         verticalArrangement = Arrangement.Center,
     ) {
         CpIcon(icon, tint)
-        CpText(label, CpTheme.type.caption, tint, Modifier.padding(top = 2.dp))
+        // 그림은 accent(3:1 이면 된다), 글자는 accentText — 고른 "보기" 이름이 밝은 판에서 대비 4.1 이었다(0.29.0).
+        CpText(label, CpTheme.type.caption, if (selected) c.accentText else c.text, Modifier.padding(top = 2.dp))
     }
 }
 

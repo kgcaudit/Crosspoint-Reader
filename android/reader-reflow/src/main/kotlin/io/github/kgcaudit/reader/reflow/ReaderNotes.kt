@@ -109,99 +109,8 @@ internal fun screenCharAt(
 internal fun annotationAt(boxesOf: (Annotation) -> List<Rect>, annotations: List<Annotation>, x: Float, y: Float): Annotation? =
     annotations.lastOrNull { a -> boxesOf(a).any { it.contains(Offset(x, y)) } }
 
-// ── 떠 있는 메뉴(N4) ───────────────────────────────────────────────
-
-private val PILL = Color(0xFF302A24)
-
-/**
- * 고른 말 · 칠한 곳 위에 뜨는 어두운 알약: 4색 동그라미 / 줄 / 낱말 단추들. 구간 위에 자리가 있으면 위, 없으면
- * 아래(손잡이 밑)에 띄운다 — 손가락과 손잡이를 가리지 않게.
- *
- * @param anchor 구간의 네모들을 모두 담는 네모(화면 좌표).
- */
-@Composable
-internal fun FloatingMenu(
-    anchor: Rect,
-    current: Pen?,
-    words: List<String>,
-    onPen: (Pen) -> Unit,
-    onWord: (String) -> Unit,
-) {
-    val density = LocalDensity.current
-    Layout(
-        content = {
-            Column(
-                Modifier.shadow(8.dp, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp)).background(PILL)
-                    // 알약 안을 눌러도 뒤의 "고르기 풀기" 가 불리지 않게.
-                    .blockTouches()
-                    .padding(horizontal = 6.dp, vertical = 4.dp)
-                    .semantics { contentDescription = "고른 글 메뉴" },
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                CpPenDots(current, onPen, ring = Color.White, Modifier.padding(top = 2.dp))
-                Box(Modifier.width(280.dp).height(1.dp).background(Color(0x33FFFFFF)))
-                Row {
-                    words.forEach { word ->
-                        CpText(
-                            word, CpTheme.type.label,
-                            // "이어서 ›" 는 쪽 끝에 닿았을 때만 새로 생기는 낱말이라 눈에 띄게 한다 — 흰색이면 늘 있던
-                            // 메뉴로 보여 지나친다.
-                            when (word) { "지우기" -> Color(0xFFFFB0A0); CONTINUE -> Color(0xFFFFC7A8); else -> Color.White },
-                            Modifier.clip(RoundedCornerShape(10.dp)).clickable(role = Role.Button) { onWord(word) }
-                                .padding(horizontal = 12.dp, vertical = 12.dp),
-                        )
-                    }
-                }
-            }
-        },
-        modifier = Modifier.fillMaxSize(),
-    ) { measurables, constraints ->
-        val placeable = measurables.single().measure(constraints.copy(minWidth = 0, minHeight = 0))
-        val gap = with(density) { 12.dp.toPx() }
-        val below = with(density) { 30.dp.toPx() } // 손잡이 물방울 아래로
-        val margin = with(density) { 8.dp.toPx() }
-        val x = (anchor.center.x - placeable.width / 2f)
-            .coerceIn(margin, (constraints.maxWidth - placeable.width - margin).coerceAtLeast(margin))
-        val above = anchor.top - gap - placeable.height
-        val y = if (above >= margin) above else (anchor.bottom + below).coerceAtMost(constraints.maxHeight - placeable.height - margin)
-        layout(constraints.maxWidth, constraints.maxHeight) { placeable.place(x.roundToInt(), y.roundToInt()) }
-    }
-}
-
-/** 손잡이 물방울의 반지름. 그리기와 누르기 판정이 같은 값을 쓴다. */
-internal val HANDLE_RADIUS = 9.dp
-
-/** 시작 · 끝 손잡이 물방울의 가운데(화면 좌표). 줄 아래로 달리고, 시작은 왼쪽 · 끝은 오른쪽으로 기운다. */
-internal fun handleCentres(first: Rect, last: Rect, r: Float): Pair<Offset, Offset> =
-    Offset(first.left - r * 0.7f, first.bottom + r) to Offset(last.right + r * 0.7f, last.bottom + r)
-
-/**
- * 고른 구간의 손잡이 둘(그리기만). 끄는 것은 지면의 제스처 층이 받는다 — 손잡이 자체에 제스처를 달면 끄는 동안
- * 손잡이가 새 자리로 옮겨 가며 손가락과의 거리가 매번 어긋난다.
- */
-@Composable
-internal fun SelectionHandles(first: Rect, last: Rect, color: Color, showStart: Boolean = true) {
-    Canvas(Modifier.fillMaxSize()) {
-        val r = HANDLE_RADIUS.toPx()
-        val stroke = 2.dp.toPx()
-        val (a, b) = handleCentres(first, last, r)
-        if (showStart) {
-            drawLine(color, Offset(first.left, first.top), Offset(first.left, first.bottom + 2), strokeWidth = stroke)
-            drawCircle(color, r, a)
-        }
-        drawLine(color, Offset(last.right, last.top), Offset(last.right, last.bottom + 2), strokeWidth = stroke)
-        drawCircle(color, r, b)
-    }
-    // 화면 읽기(TalkBack)와 시험이 손잡이 자리를 알 수 있게 이름만 단 빈 상자. 누름은 받지 않는다(지면이 받는다).
-    val density = LocalDensity.current
-    val (a, b) = handleCentres(first, last, with(density) { HANDLE_RADIUS.toPx() })
-    for ((at, name) in listOfNotNull(if (showStart) a to "고르기 시작 손잡이" else null, b to "고르기 끝 손잡이")) {
-        Box(
-            Modifier.offset { IntOffset((at.x - HANDLE_RADIUS.toPx()).roundToInt(), (at.y - HANDLE_RADIUS.toPx()).roundToInt()) }
-                .size(HANDLE_RADIUS * 2).semantics { contentDescription = name },
-        )
-    }
-}
+// ── 떠 있는 메뉴 · 손잡이(N4) ── PDF 와 같은 공용 부품(CpFloatingMenu · CpSelectionHandles)을 쓴다(0.29.0). 한 줄씩 같은
+// 사본을 따로 두어, 한쪽만 고치면 EPUB 과 PDF 의 메뉴가 달라질 참이었다.
 
 /**
  * 손잡이를 끈 자리 → 새 구간. 시작 손잡이는 끝을 넘지 못하고 끝 손잡이는 시작을 넘지 못한다(최소 한 글자) —
@@ -239,41 +148,7 @@ internal fun MemoSheet(draft: MemoDraft, onSave: (text: String, pen: Pen) -> Uni
 
 // ── 복사 · 공유 · 사전 ─────────────────────────────────────────────
 
-/** 공유하는 글: 인용 + (메모) + 책 제목. 받는 쪽에서 어느 책의 글인지 알 수 있게. */
-internal fun shareText(quote: String, memo: String?, title: String): String = buildString {
-    append('“').append(quote).append('”')
-    if (!memo.isNullOrBlank()) append("\n\n").append(memo.trim())
-    append("\n— ").append(title)
-}
-
-/** 클립보드에 넣는다. 안드로이드 13 부터는 시스템이 "복사됨" 을 보이므로 true(알림 불필요)를 돌려준다. */
-internal fun copyText(context: Context, text: String): Boolean {
-    context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("OLO eBook", text))
-    return Build.VERSION.SDK_INT >= 33
-}
-
-internal fun shareOut(context: Context, text: String) {
-    val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
-    runCatching { context.startActivity(Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-}
-
-/**
- * 사전(N4): 고른 말을 휴대폰의 사전 · 번역 앱에 넘긴다(ACTION_PROCESS_TEXT). 앱이 없으면 false — 화면이 알린다.
- * 사전을 앱에 넣지 않는 이유: 사전 데이터는 책보다 크고, 이미 쓰는 사전 앱이 사용자에게 더 익숙하다.
- */
-internal fun lookUp(context: Context, word: String): Boolean {
-    val process = Intent(Intent.ACTION_PROCESS_TEXT).setType("text/plain")
-        .putExtra(Intent.EXTRA_PROCESS_TEXT, word)
-        .putExtra(Intent.EXTRA_PROCESS_TEXT_READONLY, true)
-    val apps = context.packageManager.queryIntentActivities(process, 0)
-    if (apps.isEmpty()) return false
-    val intent = if (apps.size == 1) {
-        process.setClassName(apps[0].activityInfo.packageName, apps[0].activityInfo.name)
-    } else {
-        Intent.createChooser(process, "사전")
-    }
-    return runCatching { context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }.isSuccess
-}
+// 복사 · 공유 · 사전은 공용(CpSelection.kt)을 쓴다 — ReaderScreen 이 그쪽을 가져다 써서 여기 사본은 불리지 않았다.
 
 /** 네모들을 모두 담는 네모(메뉴를 띄울 기준). */
 internal fun List<Rect>.bounds(): Rect =

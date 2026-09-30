@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -101,7 +102,8 @@ fun CpSearchField(
     Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         CpIconButton(CpIcons.Back, "뒤로", onBack)
         Row(
-            Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(CpTheme.metrics.cornerMedium))
+            // 높이를 못 박지 않는다(0.29.0) — 글자 200% 에서 입력 글자 위아래가 잘렸다.
+            Modifier.weight(1f).heightIn(min = 48.dp).clip(RoundedCornerShape(CpTheme.metrics.cornerMedium))
                 .border(2.dp, c.accent, RoundedCornerShape(CpTheme.metrics.cornerMedium)).padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -171,10 +173,7 @@ fun CpSearchResultBar(
         CpText("${index + 1} / $total", CpTheme.type.label, c.text, Modifier.padding(horizontal = 8.dp))
         CpIconButton(CpIcons.Forward, "다음 결과", onNext, tint = if (index < total - 1) c.text else c.outline)
         Box(Modifier.width(1.dp).height(24.dp).background(c.divider))
-        CpText(
-            "목록", CpTheme.type.label, c.accent,
-            Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = onList).padding(horizontal = 14.dp, vertical = 12.dp),
-        )
+        CpTextButton("목록", onList)
         CpIconButton(CpIcons.Close, "찾기 끝내기", onClose)
     }
 }

@@ -25,6 +25,9 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
@@ -65,6 +68,8 @@ internal val PILL = Color(0xFF302A24)
  *
  * @param anchor 구간의 네모들을 모두 담는 네모(화면 좌표).
  */
+// FlowRow 는 이 판의 Compose 에서 실험 딱지다. 줄바꿈만 쓰므로 받아들인다.
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun CpFloatingMenu(
     anchor: Rect,
@@ -82,19 +87,25 @@ fun CpFloatingMenu(
                 Modifier.shadow(8.dp, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp)).background(PILL)
                     // 알약 안을 눌러도 뒤의 "고르기 풀기" 가 불리지 않게.
                     .blockTouches()
+                    // 내용만큼 넓게, 화면보다 넓으면 화면 폭까지 — 낱말 줄이 그 안에서 줄을 바꾼다.
+                    .width(IntrinsicSize.Max)
                     .padding(horizontal = 6.dp, vertical = 4.dp)
                     .semantics { contentDescription = "고른 글 메뉴" },
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 CpPenDots(current, onPen, ring = Color.White, Modifier.padding(top = 2.dp))
-                Box(Modifier.width(280.dp).height(1.dp).background(Color(0x33FFFFFF)))
-                Row {
+                Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0x33FFFFFF)))
+                // 낱말이 한 줄에 다 안 들어가면 다음 줄로(0.29.0). 한 줄로 두었을 때는 큰 글자에서 마지막 "이어서 ›" 가
+                // 화면 밖으로 잘려 쪽을 넘어 이어 고를 길이 없었다. 누르는 곳은 48dp.
+                FlowRow(horizontalArrangement = Arrangement.Center) {
                     words.forEach { word ->
                         CpText(
                             word, CpTheme.type.label,
                             when (word) { "지우기" -> Color(0xFFFFB0A0); accentWord -> Color(0xFFFFC7A8); else -> Color.White },
-                            Modifier.clip(RoundedCornerShape(10.dp)).clickable(role = Role.Button) { onWord(word) }
-                                .padding(horizontal = 12.dp, vertical = 12.dp),
+                            Modifier.heightIn(min = CpTheme.metrics.touchTarget).clip(RoundedCornerShape(10.dp))
+                                .clickable(role = Role.Button) { onWord(word) }
+                                .wrapContentHeight(Alignment.CenterVertically)
+                                .padding(horizontal = 12.dp),
                         )
                     }
                 }
@@ -102,10 +113,11 @@ fun CpFloatingMenu(
         },
         modifier = Modifier.fillMaxSize(),
     ) { measurables, constraints ->
-        val placeable = measurables.single().measure(constraints.copy(minWidth = 0, minHeight = 0))
+        val margin = with(density) { 8.dp.toPx() }
+        val room = (constraints.maxWidth - 2 * margin).roundToInt().coerceAtLeast(0)
+        val placeable = measurables.single().measure(constraints.copy(minWidth = 0, minHeight = 0, maxWidth = room))
         val gap = with(density) { 12.dp.toPx() }
         val below = with(density) { 30.dp.toPx() } // 손잡이 물방울 아래로
-        val margin = with(density) { 8.dp.toPx() }
         val x = (anchor.center.x - placeable.width / 2f)
             .coerceIn(margin, (constraints.maxWidth - placeable.width - margin).coerceAtLeast(margin))
         val above = anchor.top - gap - placeable.height
@@ -173,18 +185,7 @@ fun CpMemoSheet(
     var pen by androidx.compose.runtime.saveable.rememberSaveable(key) { mutableStateOf(initialPen) }
     val focus = remember { FocusRequester() }
     LaunchedEffect(key) { runCatching { focus.requestFocus() } }
-    BackHandler(onBack = onCancel)
-    Box(
-        Modifier.fillMaxSize().background(Color(0x66000000))
-            .clickable(indication = null, interactionSource = null, onClick = onCancel),
-    ) {
-        Column(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth().imePadding()
-                .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)).background(c.surface)
-                .blockTouches()
-                .padding(horizontal = m.gutter).padding(top = 10.dp, bottom = 24.dp),
-        ) {
-            Box(Modifier.align(Alignment.CenterHorizontally).size(width = 36.dp, height = 4.dp).clip(RoundedCornerShape(50)).background(c.divider))
+    CpBottomSheet(onCancel, Modifier.imePadding()) {
             Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 CpText("메모", CpTheme.type.title, c.text, Modifier.weight(1f))
                 CpPenDots(pen, { pen = it }, ring = c.text, dotSize = 24.dp)
@@ -208,12 +209,10 @@ fun CpMemoSheet(
                     modifier = Modifier.fillMaxSize().focusRequester(focus).semantics { contentDescription = "메모 입력" },
                 )
             }
-            Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.End) {
+            CpPopupButtons {
                 CpButton("취소", onCancel, primary = false)
-                Spacer(Modifier.width(10.dp))
                 CpButton("저장", { onSave(text, pen) })
             }
-        }
     }
 }
 

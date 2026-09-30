@@ -100,11 +100,12 @@ internal fun AboutScreen(records: RecordsUi, onBack: () -> Unit, onLicense: (Int
             Spacer(Modifier.height(4.dp))
             CpText("판 ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) · ${koreanDate(BuildConfig.BUILD_DATE)}", CpTheme.type.subtitle, c.textMuted)
             Spacer(Modifier.height(12.dp))
-            CpText("EPUB · TXT · PDF를 간편하게 읽고 책갈피를 꽂는 뷰어입니다.", CpTheme.type.body, c.text, maxLines = 3)
+            CpText("EPUB · TXT · PDF를 간편하게 읽고 책갈피를 꽂는 뷰어입니다.", CpTheme.type.body, c.text, maxLines = Int.MAX_VALUE)
             Spacer(Modifier.height(6.dp))
             CpText(
                 "인터넷을 쓰지 않습니다. 읽은 자리 · 책갈피 · 형광펜은 이 휴대폰에만 남습니다. 휴대폰을 바꿀 때는 백업 파일로 옮기세요.",
-                CpTheme.type.subtitle, c.textMuted, maxLines = 3,
+                // 줄 수를 막지 않는다(0.29.0). 3줄이면 큰 글자에서 "백업 파일로 옮기세요" 가 잘렸다.
+                CpTheme.type.subtitle, c.textMuted, maxLines = Int.MAX_VALUE,
             )
         }
         Spacer(Modifier.height(8.dp))

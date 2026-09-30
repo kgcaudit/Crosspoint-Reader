@@ -86,6 +86,7 @@ import io.github.kgcaudit.reader.ui.design.CpHeader
 import io.github.kgcaudit.reader.ui.design.CpIcons
 import io.github.kgcaudit.reader.ui.design.CpListRow
 import io.github.kgcaudit.reader.ui.design.CpPopup
+import io.github.kgcaudit.reader.ui.design.CpPopupButtons
 import io.github.kgcaudit.reader.ui.design.CpReaderBar
 import io.github.kgcaudit.reader.ui.design.CpBrightnessOverlay
 import io.github.kgcaudit.reader.ui.design.CpBrightnessRow
@@ -120,6 +121,7 @@ import io.github.kgcaudit.reader.ui.design.NoteItem
 import io.github.kgcaudit.reader.ui.design.CpNotesExport
 import io.github.kgcaudit.reader.ui.design.noteWhere
 import io.github.kgcaudit.reader.ui.design.CpText
+import io.github.kgcaudit.reader.ui.design.CpTextButton
 import io.github.kgcaudit.reader.ui.design.CpTheme
 import io.github.kgcaudit.reader.ui.design.CpToolButton
 import io.github.kgcaudit.reader.ui.design.ScreenRotation
@@ -585,7 +587,7 @@ fun PdfScreen(
             CpToolButton(CpIcons.Toc, "목차", { panel = PdfPanel.Contents })
             CpToolButton(CpIcons.Note, "독서노트", { panel = PdfPanel.Notes })
             CpToolButton(
-                CpIcons.Rotate,
+                CpIcons.View,
                 "보기",
                 { panel = if (panel == PdfPanel.View) PdfPanel.Bar else PdfPanel.View },
                 selected = panel == PdfPanel.View,
@@ -684,8 +686,7 @@ fun PdfScreen(
 
     if (state.ready && state.pageCount <= 0) {
         CpPopup(title = "이 PDF를 열지 못했습니다", message = "쪽이 하나도 없는 파일입니다.", onDismiss = closeBook) {
-            Spacer(Modifier.height(16.dp))
-            CpButton("홈으로", closeBook)
+            CpPopupButtons { CpButton("홈으로", closeBook) }
         }
     }
 }
@@ -1091,10 +1092,7 @@ private fun PdfLists(
     CpFullScreen {
         CpHeader(title = reader.title, subtitle = "PDF", onBack = { onPanel(PdfPanel.Bar) }) {
             if (showNotes && !items.isNullOrEmpty()) {
-                CpText(
-                    "내보내기", CpTheme.type.label, CpTheme.colors.accent,
-                    Modifier.clip(RoundedCornerShape(12.dp)).clickable { exporting = true }.padding(horizontal = 12.dp, vertical = 12.dp),
-                )
+                CpTextButton("내보내기", { exporting = true })
             }
         }
         CpTabBar(

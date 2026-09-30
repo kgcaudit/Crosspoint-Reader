@@ -35,6 +35,7 @@ import io.github.kgcaudit.reader.pdf.PdfScreen
 import io.github.kgcaudit.reader.reflow.ReaderScreen
 import io.github.kgcaudit.reader.ui.design.CpButton
 import io.github.kgcaudit.reader.ui.design.CpPopup
+import io.github.kgcaudit.reader.ui.design.CpPopupButtons
 import io.github.kgcaudit.reader.ui.design.CpReaderTheme
 import io.github.kgcaudit.reader.ui.design.CpTheme
 import io.github.kgcaudit.reader.ui.design.CpToast
@@ -360,8 +361,7 @@ private fun OloApp(
     Box(Modifier.fillMaxSize()) { CpToast(notice, { notice = null }, Modifier.align(Alignment.BottomCenter)) }
     failure?.let { message ->
         CpPopup(title = "이 책을 열지 못했습니다", message = message, onDismiss = { failure = null }) {
-            Spacer(Modifier.height(16.dp))
-            CpButton("확인", { failure = null })
+            CpPopupButtons { CpButton("확인", { failure = null }) }
         }
     }
     if ((openId != null || incomingUri != null) && reader == null && failure == null) {

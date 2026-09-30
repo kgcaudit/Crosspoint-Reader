@@ -32,6 +32,7 @@ import io.github.kgcaudit.reader.ui.design.CpIconButton
 import io.github.kgcaudit.reader.ui.design.CpIcons
 import io.github.kgcaudit.reader.ui.design.CpListRow
 import io.github.kgcaudit.reader.ui.design.CpPopup
+import io.github.kgcaudit.reader.ui.design.CpPopupButtons
 import io.github.kgcaudit.reader.ui.design.CpRadioRow
 import io.github.kgcaudit.reader.ui.design.CpTheme
 import kotlinx.coroutines.Dispatchers
@@ -165,8 +166,7 @@ internal fun FontsPanel(
     busy?.let { CpPopup(title = it, progress = null) }
     notice?.let { (title, message) ->
         CpPopup(title = title, message = message, onDismiss = { notice = null }) {
-            Spacer(Modifier.height(16.dp))
-            CpButton("확인", { notice = null })
+            CpPopupButtons { CpButton("확인", { notice = null }) }
         }
     }
     removing?.let { option ->
@@ -175,10 +175,8 @@ internal fun FontsPanel(
             message = "이 글꼴로 보던 책은 기본 글꼴로 바뀝니다. 파일은 언제든 다시 넣을 수 있습니다.",
             onDismiss = { removing = null },
         ) {
-            Spacer(Modifier.height(16.dp))
-            Row {
-                CpButton("취소", { removing = null }, Modifier.weight(1f), primary = false)
-                Spacer(Modifier.width(12.dp))
+            CpPopupButtons {
+                CpButton("취소", { removing = null }, primary = false)
                 CpButton("빼기", {
                     removing = null
                     scope.launch {
@@ -187,7 +185,7 @@ internal fun FontsPanel(
                         if (prefs.font == option.key) onPrefsChange(prefs.copy(font = null))
                         changed()
                     }
-                }, Modifier.weight(1f))
+                })
             }
         }
     }

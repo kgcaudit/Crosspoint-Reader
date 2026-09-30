@@ -459,7 +459,7 @@ class ListenAppTest {
         val row = compose.onAllNodes(hasText("한국어 2"), useUnmergedTree = true)[0].fetchSemanticsNode().boundsInRoot
         assertNear(m.gutter.value, section.left / density, "엔진 이름")
         assertNear((m.gutter + m.levelIndent + m.childIndent).value, row.left / density, "목소리 줄 글자")
-        assertTrue(hasNode(hasText("한국어 1 (내려받기 필요)")))
+        assertTrue(hasNode(hasText("한국어 1")) && hasNode(hasText("내려받기 필요")))
 
         // 들어 보기는 고르지 않고 소리만.
         node(hasContentDescription("한국어 2 들어 보기")).performClick()
@@ -467,7 +467,7 @@ class ListenAppTest {
         assertEquals(null, app.container.prefs.load().listen.voice)
 
         // 다른 엔진의 목소리를 고르면 그 엔진으로 다시 열고, 듣던 문장부터 읽는다.
-        node(hasText("한국어 1 (내려받기 필요)")).performClick()
+        node(hasText("한국어 1")).performClick()
         waitTicking { speaker.engine == "com.google.tts" && speaker.current != null }
         assertEquals("첫 문장이다.", speaker.current)
         assertEquals("ko-a", speaker.lastVoice)
