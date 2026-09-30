@@ -30,6 +30,12 @@ internal class PdfFile private constructor(private val source: SeekableSource) {
     /** 상호 참조를 끝까지 읽었고 뿌리도 거기서 찾았다. 그러면 표에 없는 번호는 정말 없는 객체다. */
     private var xrefComplete = false
 
+    /**
+     * 상호 참조 사슬의 한 마디(/Prev · /XRefStm)를 읽지 못했다. 그러면 옛 판의 객체가 표에서 빠져 있다 — "완전" 으로 보면
+     * 표에 없는 번호를 훑지 않고 없다고 해, 쪽 나무 · 목차가 비고 제목이 파일 이름으로 나왔다.
+     */
+    private var xrefBroken = false
+
     /** 파일 전체를 훑었는가. 시험이 "상호 참조로 읽었나, 훑어서 되살렸나" 를 가르는 데 쓴다. */
     internal val scannedWholeFile: Boolean get() = scanned != null
 
@@ -111,14 +117,18 @@ internal class PdfFile private constructor(private val source: SeekableSource) {
         var first = true
         // /Prev 를 따라 옛 판으로 내려간다. 같은 위치를 두 번 보면(순환) 멈춘다.
         while (next != null && next in 0 until source.size && seen.add(next) && seen.size <= MAX_XREF_SECTIONS) {
-            val section = runCatching { readXrefSection(next) }.getOrNull() ?: break
+            val section = runCatching { readXrefSection(next) }.getOrNull()
+            if (section == null) {
+                xrefBroken = true
+                break
+            }
             if (first) {
                 trailer = section
                 first = false
             }
             // 섞은 파일: 표의 trailer 가 가리키는 스트림에 표에 없는 객체(객체 스트림 속)가 있다.
             (resolveDirect(section["XRefStm"]) as? PdfNumber)?.let { stm ->
-                if (seen.add(stm.long)) runCatching { readXrefSection(stm.long) }
+                if (seen.add(stm.long) && runCatching { readXrefSection(stm.long) }.getOrNull() == null) xrefBroken = true
             }
             next = (resolveDirect(section["Prev"]) as? PdfNumber)?.long
         }
@@ -512,12 +522,16 @@ internal class PdfFile private constructor(private val source: SeekableSource) {
         fun open(source: SeekableSource): PdfFile? {
             val file = PdfFile(source)
             runCatching { file.loadXref() }
-            file.xrefComplete = file.entries.isNotEmpty()
+            file.xrefComplete = file.entries.isNotEmpty() && !file.xrefBroken
+            // 암호부터 연다. 뿌리(Catalog)가 암호화된 객체 스트림 안이면 복호화 없이 풀다 실패해, 멀쩡한 파일을 열 때마다
+            // 통째로(최대 512MB) 훑었다 — 큰 잡지 PDF 가 열 때마다 몇 초씩 멈췄다.
+            runCatching { file.openSecurity() }
             if (file.root == null) {
                 file.xrefComplete = false
                 file.scan()
+                // 훑어서야 trailer 를 찾은 파일은 이제 암호를 연다.
+                if (file.security == null) runCatching { file.openSecurity() }
             }
-            runCatching { file.openSecurity() }
             return file.takeIf { it.root != null }
         }
     }

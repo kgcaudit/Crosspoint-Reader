@@ -310,4 +310,23 @@ class PdfStructureReaderTest {
         }).classic()
         read(whole.copyOf(whole.size / 2))
     }
+
+    @Test
+    fun `an edited file whose link to the older part is broken still shows its contents`() {
+        // 새 판이 Catalog 만 다시 쓰고(책갈피를 더해 저장 등) /Prev 위치가 어긋났다. 표를 "완전" 으로 보면 옛 판의
+        // 쪽 나무 · 목차를 없다고 해, 목차가 비고 제목이 파일 이름으로 나왔다. 사슬이 끊겼으면 훑어서 되살린다.
+        val base = book({ p ->
+            obj(2, "<< /Type /Outlines /First 50 0 R >>")
+            obj(50, "<< /Title (Kept title) /Dest [${p[1]} 0 R /Fit] >>")
+        }).classic()
+        val prev = String(base, Charsets.ISO_8859_1).lastIndexOf("\nxref\n") + 1
+        val update = StringBuilder()
+        val objAt = base.size
+        update.append("1 0 obj\n<< /Type /Catalog /Pages 10 0 R /Outlines 2 0 R >>\nendobj\n")
+        val xrefAt = objAt + update.length
+        // 망가뜨린 입력: /Prev 가 옛 표의 자리보다 세 바이트 뒤를 가리킨다.
+        update.append("xref\n1 1\n%010d 00000 n \ntrailer\n<< /Size 51 /Root 1 0 R /Prev ${prev + 3} >>\nstartxref\n$xrefAt\n%%EOF\n".format(objAt))
+        val edited = base + update.toString().toByteArray(Charsets.ISO_8859_1)
+        assertEquals(listOf("1:Kept title"), read(edited).summary())
+    }
 }

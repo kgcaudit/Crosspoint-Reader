@@ -139,7 +139,7 @@ class XmlScanner(reader: Reader) {
             while (true) {
                 val c = scanner.read()
                 if (c < 0 || c == quote) break
-                if (c == '&'.code) appendReference(sb) else sb.append(c.toChar())
+                if (c == '&'.code) appendReference(sb, stop = quote) else sb.append(c.toChar())
             }
         } else {
             // 인용부호 없는 값. 공백이나 태그 끝까지 읽는다.
@@ -149,7 +149,7 @@ class XmlScanner(reader: Reader) {
                 // `<img src=images/a.jpg>` 가 `src="images"` 로 잘려 그림이 사라지던 자리.
                 if (c < 0 || c == '>'.code || isWhitespace(c) || (c == '/'.code && scanner.peekAt(1) == '>'.code)) break
                 scanner.read()
-                if (c == '&'.code) appendReference(sb) else sb.append(c.toChar())
+                if (c == '&'.code) appendReference(sb, stop = '>'.code) else sb.append(c.toChar())
             }
         }
         return sb.toString()
@@ -160,12 +160,14 @@ class XmlScanner(reader: Reader) {
      *
      * 해석에 실패하면 읽은 바이트를 그대로 되돌려 붙인다 — 글자를 조용히 잃지 않는다.
      */
-    private fun appendReference(out: StringBuilder) {
+    private fun appendReference(out: StringBuilder, stop: Int = -1) {
         val body = StringBuilder()
         while (true) {
             val c = scanner.peek()
-            // ';' 가 나오기 전에 공백이나 '<' 가 오면 엔티티가 아니다(맨 '&' 로 본다).
-            if (c < 0 || isWhitespace(c) || c == '<'.code || c == '&'.code) break
+            // ';' 가 나오기 전에 공백이나 '<' 가 오면 엔티티가 아니다(맨 '&' 로 본다). 속성값 안이면 닫는 따옴표([stop])도 —
+            // 멈추지 않으면 `alt="Q&A" src="x.jpg"` 에서 따옴표를 삼켜 src 가 사라지고(그림이 안 나옴), 주소 속 맨 `&` 는
+            // 뒤 본문까지 속성값으로 먹었다.
+            if (c < 0 || isWhitespace(c) || c == '<'.code || c == '&'.code || c == stop) break
             scanner.read()
             if (c == ';'.code) {
                 val resolved = XmlEntities.resolve(body.toString())

@@ -276,4 +276,17 @@ class XmlScannerTest {
         val titleIndex = events.indexOfFirst { it is XmlEvent.StartElement && it.isLocal("title") }
         assertEquals("어린 왕자", (events[titleIndex + 1] as XmlEvent.Text).value)
     }
+
+    @Test
+    fun `a bare ampersand inside an attribute stops at the closing quote`() {
+        // 웹에서 옮긴 책: &amp; 로 바꾸지 않은 & 가 속성값에 그대로 있다. 따옴표를 삼키면 뒤 속성 · 본문이 사라진다.
+        val img = starts("""<p><img alt="Q&A" src="x.jpg"/></p>""").single { it.name.local == "img" }
+        assertEquals("Q&A", img.attribute("alt"))
+        assertEquals("x.jpg", img.attribute("src"))
+        val xml = """<p><a href="http://x.com/?a=1&b=2">예시</a> 뒷글</p>"""
+        assertEquals("http://x.com/?a=1&b=2", starts(xml).single { it.name.local == "a" }.attribute("href"))
+        assertEquals("예시 뒷글", textOf(xml))
+        // 따옴표 없는 값도 태그 끝에서 멈춘다.
+        assertEquals("a&b", starts("<img src=a&b>").single().attribute("src"))
+    }
 }

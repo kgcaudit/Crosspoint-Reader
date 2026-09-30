@@ -204,4 +204,24 @@ class OpfParserTest {
         assertEquals(setOf("nav", "scripted"), opf.manifestById["n"]?.properties)
         assertEquals("OEBPS/nav.xhtml", opf.navItem?.href)
     }
+
+    @Test
+    fun `a cover pointer at a page instead of a picture still finds the picture`() {
+        // 흔한 실수 둘: meta 가 표지 XHTML 을 가리킴, 관례 id "cover" 가 XHTML 이고 그림은 "cover-image".
+        // 그림이 아닌 것을 집으면 서재에 표지가 없었다.
+        val opf = parse(
+            """
+            <package version="2.0">
+              <metadata><dc:title>제목</dc:title><meta name="cover" content="cover"/></metadata>
+              <manifest>
+                <item id="cover" href="cover.xhtml" media-type="application/xhtml+xml"/>
+                <item id="cover-image" href="c.jpg" media-type="image/jpeg"/>
+                <item id="c1" href="ch1.html" media-type="application/xhtml+xml"/>
+              </manifest>
+              <spine><itemref idref="cover"/><itemref idref="c1"/></spine>
+            </package>
+            """.trimIndent(),
+        )
+        assertEquals("OEBPS/c.jpg", opf.coverImageItem?.href)
+    }
 }

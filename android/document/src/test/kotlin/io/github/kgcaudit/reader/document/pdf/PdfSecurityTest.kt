@@ -3,6 +3,7 @@ package io.github.kgcaudit.reader.document.pdf
 import io.github.kgcaudit.reader.document.SeekableSource
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -44,5 +45,14 @@ class PdfSecurityTest {
         val book = structure("encrypted-locked.pdf")
         assertTrue(book.outline.isEmpty())
         assertEquals(null, book.title)
+    }
+
+    @Test
+    fun `an encrypted file with its catalog in an object stream opens without scanning the whole file`() {
+        // 암호를 열기 전에 뿌리를 찾으면 암호화된 객체 스트림을 복호화 없이 풀다 실패해, 열 때마다 파일 전체를 훑었다.
+        val bytes = javaClass.getResourceAsStream("/pdf/encrypted-aes-256-objstm.pdf")!!.use { it.readBytes() }
+        val file = PdfFile.open(SeekableSource.of(bytes))!!
+        assertTrue(file.root != null)
+        assertFalse(file.scannedWholeFile, "뿌리를 찾으려고 파일 전체를 훑었다")
     }
 }

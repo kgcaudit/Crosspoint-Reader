@@ -56,10 +56,15 @@ data class OpfPackage(
      */
     val coverImageItem: ManifestItem?
         get() = manifestById.values.firstOrNull { "cover-image" in it.properties }
-            ?: coverMetaId?.let(manifestById::get)
+            // meta · 관례 id 는 그림이 아닌 것(표지 XHTML)을 가리키는 일이 흔하다. 그것을 표지로 집으면 XHTML 을 그림으로 열다
+            // 실패해 서재에 표지가 없었다 — 그림인 것만 받는다. 관례 id 는 첫 항목이 아니라 **그림인** 항목을 찾는다.
+            ?: coverMetaId?.let(manifestById::get)?.takeIf(::isImage)
             ?: manifestById.values.firstOrNull { item ->
-                item.id.equals("cover", true) || item.id.equals("cover-image", true)
-            }?.takeIf { it.mediaType?.startsWith("image/") == true }
+                (item.id.equals("cover", true) || item.id.equals("cover-image", true)) && isImage(item)
+            }
+
+    /** 그림 항목인가. 미디어 타입이 빠진 항목은 받아 준다(없으면 표지를 아예 못 찾는다). */
+    private fun isImage(item: ManifestItem): Boolean = item.mediaType?.startsWith("image/") ?: true
 
     companion object {
         const val NCX_MEDIA_TYPE: String = "application/x-dtbncx+xml"
