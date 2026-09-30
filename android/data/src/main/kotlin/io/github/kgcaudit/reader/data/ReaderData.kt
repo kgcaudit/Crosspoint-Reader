@@ -2,6 +2,7 @@ package io.github.kgcaudit.reader.data
 
 import android.content.Context
 import android.net.Uri
+import io.github.kgcaudit.reader.data.backup.RecordsBackup
 import io.github.kgcaudit.reader.data.db.ReaderDatabase
 import io.github.kgcaudit.reader.data.library.Library
 import io.github.kgcaudit.reader.data.library.LibraryScanner
@@ -38,6 +39,9 @@ class ReaderData(
     val folders: LibraryFolders = LibraryFolders(resolver)
     val sources: UriSources = UriSources(resolver, File(context.cacheDir, "spool"))
 
+    /** 읽기 기록 백업. 못 찾은 책의 기록은 filesDir 에 둔다 — 캐시에 두면 휴대폰이 공간을 비울 때 지워진다. */
+    val records: RecordsBackup = RecordsBackup(database, File(context.filesDir, "pending-records.json"), clock)
+
     /**
      * 등록 폴더 하나를 다시 훑어 라이브러리에 반영한다.
      *
@@ -52,6 +56,8 @@ class ReaderData(
             ScanResult(emptyList(), complete = false)
         }
         library.applyScan(folderUri.toString(), result, clock())
+        // 백업에서 가져왔지만 책을 못 찾아 기다리던 기록 — 방금 훑은 폴더에 그 책이 있으면 이제 붙는다.
+        records.resumePending()
         result
     }
 

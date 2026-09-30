@@ -39,6 +39,11 @@ class FolderProvider : DocumentsProvider() {
 
     override fun openDocument(documentId: String, mode: String, signal: CancellationSignal?): ParcelFileDescriptor {
         val file = File(base, documentId)
+        // 쓰기(백업 파일 만들기)는 없는 파일을 만든다. 읽기는 있는 파일만.
+        if ('w' in mode) {
+            file.parentFile?.mkdirs()
+            return ParcelFileDescriptor.open(file, ParcelFileDescriptor.parseMode(mode))
+        }
         if (!file.isFile) throw FileNotFoundException(documentId)
         return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
     }

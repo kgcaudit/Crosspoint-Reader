@@ -3,6 +3,7 @@ package io.github.kgcaudit.reader.app
 import androidx.activity.compose.BackHandler
 import androidx.annotation.RawRes
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -12,9 +13,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -24,6 +28,7 @@ import io.github.kgcaudit.reader.ui.design.CpListRow
 import io.github.kgcaudit.reader.ui.design.CpSectionLabel
 import io.github.kgcaudit.reader.ui.design.CpText
 import io.github.kgcaudit.reader.ui.design.CpTheme
+import io.github.kgcaudit.reader.ui.design.CpToast
 
 /**
  * 앱에 들어간 남의 것 하나. 본문은 원문 그대로 싣는다 — BSD · Apache 모두 "배포할 때 고지문을 함께 싣는다" 가
@@ -83,10 +88,12 @@ internal fun koreanDate(iso: String): String {
  * (0.20.4, 좋은생각 109쪽).
  */
 @Composable
-internal fun AboutScreen(onBack: () -> Unit, onLicense: (Int) -> Unit) {
+internal fun AboutScreen(records: RecordsUi, onBack: () -> Unit, onLicense: (Int) -> Unit) {
     BackHandler(onBack = onBack)
     val c = CpTheme.colors
-    Column(Modifier.fillMaxSize().background(c.background).windowInsetsPadding(WindowInsets.safeDrawing)) {
+    Box(Modifier.fillMaxSize().background(c.background).windowInsetsPadding(WindowInsets.safeDrawing)) {
+    // 라이선스가 늘거나 글자를 키우면 화면을 넘는다 — 기록 행이 그 아래에 묻히지 않게 굴린다.
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         CpHeader("앱 정보", onBack = onBack)
         Column(Modifier.padding(horizontal = CpTheme.metrics.gutter, vertical = 12.dp)) {
             CpText("OLO eBook", CpTheme.type.title, c.text)
@@ -95,14 +102,22 @@ internal fun AboutScreen(onBack: () -> Unit, onLicense: (Int) -> Unit) {
             Spacer(Modifier.height(12.dp))
             CpText("EPUB · TXT · PDF 를 간편하게 읽고 책갈피를 꽂는 뷰어입니다.", CpTheme.type.body, c.text, maxLines = 3)
             Spacer(Modifier.height(6.dp))
-            CpText("인터넷을 쓰지 않습니다. 읽은 자리 · 책갈피 · 형광펜은 이 휴대폰에만 남습니다.", CpTheme.type.subtitle, c.textMuted, maxLines = 3)
+            CpText(
+                "인터넷을 쓰지 않습니다. 읽은 자리 · 책갈피 · 형광펜은 이 휴대폰에만 남습니다. 휴대폰을 바꿀 때는 백업 파일로 옮기세요.",
+                CpTheme.type.subtitle, c.textMuted, maxLines = 3,
+            )
         }
         Spacer(Modifier.height(8.dp))
+        CpDivider()
+        ReadingRecordsRows(records)
         CpDivider()
         CpSectionLabel("오픈소스 라이선스")
         OPEN_LICENSES.forEachIndexed { i, license ->
             CpListRow(license.title, { onLicense(i) }, subtitle = license.subtitle, value = license.badge)
         }
+    }
+    ReadingRecordsPopups(records)
+    CpToast(records.toast, { records.toast = null }, Modifier.align(Alignment.BottomCenter), durationMs = 2_500)
     }
 }
 

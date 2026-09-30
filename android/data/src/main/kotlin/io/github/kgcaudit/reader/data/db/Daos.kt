@@ -19,6 +19,16 @@ interface BookDao {
     @Query("SELECT * FROM books WHERE displayName = :name AND sizeBytes = :size AND missing = 0 ORDER BY id LIMIT 1")
     suspend fun byFile(name: String, size: Long): BookEntity?
 
+    /** 백업에서 가져온 기록을 붙일 책. 같은 파일이 두 폴더에 있으면 둘 다다 — 어느 쪽을 열어도 이어지게. */
+    @Query("SELECT * FROM books WHERE displayName = :name AND sizeBytes = :size AND missing = 0")
+    suspend fun visibleByFile(name: String, size: Long): List<BookEntity>
+
+    @Query("SELECT * FROM books WHERE displayName = :name AND missing = 0")
+    suspend fun visibleByName(name: String): List<BookEntity>
+
+    @Query("SELECT * FROM books")
+    suspend fun all(): List<BookEntity>
+
     @Query("SELECT * FROM books WHERE folderUri = :folderUri")
     suspend fun inFolder(folderUri: String): List<BookEntity>
 
@@ -42,6 +52,9 @@ interface ProgressDao {
     suspend fun get(bookId: String): ProgressEntity?
 
     @Query("SELECT * FROM progress")
+    suspend fun all(): List<ProgressEntity>
+
+    @Query("SELECT * FROM progress")
     fun observeAll(): Flow<List<ProgressEntity>>
 
     @Upsert
@@ -60,6 +73,9 @@ interface BookmarkDao {
 
     @Query("SELECT * FROM bookmarks WHERE bookId = :bookId ORDER BY orderMajor, orderMinor, orderPatch, id")
     suspend fun forBook(bookId: String): List<BookmarkEntity>
+
+    @Query("SELECT * FROM bookmarks ORDER BY bookId, orderMajor, orderMinor, orderPatch, id")
+    suspend fun all(): List<BookmarkEntity>
 
     @Insert
     suspend fun insert(bookmark: BookmarkEntity): Long
@@ -80,6 +96,13 @@ interface RecentDao {
 
     @Query("UPDATE recent SET openedAtEpochMs = :at WHERE bookId = :bookId")
     suspend fun touch(bookId: String, at: Long)
+
+    /** 백업에서 가져온 연 시각이 더 나중일 때만 옮긴다 — 이 휴대폰에서 방금 연 책이 책장 뒤로 밀리지 않게. */
+    @Query("UPDATE recent SET openedAtEpochMs = :at WHERE bookId = :bookId AND openedAtEpochMs < :at")
+    suspend fun touchIfLater(bookId: String, at: Long)
+
+    @Query("SELECT * FROM recent")
+    suspend fun all(): List<RecentEntity>
 
     @Transaction
     suspend fun opened(bookId: String, at: Long) {
@@ -116,6 +139,9 @@ interface AnnotationDao {
 
     @Query("SELECT * FROM annotations WHERE bookId = :bookId ORDER BY orderMajor, orderMinor, id")
     suspend fun forBook(bookId: String): List<AnnotationEntity>
+
+    @Query("SELECT * FROM annotations ORDER BY bookId, orderMajor, orderMinor, id")
+    suspend fun all(): List<AnnotationEntity>
 
     @Insert
     suspend fun insert(annotation: AnnotationEntity): Long

@@ -136,6 +136,8 @@ private fun OloApp(
     var openId by rememberSaveable { mutableStateOf<String?>(null) }
     /** 라이브러리 위에 뜬 앱 정보([ABOUT]) · 라이선스 본문(그 번호). 화면을 돌려도 남게 저장한다. */
     var aboutPage by rememberSaveable { mutableStateOf<Int?>(null) }
+    // 앱 정보를 닫았다 열어도 "마지막 백업" · 기록 수가 이어지게 여기서 든다.
+    val records = remember { RecordsUi(container.data.records, LastBackupStore(context)) }
     var reader by remember { mutableStateOf<OpenedBook?>(null) }
     var failure by remember { mutableStateOf<String?>(null) }
     var prefs by remember { mutableStateOf(container.prefs.load()) }
@@ -281,7 +283,7 @@ private fun OloApp(
                 onStartScan = { scanned = true },
                 onAbout = { aboutPage = ABOUT },
             )
-            ABOUT -> AboutScreen(onBack = { aboutPage = null }, onLicense = { aboutPage = it })
+            ABOUT -> AboutScreen(records, onBack = { aboutPage = null }, onLicense = { aboutPage = it })
             else -> LicenseScreen(OPEN_LICENSES[shown.coerceIn(OPEN_LICENSES.indices)], onBack = { aboutPage = ABOUT })
         }
         is OpenedBook.Reflow -> {
