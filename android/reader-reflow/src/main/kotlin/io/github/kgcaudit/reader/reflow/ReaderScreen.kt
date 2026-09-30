@@ -32,7 +32,7 @@ import io.github.kgcaudit.reader.ui.design.NoteFilter
 import io.github.kgcaudit.reader.ui.design.NoteItem
 import io.github.kgcaudit.reader.ui.design.Pen
 import io.github.kgcaudit.reader.ui.design.darkPaper
-import io.github.kgcaudit.reader.ui.design.exportNotes
+import io.github.kgcaudit.reader.ui.design.CpNotesExport
 import io.github.kgcaudit.reader.ui.design.noteWhere
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -922,6 +922,13 @@ private fun ReaderLists(
         val entries = toc ?: return@LaunchedEffect
         notes = runCatching { readingNotes(reader, entries) }.getOrNull() ?: ReadingNotes(emptyList(), emptyMap())
     }
+    // 내보내기 화면(0.28.0). 목록 대신 그린다 — 뒤로 가면 보던 거르개 그대로 목록으로 돌아온다.
+    var exporting by remember { mutableStateOf(false) }
+    val exported = notes?.items
+    if (exporting && !exported.isNullOrEmpty()) {
+        CpNotesExport(reader.title, reader.document.meta.author, exported, filter, onBack = { exporting = false })
+        return
+    }
 
     CpFullScreen {
         CpHeader(title = reader.title, subtitle = reader.document.meta.author, onBack = { onPanel(Panel.Bar) }) {
@@ -929,7 +936,7 @@ private fun ReaderLists(
                 CpText(
                     "내보내기", CpTheme.type.label, CpTheme.colors.accent,
                     Modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
-                        .clickable { notes?.let { onShare(exportNotes(reader.title, reader.document.meta.author, it.items)) } }
+                        .clickable { exporting = true }
                         .padding(horizontal = 12.dp, vertical = 12.dp),
                 )
             }

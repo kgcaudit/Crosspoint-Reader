@@ -152,6 +152,15 @@ class PdfAppTest {
         waitFor(hasText("이 휴대폰(안드로이드 14 이하)에서는 PDF 글자를 고를 수 없어 책갈피만 모입니다"))
         shot("23-pdf-bookmarks")
 
+        // 내보내기(0.28.0, EPUB 과 같은 화면). 책갈피뿐이면 칠 갈래는 고를 것이 없어 보이지 않는다 — 고르면 빈 파일이다.
+        node(hasText("내보내기")).performClick()
+        waitFor(hasText("독서노트 내보내기"))
+        waitFor(hasText("# OLO 사용 설명서", substring = true))
+        kotlin.test.assertTrue(compose.onAllNodes(hasText("메모만"), useUnmergedTree = true).fetchSemanticsNodes().isEmpty(), "빈 갈래가 보인다")
+        kotlin.test.assertTrue(compose.onAllNodes(hasText("형광펜과 메모"), useUnmergedTree = true).fetchSemanticsNodes().isEmpty(), "빈 갈래가 보인다")
+        compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        waitFor(hasText("4쪽"))
+
         // 목록에서 책갈피를 누르면 그 쪽으로. 한 쪽 더 넘긴 뒤 닫고 다시 열면 넘긴 쪽(5쪽)이다.
         node(hasText("4쪽")).performClick()
         waitFor(hasText("4 / 6"))

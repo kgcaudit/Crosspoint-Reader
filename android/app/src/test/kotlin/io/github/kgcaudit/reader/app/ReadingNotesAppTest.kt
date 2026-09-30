@@ -409,15 +409,42 @@ class ReadingNotesAppTest {
         node(hasText("메모 1")).performClick()
         compose.waitUntil(5_000) { !hasNode(hasText("보아구렁이는")) }
         assertTrue(hasNode(hasText("둘째 쪽 메모")))
-        node(hasText("전체 3")).performClick()
 
-        // 내보내기(N8): 공유 시트로 글을 보낸다.
+        // 내보내기(0.28.0): 담을 것 · 모양을 고르는 화면. 처음 모양은 마크다운, 담을 것은 보던 거르개(메모) — 메모만 보던
+        // 사람은 메모를 내보내려는 것이다.
         node(hasText("내보내기")).performClick()
+        waitFor(hasText("독서노트 내보내기"))
+        waitFor(hasText("생텍쥐페리 · 독서노트 1개", substring = true))
+        assertTrue(hasNode(hasText("# 노트 책", substring = true)), "미리 보기가 마크다운이 아니다")
+        shot("79-notes-export")
+        // 전체 · 글 모양으로 보내기 — 공유 시트로 글이 간다(0.15.0 부터의 모양 그대로).
+        node(hasText("전체")).performClick()
+        node(hasText("글")).performClick()
+        waitFor(hasText("노트 책 — 생텍쥐페리", substring = true))
+        node(hasText("보내기")).performClick()
         val chooser = shadowOf(compose.activity).nextStartedActivity
         @Suppress("DEPRECATION")
         val text = chooser.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)?.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
         assertTrue(text.startsWith("노트 책 — 생텍쥐페리\n독서노트 3개"), text)
         assertTrue("└ 메모: 둘째 쪽 메모" in text, text)
+        // 메모만 · 마크다운으로 파일에 저장한다.
+        node(hasText("메모만")).performClick()
+        node(hasText("마크다운")).performClick()
+        node(hasText("파일로 저장")).performClick()
+        compose.waitForIdle()
+        val activity = shadowOf(compose.activity)
+        val request = checkNotNull(activity.nextStartedActivityForResult) { "저장할 곳 고르기를 띄우지 않았다" }
+        assertEquals("노트 책 독서노트.md", request.intent.getStringExtra(Intent.EXTRA_TITLE))
+        val saved = android.provider.DocumentsContract.buildDocumentUriUsingTree(FolderProvider.treeUri, "Books/노트.md")
+        compose.runOnUiThread { activity.receiveResult(request.intent, android.app.Activity.RESULT_OK, Intent().setData(saved)) }
+        waitFor(hasText("파일로 저장했습니다"))
+        val md = File(FolderProvider.base, "Books/노트.md").readText()
+        assertTrue(md.startsWith("# 노트 책\n생텍쥐페리 · 독서노트 1개 · "), md)
+        assertTrue("**메모** 둘째 쪽 메모" in md && "보아구렁이는" !in md, md)
+        // 뒤로 가면 목록으로 — 리더까지 닫히지 않는다.
+        compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        waitFor(hasText("독서노트 3"))
+        node(hasText("전체 3")).performClick()
 
         // 목록에서 칠을 누르면 그 자리(2쪽)로.
         node(hasText("둘째 쪽 메모")).performClick()

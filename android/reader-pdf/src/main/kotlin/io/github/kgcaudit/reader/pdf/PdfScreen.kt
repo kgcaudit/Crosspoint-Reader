@@ -116,7 +116,7 @@ import io.github.kgcaudit.reader.ui.design.CpTabBar
 import io.github.kgcaudit.reader.ui.design.CpReadingNotesList
 import io.github.kgcaudit.reader.ui.design.NoteFilter
 import io.github.kgcaudit.reader.ui.design.NoteItem
-import io.github.kgcaudit.reader.ui.design.exportNotes
+import io.github.kgcaudit.reader.ui.design.CpNotesExport
 import io.github.kgcaudit.reader.ui.design.noteWhere
 import io.github.kgcaudit.reader.ui.design.CpText
 import io.github.kgcaudit.reader.ui.design.CpTheme
@@ -1068,16 +1068,18 @@ private fun PdfLists(
     }
     val items = if (marks == null) null else rows.map { it.second }
     fun find(item: NoteItem): Any? = rows.firstOrNull { it.second.key == item.key }?.third
+    // 내보내기 화면(0.28.0, EPUB 과 같은 부품). 목록 대신 그린다.
+    var exporting by remember { mutableStateOf(false) }
+    if (exporting && !items.isNullOrEmpty()) {
+        CpNotesExport(reader.title, null, items, filter, onBack = { exporting = false })
+        return
+    }
     CpFullScreen {
         CpHeader(title = reader.title, subtitle = "PDF", onBack = { onPanel(PdfPanel.Bar) }) {
             if (showNotes && !items.isNullOrEmpty()) {
                 CpText(
                     "내보내기", CpTheme.type.label, CpTheme.colors.accent,
-                    Modifier.clip(RoundedCornerShape(12.dp)).clickable {
-                        val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain")
-                            .putExtra(android.content.Intent.EXTRA_TEXT, exportNotes(reader.title, null, items))
-                        runCatching { context.startActivity(android.content.Intent.createChooser(send, null)) }
-                    }.padding(horizontal = 12.dp, vertical = 12.dp),
+                    Modifier.clip(RoundedCornerShape(12.dp)).clickable { exporting = true }.padding(horizontal = 12.dp, vertical = 12.dp),
                 )
             }
         }
