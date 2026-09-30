@@ -176,7 +176,7 @@ internal fun ReadingRecordsPopups(ui: RecordsUi) {
         is RecordsPopup.NotBackup -> CpPopup(
             title = "백업 파일이 아닙니다",
             message = "고른 파일(${shown.name})은 OLO eBook 백업 파일이 아니어서 아무것도 바꾸지 않았습니다. " +
-                "이름이 ‘OLO eBook 읽기 기록’ 으로 시작하는 파일을 고르세요.",
+                "이름이 ‘OLO eBook 읽기 기록’으로 시작하는 파일을 고르세요.",
             onDismiss = close,
         ) { OkButton(close) }
         is RecordsPopup.Failed -> CpPopup(

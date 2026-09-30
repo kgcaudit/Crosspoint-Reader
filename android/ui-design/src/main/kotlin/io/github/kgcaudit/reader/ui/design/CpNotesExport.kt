@@ -183,7 +183,7 @@ fun CpNotesExport(
             Row(Modifier.fillMaxWidth().padding(CpTheme.metrics.gutter), horizontalArrangement = Arrangement.End) {
                 CpButton("파일로 저장", { save.launch(exportFileName(title, format)) }, primary = false)
                 Spacer(Modifier.width(10.dp))
-                CpButton("보내기", { send(context, title, text) })
+                CpButton("공유", { send(context, title, text) })
             }
         }
         CpToast(toast, { toast = null }, Modifier.align(Alignment.BottomCenter), durationMs = 2_500)

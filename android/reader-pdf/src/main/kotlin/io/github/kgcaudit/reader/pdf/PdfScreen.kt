@@ -213,7 +213,6 @@ fun PdfScreen(
             }
         }
     }
-    VolumeKeyPaging(enabled = prefs.volumeKeys && panel == PdfPanel.None) { forward -> advance(forward) }
     fun say(message: String) {
         toast = message
         toastCount++
@@ -329,6 +328,9 @@ fun PdfScreen(
     val hub by ListenHub.current.collectAsState()
     val listening = hub?.takeIf { it.belongsTo(reader) }
     val heard = listening?.state?.collectAsState()?.value ?: ListenState()
+    // 듣는 동안에는 볼륨키를 음량으로 돌려준다(0.28.1, 사용자 결정). 가져가면 목소리를 줄일 수 없고, 누를 때마다 쪽이 넘어가
+    // 듣기가 그 쪽 첫 문장으로 건너뛰어 읽던 곳을 놓쳤다.
+    VolumeKeyPaging(enabled = prefs.volumeKeys && panel == PdfPanel.None && !heard.active) { forward -> advance(forward) }
     var listenSheet by remember { mutableStateOf(false) }
     fun startListening() = whenReadable {
         val l = Listening(reader, kit.speaker(listen.engine), ListenHub.scope)
@@ -680,9 +682,9 @@ fun PdfScreen(
     }
 
     if (state.ready && state.pageCount <= 0) {
-        CpPopup(title = "이 PDF 를 열지 못했습니다", message = "쪽이 하나도 없는 파일입니다.", onDismiss = closeBook) {
+        CpPopup(title = "이 PDF를 열지 못했습니다", message = "쪽이 하나도 없는 파일입니다.", onDismiss = closeBook) {
             Spacer(Modifier.height(16.dp))
-            CpButton("라이브러리로", closeBook)
+            CpButton("홈으로", closeBook)
         }
     }
 }
@@ -690,7 +692,7 @@ fun PdfScreen(
 private enum class PdfPanel { None, Bar, View, Settings, Contents, Notes, Search, Voices }
 
 /** 글자가 그림인 PDF 에서 찾기 · 듣기 · 고르기를 누르면(결정 1). */
-internal const val SCANNED = "이 PDF 는 글자가 그림으로 되어 있어(스캔본) 찾기 · 듣기 · 형광펜을 쓸 수 없습니다"
+internal const val SCANNED = "이 PDF는 글자가 그림으로 되어 있어(스캔본) 찾기 · 듣기 · 형광펜을 쓸 수 없습니다"
 
 /**
  * 보이는 쪽의 "한 화면 옮기기". 넘김 효과 동안 옛 쪽과 새 쪽이 함께 있으므로, 나중에 걸린(새) 쪽만 남고 옛 쪽이

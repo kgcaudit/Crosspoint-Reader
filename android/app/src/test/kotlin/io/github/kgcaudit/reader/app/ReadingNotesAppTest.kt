@@ -421,7 +421,7 @@ class ReadingNotesAppTest {
         node(hasText("전체")).performClick()
         node(hasText("글")).performClick()
         waitFor(hasText("노트 책 — 생텍쥐페리", substring = true))
-        node(hasText("보내기")).performClick()
+        node(hasText("공유")).performClick()
         val chooser = shadowOf(compose.activity).nextStartedActivity
         @Suppress("DEPRECATION")
         val text = chooser.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)?.getStringExtra(Intent.EXTRA_TEXT).orEmpty()

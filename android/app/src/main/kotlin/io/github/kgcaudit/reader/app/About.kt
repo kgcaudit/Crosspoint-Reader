@@ -56,7 +56,7 @@ internal val OPEN_LICENSES = listOf(
         subtitle = "깨진 PDF 글꼴의 한글을 되살릴 때 씁니다",
         badge = "BSD",
         licenseName = "BSD 3조항 라이선스",
-        source = "Adobe cmap-resources 의 Adobe-KR-9 표 (github.com/adobe-type-tools/cmap-resources)",
+        source = "Adobe cmap-resources의 Adobe-KR-9 표 (github.com/adobe-type-tools/cmap-resources)",
         text = R.raw.license_adobe_kr,
     ),
     OpenLicense(
@@ -100,7 +100,7 @@ internal fun AboutScreen(records: RecordsUi, onBack: () -> Unit, onLicense: (Int
             Spacer(Modifier.height(4.dp))
             CpText("판 ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) · ${koreanDate(BuildConfig.BUILD_DATE)}", CpTheme.type.subtitle, c.textMuted)
             Spacer(Modifier.height(12.dp))
-            CpText("EPUB · TXT · PDF 를 간편하게 읽고 책갈피를 꽂는 뷰어입니다.", CpTheme.type.body, c.text, maxLines = 3)
+            CpText("EPUB · TXT · PDF를 간편하게 읽고 책갈피를 꽂는 뷰어입니다.", CpTheme.type.body, c.text, maxLines = 3)
             Spacer(Modifier.height(6.dp))
             CpText(
                 "인터넷을 쓰지 않습니다. 읽은 자리 · 책갈피 · 형광펜은 이 휴대폰에만 남습니다. 휴대폰을 바꿀 때는 백업 파일로 옮기세요.",

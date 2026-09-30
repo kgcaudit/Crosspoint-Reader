@@ -14,7 +14,7 @@ data class ScreenPrefs(
     /** 화면 밝기 0..1. null 은 시스템 밝기를 따른다(자동 밝기 포함). */
     val brightness: Float? = null,
     val keepScreenOn: KeepScreenOn = KeepScreenOn.System,
-    /** 켜면 음량↓ = 다음 쪽, 음량↑ = 앞 쪽. 기본은 끔 — 켜 두면 읽는 동안 소리를 줄일 수 없다. */
+    /** 켜면 음량↓ = 다음 쪽, 음량↑ = 앞 쪽. 기본은 끔 — 켜 두면 읽는 동안 소리를 줄일 수 없다(듣는 동안은 음량으로 돌려준다). */
     val volumeKeys: Boolean = false,
     val touch: TouchZones = TouchZones.Default,
     val footer: Footer = Footer(),

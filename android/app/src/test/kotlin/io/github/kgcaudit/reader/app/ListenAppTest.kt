@@ -19,6 +19,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.core.app.ApplicationProvider
 import io.github.kgcaudit.reader.reflow.ReaderPrefs
+import io.github.kgcaudit.reader.ui.design.ScreenPrefs
+import android.view.KeyEvent
 import io.github.kgcaudit.reader.listen.ListenHub
 import io.github.kgcaudit.reader.listen.ListenKit
 import io.github.kgcaudit.reader.listen.ListenService
@@ -265,6 +267,18 @@ class ListenAppTest {
         compose.waitUntil(5_000) { speaker.current == "첫 문장이다." }
         compose.waitUntil(5_000) { app.container.prefs.load().listen.join == io.github.kgcaudit.reader.layout.book.WordJoin.Off }
         assertTrue(ListenHub.current.value!!.state.value.playing, "세기를 바꿔도 읽기는 이어진다")
+    }
+
+    @Test
+    fun `while listening the volume keys change the volume instead of turning pages`() {
+        // 볼륨키 넘김을 켠 채 듣는다(0.28.1, 사용자 결정). 가져가면 목소리를 줄일 수 없고, 누를 때마다 쪽이 넘어가 읽던 곳을 놓쳤다.
+        openWith(ReaderPrefs(screen = ScreenPrefs(volumeKeys = true)))
+        startListening()
+        var eaten = true
+        compose.runOnUiThread { eaten = compose.activity.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_VOLUME_DOWN)) }
+        compose.waitForIdle()
+        assertFalse(eaten, "듣는 중에 볼륨키를 가져갔다")
+        assertTrue(hasNode(hasText("1 / ", substring = true)), "듣는 중에 볼륨키가 쪽을 넘겼다")
     }
 
     @Test

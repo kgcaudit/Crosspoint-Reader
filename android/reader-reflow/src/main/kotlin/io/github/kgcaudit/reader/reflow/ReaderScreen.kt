@@ -247,7 +247,9 @@ fun ReaderScreen(
         ),
         activity = state.position,
     )
-    VolumeKeyPaging(enabled = prefs.screen.volumeKeys && panel == Panel.None) { forward ->
+    // 듣는 동안에는 볼륨키를 음량으로 돌려준다(0.28.1, 사용자 결정). 가져가면 목소리를 줄일 수 없고, 누를 때마다 쪽이 넘어가
+    // 듣기가 그 쪽 첫 문장으로 건너뛰어 읽던 곳을 놓쳤다.
+    VolumeKeyPaging(enabled = prefs.screen.volumeKeys && panel == Panel.None && !listen.active) { forward ->
         scope.go { if (forward) reader.next() else reader.previous() }
     }
     fun toggleBookmark() = scope.go {
@@ -821,7 +823,7 @@ fun ReaderScreen(
             if (state.page == null) {
                 CpPopup(title = "이 책을 열지 못했습니다", message = message, onDismiss = onClose) {
                     Spacer(Modifier.height(16.dp))
-                    CpButton("라이브러리로", onClose)
+                    CpButton("홈으로", onClose)
                 }
             }
         }
