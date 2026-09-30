@@ -318,7 +318,7 @@ class PrefsStore(context: Context) {
             ),
             rotation = enumOf(KEY_ROTATION, ScreenRotation.Auto),
             twoPagesLandscape = sp.getBoolean(KEY_TWO_PAGES_LANDSCAPE, true),
-            twoPagesPortrait = sp.getBoolean(KEY_TWO_PAGES_PORTRAIT, false),
+            twoPagesPortrait = sp.getBoolean(KEY_TWO_PAGES_PORTRAIT, true),
             pdfCoverAlone = sp.getBoolean(KEY_PDF_COVER_ALONE, true),
             pageTurn = enumOf(KEY_PAGE_TURN, PageTurn.None),
             brightnessGesture = sp.getBoolean(KEY_BRIGHTNESS_GESTURE, true),
@@ -419,7 +419,11 @@ class PrefsStore(context: Context) {
         private const val KEY_FOOTER_CENTER = "footerCenter"
         private const val KEY_FOOTER_RIGHT = "footerRight"
         private const val KEY_TWO_PAGES_LANDSCAPE = "twoPagesLandscape"
-        private const val KEY_TWO_PAGES_PORTRAIT = "twoPagesPortrait"
+        /**
+         * 0.30.0 에서 이름을 바꿨다(기본을 켬으로). 저장할 때마다 모든 설정을 쓰므로 옛 이름에는 거의 모든 사용자에게
+         * "끔" 이 적혀 있다 — 휴대폰에서는 고를 수도 없던 값이다. 옛 이름을 읽으면 새 기본이 아무에게도 닿지 않는다.
+         */
+        private const val KEY_TWO_PAGES_PORTRAIT = "twoPagesPortraitV2"
         private const val KEY_PDF_COVER_ALONE = "pdfCoverAlone"
         private const val KEY_PAGE_TURN = "pageTurn"
         private const val KEY_BRIGHTNESS_GESTURE = "brightnessGesture"

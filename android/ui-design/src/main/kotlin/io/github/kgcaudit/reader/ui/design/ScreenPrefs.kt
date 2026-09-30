@@ -21,8 +21,11 @@ data class ScreenPrefs(
     val rotation: ScreenRotation = ScreenRotation.Auto,
     /** 가로에서 두쪽보기. 기본 켬(T1) — 가로 한 쪽은 한 줄이 50자 안팎이라 읽기 힘들다. */
     val twoPagesLandscape: Boolean = true,
-    /** 세로에서 두쪽보기. 넓은 화면(태블릿 · 폴더블)에서만 듣는다(T2). */
-    val twoPagesPortrait: Boolean = false,
+    /**
+     * 세로에서 두쪽보기. 넓은 화면(태블릿 · 폴더블)에서만 듣는다(T2). 기본 켬(0.30.0) — 폴더블 본 화면 세로(732dp)에
+     * 한 쪽을 놓으면 한 줄이 40자를 넘어 줄 끝에서 다음 줄 첫머리를 놓쳤다. 휴대폰에서는 켜 있어도 한 쪽이다.
+     */
+    val twoPagesPortrait: Boolean = true,
     /** PDF 두쪽보기에서 표지(1쪽)를 따로 한 장으로(T4). 잡지의 양면 기사 · 광고가 제짝으로 맞붙는다. */
     val pdfCoverAlone: Boolean = true,
     /** 쪽 넘김 효과(E7). 기본 없음 — e-ink 원형에는 효과가 없었고, 지금까지의 모양이다. */

@@ -12,7 +12,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
@@ -94,7 +97,13 @@ fun CpReaderBar(
                 // 아래 줄("모든 보기 설정")이 잘려 누를 수 없었다. 진행 막대 · 도구 단추는 늘 보인다.
                 // 남는 높이를 weight(fill = false) 로 나눠 주는 방식은 가로에서 끝없이 다시 재는 고리에 빠졌다
                 // (TwoPageTest 에서 "Compose did not get idle") — 높이의 상한을 숫자로 준다.
-                Column(Modifier.heightIn(max = maxPanel).verticalScroll(rememberScrollState())) { above() }
+                // 태블릿 모드에서는 보기 판을 가운데 [VIEW_PANEL_MAX_WIDTH] 폭으로(0.30.0). 969dp 로 늘이면 이름과 단추가
+                // 화면 양 끝으로 갈라졌다. 진행 막대 · 도구 단추는 그대로 폭 전체.
+                Column(
+                    Modifier.align(Alignment.CenterHorizontally)
+                        .then(if (cpTablet()) Modifier.widthIn(max = VIEW_PANEL_MAX_WIDTH) else Modifier)
+                        .heightIn(max = maxPanel).verticalScroll(rememberScrollState()),
+                ) { above() }
                 val shown = dragging ?: progress
                 Row(Modifier.fillMaxWidth().padding(horizontal = CpTheme.metrics.gutter), verticalAlignment = Alignment.CenterVertically) {
                     CpSlider(
@@ -122,16 +131,56 @@ fun CpReaderBar(
 /**
  * 리더 위를 덮는 전체 화면 판(목차·책갈피·글꼴 목록). 시스템 바를 피하고, 뒤의 지면으로 터치가
  * 새지 않게 막는다 — 막지 않으면 목록의 빈 곳을 누를 때 뒤에서 페이지가 넘어간다.
+ *
+ * 태블릿 모드([cpTablet])에서는 오른쪽 옆 판([SIDE_PANEL_WIDTH])이다(0.30.0, 구상안 가안). 폴더블 본 화면에서 목차가
+ * 화면 전체를 덮으면 읽던 쪽이 사라지고, 가로에서는 목록이 969dp 로 늘어났다. 판 밖을 누르면 뒤로 가기와 같다 —
+ * 한 겹만 닫힌다(설정의 하위 화면이면 설정으로).
+ *
+ * @param side false 면 태블릿에서도 화면 전체를 덮되 내용 폭만 [CONTENT_MAX_WIDTH] 로 줄인다(리더 밖의 화면: 서재 찾기).
  */
 @Composable
-fun CpFullScreen(content: @Composable ColumnScope.() -> Unit) {
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(CpTheme.colors.background)
-            // 카메라 구멍도 피한다(0.29.0). 가로로 읽다 목차 · 설정 · 찾기를 열면 행 앞머리나 뒤로 단추가 구멍에 가렸다.
-            .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout))
-            .blockTouches(),
-        content = content,
-    )
+fun CpFullScreen(side: Boolean = true, content: @Composable ColumnScope.() -> Unit) {
+    val insets = WindowInsets.systemBars.union(WindowInsets.displayCutout)
+    if (!cpTablet()) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .background(CpTheme.colors.background)
+                // 카메라 구멍도 피한다(0.29.0). 가로로 읽다 목차 · 설정 · 찾기를 열면 행 앞머리나 뒤로 단추가 구멍에 가렸다.
+                .windowInsetsPadding(insets)
+                .blockTouches(),
+            content = content,
+        )
+        return
+    }
+    val back = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
+    Box(Modifier.fillMaxSize()) {
+        if (side) {
+            // 뒤의 쪽은 흐리게 보인다. 누르면 판을 닫는다(뒤로 가기) — 쪽이 넘어가지 않게 여기서 받는다.
+            Box(
+                Modifier.matchParentSize().background(SIDE_SCRIM)
+                    .clickable(indication = null, interactionSource = null, onClickLabel = "닫기") { back?.onBackPressed() },
+            )
+            Column(
+                Modifier
+                    .align(Alignment.CenterEnd)
+                    .fillMaxHeight()
+                    .width(SIDE_PANEL_WIDTH)
+                    .background(CpTheme.colors.background)
+                    .windowInsetsPadding(insets.only(WindowInsetsSides.Vertical + WindowInsetsSides.End))
+                    .blockTouches(),
+                content = content,
+            )
+        } else {
+            Box(
+                Modifier.matchParentSize().background(CpTheme.colors.background).windowInsetsPadding(insets).blockTouches(),
+                contentAlignment = Alignment.TopCenter,
+            ) {
+                Column(Modifier.fillMaxHeight().widthIn(max = CONTENT_MAX_WIDTH).fillMaxWidth(), content = content)
+            }
+        }
+    }
 }
+
+/** 옆 판 뒤 막. 팝업보다 옅다 — 뒤의 쪽이 읽을 만큼 보여야 "지금 어디를 읽는지" 가 남는다. */
+private val SIDE_SCRIM = androidx.compose.ui.graphics.Color(0x44000000)

@@ -166,15 +166,34 @@ class BookReader(
      * 순간 몇 장 앞으로 튄다.
      */
     suspend fun layOut(requested: LayoutSpec, twoPages: Boolean = false) = run {
-        var newSpec = requested.copy(edition = edition)
+        val newSpec = requested.copy(edition = edition)
         if (newSpec == spec && twoPages == spread) return@run
+        // 읽던 글자. 조판이 끝나든 도중에 취소되든 이것으로 되돌린다(0.30.0). show() 는 기준을 펼침의 첫머리로 바꾸는데,
+        // 그 뒤 책갈피 조회 등에서 취소되면(폴더블을 빨리 접었다 펴면 화면이 앞 조판을 취소한다) 바뀐 기준이 남아
+        // 다음 조판이 장 첫 쪽으로 갔다.
+        val anchor = shownLocator
+        try {
+            relayOut(newSpec, twoPages, anchor)
+        } catch (e: Throwable) {
+            // 취소도 포함. 설정을 잊어 다음 요청이 처음부터 다시 조판하게 한다 — 두면 "이미 같은 설정" 으로 보고 바로
+            // 돌아가, 화면에는 끝나지 못한 조판의 앞 모양(한 쪽 ↔ 두 쪽)이 남았다.
+            spec = null
+            throw e
+        } finally {
+            // 보인 쪽(두쪽이면 펼침)에는 읽던 글자가 들어 있다. 기준을 그 글자로 남긴다 — 펼침의 왼쪽 쪽 시작으로
+            // 바꾸면 가로(두 쪽)로 돌렸다 세로로 돌아올 때마다 한 쪽씩 뒤로 밀린다(ScreenRotationTest 에서 발견).
+            if (anchor != null) shownLocator = anchor
+        }
+    }
+
+    private suspend fun relayOut(requested: LayoutSpec, twoPages: Boolean, anchor: Locator.Reflow?) {
+        var newSpec = requested
         spread = twoPages
         if (newSpec == spec) {
             // 조판은 그대로이고 한 쪽 ↔ 두 쪽만 바뀌었다(같은 폭). 펼침만 다시 맞춘다.
             _state.value.position?.let { show(it) }
-            return@run
+            return
         }
-        val anchor = shownLocator
         _state.value = _state.value.copy(busy = _state.value.page == null)
 
         if (newSpec.useBookFonts && typefaces == null && bookFontsDir != null) {
@@ -196,7 +215,7 @@ class BookReader(
             if (newSpec == spec) {
                 _state.value = _state.value.copy(busy = false)
                 _state.value.position?.let { show(it) }
-                return@run
+                return
             }
         }
         val built = BookLayout(document, newSpec, store, measurer(newSpec), fonts = bookFonts)
@@ -206,18 +225,10 @@ class BookReader(
         spec = newSpec
         texts.clear()
 
-        try {
-            val position = if (anchor != null) built.resolve(anchor) else newSession.restore()
-            show(position)
-        } catch (e: Exception) {
-            // 새 조판으로 보이지 못했다. 설정을 잊어 다음 요청이 다시 시도하게 한다 — 두면 같은 설정이라 바로 돌아가고,
-            // 화면의 쪽 번호는 옛 조판의 것이라 넘길 때 엉뚱한 쪽이 열렸다.
-            spec = null
-            throw e
-        }
-        // 보인 쪽(두쪽이면 펼침)에는 읽던 글자가 들어 있다. 기준을 그 글자로 남긴다 — 펼침의 왼쪽 쪽 시작으로
-        // 바꾸면 가로(두 쪽)로 돌렸다 세로로 돌아올 때마다 한 쪽씩 뒤로 밀린다(ScreenRotationTest 에서 발견).
-        if (anchor != null) shownLocator = anchor
+        // 보이지 못하면(예외 · 취소) layOut 이 설정을 잊는다 — 두면 같은 설정이라 바로 돌아가고, 화면의 쪽 번호는 옛
+        // 조판의 것이라 넘길 때 엉뚱한 쪽이 열렸다.
+        val position = if (anchor != null) built.resolve(anchor) else newSession.restore()
+        show(position)
         // 옛 설정의 캐시는 다시 쓰일 일이 드물다. 남겨 두면 글자 크기를 바꿀 때마다 쌓인다.
         built.pruneStaleCaches()
     }

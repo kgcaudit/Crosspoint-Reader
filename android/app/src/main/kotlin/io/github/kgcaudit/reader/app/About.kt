@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -27,7 +28,9 @@ import io.github.kgcaudit.reader.ui.design.CpHeader
 import io.github.kgcaudit.reader.ui.design.CpListRow
 import io.github.kgcaudit.reader.ui.design.CpSectionLabel
 import io.github.kgcaudit.reader.ui.design.CpText
+import io.github.kgcaudit.reader.ui.design.CONTENT_MAX_WIDTH
 import io.github.kgcaudit.reader.ui.design.CpTheme
+import io.github.kgcaudit.reader.ui.design.cpTablet
 import io.github.kgcaudit.reader.ui.design.CpToast
 
 /**
@@ -93,7 +96,7 @@ internal fun AboutScreen(records: RecordsUi, onBack: () -> Unit, onLicense: (Int
     val c = CpTheme.colors
     Box(Modifier.fillMaxSize().background(c.background).windowInsetsPadding(WindowInsets.safeDrawing)) {
     // 라이선스가 늘거나 글자를 키우면 화면을 넘는다 — 기록 행이 그 아래에 묻히지 않게 굴린다.
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+    Column(Modifier.align(Alignment.TopCenter).then(tabletWidth()).fillMaxSize().verticalScroll(rememberScrollState())) {
         CpHeader("앱 정보", onBack = onBack)
         Column(Modifier.padding(horizontal = CpTheme.metrics.gutter, vertical = 12.dp)) {
             CpText("OLO eBook", CpTheme.type.title, c.text)
@@ -122,6 +125,14 @@ internal fun AboutScreen(records: RecordsUi, onBack: () -> Unit, onLicense: (Int
     }
 }
 
+/**
+ * 태블릿에서 정보 · 기록 · 라이선스를 [CONTENT_MAX_WIDTH] 로(0.30.0). 펼친 폴더블 가로에서 라이선스 문단이 969dp 한
+ * 줄로 늘어 눈이 줄 끝에서 다음 줄 첫머리를 놓쳤고, 기록 행의 이름과 값이 화면 양 끝으로 갈라졌다.
+ */
+@Composable
+private fun tabletWidth(): Modifier =
+    if (cpTablet()) Modifier.widthIn(max = CONTENT_MAX_WIDTH) else Modifier
+
 /** 라이선스 본문. 문단마다 한 항목 — Apache 본문(1만 자)을 한 덩이로 그리면 처음 열 때 멈칫한다. */
 @Composable
 internal fun LicenseScreen(license: OpenLicense, onBack: () -> Unit) {
@@ -132,7 +143,8 @@ internal fun LicenseScreen(license: OpenLicense, onBack: () -> Unit) {
         context.resources.openRawResource(license.text).bufferedReader().use { it.readText() }
             .split("\n\n").map { it.trim() }.filter { it.isNotEmpty() }
     }
-    Column(Modifier.fillMaxSize().background(c.background).windowInsetsPadding(WindowInsets.safeDrawing)) {
+    Box(Modifier.fillMaxSize().background(c.background).windowInsetsPadding(WindowInsets.safeDrawing), contentAlignment = Alignment.TopCenter) {
+    Column(tabletWidth().fillMaxSize()) {
         CpHeader(license.title, subtitle = license.licenseName, onBack = onBack)
         LazyColumn(Modifier.fillMaxSize().padding(horizontal = CpTheme.metrics.gutter)) {
             item {
@@ -143,5 +155,6 @@ internal fun LicenseScreen(license: OpenLicense, onBack: () -> Unit) {
             }
             item { Spacer(Modifier.height(24.dp)) }
         }
+    }
     }
 }

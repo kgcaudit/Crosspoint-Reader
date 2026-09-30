@@ -491,7 +491,8 @@ private fun BookSearch(
     onBack: () -> Unit,
 ) {
     val c = CpTheme.colors
-    CpFullScreen {
+    // 서재 찾기는 옆 판이 아니다 — 뒤에 읽던 쪽이 없다. 태블릿에서는 폭만 줄여 결과 줄이 969dp 로 늘어지지 않게.
+    CpFullScreen(side = false) {
         CpSearchField(query, onQuery, onClear = { onQuery("") }, placeholder = "책 제목 · 저자 · 파일 이름", onBack = onBack)
         when {
             query.isBlank() -> CpText(
@@ -741,7 +742,10 @@ private fun folderName(uri: Uri): String {
 @Composable
 private fun shelfColumns(): Int {
     val screen = LocalShelfWidth.current
-    val fit = ((screen - CpTheme.metrics.gutter * 2 + SHELF_GAP) / (SHELF_ITEM + SHELF_GAP)).toInt()
+    // 태블릿은 표지를 키운다(0.30.0, 구상안 가안). 102dp 로 펼친 폴더블을 채우면 한 줄에 예닐곱 권이 작게 늘어서
+    // 제목 글자가 두세 자에서 잘리고 표지 그림이 알아볼 수 없었다.
+    val item = if (io.github.kgcaudit.reader.ui.design.cpTablet()) SHELF_ITEM_TABLET else SHELF_ITEM
+    val fit = ((screen - CpTheme.metrics.gutter * 2 + SHELF_GAP) / (item + SHELF_GAP)).toInt()
     return fit.coerceAtLeast(SHELF_COLUMNS)
 }
 
@@ -751,5 +755,6 @@ private val LocalShelfWidth = androidx.compose.runtime.compositionLocalOf { 360.
 /** 책장 한 줄에 한 화면으로 보이는 최소 권수(세로 폰). 더 있으면 옆으로 넘긴다. */
 private const val SHELF_COLUMNS = 3
 private val SHELF_ITEM = 102.dp
+private val SHELF_ITEM_TABLET = 130.dp
 private val SHELF_GAP = 14.dp
 private val SHELF_PEEK = 28.dp

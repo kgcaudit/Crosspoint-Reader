@@ -188,6 +188,9 @@ class ReadingNotesAppTest {
             node(hasContentDescription("메모 입력")).performTextInput("짧은 화면")
             node(hasText("저장")).performClick()
             compose.waitUntil(5_000) { !hasNode(hasContentDescription("메모 입력")) }
+            // 판이 닫힌 것은 저장이 끝났다는 뜻이 아니다 — 저장은 조판 스레드에서 뒤이어 끝난다. 곧장 읽으면 가끔 비어
+            // 있었다(0.30.0 전체 시험에서 한 번). 저장될 때까지 기다린다(저장이 아예 안 되면 여기서 시간이 다 된다).
+            compose.waitUntil(10_000) { runBlocking { app.container.data.annotations.forBook(bookId()) }.isNotEmpty() }
             assertEquals("짧은 화면", runBlocking { app.container.data.annotations.forBook(bookId()) }.single().note)
         } finally {
             org.robolectric.RuntimeEnvironment.setQualifiers("w393dp-h851dp-xhdpi")

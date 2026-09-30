@@ -142,8 +142,9 @@ class TwoPageTest {
         node(hasText("모든 보기 설정")).performClick()
         waitFor(hasText("넓은 화면(태블릿 · 폴더블)에서만 쓸 수 있습니다"))
         shot("55-two-page-settings-phone")
-        clickInRow("세로에서 두 쪽 보기", "켬")
-        assertFalse(app.container.prefs.load().screen.twoPagesPortrait)
+        val before = app.container.prefs.load().screen.twoPagesPortrait
+        clickInRow("세로에서 두 쪽 보기", if (before) "끔" else "켬")
+        assertEquals(before, app.container.prefs.load().screen.twoPagesPortrait)
         // EPUB 설정에는 PDF 묶음이 없다.
         assertFalse(hasNode(hasText("두 쪽 보기에서 표지")))
     }
