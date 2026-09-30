@@ -146,7 +146,7 @@ fun CpReadingFooter(info: FooterInfo, footer: Footer, color: Color, modifier: Mo
     Column(modifier.fillMaxWidth().padding(horizontal = CpTheme.metrics.gutter)) {
         // 빈 곳은 지면의 흐린 글자색을 옅게(0.29.0). UI 의 progressTrack 은 세피아 1.09 · 회색 1.04 로 지면에 묻혀 얼마
         // 남았는지 보이지 않았다.
-        CpProgressBar(info.percent / 100f, weight = CpBarWeight.Thin, track = CpTheme.colors.inkMuted.copy(alpha = 0.28f))
+        CpProgressBar(info.percent / 100f, weight = CpBarWeight.Thin, track = CpTheme.colors.readingTrack)
         Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             // 양쪽 칸이 같은 몫을 가져야 가운데가 화면 가운데에 선다. 제목이 길면 말줄임으로 끊긴다.
             CpText(text(footer.left), CpTheme.type.caption, color, Modifier.weight(1f))
@@ -157,6 +157,9 @@ fun CpReadingFooter(info: FooterInfo, footer: Footer, color: Color, modifier: Mo
 }
 
 private val Footer.slots: List<FooterItem> get() = listOf(left, center, right)
+
+/** 지면 위 진행 막대의 빈 곳: 그 지면의 흐린 글자색을 옅게. */
+internal val CpColors.readingTrack: Color get() = inkMuted.copy(alpha = 0.28f)
 
 /** 4 → "4분", 130 → "2시간 10분", 0 → "1분 미만". */
 internal fun minutesText(minutes: Int): String = when {

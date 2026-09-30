@@ -86,7 +86,7 @@ class ContrastTest {
         // UI 의 progressTrack 은 세피아 1.09 · 회색 1.04 로 지면에 묻혀 얼마 남았는지 보이지 않았다.
         for (theme in PaperTheme.entries) {
             val paper = theme.paper ?: continue
-            val track = paper.inkMuted.copy(alpha = 0.28f).compositeOver(paper.paper)
+            val track = LightColors.withPaper(paper).readingTrack.compositeOver(paper.paper)
             assertAtLeast(1.25, track, paper.paper, "${theme.label}: 진행 막대 빈 곳")
         }
         assertTrue(contrast(LightColors.progressTrack, PaperTheme.Sepia.paper!!.paper) < 1.25, "검사가 옛 빈 곳 색을 통과시켰다")
