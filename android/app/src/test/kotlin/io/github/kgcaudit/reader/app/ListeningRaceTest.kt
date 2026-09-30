@@ -34,7 +34,7 @@ class ListeningRaceTest {
         override val title = "느린 책"
         override suspend fun speech(unit: Int): SpeechChapter {
             if (unit == 1) gate.await()
-            val text = if (unit == 0) "첫 장의 끝 문장이다." else "둘째 장의 첫 문장이다."
+            val text = if (unit == 0) "첫 장의 끝 문장이다." else "둘째 장의 첫 문장이다. 둘째 장의 둘째 문장이다."
             return SpeechChapter(unit, text, splitSentences(text))
         }
         override suspend fun unitCount() = 2
@@ -79,7 +79,8 @@ class ListeningRaceTest {
         val gate = CompletableDeferred<Unit>()
         val speaker = ListenAppTest.FakeSpeaker(null)
         val listening = Listening(SlowBook(gate), speaker, scope)
-        scope.launch { listening.start(1, 0, 1f, null) }
+        // 보던 쪽이 둘째 문장에서 시작한다.
+        scope.launch { listening.start(1, "둘째 장의 첫 문장이다. ".length, 1f, null) }
         scope.runCurrent()
         assertTrue(listening.state.value.preparing)
         listening.toggle()
@@ -87,9 +88,9 @@ class ListeningRaceTest {
         scope.runCurrent()
         assertNull(speaker.current, "멈춤을 눌렀는데 읽기 시작했다")
         assertFalse(listening.state.value.playing)
-        // 다시 누르면 켜던 자리(둘째 장 첫 문장)에서 읽는다.
+        // 다시 누르면 켜던 자리에서 읽는다 — 장 첫 문장으로 돌아가지 않는다.
         listening.toggle()
         scope.runCurrent()
-        assertEquals("둘째 장의 첫 문장이다.", speaker.current)
+        assertEquals("둘째 장의 둘째 문장이다.", speaker.current)
     }
 }

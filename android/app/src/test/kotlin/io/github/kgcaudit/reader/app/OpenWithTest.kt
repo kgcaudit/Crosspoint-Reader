@@ -133,8 +133,9 @@ class OpenWithTest {
         download("받은 책.epub", SampleBooks.epub())
         launch(view("받은 책.epub", "application/epub+zip").addFlags(Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY))
         waitFor("폴더 추가")
-        compose.waitForIdle()
-        assertTrue(compose.onAllNodes(hasText("1 / ", substring = true), useUnmergedTree = true).fetchSemanticsNodes().isEmpty(), "닫은 책이 다시 열렸다")
+        // 서재가 먼저 뜨고 받은 파일은 조금 뒤에 열린다. 열리기를 기다려 본다 — 끝내 열리지 않아야 한다.
+        val opened = runCatching { waitFor("1 / ", substring = true, timeoutMs = 5_000) }.isSuccess
+        assertTrue(!opened, "닫은 책이 다시 열렸다")
         assertTrue(compose.onAllNodes(hasText("열지 못했습니다", substring = true), useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
     }
 

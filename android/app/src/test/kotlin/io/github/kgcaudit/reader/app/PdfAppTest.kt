@@ -300,6 +300,30 @@ class PdfAppTest {
     }
 
     @Test
+    fun `swapping the tap zones takes effect on the page already on screen`() {
+        // 보던 쪽에서 터치 영역을 "좌우 바꾸기" 로 바꿨는데, 그 쪽에서는 오른쪽을 누르면 여전히 다음 쪽으로 갔다(0.28.3).
+        node(hasText("설명서.pdf")).performClick()
+        waitFor(hasText("1 / 6"))
+        compose.onRoot().performTouchInput { click(centerRight.copy(x = width * 0.9f)) }
+        waitFor(hasText("2 / 6"))
+        compose.onRoot().performTouchInput { click(center) }
+        waitFor(hasText("보기"))
+        node(hasText("보기")).performClick()
+        waitFor(hasText("모든 보기 설정"))
+        node(hasText("모든 보기 설정")).performClick()
+        waitFor(hasText("터치 영역"))
+        node(hasText("터치 영역")).performClick()
+        waitFor(hasText("좌우 바꾸기"))
+        node(hasText("좌우 바꾸기")).performClick()
+        compose.waitForIdle()
+        repeat(3) { compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }; compose.waitForIdle() }
+        compose.waitUntil(5_000) { compose.onAllNodes(hasText("모든 보기 설정"), useUnmergedTree = true).fetchSemanticsNodes().isEmpty() }
+        // 이제 오른쪽은 앞 쪽이다.
+        compose.onRoot().performTouchInput { click(centerRight.copy(x = width * 0.9f)) }
+        waitFor(hasText("1 / 6"))
+    }
+
+    @Test
     @Config(qualifiers = "w851dp-h393dp-xhdpi")
     fun `choosing fit width on the page being read scrolls that same page instead of skipping to the next`() {
         // 한 쪽 보기로 읽다가 그 쪽에서 폭 맞춤을 고른다. 누르기 처리가 옛 설정을 쥐고 있어 쪽 아래를 건너뛰고 다음 쪽으로

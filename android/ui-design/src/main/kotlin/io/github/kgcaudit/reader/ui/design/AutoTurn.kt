@@ -65,11 +65,7 @@ fun rememberAutoTurn(setting: AutoTurn, pageKey: Any?, suspended: Boolean, onTur
         // 화면이 꺼졌거나 다른 앱을 보는 동안은 세지 않는다(0.28.3). 이 효과의 delay 는 뒤에서도 흐르는데 화면은 다시
         // 그려지지 않아, 모르는 사이 한 쪽이 넘어가고 쪽 번호가 안 바뀐 줄 알고 아래의 "책 끝" 으로 빠져 자동 넘김이 꺼졌다.
         suspend fun onScreen() { lifecycle.currentStateFlow.first { it.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED) } }
-        while (state.remaining > 0) {
-            delay(1_000)
-            onScreen()
-            state.remaining--
-        }
+        state.countDown(::onScreen)
         latest()
         // 넘겼는데 쪽이 그대로면(책 끝) 이 효과가 취소되지 않고 여기 온다 — 멈춘다. 끝 쪽에서 0초를 붙들고 있지 않게.
         // 그림 두 장을 기다린다: 새 쪽이 그려졌다면 그사이 이 효과는 취소됐다. 앞에 서지 않은 동안은 그리지 않으므로
@@ -81,6 +77,18 @@ fun rememberAutoTurn(setting: AutoTurn, pageKey: Any?, suspended: Boolean, onTur
         state.stopped = true
     }
     return state
+}
+
+/**
+ * 남은 초를 0 까지 센다. 한 초가 지날 때마다 [onScreen] 을 기다린다 — 화면이 앞에 서지 않은 동안은 거기서 멈춰 있다가,
+ * 돌아오면 남은 초부터 이어 센다.
+ */
+internal suspend fun AutoTurnState.countDown(onScreen: suspend () -> Unit) {
+    while (remaining > 0) {
+        delay(1_000)
+        onScreen()
+        remaining--
+    }
 }
 
 /** 알약이 보일 때: 켜져 있고, ✕ 로 끄지 않았고, 메뉴 · 듣기 중이 아닐 때. */
