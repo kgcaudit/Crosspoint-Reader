@@ -29,11 +29,6 @@ class PageStore(private val root: File) {
     fun chapter(bookId: BookId, spec: LayoutSpec, spineIndex: Int): ChapterCache =
         ChapterCache(layoutDir(bookId, spec), spineIndex)
 
-    /** 이 책의 캐시를 전부 지운다. */
-    fun delete(bookId: BookId) {
-        bookDir(bookId).deleteRecursively()
-    }
-
     /**
      * 지금 설정의 캐시만 남기고 이 책의 다른 조판 캐시를 지운다.
      *
@@ -46,14 +41,6 @@ class PageStore(private val root: File) {
         bookDir(bookId).listFiles()
             ?.filter { it.isDirectory && it.name != keepName }
             ?.forEach { it.deleteRecursively() }
-    }
-
-    /** 캐시가 차지한 바이트. 설정 화면의 "캐시 지우기" 에 쓴다. */
-    fun sizeBytes(): Long =
-        root.walkBottomUp().filter { it.isFile }.sumOf { it.length() }
-
-    fun deleteAll() {
-        root.deleteRecursively()
     }
 
     private fun bookDir(bookId: BookId) = File(root, fnv1aHex(bookId.value))

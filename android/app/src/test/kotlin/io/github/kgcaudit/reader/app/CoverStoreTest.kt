@@ -118,7 +118,7 @@ class CoverStoreTest {
         val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
         val started = kotlinx.coroutines.CompletableDeferred<Unit>()
         val store = CoverStore(dir) { started.complete(Unit); gate.await(); red() }
-        val first = kotlinx.coroutines.GlobalScope.async(kotlinx.coroutines.Dispatchers.IO) { store.cover(book) }
+        val first = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).async { store.cover(book) }
         started.await()
         val photo = CoverTest.png(Color.BLUE)
         assertTrue(store.setCustom(book.id) { photo.inputStream() })

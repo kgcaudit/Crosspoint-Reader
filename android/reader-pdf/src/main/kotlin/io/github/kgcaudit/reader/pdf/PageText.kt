@@ -522,7 +522,7 @@ class PageText(val text: String, private val boxes: FloatArray, val source: Stri
 
         private const val MIN_LETTERS = 2
 
-        /** 글자 네모가 하나도 없는 층(엔진이 네모를 주지 못했다). 찾기 · 듣기에만 쓰인다. */
+        /** 글자 네모가 하나도 없는 층. 시험의 가짜 엔진이 쓴다 — 네모 없이도 찾기 · 듣기가 도는지 본다. */
         fun textOnly(text: String): PageText = PageText(text, FloatArray(text.length * 4) { Float.NaN })
     }
 }

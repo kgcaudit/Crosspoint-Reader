@@ -231,19 +231,6 @@ class PageStoreTest {
     // ── 정리 ────────────────────────────────────────────────────────
 
     @Test
-    fun `deleting a book removes all of its layouts at once`() {
-        val bigger = spec.copy(baseSizePx = 14f)
-        store.chapter(book, spec, 0).write(text, paginate())
-        store.chapter(book, bigger, 0).write(text, paginate(bigger))
-        store.chapter(other, spec, 0).write(text, paginate())
-
-        store.delete(book)
-        assertFalse(store.chapter(book, spec, 0).exists)
-        assertFalse(store.chapter(book, bigger, 0).exists)
-        assertTrue(store.chapter(other, spec, 0).exists, "다른 책까지 지워졌다")
-    }
-
-    @Test
     fun `pruning keeps the current layout and drops the rest`() {
         val bigger = spec.copy(baseSizePx = 14f)
         store.chapter(book, spec, 0).write(text, paginate())
@@ -251,15 +238,6 @@ class PageStoreTest {
 
         store.pruneOtherLayouts(book, keep = bigger)
         assertTrue(store.chapter(book, bigger, 0).exists)
-        assertFalse(store.chapter(book, spec, 0).exists)
-    }
-
-    @Test
-    fun `size and clear-all work`() {
-        store.chapter(book, spec, 0).write(text, paginate())
-        assertTrue(store.sizeBytes() > 0)
-        store.deleteAll()
-        assertEquals(0, store.sizeBytes())
         assertFalse(store.chapter(book, spec, 0).exists)
     }
 
