@@ -86,6 +86,14 @@ data class CssDeclarations(
     val marginBottom: CssLength? = null,
     val marginLeft: CssLength? = null,
     val marginRight: CssLength? = null,
+    /**
+     * 안쪽 여백. 배경 · 테두리를 그리지 않으므로 보이는 결과는 margin 과 같지만 **따로** 둔다 — 한 칸에 접어 넣던 때는
+     * `margin: 1em 2em; padding: 0` 의 padding 이 margin 을 0 으로 덮어써 인용문 들여쓰기가 사라졌다. 조판은 둘을 더한다.
+     */
+    val paddingTop: CssLength? = null,
+    val paddingBottom: CssLength? = null,
+    val paddingLeft: CssLength? = null,
+    val paddingRight: CssLength? = null,
     val hidden: Boolean? = null,
     val pageBreakBefore: Boolean? = null,
     /**
@@ -118,6 +126,10 @@ data class CssDeclarations(
         marginBottom = other.marginBottom ?: marginBottom,
         marginLeft = other.marginLeft ?: marginLeft,
         marginRight = other.marginRight ?: marginRight,
+        paddingTop = other.paddingTop ?: paddingTop,
+        paddingBottom = other.paddingBottom ?: paddingBottom,
+        paddingLeft = other.paddingLeft ?: paddingLeft,
+        paddingRight = other.paddingRight ?: paddingRight,
         hidden = other.hidden ?: hidden,
         pageBreakBefore = other.pageBreakBefore ?: pageBreakBefore,
         width = other.width ?: width,

@@ -248,8 +248,15 @@ class BookLayout(
      */
     suspend fun charsAfterChapter(spineIndex: Int): Long {
         val items = spine()
-        val here = items.getOrNull(spineIndex) ?: return 0
-        val perByte = chapterLength(spineIndex).toDouble() / here.sizeBytes.coerceAtLeast(1L)
+        if (spineIndex !in items.indices) return 0
+        // 비율은 글이 충분한 장에서 잰다. 표지 · 속표지(글자 몇 개에 파일 수백 바이트)의 비율로 어림하면 1MB 책의 남은
+        // 글이 천여 자로 잡혀 "1분 남음" 이 떴다가 1장에 들어서면 몇 시간으로 튀었다. 몇 장 앞까지만 본다(장마다 읽는 값).
+        var perByte = 0.0
+        for (i in spineIndex until minOf(items.size, spineIndex + RATIO_PROBE)) {
+            val length = chapterLength(i)
+            perByte = length.toDouble() / items[i].sizeBytes.coerceAtLeast(1L)
+            if (length >= RATIO_MIN_CHARS) break
+        }
         return items.drop(spineIndex + 1).sumOf { (it.sizeBytes * perByte).toLong() }
     }
 
@@ -392,3 +399,7 @@ class BookLayout(
         const val UNREADABLE_CHAPTER = "이 장을 읽지 못했습니다. 파일의 이 부분이 깨졌을 수 있습니다. 다음 쪽으로 넘기면 이어서 읽습니다."
     }
 }
+
+/** 남은 시간 비율을 재려고 앞으로 볼 장 수와, 비율을 믿을 만한 장의 글자 수. */
+private const val RATIO_PROBE = 4
+private const val RATIO_MIN_CHARS = 300

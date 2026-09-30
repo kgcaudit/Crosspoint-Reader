@@ -30,6 +30,7 @@ class Paginator(
         // 앞 블록의 아래 여백. 다음 블록의 위 여백과 **큰 쪽을 취해** 합친다(CSS 여백
         // 상쇄). 더하면 문단 사이가 두 배로 벌어진다.
         var pendingMarginPx = 0f
+        var previous: Block? = null
 
         for (block in blocks) {
             if (block.style.pageBreakBefore && !builder.isAtPageTop) {
@@ -39,7 +40,11 @@ class Paginator(
 
             val em = spec.baseSizePx
             val marginTop = max(block.style.marginTopEm * em, paragraphSpacing(block))
-            val gap = max(pendingMarginPx, marginTop)
+            val gap = when {
+                // 줄바꿈으로 이어진 글: 문단 사이가 아니다. 앞이 그림이면 그림의 아래 여백만 둔다.
+                block is Block.Paragraph && block.continuesLine -> if (previous is Block.Paragraph) 0f else previous?.style?.marginBottomEm?.times(em) ?: 0f
+                else -> max(pendingMarginPx, marginTop)
+            }
 
             // 페이지 맨 위에서는 여백을 버린다. 남기면 빈 띠로 시작하는 페이지가 된다.
             if (!builder.isAtPageTop) builder.advance(gap)
@@ -51,6 +56,7 @@ class Paginator(
             }
 
             pendingMarginPx = max(block.style.marginBottomEm * em, paragraphSpacing(block))
+            previous = block
         }
 
         builder.finish()?.let { yield(it) }

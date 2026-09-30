@@ -509,4 +509,35 @@ class BookLayoutTest {
             assertFalse(store.chapter(doc.meta.id, spec, 0).exists)
         }
     }
+
+    @Test
+    fun `the time left is not nearly zero on the cover`() = runTest {
+        // 표지 장: 글자 하나에 파일은 수 KB(스타일 · 그림 주소). 그 비율로 뒤 장 전부를 어림하면 1MB 책도 "1분 남음" 이었다.
+        val cover = "<html><head><style>/*" + "표지 꾸밈 ".repeat(400) + "*/</style></head><body><p>표</p></body></html>"
+        val opf = """
+            <package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+              <metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>표지 책</dc:title></metadata>
+              <manifest>
+                <item id="c0" href="cover.xhtml" media-type="application/xhtml+xml"/>
+                <item id="c1" href="ch1.xhtml" media-type="application/xhtml+xml"/>
+                <item id="c2" href="ch2.xhtml" media-type="application/xhtml+xml"/>
+              </manifest>
+              <spine><itemref idref="c0"/><itemref idref="c1"/><itemref idref="c2"/></spine>
+            </package>
+        """.trimIndent()
+        val out = ByteArrayOutputStream()
+        ZipOutputStream(out).use { zip ->
+            mapOf(
+                "META-INF/container.xml" to """<container><rootfiles><rootfile full-path="content.opf"/></rootfiles></container>""",
+                "content.opf" to opf,
+                "cover.xhtml" to cover,
+                "ch1.xhtml" to chapterBody("제1장", 40),
+                "ch2.xhtml" to chapterBody("제2장", 40),
+            ).forEach { (name, text) -> zip.putNextEntry(ZipEntry(name)); zip.write(text.toByteArray()); zip.closeEntry() }
+        }
+        val book = layout(EpubDocument.open(BookId("cover-book"), "cover.epub", SeekableSource.of(out.toByteArray())))
+        val actual = book.chapterLength(1) + book.chapterLength(2)
+        val guess = book.charsAfterChapter(0)
+        assertTrue(guess > actual / 2, "남은 글자를 $guess 로 어림했다(실제 $actual)")
+    }
 }

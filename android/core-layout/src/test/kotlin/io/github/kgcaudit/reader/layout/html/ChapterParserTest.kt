@@ -403,4 +403,44 @@ class ChapterParserTest {
         assertTrue(parse("<html><body></body></html>").blocks.isEmpty())
         assertTrue(parse("<p>   </p><div>\n\n</div>").blocks.isEmpty())
     }
+
+    // ── 0.28.1 안정화 ────────────────────────────────────────────────
+
+    @Test
+    fun `a br or img without a slash does not shift the styles after it`() {
+        // 규격에 덜 맞는 책: 빈 요소를 닫지 않았다. 스택이 한 칸씩 어긋나면 인용문 뒤 문단 전부가 들여쓰기를 받았다.
+        val chapter = parse(
+            "<html><body><blockquote><p>인용<br>둘째 줄 <img src=\"a.png\"></p></blockquote><p>본문</p></body></html>",
+            css = "blockquote { margin-left: 2em }",
+        )
+        assertEquals(0f, chapter.paragraphs().last().style.indentStartEm)
+    }
+
+    @Test
+    fun `a hidden element holding an unclosed br does not swallow the rest of the chapter`() {
+        val chapter = parse(
+            "<html><body><div style=\"display:none\">숨김<br>숨김</div><noscript><img src=\"x.png\"></noscript>" +
+                "<p>보여야 할 글</p></body></html>",
+        )
+        assertTrue("보여야 할 글" in chapter.text, "장의 나머지가 사라졌다: ${chapter.text}")
+        assertFalse("숨김" in chapter.text)
+    }
+
+    @Test
+    fun `lines after a br and text after an inline picture continue the paragraph`() {
+        val br = parse("<html><body><p>첫 줄<br/>둘째 줄</p><p>다음 문단</p></body></html>").paragraphs()
+        assertEquals(listOf(false, true, false), br.map { it.continuesLine })
+        val picture = parse("<html><body><p>외자 <img src=\"g.png\"/> 가 든 문장</p></body></html>").paragraphs()
+        assertTrue(picture.last().continuesLine, "그림 뒤 글이 새 문단이 되었다")
+        assertEquals(0f, picture.last().style.firstLineIndentEm)
+    }
+
+    @Test
+    fun `padding adds to the margin instead of replacing it`() {
+        val chapter = parse(
+            "<html><body><blockquote><p>인용</p></blockquote><div class=\"box\"><p>상자</p></div></body></html>",
+            css = "blockquote { margin: 1em 2em; padding: 0 } .box { margin-left: 1em; padding-left: 1em }",
+        )
+        assertEquals(listOf(2f, 2f), chapter.paragraphs().map { it.style.indentStartEm })
+    }
 }

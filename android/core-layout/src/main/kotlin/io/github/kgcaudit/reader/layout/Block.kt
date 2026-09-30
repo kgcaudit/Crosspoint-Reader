@@ -47,6 +47,11 @@ sealed interface Block {
     data class Paragraph(
         val runs: List<InlineRun>,
         override val style: BlockStyle = BlockStyle.Default,
+        /**
+         * 앞 블록에 줄만 바꿔 이어지는 글(`<br>` 뒤 · 문장 안 그림 뒤). 문단이 아니므로 문단 간격을 넣지 않는다 — 넣으면
+         * `<br>` 로 적은 시 · 편지가 줄마다 벌어졌다.
+         */
+        val continuesLine: Boolean = false,
     ) : Block {
         override val charStart: Int get() = runs.firstOrNull()?.start ?: 0
         override val charEndExclusive: Int get() = runs.lastOrNull()?.endExclusive ?: 0

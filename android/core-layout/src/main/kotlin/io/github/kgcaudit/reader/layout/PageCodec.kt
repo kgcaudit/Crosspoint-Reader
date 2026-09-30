@@ -63,8 +63,10 @@ object PageCodec {
      * 2: 그림 크기(파일 크기·CSS·퍼센트 반영, 비율 유지).
      * 3: 런 레코드의 예약 16비트에 책 글꼴 번호([TextStyle.face]).
      * 4: 머리말 끝(예약 u32)에 텍스트 바이트 수. 페이지 수는 색인 크기로 센다(u16 칸의 65,535 쪽 한계를 없앰).
+     * 5: 문자열 길이 u32(64KB 넘는 그림 주소). 같은 판(0.28.1)의 조판 고침 — `<br>` · 문장 안 그림 뒤 문단 간격,
+     *    padding 과 margin 더하기, 빈 요소 뒤 서식, 서식 경계의 줄바꿈 금칙 — 이 옛 캐시에 가려지지 않게 한 번 다시 조판한다.
      */
-    const val VERSION: Int = 4
+    const val VERSION: Int = 5
 
     private const val MAGIC = 0x31505043 // "CPP1" 리틀엔디안
     private const val HEADER_SIZE = 32
@@ -354,10 +356,13 @@ private class ByteWriter(initialCapacity: Int) {
 
     fun putF32(value: Float) = putU32(value.toRawBits().toLong() and 0xFFFFFFFFL)
 
-    /** 길이(u16) + UTF-8 바이트. 64KB 를 넘는 경로는 없다. */
+    /**
+     * 길이(u32) + UTF-8 바이트. v4 까지는 길이가 u16 이었다 — 64KB 를 넘는 그림 주소(data: URI 를 그대로 넣은 책)는 길이 칸만
+     * 잘리고 바이트는 다 써서, 읽을 때 뒤 객체들을 엉뚱하게 풀어 그 쪽이 뜨지 않았다.
+     */
     fun putString(value: String) {
         val bytes = value.toByteArray(Charsets.UTF_8)
-        putU16(bytes.size.coerceAtMost(0xFFFF))
+        putU32(bytes.size.toLong())
         ensure(bytes.size)
         bytes.copyInto(buffer, size)
         size += bytes.size
@@ -392,7 +397,8 @@ private class ByteReader(private val buffer: ByteArray, private var position: In
     fun f32(): Float = Float.fromBits(u32().toInt())
 
     fun string(): String? {
-        val length = u16()
+        val length = u32().toInt()
+        if (length < 0) return null
         if (position + length > buffer.size) return null
         val text = String(buffer, position, length, Charsets.UTF_8)
         position += length

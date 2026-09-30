@@ -326,4 +326,21 @@ class GreedyLineBreakerTest {
         }
         assertEquals(text.length, lines.last().endCharExclusive)
     }
+
+    @Test
+    fun `a comma after italic text never starts the next line`() {
+        // <i>Hamlet</i>, he — 기울임이 끝나는 자리는 서식만 바뀔 뿐 줄바꿈 기회가 아니다.
+        val text = "aa Hamlet, he"
+        val italic = TextStyle(italic = true)
+        val lines = GreedyLineBreaker(breakBetweenCjk = true).breakLines(
+            text = text,
+            runs = listOf(InlineRun(0, 3), InlineRun(3, 9, italic), InlineRun(9, text.length)),
+            style = BlockStyle(),
+            constraints = LineConstraints(88f, 0f),
+            measurer = measurer,
+        )
+        val shown = rendered(text, lines)
+        assertTrue(shown.none { it.startsWith(",") }, "쉼표가 줄 첫머리에 왔다: $shown")
+        assertEquals(listOf("aa", "Hamlet,", "he"), shown)
+    }
 }

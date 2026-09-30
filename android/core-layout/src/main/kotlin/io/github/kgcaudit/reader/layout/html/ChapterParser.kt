@@ -102,6 +102,9 @@ class ChapterParser(
         /** `<pre>` 중첩 수. 0 보다 크면 공백을 그대로 둔다. */
         private var preDepth = 0
 
+        /** 다음에 내보낼 문단이 앞 블록에 줄만 바꿔 이어지는가(`<br>` · 문장 안 그림 뒤). */
+        private var continuation = false
+
         /** 다음에 나오는 블록 앞에서 페이지를 넘긴다. */
         private var pendingPageBreak = false
 
@@ -109,7 +112,7 @@ class ChapterParser(
             for (event in XmlScanner(reader).events()) {
                 when (event) {
                     is XmlEvent.StartElement -> startElement(event)
-                    is XmlEvent.EndElement -> endElement()
+                    is XmlEvent.EndElement -> if (event.name.local.lowercase() !in TagDefaults.VOID_TAGS) endElement()
                     is XmlEvent.Text -> text(event.value)
                 }
             }
@@ -120,16 +123,18 @@ class ChapterParser(
         // ── 요소 ────────────────────────────────────────────────────
 
         private fun startElement(event: XmlEvent.StartElement) {
+            val tag = event.name.local.lowercase()
+            val void = tag in TagDefaults.VOID_TAGS
+            // 빈 요소는 깊이를 세지 않는다 — 닫힘 사건이 오지 않을 수 있다(위 VOID_TAGS).
             if (skipDepth > 0) {
-                skipDepth++
+                if (!void) skipDepth++
                 return
             }
             if (styleDepth > 0) {
-                styleDepth++
+                if (!void) styleDepth++
                 return
             }
 
-            val tag = event.name.local.lowercase()
             if (tag in TagDefaults.SKIPPED_TAGS) {
                 // 닫힐 때 프레임과 스택을 하나씩 뺀다(endElement). 여기서 넣지 않으면 **부모의 것**이
                 // 빠진다 — `<head><title>` 뒤에 `head` 프레임이, 인용문 속 `<noscript>` 뒤에 인용문의
@@ -149,6 +154,11 @@ class ChapterParser(
             elements.add(element)
 
             val declarations = resolver.declarationsFor(elements, event.attribute("style"))
+            if (declarations.hidden == true && void) {
+                // 숨긴 그림 · 줄바꿈. 건너뛸 내용이 없다 — 건너뛰기를 켜면 닫힘을 기다리다 장의 나머지를 버렸다.
+                elements.removeAt(elements.size - 1)
+                return
+            }
             if (declarations.hidden == true) {
                 // 여는 태그는 이미 스택에 넣었다. 닫힐 때 짝을 맞춰 빼야 하므로
                 // 프레임도 넣어 두고, 내용만 버린다.
@@ -164,6 +174,7 @@ class ChapterParser(
 
             if (isBlock) {
                 flushParagraph()
+                continuation = false
                 blockStyle = resolver.blockStyle(inherited, declarations)
             }
             if (declarations.pageBreakBefore == true) pendingPageBreak = true
@@ -177,6 +188,17 @@ class ChapterParser(
                 "img", "image" -> image(event, declarations)
                 "hr" -> rule()
                 in TagDefaults.PREFORMATTED_TAGS -> preDepth++
+            }
+            if (void) {
+                // 곧바로 닫는다. 블록이면(hr) 닫힐 때처럼 문단 틀도 되돌린다.
+                val frame = frames.removeAt(frames.size - 1)
+                elements.removeAt(elements.size - 1)
+                frame.link?.let { closeLink(it) }
+                if (frame.isBlock) {
+                    flushParagraph()
+                    continuation = false
+                    blockStyle = frame.restoreStyle
+                }
             }
         }
 
@@ -207,6 +229,7 @@ class ChapterParser(
             if (frame.tag in TagDefaults.PREFORMATTED_TAGS && preDepth > 0) preDepth--
             if (frame.isBlock) {
                 flushParagraph()
+                continuation = false
                 blockStyle = frame.restoreStyle
             }
         }
@@ -328,6 +351,7 @@ class ChapterParser(
         private fun lineBreak() {
             val style = blockStyle
             flushParagraph()
+            continuation = true
             // 강제 줄바꿈 뒤에는 들여쓰기를 하지 않는다. 한 문단이 이어지는 것이지
             // 새 문단이 시작하는 게 아니다.
             blockStyle = style.copy(firstLineIndentEm = 0f, marginTopEm = 0f)
@@ -362,6 +386,9 @@ class ChapterParser(
                 ),
             )
             paragraphStart = text.length
+            // 문장 안의 그림(외자 · 작은 기호) 뒤 글은 같은 문단이 이어지는 것이다 — 새 문단처럼 들여쓰고 벌리지 않는다.
+            continuation = true
+            blockStyle = blockStyle.copy(firstLineIndentEm = 0f, marginTopEm = 0f)
         }
 
         private fun rule() {
@@ -388,8 +415,9 @@ class ChapterParser(
 
             if (kept.isEmpty()) return
             blocks.add(
-                Block.Paragraph(kept, blockStyle.copy(pageBreakBefore = takePageBreak())),
+                Block.Paragraph(kept, blockStyle.copy(pageBreakBefore = takePageBreak()), continuesLine = continuation),
             )
+            continuation = false
         }
 
         /**

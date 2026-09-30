@@ -454,4 +454,22 @@ class PaginatorTest {
         /** 0.11.0 에서 [spec] 기본값의 캐시 키. 새 칸이 기본값일 때 키를 바꾸면 이 값과 달라진다. */
         const val KEY_BEFORE_0_12 = "4e6d9fb6e923a4b6"
     }
+
+    @Test
+    fun `lines split by br are not spread apart by the paragraph spacing`() {
+        // 시 · 편지 · 주소를 <br> 로 적은 책. 줄마다 문단 간격이 끼면 사용자가 없앨 방법이 없다.
+        val text = "첫줄둘째줄"
+        val style = BlockStyle(marginBottomEm = 1f)
+        fun gap(continues: Boolean): Float {
+            val blocks = listOf(
+                Block.Paragraph(listOf(InlineRun(0, 2)), style),
+                Block.Paragraph(listOf(InlineRun(2, 5)), style, continuesLine = continues),
+            )
+            val baselines = lines(paginate(text, blocks, spec(spacingEm = 2f)).single()).map { it.first().baselineYPx }
+            return baselines[1] - baselines[0]
+        }
+        val lineHeight = 10f * 1.2f
+        assertEquals(lineHeight, gap(continues = true), 0.5f)
+        assertTrue(gap(continues = false) > lineHeight + 5f, "문단 사이는 여전히 벌어져야 한다")
+    }
 }

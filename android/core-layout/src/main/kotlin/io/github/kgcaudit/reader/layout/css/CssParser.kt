@@ -180,13 +180,14 @@ object CssParser {
             "margin-left" -> CssDeclarations(marginLeft = CssLength.parse(value))
             "margin-right" -> CssDeclarations(marginRight = CssLength.parse(value))
 
-            // padding 은 조판에서 margin 과 구분할 필요가 없다(배경·테두리를 그리지
-            // 않으므로 눈에 보이는 결과가 같다). 같은 값으로 접어 넣는다.
-            "padding" -> shorthandMargins(value)
-            "padding-top" -> CssDeclarations(marginTop = CssLength.parse(value))
-            "padding-bottom" -> CssDeclarations(marginBottom = CssLength.parse(value))
-            "padding-left" -> CssDeclarations(marginLeft = CssLength.parse(value))
-            "padding-right" -> CssDeclarations(marginRight = CssLength.parse(value))
+            // padding 은 margin 과 따로 담고 조판에서 더한다(CssDeclarations.paddingTop).
+            "padding" -> shorthandMargins(value).let {
+                CssDeclarations(paddingTop = it.marginTop, paddingBottom = it.marginBottom, paddingLeft = it.marginLeft, paddingRight = it.marginRight)
+            }
+            "padding-top" -> CssDeclarations(paddingTop = CssLength.parse(value))
+            "padding-bottom" -> CssDeclarations(paddingBottom = CssLength.parse(value))
+            "padding-left" -> CssDeclarations(paddingLeft = CssLength.parse(value))
+            "padding-right" -> CssDeclarations(paddingRight = CssLength.parse(value))
 
             "display" -> if (value == "none") CssDeclarations(hidden = true) else CssDeclarations.EMPTY
 

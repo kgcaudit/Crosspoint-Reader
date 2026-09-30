@@ -267,4 +267,16 @@ class PageCodecTest {
         val encoded = PageCodec.encode(pages, text.length)
         assertEquals(pages, pages.indices.map { PageCodec.decodePage(encoded, it) })
     }
+
+    @Test
+    fun `a picture address longer than 64KB does not break the objects after it`() {
+        // data: URI 를 그대로 넣은 그림. 길이 칸이 u16 이던 때는 잘린 길이로 읽어 뒤 객체가 엉켜 쪽이 뜨지 않았다.
+        val long = "data:image/png;base64," + "A".repeat(70_000)
+        val page = Page(
+            0, 0, 10,
+            images = listOf(PlacedImage(long, 0f, 0f, 10f, 10f), PlacedImage("after.png", 0f, 20f, 10f, 10f)),
+            rules = listOf(PlacedRule(0f, 40f, 100f, 1f)),
+        )
+        assertEquals(page, roundTrip(listOf(page)).single())
+    }
 }

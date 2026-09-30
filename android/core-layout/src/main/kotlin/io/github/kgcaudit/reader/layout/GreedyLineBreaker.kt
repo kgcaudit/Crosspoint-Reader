@@ -52,14 +52,25 @@ class GreedyLineBreaker(
 
             var width = 0f
             while (index < tokens.size) {
-                val token = tokens[index]
+                // 서식 경계로만 나뉜 조각들(`<i>Hamlet</i>,` · `word<sup>1</sup>`)은 줄바꿈 기회가 아니다 — 한 덩어리로
+                // 넣는다. 조각마다 끊던 때는 다음 줄이 쉼표로 시작하거나 낱말이 두 줄로 쪼개졌다.
+                var end = index
+                var chain = tokens[index].advance
+                while (tokens[end].glueNext && end + 1 < tokens.size) {
+                    chain += tokens[end].trailingSpaceAdvance
+                    end++
+                    chain += tokens[end].advance
+                }
                 // 줄 끝의 공백은 폭에 넣지 않는다(CSS 와 같은 동작). 넣으면 마지막
                 // 어절이 들어갈 수 있는데도 다음 줄로 밀린다.
-                val candidate = width + token.advance
-                if (current.isNotEmpty() && candidate > available + EPSILON) break
-                current.add(token)
-                width = candidate + token.trailingSpaceAdvance
-                index++
+                if (current.isNotEmpty() && width + chain > available + EPSILON) break
+                // 덩어리 하나가 줄보다 넓으면 조각 단위로 넣는다(넘치는 조각은 아래에서 쪼갠다).
+                if (current.isEmpty() && width + chain > available + EPSILON) end = index
+                for (k in index..end) {
+                    current.add(tokens[k])
+                    width += tokens[k].advance + tokens[k].trailingSpaceAdvance
+                }
+                index = end + 1
             }
 
             // 토큰 하나가 폭보다 넓다(긴 URL, 공백 없는 라틴 단어). 강제로 쪼갠다 —
@@ -102,6 +113,8 @@ class GreedyLineBreaker(
         val trailingSpaceAdvance: Float,
         /** 앞에 공백이 있어 양쪽정렬이 늘릴 수 있는 경계인지. */
         val breakableGapBefore: Boolean,
+        /** 다음 조각과의 경계가 줄바꿈 기회가 아니다(서식만 바뀌는 자리). 둘을 다른 줄에 두지 않는다. */
+        val glueNext: Boolean = false,
     )
 
     private fun tokenize(
@@ -118,6 +131,15 @@ class GreedyLineBreaker(
                 if (at <= from) continue
                 tokens.add(makeToken(text, from, at, run.style, measurer))
                 from = at
+            }
+        }
+        // 런 안의 경계는 모두 줄바꿈 기회다. 기회가 아닌 경계는 런(서식)이 바뀌는 자리뿐 — 거기에 금칙을 건다.
+        for (i in 0 until tokens.size - 1) {
+            val at = tokens[i].endExclusive
+            if (at == tokens[i + 1].start && at in 1 until text.length &&
+                !LineBreakRules.canBreakBetween(text[at - 1], text[at], breakBetweenCjk)
+            ) {
+                tokens[i] = tokens[i].copy(glueNext = true)
             }
         }
         return tokens
@@ -164,7 +186,7 @@ class GreedyLineBreaker(
         if (cut >= token.contentEnd) return null
         return Split(
             head = makeToken(text, token.start, cut, token.style, measurer),
-            tail = makeToken(text, cut, token.endExclusive, token.style, measurer),
+            tail = makeToken(text, cut, token.endExclusive, token.style, measurer).copy(glueNext = token.glueNext),
         )
     }
 

@@ -112,8 +112,8 @@ class StyleResolver(
         InheritedStyle(
             align = declarations.textAlign ?: parent.align,
             firstLineIndentEm = declarations.textIndent?.let { em(it) } ?: parent.firstLineIndentEm,
-            indentStartEm = parent.indentStartEm + (declarations.marginLeft?.let { em(it) } ?: 0f),
-            indentEndEm = parent.indentEndEm + (declarations.marginRight?.let { em(it) } ?: 0f),
+            indentStartEm = parent.indentStartEm + box(declarations.marginLeft, declarations.paddingLeft),
+            indentEndEm = parent.indentEndEm + box(declarations.marginRight, declarations.paddingRight),
             text = textStyle(parent.text, declarations),
         )
 
@@ -122,11 +122,15 @@ class StyleResolver(
         BlockStyle(
             align = inherited.align ?: context.defaultAlign,
             firstLineIndentEm = inherited.firstLineIndentEm,
-            marginTopEm = declarations.marginTop?.let { em(it) } ?: 0f,
-            marginBottomEm = declarations.marginBottom?.let { em(it) } ?: 0f,
+            marginTopEm = box(declarations.marginTop, declarations.paddingTop),
+            marginBottomEm = box(declarations.marginBottom, declarations.paddingBottom),
             indentStartEm = inherited.indentStartEm,
             indentEndEm = inherited.indentEndEm,
         )
+
+    /** 바깥 여백 + 안쪽 여백(em). 정하지 않은 쪽은 0 이다. */
+    private fun box(margin: CssLength?, padding: CssLength?): Float =
+        (margin?.let { em(it) } ?: 0f) + (padding?.let { em(it) } ?: 0f)
 
     private fun em(length: CssLength): Float =
         length.toEm(context.baseSizePx, context.contentWidthPx)

@@ -143,10 +143,14 @@ class CssParserTest {
     }
 
     @Test
-    fun `padding folds into margin`() {
-        // 배경도 테두리도 그리지 않으므로 눈에 보이는 결과가 같다.
-        assertEquals(CssLength(2f, CssUnit.Em), declarations("padding-left: 2em").marginLeft)
-        assertEquals(CssLength(1f, CssUnit.Em), declarations("padding: 1em").marginTop)
+    fun `a zero padding does not erase the margin of the same rule`() {
+        // padding 을 margin 칸에 접어 넣던 때는 `padding: 0` 이 margin 을 덮어써 인용문 들여쓰기 · 제목 위 간격이 사라졌다.
+        val d = declarations("margin: 1em 2em; padding: 0")
+        assertEquals(CssLength(2f, CssUnit.Em), d.marginLeft)
+        assertEquals(CssLength(1f, CssUnit.Em), d.marginTop)
+        assertEquals(0f, d.paddingLeft?.value)
+        assertEquals(CssLength(2f, CssUnit.Em), declarations("padding-left: 2em").paddingLeft)
+        assertEquals(null, declarations("padding-left: 2em").marginLeft)
     }
 
     @Test

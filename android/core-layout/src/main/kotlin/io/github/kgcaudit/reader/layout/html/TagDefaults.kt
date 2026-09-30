@@ -37,6 +37,15 @@ object TagDefaults {
      */
     val SKIPPED_TAGS: Set<String> = setOf("script", "title", "noscript")
 
+    /**
+     * 닫는 태그가 없는 요소(HTML 의 빈 요소). XHTML 은 `<br/>` 로 닫지만 규격에 덜 맞는 책은 `<br>` 로 쓴다 — 그때 닫힘
+     * 사건이 오지 않는다. 이 요소들을 스택에 쌓으면 닫는 태그가 한 칸씩 어긋나, 뒤 문단 전부가 인용문 들여쓰기를 받거나
+     * 숨긴 요소 안이면 장의 나머지가 통째로 사라졌다. 그래서 쌓지 않고, `<br/>` 의 닫힘 사건은 버린다.
+     */
+    val VOID_TAGS: Set<String> = setOf(
+        "area", "base", "br", "col", "embed", "hr", "img", "image", "input", "link", "meta", "param", "source", "track", "wbr",
+    )
+
     /** 공백을 그대로 보존하는 태그. */
     val PREFORMATTED_TAGS: Set<String> = setOf("pre")
 
