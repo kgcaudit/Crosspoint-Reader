@@ -1,6 +1,7 @@
 package io.github.kgcaudit.reader.ui.design
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.luminance
 import org.junit.Test
 import kotlin.test.assertEquals
@@ -66,6 +67,41 @@ class ContrastTest {
             assertAtLeast(4.5, paper.inkMuted, paper.paper, "${theme.label}: 지면 위 상태바")
         }
         assertTrue(contrast(Color(0xFF7A6A58), Color(0xFFF4ECD8)) < 4.5, "검사가 옅은 아이보리 보조색을 통과시켰다")
+    }
+
+    @Test
+    fun `footnote numbers read at AA on every paper colour`() {
+        // 각주 번호는 작은 위첨자다. accent 로 칠하던 때는 세피아 3.35 · 회색 3.19(0.29.0 전), accentText 도 회색 4.35.
+        for (theme in PaperTheme.entries) {
+            val paper = theme.paper ?: continue
+            val base = if (paper.dark) DarkColors else LightColors
+            val mark = readableOn(base.accentText, paper.paper, paper.ink)
+            assertAtLeast(4.5, mark, paper.paper, "${theme.label}: 각주 번호")
+        }
+        assertTrue(contrast(LightColors.accentText, PaperTheme.Gray.paper!!.paper) < 4.5, "검사가 회색 지면의 accentText 를 통과시켰다")
+    }
+
+    @Test
+    fun `the empty part of the reading progress bar shows on every paper colour`() {
+        // UI 의 progressTrack 은 세피아 1.09 · 회색 1.04 로 지면에 묻혀 얼마 남았는지 보이지 않았다.
+        for (theme in PaperTheme.entries) {
+            val paper = theme.paper ?: continue
+            val track = paper.inkMuted.copy(alpha = 0.28f).compositeOver(paper.paper)
+            assertAtLeast(1.25, track, paper.paper, "${theme.label}: 진행 막대 빈 곳")
+        }
+        assertTrue(contrast(LightColors.progressTrack, PaperTheme.Sepia.paper!!.paper) < 1.25, "검사가 옛 빈 곳 색을 통과시켰다")
+    }
+
+    @Test
+    fun `titles on a stand-in cover read over every tile in both themes`() {
+        // 타일 색은 흰 그림용이라 흰 글자는 다크의 책 타일에서 3.0 이었다. 글자 밑 어두운 띠(60% 검정) 위에서 본다.
+        val band = COVER_BAND
+        for ((name, c) in themes) {
+            for ((kind, fill) in listOf("책" to c.tiles.book, "문서" to c.tiles.document, "기타" to c.tiles.other)) {
+                assertAtLeast(7.0, Color.White, band.compositeOver(fill), "$name: $kind 대신 표지 글자")
+            }
+        }
+        assertTrue(contrast(Color.White, DarkColors.tiles.book) < 4.5, "검사가 띠 없는 흰 글자를 통과시켰다")
     }
 
     @Test

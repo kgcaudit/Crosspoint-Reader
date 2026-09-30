@@ -90,8 +90,9 @@ class ListenReturnTest {
         waitFor(hasContentDescription("듣기 제어"))
         // 드물게(전체 점검에서만) 여기서 엔진이 말을 시작하지 않은 채 남았다. 남긴 상태(0.28.3)는 preparing=true · 엔진
         // 대기열 비어 있음 — 엔진은 준비됐고 첫 장의 글을 불러오는(조판) 중이었다. 시험 두 벌이 함께 도는 전체 점검에서는
-        // 장 조판이 5초를 넘긴다. 다른 기다림처럼 30초를 준다. 그래도 걸리면 같은 상태를 남긴다.
-        runCatching { compose.waitUntil(30_000) { speakers.isNotEmpty() && speakers.last().current != null } }.onFailure {
+        // 장 조판이 5초를 넘긴다. 다른 기다림처럼 30초를 준다. 30초로도 걸려(0.29.0) 메인 루퍼도 돌린다 — ListenAppTest 의
+        // 같은 자리 주석 참고. 그래도 걸리면 같은 상태를 남긴다.
+        runCatching { compose.waitUntil(30_000) { org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle(); speakers.isNotEmpty() && speakers.last().current != null } }.onFailure {
             throw AssertionError("listening never started: speakers=${speakers.size} queues=${speakers.map { it.queue.toList() }} " +
                 "stops=${speakers.map { it.stops }} state=${ListenHub.current.value?.state?.value}", it)
         }

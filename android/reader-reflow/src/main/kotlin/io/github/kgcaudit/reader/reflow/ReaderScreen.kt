@@ -106,6 +106,7 @@ import io.github.kgcaudit.reader.ui.design.actionAt
 import io.github.kgcaudit.reader.ui.design.CpStepper
 import io.github.kgcaudit.reader.ui.design.CpTabBar
 import io.github.kgcaudit.reader.ui.design.CpText
+import io.github.kgcaudit.reader.ui.design.readableOn
 import io.github.kgcaudit.reader.ui.design.CpSelectionHandles
 import io.github.kgcaudit.reader.ui.design.CpFloatingMenu
 import io.github.kgcaudit.reader.ui.design.CpTextButton
@@ -396,7 +397,8 @@ fun ReaderScreen(
             highlightColor = accent.copy(alpha = 0.3f),
             accent = noteMarks,
             // 각주 번호는 작은 위첨자 글자다. 채우는 색(accent)으로 쓰면 세피아 3.35 · 회색 3.19 로 읽기 어려웠다(0.29.0).
-            accentColor = colors.accentText,
+            // accentText 도 회색 지면에서는 4.35 라, 지면마다 4.5 를 넘을 만큼 본문 색 쪽으로 짙게 한다.
+            accentColor = readableOn(colors.accentText, colors.paper, colors.ink),
             // 지금 읽는 문장(L3)을 먼저 깐다 — 형광펜이 그 위에 보인다. 강조색이라 4색 형광펜과 헷갈리지 않는다.
             tints = listOfNotNull(
                 listen.sentence?.takeIf { listen.active && listen.spine == state.position?.spineIndex }

@@ -166,7 +166,10 @@ class ListenAppTest {
         waitFor(hasContentDescription("듣기 제어"))
         // 드물게(전체 점검에서만, 여러 번 돌려도 재현 안 됨) 여기서 엔진이 말을 시작하지 않은 채 남는다. 다음에 걸리면
         // 원인을 볼 수 있게 그때의 엔진 · 듣기 상태를 실패 문구에 남긴다.
-        runCatching { compose.waitUntil(5_000) { speakers.isNotEmpty() && speaker.current != null } }.onFailure {
+        // 기다리는 동안 메인 루퍼도 돌린다(0.29.0). 전체 점검에서만 preparing=true · 대기열 빈 채로 멈췄다 — 장 글은 조판
+        // 스레드에서 받았는데, 메인(ListenHub.scope)으로 돌아와 이어 가는 일이 메인 루퍼에 남아 돌지 않은 것으로 본다(따로
+        // 돌리면 늘 통과). 실제 휴대폰은 메인 루퍼가 늘 돈다.
+        runCatching { compose.waitUntil(30_000) { org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle(); speakers.isNotEmpty() && speaker.current != null } }.onFailure {
             throw AssertionError("listening never started: speakers=${speakers.size} queues=${speakers.map { it.queue.toList() }} " +
                 "stops=${speakers.map { it.stops }} state=${ListenHub.current.value?.state?.value}", it)
         }
@@ -467,7 +470,10 @@ class ListenAppTest {
         assertEquals(null, app.container.prefs.load().listen.voice)
 
         // 다른 엔진의 목소리를 고르면 그 엔진으로 다시 열고, 듣던 문장부터 읽는다.
-        node(hasText("한국어 1")).performClick()
+        // "한국어 1" 은 삼성에도 있다 — "Google 음성" 아래의 것을 누른다(내려받기 필요는 이제 부제라 이름이 같다).
+        val google = node(hasText("Google 음성")).fetchSemanticsNode().boundsInRoot.bottom
+        compose.onAllNodes(hasText("한국어 1"), useUnmergedTree = true).fetchSemanticsNodes().indexOfFirst { it.boundsInRoot.top > google }
+            .let { compose.onAllNodes(hasText("한국어 1"), useUnmergedTree = true)[it].performClick() }
         waitTicking { speaker.engine == "com.google.tts" && speaker.current != null }
         assertEquals("첫 문장이다.", speaker.current)
         assertEquals("ko-a", speaker.lastVoice)

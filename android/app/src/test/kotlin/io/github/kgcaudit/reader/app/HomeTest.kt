@@ -9,6 +9,7 @@ import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.longClick
+import androidx.compose.ui.test.swipeUp
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
@@ -168,6 +169,10 @@ class HomeTest {
     fun `on a wide screen more books fit in a row instead of covers growing past the screen`() {
         // 셋으로 고정하면 가로 화면에서 표지 하나가 263dp 로 화면 높이를 넘어 제목이 밀려났다.
         waitFor(hasContentDescription("데미안.epub 대신 표지"))
+        // 가로 폰(높이 393dp)에서는 읽을 책 격자가 화면 아래에 있다. 밀어 올려 본다(performScrollTo 는 이 목록에서
+        // 시험 JVM 의 메모리를 다 썼다).
+        compose.onAllNodes(hasText("읽는 중 · 2권"), useUnmergedTree = true)[0].performTouchInput { swipeUp(startY = centerY, endY = centerY - 500f) }
+        compose.waitForIdle()
         val density = compose.activity.resources.displayMetrics.density
         val width = node(hasContentDescription("데미안.epub 대신 표지")).fetchSemanticsNode().boundsInRoot.width / density
         assertTrue(width in 90f..140f, "표지 폭 ${width}dp")

@@ -6,6 +6,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -230,4 +231,26 @@ fun CpReaderTheme(theme: PaperTheme, content: @Composable () -> Unit) {
         LocalCpType provides DefaultType,
         content = content,
     )
+}
+
+/** WCAG 대비(1..21). */
+fun contrastRatio(a: Color, b: Color): Float {
+    val la = a.luminance()
+    val lb = b.luminance()
+    return (maxOf(la, lb) + 0.05f) / (minOf(la, lb) + 0.05f)
+}
+
+/**
+ * [color] 가 [background] 위에서 [min] 대비에 못 미치면 [toward](그 지면의 본문 색) 쪽으로 조금씩 옮겨 기준을 넘긴다.
+ * 지면 위 강조색 글자(각주 번호)에 쓴다 — accentText 도 회색 지면에서는 4.35 로 모자랐다(0.29.0). 색조는 남기고
+ * 필요한 만큼만 짙게 한다.
+ */
+fun readableOn(color: Color, background: Color, toward: Color, min: Float = 4.5f): Color {
+    var t = 0f
+    var c = color
+    while (contrastRatio(c, background) < min && t < 1f) {
+        t += 0.05f
+        c = androidx.compose.ui.graphics.lerp(color, toward, t)
+    }
+    return c
 }

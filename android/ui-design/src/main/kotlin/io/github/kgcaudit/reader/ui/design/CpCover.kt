@@ -96,4 +96,4 @@ fun CpCover(
 }
 
 /** 대신 표지 글자 밑 띠. 60% 검정 — 가장 밝은 타일(다크의 틸)에서도 흰 글자 대비가 7 을 넘는다. */
-private val COVER_BAND = Color(0x99000000)
+internal val COVER_BAND = Color(0x99000000)
