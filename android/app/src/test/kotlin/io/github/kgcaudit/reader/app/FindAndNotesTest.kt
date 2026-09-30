@@ -115,7 +115,7 @@ class FindAndNotesTest {
     fun `searching the book lists hits by chapter and walks through them on the page`() {
         openWith()
         compose.onRoot().performTouchInput { click(center) }
-        node(hasContentDescription("본문에서 찾기")).performClick()
+        node(hasContentDescription("책에서 찾기")).performClick()
         node(hasContentDescription("찾을 말")).performTextInput("보아 구렁이")
         node(hasContentDescription("찾을 말")).performImeAction()
         waitFor(hasText("곳 · ", substring = true))
@@ -151,6 +151,13 @@ class FindAndNotesTest {
         assertFalse(hasNode(hasText("2) 체험한", substring = true)), "다음 각주까지 따라왔다")
         assertFalse(hasNode(hasText("↩", substring = true)), "되돌아가기 표시가 남았다")
         shot("62-footnote-sheet")
+        // 판 왼쪽 끝을 위아래로 끌어도(각주를 굴리려고) 밝기가 바뀌지 않는다 — 밝기 밀기는 지면에서만.
+        compose.onRoot().performTouchInput {
+            swipe(start = Offset(10 * density, height * 0.97f), end = Offset(10 * density, height * 0.8f), durationMillis = 600)
+        }
+        compose.waitForIdle()
+        assertEquals(null, app.container.prefs.load().screen.brightness, "각주 판을 끌었는데 밝기가 바뀌었다")
+        waitFor(hasText("각주 1"))
         // 넘어가지 않았다.
         assertTrue(hasNode(hasText("1 / ", substring = true)))
         node(hasText("닫기")).performClick()

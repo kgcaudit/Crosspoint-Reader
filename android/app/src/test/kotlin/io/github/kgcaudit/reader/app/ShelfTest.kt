@@ -94,8 +94,8 @@ class ShelfTest {
         // 대신 표지는 제목을 얹어 글자로 세면 둘이다 — 표지로 센다.
         assertEquals(1, compose.onAllNodes(hasContentDescription("옛 일기.txt 대신 표지"), useUnmergedTree = true).fetchSemanticsNodes().size, "연 책이 두 곳에 있다")
         compose.onAllNodes(hasText("옛 일기.txt"), useUnmergedTree = true)[0].performTouchInput { longClick() }
-        waitFor(hasText("읽은 책으로 표시"))
-        compose.onAllNodes(hasText("읽은 책으로 표시"), useUnmergedTree = true)[0].performClick()
+        waitFor(hasText("읽은 책으로 옮기기"))
+        compose.onAllNodes(hasText("읽은 책으로 옮기기"), useUnmergedTree = true)[0].performClick()
         waitFor(hasText("읽은 책 · 1권"))
         waitFor(hasText("읽는 중 · 3권"))
         assertTrue(has(hasText("다 읽음 · ", substring = true)), "끝낸 날이 없다")
@@ -115,8 +115,8 @@ class ShelfTest {
         // 종이책으로 읽은 책을 정리하는 경우. 한 번도 열지 않은 데미안이 다 읽은 책 줄에 올라간다.
         waitFor(hasText("데미안.epub"))
         compose.onAllNodes(hasText("데미안.epub"), useUnmergedTree = true)[0].performTouchInput { longClick() }
-        waitFor(hasText("읽은 책으로 표시"))
-        compose.onAllNodes(hasText("읽은 책으로 표시"), useUnmergedTree = true)[0].performClick()
+        waitFor(hasText("읽은 책으로 옮기기"))
+        compose.onAllNodes(hasText("읽은 책으로 옮기기"), useUnmergedTree = true)[0].performClick()
         waitFor(hasText("읽은 책 · 1권"))
         assertTrue(has(hasText("읽는 중 · 4권")))
     }

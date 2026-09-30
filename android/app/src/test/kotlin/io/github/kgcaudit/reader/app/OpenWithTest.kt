@@ -112,6 +112,46 @@ class OpenWithTest {
     }
 
     @Test
+    fun `a book from another app reached again from the app icon closes to the library, not away`() {
+        // 파일 관리자에서 연 책을 두고 홈으로 나갔다가 OLO 아이콘(또는 듣기 알림)으로 돌아왔다. 보낸 앱은 이제 앞에 없으니
+        // 책을 닫으면 라이브러리가 나와야 한다 — 앱이 뒤로 사라져 홈이 떴다(0.28.3).
+        download("받은 책.epub", SampleBooks.epub())
+        launch(view("받은 책.epub", "application/epub+zip"))
+        waitFor("1 / ", substring = true)
+        onActivity { it.onNewIntent(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)) }
+        compose.waitForIdle()
+        waitFor("1 / ", substring = true)
+        onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        waitFor("폴더 추가")
+        onActivity { assertEquals(0, it.leftToCaller) }
+    }
+
+    @Test
+    fun `reopening from recent apps does not open a file that was closed long ago`() {
+        // 안드로이드 8~11: 파일 보기로 시작한 작업을 최근 앱 목록에서 다시 열면 시스템이 그 옛 인텐트를 다시 준다. 읽기
+        // 권한은 이미 풀려 "이 책을 열지 못했습니다" 가 떴다. 라이브러리가 나와야 한다.
+        download("받은 책.epub", SampleBooks.epub())
+        launch(view("받은 책.epub", "application/epub+zip").addFlags(Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY))
+        waitFor("폴더 추가")
+        compose.waitForIdle()
+        assertTrue(compose.onAllNodes(hasText("1 / ", substring = true), useUnmergedTree = true).fetchSemanticsNodes().isEmpty(), "닫은 책이 다시 열렸다")
+        assertTrue(compose.onAllNodes(hasText("열지 못했습니다", substring = true), useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
+    }
+
+    @Test
+    fun `tapping the app icon while a sent file is still being looked at does not drop that file`() {
+        // 받은 파일의 이름 · 크기를 묻는 사이 아이콘을 누르면 새 인텐트가 앞 일을 취소해 파일이 말없이 버려졌다.
+        download("받은 책.epub", SampleBooks.epub())
+        launch(Intent(app, MainActivity::class.java))
+        waitFor("폴더 추가")
+        onActivity {
+            it.onNewIntent(view("받은 책.epub", "application/epub+zip"))
+            it.onNewIntent(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER))
+        }
+        waitFor("1 / ", substring = true)
+    }
+
+    @Test
     fun `a file that is also in the library opens as the library book`() {
         // 등록 폴더의 책과 이름·크기가 같은 복사본. 따로 열면 진도·책갈피가 두 벌이 된다.
         download("어린 왕자.epub", SampleBooks.epub())

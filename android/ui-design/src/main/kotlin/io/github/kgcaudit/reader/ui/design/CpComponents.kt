@@ -3,6 +3,8 @@ package io.github.kgcaudit.reader.ui.design
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.combinedClickable
@@ -34,7 +36,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
+import kotlin.math.roundToInt
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.setProgress
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
@@ -294,7 +301,10 @@ fun Modifier.blockTouches(): Modifier = pointerInput(Unit) { detectTapGestures {
 
 /**
  * 가운데 틀. 제목 + 문장 + (있으면) 진행. CrossPoint `drawPopup` + `fillPopupProgress`.
- * 바깥을 누르면 [onDismiss] — 진행 중(닫을 수 없음)이면 null 을 준다.
+ * 바깥을 누르면 [onDismiss] — 진행 중(닫을 수 없음)이면 null 을 준다. 뒤로 가기도 [onDismiss] 다.
+ *
+ * 판은 굴러간다(0.28.3). 가로 폰(높이 393dp)이나 큰 글자에서 판이 화면보다 길면 마지막 줄(닫기 · 가져오기 단추,
+ * 아래쪽 폴더의 ✕)이 높이 0 으로 눌려 보이지도 눌리지도 않았다.
  */
 @Composable
 fun CpPopup(
@@ -306,6 +316,9 @@ fun CpPopup(
     content: @Composable () -> Unit = {},
 ) {
     val c = CpTheme.colors
+    // 팝업마다 따로 달면 빠뜨린다 — 홈의 책 폴더 · 순서 · 표지 판이 그래서 뒤로 가기에 닫히지 않고 앱이 나갔다.
+    // 나중에 그려진 이것이 화면의 뒤로 가기보다 먼저 받는다.
+    androidx.activity.compose.BackHandler(enabled = onDismiss != null) { onDismiss?.invoke() }
     Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         // 바깥 막은 판의 형제로 뒤에 둔다. 판을 감싸는 부모가 누를 수 있으면 판 안의 글이 모두 그 한 덩어리에 묶여 화면
         // 읽기가 하나씩 읽지 못했다. 막은 그 자체로 "닫기" 단추로 읽힌다.
@@ -327,12 +340,14 @@ fun CpPopup(
                 .background(c.dialog)
                 // 틀 안을 눌러도 닫히지 않게 한다.
                 .blockTouches()
+                .verticalScroll(rememberScrollState())
                 .padding(20.dp),
         ) {
             CpText(title, CpTheme.type.label.copy(fontSize = CpTheme.type.body.fontSize), c.text, maxLines = 2)
             if (message != null) {
                 Spacer(Modifier.height(8.dp))
-                CpText(message, CpTheme.type.subtitle, c.textMuted, maxLines = 6)
+                // 줄 수를 막지 않는다 — 판이 굴러가므로, 6줄에서 자르면 긴 주소 · 오류 문장의 끝이 사라졌다.
+                CpText(message, CpTheme.type.subtitle, c.textMuted, maxLines = Int.MAX_VALUE)
             }
             if (progress != null) {
                 Spacer(Modifier.height(16.dp))
@@ -517,7 +532,21 @@ fun CpSlider(
         modifier
             .fillMaxWidth()
             .height(CpTheme.metrics.touchTarget)
-            .semantics { contentDescription = description }
+            // 화면 읽기(TalkBack)가 지금 값을 읽고, 위아래 쓸기 · 음량 단추로 옮길 수 있게 한다(0.28.3). 이름만 있을 때는
+            // "읽은 위치" 라고만 읽고 값을 바꿀 길이 없었다. 누르기 동작을 따로 두는 까닭: 없으면 두 번 누르기가 막대
+            // 가운데를 누른 것으로 흉내 내져 책이 50% 자리로 건너뛰었다.
+            .semantics {
+                contentDescription = description
+                stateDescription = "${(value.coerceIn(0f, 1f) * 100).roundToInt()}%"
+                progressBarRangeInfo = androidx.compose.ui.semantics.ProgressBarRangeInfo(value.coerceIn(0f, 1f), 0f..1f)
+                setProgress { target ->
+                    val v = target.coerceIn(0f, 1f)
+                    change.value(v)
+                    commit.value(v)
+                    true
+                }
+                onClick { true }
+            }
             .pointerInput(Unit) {
                 detectTapGestures { offset ->
                     val v = (offset.x / size.width).coerceIn(0f, 1f)

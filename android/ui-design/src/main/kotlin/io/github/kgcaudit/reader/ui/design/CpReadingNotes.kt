@@ -218,6 +218,8 @@ fun CpReadingNotesList(
             }
         }
         menu?.let { (item, at) ->
+            // 뒤로 가기는 메뉴만 닫는다(0.28.3). 없으면 리더가 받아 독서노트가 통째로 닫혔다 — 한 겹씩 나온다는 규칙.
+            androidx.activity.compose.BackHandler { menu = null }
             // 바깥을 누르면 닫힌다(투명한 막).
             Box(Modifier.fillMaxSize().clickable(indication = null, interactionSource = null) { menu = null })
             Column(
@@ -293,7 +295,8 @@ private fun NoteRow(item: NoteItem, onOpen: () -> Unit, onMenu: (Offset) -> Unit
                 Modifier.size(MENU_BUTTON).clip(RoundedCornerShape(50))
                     .onGloballyPositioned { val p = it.positionInRoot(); button = Offset(p.x + it.size.width, p.y + it.size.height) }
                     .clickable(role = Role.Button) { onMenu(button) }
-                    .semantics { contentDescription = "더 보기" },
+                    // 행마다 "더 보기" 로만 읽으면 화면 읽기 사용자는 어느 노트의 메뉴인지 모른다. 종류와 자리를 붙인다.
+                    .semantics { contentDescription = "${if (item.isBookmark) "책갈피" else if (item.memo != null) "메모" else "형광펜"} 더 보기 · ${item.where}" },
                 contentAlignment = Alignment.Center,
             ) { CpText("⋮", CpTheme.type.title, c.textMuted) }
         }

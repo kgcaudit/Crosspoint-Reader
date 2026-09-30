@@ -81,6 +81,8 @@ class ListenService : Service() {
     private lateinit var audio: AudioManager
     private var focus: AudioFocusRequest? = null
     private var resumeOnFocus = false
+    /** 전화 · 길 안내에 잠깐 소리를 내주었다. 돌려받기 전에는 읽지 않는다. */
+    private var lentAway = false
     private var wake: PowerManager.WakeLock? = null
     private var foreground = false
     private var noisyRegistered = false
@@ -143,8 +145,14 @@ class ListenService : Service() {
             stop()
             return
         }
+        if (state.playing && !requestFocus()) {
+            // 소리 차례를 받지 못했다(통화 중) · 잠깐 내준 사이 사람이 "이어 듣기" 를 눌렀다. 읽으면 통화 중에 책을 소리
+            // 내어 읽는다(0.28.3). 멈추고, 잠깐 내준 것이면 돌려받을 때 읽는다.
+            resumeOnFocus = lentAway
+            listening.pause()
+            return
+        }
         if (state.playing) {
-            requestFocus()
             acquireWake()
             registerNoisy()
         } else {
@@ -233,8 +241,9 @@ class ListenService : Service() {
         manager.createNotificationChannel(NotificationChannel(CHANNEL, "듣기", NotificationManager.IMPORTANCE_LOW))
     }
 
-    private fun requestFocus() {
-        if (focus != null) return
+    /** 소리를 내도 되는가. 이미 쥐고 있어도 잠깐 내준 동안은 아니다. */
+    private fun requestFocus(): Boolean {
+        if (focus != null) return !lentAway
         val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
             .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
             .setOnAudioFocusChangeListener { change ->
@@ -242,15 +251,18 @@ class ListenService : Service() {
                 when (change) {
                     // 전화 · 길 안내: 잠깐 멈췄다가 돌려받으면 이어 읽는다. 말소리는 소리를 줄여 겹쳐 읽으면 알아듣기 어렵다.
                     AudioManager.AUDIOFOCUS_LOSS_TRANSIENT, AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                        lentAway = true
                         resumeOnFocus = listening.state.value.playing
                         listening.pause()
                     }
                     AudioManager.AUDIOFOCUS_GAIN -> {
+                        lentAway = false
                         if (resumeOnFocus) listening.play()
                         resumeOnFocus = false
                     }
                     // 다른 앱이 음악을 틀었다 — 멈추고 돌아오지 않는다.
                     AudioManager.AUDIOFOCUS_LOSS -> {
+                        lentAway = false
                         resumeOnFocus = false
                         listening.pause()
                         releaseFocus()
@@ -258,12 +270,15 @@ class ListenService : Service() {
                 }
             }
             .build()
-        if (audio.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) focus = request
+        if (audio.requestAudioFocus(request) != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) return false
+        focus = request
+        return true
     }
 
     private fun releaseFocus() {
         focus?.let { audio.abandonAudioFocusRequest(it) }
         focus = null
+        lentAway = false
     }
 
     private fun registerNoisy() {

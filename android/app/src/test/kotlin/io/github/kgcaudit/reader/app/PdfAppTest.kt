@@ -13,6 +13,7 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.test.swipeUp
 import androidx.test.core.app.ApplicationProvider
 import io.github.kgcaudit.reader.document.pdf.TestPdf
 import io.github.kgcaudit.reader.document.pdf.TestPdf.Companion.pages
@@ -146,7 +147,7 @@ class PdfAppTest {
         // 도구줄의 책갈피 단추는 독서노트로 합쳤다(N5). 글자를 못 꺼내는 휴대폰의 PDF 독서노트는 책갈피만 모인다.
         // 그 휴대폰에서는 찾기 · 듣기 단추도 없다(누를 때마다 "안 됩니다" 를 보는 것보다 없는 편이 낫다).
         kotlin.test.assertTrue(compose.onAllNodes(hasContentDescription("듣기"), useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
-        kotlin.test.assertTrue(compose.onAllNodes(hasContentDescription("본문에서 찾기"), useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
+        kotlin.test.assertTrue(compose.onAllNodes(hasContentDescription("책에서 찾기"), useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
         node(hasText("독서노트")).performClick()
         waitFor(hasText("4쪽"))
         waitFor(hasText("이 휴대폰(안드로이드 14 이하)에서는 PDF 글자를 고를 수 없어 책갈피만 모입니다"))
@@ -211,7 +212,7 @@ class PdfAppTest {
         node(hasText("보기")).performClick()
         waitFor(hasText("모든 보기 설정"))
         check(compose.onAllNodes(hasText("여백"), useUnmergedTree = true).fetchSemanticsNodes().isEmpty()) { "PDF 판에 여백이 있다" }
-        node(hasContentDescription("배경 검정")).performClick()
+        node(hasContentDescription("배경 검은색")).performClick()
         shot("49-pdf-view-panel")
         node(hasText("모든 보기 설정")).performClick()
         waitFor(hasText("넘기기"))
@@ -296,6 +297,35 @@ class PdfAppTest {
         compose.onRoot().performTouchInput { swipeLeft() }
         waitFor(hasText("2 / 6"))
         waitFor(hasText("2쪽 · 첫 화면", substring = true))
+    }
+
+    @Test
+    @Config(qualifiers = "w851dp-h393dp-xhdpi")
+    fun `choosing fit width on the page being read scrolls that same page instead of skipping to the next`() {
+        // 한 쪽 보기로 읽다가 그 쪽에서 폭 맞춤을 고른다. 누르기 처리가 옛 설정을 쥐고 있어 쪽 아래를 건너뛰고 다음 쪽으로
+        // 갔고, 위아래로 끌어도 움직이지 않았다(0.28.3). 쪽이 한 번 바뀌어야 제대로 됐다.
+        compose.activity.container.prefs.save(io.github.kgcaudit.reader.reflow.ReaderPrefs(screen = io.github.kgcaudit.reader.ui.design.ScreenPrefs(twoPagesLandscape = false)))
+        compose.activityRule.scenario.recreate()
+        waitFor(hasText("설명서.pdf"))
+        node(hasText("설명서.pdf")).performClick()
+        waitFor(hasText("1 / 6"))
+        compose.onRoot().performTouchInput { click(center) }
+        waitFor(hasText("보기"))
+        node(hasText("보기")).performClick()
+        waitFor(hasText("쪽 맞춤"))
+        node(hasText("폭")).performClick()
+        compose.waitForIdle()
+        compose.activity.onBackPressedDispatcher.onBackPressed()
+        compose.activity.onBackPressedDispatcher.onBackPressed()
+        waitFor(hasText("1쪽 · 첫 화면", substring = true))
+        compose.onRoot().performTouchInput { click(centerRight.copy(x = width * 0.9f)) }
+        waitFor(hasText("(2/", substring = true))
+        waitFor(hasText("1 / 6"))
+        // 위로 끌면 쪽 안을 내려 본다.
+        compose.onRoot().performTouchInput { swipeUp(startY = height * 0.85f, endY = height * 0.1f) }
+        compose.waitForIdle()
+        waitFor(hasText("1쪽 · ", substring = true).and(hasText("(2/", substring = true).not()))
+        waitFor(hasText("1 / 6"))
     }
 
     /** 쪽 6장, 목차(장 · 절), 문서 정보(제목 · 저자)가 있는 PDF. 쪽 그림은 가짜 엔진([DrawnPdf])이 그린다. */

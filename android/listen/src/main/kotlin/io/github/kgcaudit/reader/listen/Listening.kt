@@ -117,11 +117,20 @@ class Listening(
         // 쪽 전체가 한 문장 안이면 그 문장을 읽되 쪽은 사람이 둔 곳에 둔다.
         val keepPage = pageEnd != null && exact < 0 && onPage < 0
         _state.value = _state.value.copy(preparing = false)
-        // 엔진을 깨우는 사이 끄거나 멈췄으면 speakFrom 이 세대를 보고 읽지 않는다.
+        // 엔진을 깨우는 사이 끄거나 멈췄으면 speakFrom 이 세대를 보고 읽지 않는다. 멈춘 것이면 자리는 잡아 둔다 — 다음
+        // "이어 듣기" 가 장 첫 문장이 아니라 여기서 읽는다.
+        if (generation != since) {
+            if (index < 0 && n < c.sentences.size) index = n
+            return
+        }
         speakFrom(spine, n, since, follow = !keepPage)
     }
 
-    fun toggle() = if (_state.value.playing) pause() else play()
+    /**
+     * 조종판 · 알림의 재생/멈춤. 엔진을 깨우는 동안(최대 몇 초)은 조종판이 "멈춤" 을 보이므로 누르면 멈춘다 — 재생으로
+     * 읽었을 때는 아직 장을 불러오지 않아 아무 일도 없고, 몇 초 뒤 그대로 읽기 시작했다(0.28.3).
+     */
+    fun toggle() = if (_state.value.playing || _state.value.preparing) pause() else play()
 
     fun play() {
         val c = chapter ?: return

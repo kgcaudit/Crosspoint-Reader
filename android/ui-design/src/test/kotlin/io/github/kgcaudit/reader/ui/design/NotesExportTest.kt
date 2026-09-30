@@ -64,4 +64,12 @@ class NotesExportTest {
         assertEquals("책 독서노트.md", exportFileName(" / ", NoteFormat.Markdown))
         assertFalse(exportFileName("x".repeat(500), NoteFormat.Text).length > 100)
     }
+
+    @Test
+    fun `a book with thousands of notes is too long to share at once and is sent to a file instead`() {
+        // 칠 수천 개의 책에서 "공유" 를 누르면 아무 일도 없었다. 한도를 넘는 글은 공유하지 않고 파일로 저장하라고 알린다.
+        val many = List(3_000) { i -> NoteItem("a$i", "${i / 100}장", "칠한 대목 $i ".repeat(4), Pen.Yellow, "메모 $i", "$i% · 2026.09.24.") }
+        assertFalse(shareable(exportNotes("많은 책", null, many)))
+        assertTrue(shareable(exportNotes("어린 왕자", null, items)))
+    }
 }

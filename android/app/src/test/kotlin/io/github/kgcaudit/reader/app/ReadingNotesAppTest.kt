@@ -172,6 +172,29 @@ class ReadingNotesAppTest {
     }
 
     @Test
+    @Config(qualifiers = "w700dp-h260dp-xhdpi")
+    fun `on a short screen like a landscape phone with the keyboard up the memo sheet keeps its save button`() {
+        // 가로 휴대폰에서 자판이 올라오면 판이 쓸 높이가 200dp 안팎이다. 입력 칸 높이를 못 박았을 때는 "저장" 이 높이 0 으로
+        // 눌려 사라졌다. 여기서는 짧은 화면으로 같은 처지를 만든다(자판은 시험에서 띄울 수 없다).
+        try {
+            openWith(ReaderPrefs(screen = ScreenPrefs(twoPagesLandscape = false)))
+            select(0)
+            node(hasText("메모")).performClick()
+            waitFor(hasContentDescription("메모 입력"))
+            shot("72b-memo-sheet-short")
+            val root = compose.onRoot().fetchSemanticsNode().boundsInRoot
+            val save = node(hasText("저장")).fetchSemanticsNode().boundsInRoot
+            assertTrue(save.height > 20 * density && save.bottom <= root.bottom + 1, "저장 단추가 잘렸다: $save / $root")
+            node(hasContentDescription("메모 입력")).performTextInput("짧은 화면")
+            node(hasText("저장")).performClick()
+            compose.waitUntil(5_000) { !hasNode(hasContentDescription("메모 입력")) }
+            assertEquals("짧은 화면", runBlocking { app.container.data.annotations.forBook(bookId()) }.single().note)
+        } finally {
+            org.robolectric.RuntimeEnvironment.setQualifiers("w393dp-h851dp-xhdpi")
+        }
+    }
+
+    @Test
     fun `a memo is saved with its highlight, marked on the page and cancelling leaves nothing behind`() {
         openWith()
         // 취소하면 칠도 메모도 남지 않는다 — 메모 판을 열었다는 것만으로 칠해지면 안 된다.
@@ -393,7 +416,7 @@ class ReadingNotesAppTest {
         assertNear(textStart, memo.left / density - 12, "메모 상자")
 
         // ⋮ 메뉴: 메모 고치기 · 색 바꾸기 · 공유 · 지우기. 색 바꾸기는 그 자리에서 4색으로 바뀐다.
-        compose.onAllNodes(hasContentDescription("더 보기"), useUnmergedTree = true)[2].performClick()
+        compose.onAllNodes(hasContentDescription("더 보기", substring = true), useUnmergedTree = true)[2].performClick()
         waitFor(hasText("메모 고치기"))
         listOf("색 바꾸기", "공유", "지우기").forEach { assertTrue(hasNode(hasText(it)), "⋮ 메뉴에 $it 이 없다") }
         shot("78-notes-menu")
@@ -467,7 +490,14 @@ class ReadingNotesAppTest {
         waitFor(hasText("독서노트"))
         node(hasText("독서노트")).performClick()
         waitFor(hasText("사라진 자리"))
-        node(hasContentDescription("더 보기")).performClick()
+        // 뒤로 가기는 메뉴만 닫는다. 독서노트는 그대로다.
+        node(hasContentDescription("더 보기", substring = true)).performClick()
+        waitFor(hasText("지우기"))
+        compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        compose.waitForIdle()
+        assertFalse(hasNode(hasText("지우기")), "뒤로 가기에 메뉴가 닫히지 않았다")
+        assertTrue(hasNode(hasText("사라진 자리")), "뒤로 가기에 독서노트까지 닫혔다")
+        node(hasContentDescription("더 보기", substring = true)).performClick()
         node(hasText("지우기")).performClick()
         compose.waitUntil(5_000) { !hasNode(hasText("사라진 자리")) }
         assertTrue(runBlocking { app.container.data.annotations.forBook(bookId()) }.isEmpty())
@@ -492,7 +522,7 @@ class ReadingNotesAppTest {
         node(hasText("독서노트")).performClick()
         waitFor(hasText("칠 0"))
         val root = compose.onRoot().fetchSemanticsNode().boundsInRoot
-        val buttons = compose.onAllNodes(hasContentDescription("더 보기"), useUnmergedTree = true)
+        val buttons = compose.onAllNodes(hasContentDescription("더 보기", substring = true), useUnmergedTree = true)
         val lowest = buttons.fetchSemanticsNodes().withIndex().filter { it.value.boundsInRoot.bottom <= root.bottom }
             .maxBy { it.value.boundsInRoot.bottom }.index
         buttons[lowest].performClick()

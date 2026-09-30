@@ -358,6 +358,52 @@ class ListenAppTest {
     }
 
     @Test
+    fun `a phone call pauses the reading and pressing play during the call waits for the call to end`() {
+        openWith()
+        startListening()
+        val controller = Robolectric.buildService(ListenService::class.java).create()
+        val service = controller.get()
+        controller.startCommand(0, 1)
+        shadowOf(Looper.getMainLooper()).idle()
+        val audio = shadowOf(app.getSystemService(android.media.AudioManager::class.java))
+        val listener = audio.lastAudioFocusRequest.listener
+        // 전화가 온다 → 멈춘다.
+        listener.onAudioFocusChange(android.media.AudioManager.AUDIOFOCUS_LOSS_TRANSIENT)
+        waitFor(hasContentDescription("이어 듣기"))
+        // 통화 중에 잠금 화면의 "이어 듣기" 를 눌러도 읽지 않는다.
+        service.onStartCommand(Intent(service, ListenService::class.java).setAction(ListenService.ACTION_TOGGLE), 0, 2)
+        shadowOf(Looper.getMainLooper()).idle()
+        compose.waitForIdle()
+        waitFor(hasContentDescription("이어 듣기"))
+        assertEquals(null, speaker.current, "통화 중에 소리 내어 읽었다")
+        // 통화가 끝나면 이어 읽는다.
+        listener.onAudioFocusChange(android.media.AudioManager.AUDIOFOCUS_GAIN)
+        compose.waitUntil(5_000) { speaker.current != null }
+        controller.destroy()
+    }
+
+    @Test
+    fun `listening does not start while another app holds the sound like during a call`() {
+        openWith()
+        startListening()
+        val controller = Robolectric.buildService(ListenService::class.java).create()
+        val service = controller.get()
+        controller.startCommand(0, 1)
+        shadowOf(Looper.getMainLooper()).idle()
+        // 멈췄다가, 소리 차례를 내주지 않는 때(통화 중)에 다시 누른다.
+        service.onStartCommand(Intent(service, ListenService::class.java).setAction(ListenService.ACTION_TOGGLE), 0, 2)
+        waitFor(hasContentDescription("이어 듣기"))
+        val audio = shadowOf(app.getSystemService(android.media.AudioManager::class.java))
+        audio.setNextFocusRequestResponse(android.media.AudioManager.AUDIOFOCUS_REQUEST_FAILED)
+        service.onStartCommand(Intent(service, ListenService::class.java).setAction(ListenService.ACTION_TOGGLE), 0, 3)
+        shadowOf(Looper.getMainLooper()).idle()
+        compose.waitForIdle()
+        waitFor(hasContentDescription("이어 듣기"))
+        assertEquals(null, speaker.current, "소리 차례 없이 읽었다")
+        controller.destroy()
+    }
+
+    @Test
     fun `the chapter end timer stops before the next chapter and the book end is announced`() {
         openWith()
         startListening()
@@ -472,6 +518,35 @@ class ListenAppTest {
         assertTrue(hasNode(hasText("2 / ", substring = true)), "끈 뒤에도 넘어갔다")
         assertFalse(hasNode(hasText("다음 쪽까지", substring = true)))
         assertEquals(AutoTurn.S15, app.container.prefs.load().screen.autoTurn)
+        compose.mainClock.autoAdvance = true
+    }
+
+    @Test
+    fun `auto turn does not count while the screen is off and keeps going when the reader comes back`() {
+        openWith()
+        compose.onRoot().performTouchInput { click(center) }
+        waitFor(hasText("보기"))
+        node(hasText("보기")).performClick()
+        waitFor(hasText("모든 보기 설정"))
+        node(hasText("모든 보기 설정")).performClick()
+        waitFor(hasText("자동 넘김"))
+        node(hasText("15초")).performClick()
+        compose.waitForIdle()
+        repeat(3) { compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }; compose.waitForIdle() }
+        waitFor(hasText("다음 쪽까지 15초", substring = true))
+        compose.mainClock.autoAdvance = false
+
+        // 전원 단추로 화면을 끄고 한참 있다 돌아온다. 그사이 넘어가지 않고, 자동 넘김도 꺼지지 않는다.
+        compose.activityRule.scenario.moveToState(androidx.lifecycle.Lifecycle.State.CREATED)
+        repeat(40) { compose.mainClock.advanceTimeBy(1_000); Thread.sleep(5) }
+        compose.activityRule.scenario.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED)
+        waitTicking { hasNode(hasText("다음 쪽까지", substring = true)) }
+        assertTrue(hasNode(hasText("1 / ", substring = true)), "화면이 꺼진 사이 쪽이 넘어갔다")
+
+        // 돌아온 뒤에는 남은 초를 이어서 세어 넘긴다.
+        compose.mainClock.advanceTimeBy(16_000)
+        waitTicking { hasNode(hasText("2 / ", substring = true)) }
+        waitTicking { hasNode(hasText("다음 쪽까지", substring = true)) }
         compose.mainClock.autoAdvance = true
     }
 

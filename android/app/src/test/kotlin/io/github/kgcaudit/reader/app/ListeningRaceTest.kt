@@ -17,6 +17,7 @@ import org.robolectric.annotation.Config
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * 듣기 명령이 겹칠 때(0.24.1). 다음 장을 불러오는 동안 온 멈춤이 무시돼, 이어폰을 뺐는데 스피커로 계속 읽었다.
@@ -70,5 +71,25 @@ class ListeningRaceTest {
         scope.runCurrent()
         assertNull(speaker.current)
         assertFalse(listening.state.value.playing)
+    }
+
+    @Test
+    fun `pressing pause while the engine is waking up stops it and play later starts from that place`() {
+        // 준비 중에는 조종판이 "멈춤" 을 보인다. 누른 것이 무시되고 몇 초 뒤 그대로 읽기 시작했다(0.28.3).
+        val gate = CompletableDeferred<Unit>()
+        val speaker = ListenAppTest.FakeSpeaker(null)
+        val listening = Listening(SlowBook(gate), speaker, scope)
+        scope.launch { listening.start(1, 0, 1f, null) }
+        scope.runCurrent()
+        assertTrue(listening.state.value.preparing)
+        listening.toggle()
+        gate.complete(Unit)
+        scope.runCurrent()
+        assertNull(speaker.current, "멈춤을 눌렀는데 읽기 시작했다")
+        assertFalse(listening.state.value.playing)
+        // 다시 누르면 켜던 자리(둘째 장 첫 문장)에서 읽는다.
+        listening.toggle()
+        scope.runCurrent()
+        assertEquals("둘째 장의 첫 문장이다.", speaker.current)
     }
 }

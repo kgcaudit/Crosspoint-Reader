@@ -115,8 +115,8 @@ class PdfTextAppTest {
     fun `search finds a word on every page, lists it by page and lands on it with the result bar`() {
         open()
         compose.onRoot().performTouchInput { click(center) }
-        waitFor(hasContentDescription("본문에서 찾기"))
-        node(hasContentDescription("본문에서 찾기")).performClick()
+        waitFor(hasContentDescription("책에서 찾기"))
+        node(hasContentDescription("책에서 찾기")).performClick()
         waitFor(hasContentDescription("찾을 말"))
         node(hasContentDescription("찾을 말")).performTextInput("책갈피")
         node(hasContentDescription("찾을 말")).performImeAction()
@@ -263,8 +263,8 @@ class PdfTextAppTest {
         scanned = { true }
         open()
         compose.onRoot().performTouchInput { click(center) }
-        waitFor(hasContentDescription("본문에서 찾기"))
-        node(hasContentDescription("본문에서 찾기")).performClick()
+        waitFor(hasContentDescription("책에서 찾기"))
+        node(hasContentDescription("책에서 찾기")).performClick()
         waitFor(hasText("글자가 그림으로 되어 있어", substring = true))
         // 도구줄이 닫혀야 알림이 보인다(열린 채면 도구줄 밑에 가린다).
         assertFalse(hasNode(hasText("목차")), "도구줄이 알림을 가리고 있다")

@@ -168,8 +168,9 @@ fun CpMemoSheet(
 ) {
     val c = CpTheme.colors
     val m = CpTheme.metrics
-    var text by remember(key) { mutableStateOf(initialText) }
-    var pen by remember(key) { mutableStateOf(initialPen) }
+    // 화면이 다시 만들어져도(휴대폰 글자 크기 · 언어를 바꾸고 돌아옴) 쓰던 글과 고른 색이 남는다.
+    var text by androidx.compose.runtime.saveable.rememberSaveable(key) { mutableStateOf(initialText) }
+    var pen by androidx.compose.runtime.saveable.rememberSaveable(key) { mutableStateOf(initialPen) }
     val focus = remember { FocusRequester() }
     LaunchedEffect(key) { runCatching { focus.requestFocus() } }
     BackHandler(onBack = onCancel)
@@ -192,8 +193,10 @@ fun CpMemoSheet(
                 Box(Modifier.width(4.dp).height(44.dp).clip(RoundedCornerShape(50)).background(pen.base))
                 CpText(quote, CpTheme.type.subtitle, c.textMuted, Modifier.padding(start = 12.dp), maxLines = 2)
             }
+            // 입력 칸은 남는 높이만 쓴다(최대 120dp). 높이를 못 박았을 때 가로 화면에서 자판이 올라오면 판이 화면을 넘어
+            // 맨 아래 "저장" · "취소" 가 높이 0 으로 눌려 사라졌다 — 자판을 내려야만 저장할 수 있었다.
             Box(
-                Modifier.padding(top = 14.dp).fillMaxWidth().height(120.dp).clip(RoundedCornerShape(m.cornerMedium))
+                Modifier.padding(top = 14.dp).fillMaxWidth().weight(1f, fill = false).heightIn(max = 120.dp).clip(RoundedCornerShape(m.cornerMedium))
                     .border(2.dp, c.accent, RoundedCornerShape(m.cornerMedium)).padding(14.dp),
             ) {
                 if (text.isEmpty()) CpText("생각을 적어 두세요", CpTheme.type.body, c.textMuted)

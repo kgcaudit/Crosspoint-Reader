@@ -272,7 +272,7 @@ fun describeOpenFailure(error: Throwable, format: BookFormat?): String = when {
     // PdfRenderer 는 암호가 걸린 파일에 SecurityException 을 던진다. 권한이 풀린 것과 같은 예외라
     // 문구로 가른다 — "파일을 찾을 수 없습니다" 라고 하면 멀쩡히 있는 파일을 찾아 헤맨다.
     format == BookFormat.PDF && error is SecurityException && error.message.orEmpty().contains("password", ignoreCase = true) ->
-        "암호가 걸린 PDF 입니다. 암호를 푼 파일로 다시 열어 주세요."
+        "암호가 걸린 PDF입니다. 암호를 푼 파일로 다시 열어 주세요."
     error is java.io.FileNotFoundException || error is SecurityException ->
         "파일을 찾을 수 없습니다. 옮겨졌거나 지워졌을 수 있습니다. 홈에서 새로고침해 보세요."
     format == BookFormat.EPUB && error is java.io.IOException ->

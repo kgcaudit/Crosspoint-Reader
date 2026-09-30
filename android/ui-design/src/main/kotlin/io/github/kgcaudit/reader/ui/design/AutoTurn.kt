@@ -18,7 +18,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.withFrameNanos
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 
 /** 자동 넘김(L7): n초마다 다음 쪽. 스크롤 보기가 없는 대신이다. */
 enum class AutoTurn(val label: String, val seconds: Int?) {
@@ -47,6 +49,7 @@ class AutoTurnState {
 fun rememberAutoTurn(setting: AutoTurn, pageKey: Any?, suspended: Boolean, onTurn: () -> Unit): AutoTurnState {
     val state = remember { AutoTurnState() }
     val latest by rememberUpdatedState(onTurn)
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(setting) {
         state.stopped = false
         state.paused = false
@@ -59,13 +62,22 @@ fun rememberAutoTurn(setting: AutoTurn, pageKey: Any?, suspended: Boolean, onTur
             state.remaining = seconds
         }
         if (state.paused || state.stopped || suspended) return@LaunchedEffect
+        // 화면이 꺼졌거나 다른 앱을 보는 동안은 세지 않는다(0.28.3). 이 효과의 delay 는 뒤에서도 흐르는데 화면은 다시
+        // 그려지지 않아, 모르는 사이 한 쪽이 넘어가고 쪽 번호가 안 바뀐 줄 알고 아래의 "책 끝" 으로 빠져 자동 넘김이 꺼졌다.
+        suspend fun onScreen() { lifecycle.currentStateFlow.first { it.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED) } }
         while (state.remaining > 0) {
             delay(1_000)
+            onScreen()
             state.remaining--
         }
         latest()
         // 넘겼는데 쪽이 그대로면(책 끝) 이 효과가 취소되지 않고 여기 온다 — 멈춘다. 끝 쪽에서 0초를 붙들고 있지 않게.
+        // 그림 두 장을 기다린다: 새 쪽이 그려졌다면 그사이 이 효과는 취소됐다. 앞에 서지 않은 동안은 그리지 않으므로
+        // 뒤로 물러난 사이 여기 와도 책 끝으로 잘못 읽지 않는다.
         delay(2_000)
+        onScreen()
+        withFrameNanos { }
+        withFrameNanos { }
         state.stopped = true
     }
     return state

@@ -55,6 +55,7 @@ import io.github.kgcaudit.reader.layout.Page
 import io.github.kgcaudit.reader.text.AndroidTextMeasurer
 import io.github.kgcaudit.reader.ui.design.CpButton
 import io.github.kgcaudit.reader.ui.design.blockTouches
+import io.github.kgcaudit.reader.ui.design.CpMemoSheet
 import io.github.kgcaudit.reader.ui.design.CpPenDots
 import io.github.kgcaudit.reader.ui.design.CpText
 import io.github.kgcaudit.reader.ui.design.CpTheme
@@ -232,54 +233,9 @@ internal data class MemoDraft(
  * 새 구간이면 "저장" 할 때 비로소 칠한다 — 취소하면 아무것도 남지 않는다.
  */
 @Composable
-internal fun MemoSheet(draft: MemoDraft, onSave: (text: String, pen: Pen) -> Unit, onCancel: () -> Unit) {
-    val c = CpTheme.colors
-    val m = CpTheme.metrics
-    var text by remember(draft) { mutableStateOf(draft.annotation?.note.orEmpty()) }
-    var pen by remember(draft) { mutableStateOf(draft.pen) }
-    val focus = remember { FocusRequester() }
-    LaunchedEffect(draft) { runCatching { focus.requestFocus() } }
-    BackHandler(onBack = onCancel)
-    Box(
-        Modifier.fillMaxSize().background(Color(0x66000000))
-            .clickable(indication = null, interactionSource = null, onClick = onCancel),
-    ) {
-        Column(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth().imePadding()
-                .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)).background(c.surface)
-                .blockTouches()
-                .padding(horizontal = m.gutter).padding(top = 10.dp, bottom = 24.dp),
-        ) {
-            Box(Modifier.align(Alignment.CenterHorizontally).size(width = 36.dp, height = 4.dp).clip(RoundedCornerShape(50)).background(c.divider))
-            Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                CpText("메모", CpTheme.type.title, c.text, Modifier.weight(1f))
-                CpPenDots(pen, { pen = it }, ring = c.text, dotSize = 24.dp)
-            }
-            Row(Modifier.fillMaxWidth().heightIn(min = 44.dp)) {
-                Box(Modifier.width(4.dp).height(44.dp).clip(RoundedCornerShape(50)).background(pen.base))
-                CpText(draft.quote, CpTheme.type.subtitle, c.textMuted, Modifier.padding(start = 12.dp), maxLines = 2)
-            }
-            Box(
-                Modifier.padding(top = 14.dp).fillMaxWidth().height(120.dp).clip(RoundedCornerShape(m.cornerMedium))
-                    .border(2.dp, c.accent, RoundedCornerShape(m.cornerMedium)).padding(14.dp),
-            ) {
-                if (text.isEmpty()) CpText("생각을 적어 두세요", CpTheme.type.body, c.textMuted)
-                BasicTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    textStyle = CpTheme.type.body.copy(color = c.text),
-                    cursorBrush = SolidColor(c.accent),
-                    modifier = Modifier.fillMaxSize().focusRequester(focus).semantics { contentDescription = "메모 입력" },
-                )
-            }
-            Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.End) {
-                CpButton("취소", onCancel, primary = false)
-                Spacer(Modifier.width(10.dp))
-                CpButton("저장", { onSave(text, pen) })
-            }
-        }
-    }
-}
+internal fun MemoSheet(draft: MemoDraft, onSave: (text: String, pen: Pen) -> Unit, onCancel: () -> Unit) =
+    // PDF 와 같은 판을 쓴다(0.28.3). 한 줄씩 같은 사본을 두었더니 가로 화면의 자판 문제를 한쪽만 고칠 뻔했다.
+    CpMemoSheet(draft, draft.quote, draft.annotation?.note.orEmpty(), draft.pen, onSave, onCancel)
 
 // ── 복사 · 공유 · 사전 ─────────────────────────────────────────────
 

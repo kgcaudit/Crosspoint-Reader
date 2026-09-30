@@ -41,6 +41,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -738,6 +739,11 @@ private fun PageView(
     var aspect by remember(page) { mutableStateOf(reader.book.knownAspectRatio(page)) }
     LaunchedEffect(page) { if (aspect == null) aspect = reader.book.pageAspectRatio(page) }
     val pageAspect = aspect ?: return
+    // 누르기 처리는 열쇠가 같으면 처음 받은 람다를 계속 쥔다. 최신 것을 읽게 한다 — 안 그러면 보기 판에서 폭 맞춤이나
+    // 터치 영역을 바꾼 그 쪽에서는 옛 설정대로 넘어가, 폭 맞춤인데 쪽 아래를 건너뛰고 다음 쪽으로 갔다.
+    val tap by rememberUpdatedState(onTap)
+    val swiped by rememberUpdatedState(onSwipe)
+    val pressed by rememberUpdatedState(onLongPress)
     fun rest(aspect: Float, bottom: Boolean = false) =
         if (fitWidth) PageViewport.fitWidth(viewW, viewH, aspect, bottom) else PageViewport.fit(viewW, viewH, aspect)
     var viewport by remember(page, viewW, viewH, pageAspect, fitWidth) { mutableStateOf(rest(pageAspect, fromBottom)) }
@@ -790,16 +796,18 @@ private fun PageView(
             // 확대한 쪽이 제 자리 밖(상태 막대 위)까지 그려지지 않게 자른다.
             .clipToBounds()
             .then(if (text != null) Modifier.selectionHandles(reader, text) else Modifier)
-            .pointerInput(page, viewW, viewH, pageAspect) {
+            // 폭 맞춤도 열쇠다 — viewport 가 그것으로 새로 만들어지므로, 빠뜨리면 끌기가 버려진 옛 viewport 를 움직여
+            // 위아래로 끌어도 화면이 가만히 있었다.
+            .pointerInput(page, viewW, viewH, pageAspect, fitWidth) {
                 detectTapGestures(
                     // 두 번 누르기를 기다리느라 한 번 누르기가 조금(약 0.3초) 늦다. PDF 는 글자가 작아
                     // 확대를 자주 하므로 받아들인다.
                     onDoubleTap = { at -> viewport = viewport.toggleZoom(at.x, at.y) },
-                    onTap = { at -> onTap(at, CORNER.toPx()) },
-                    onLongPress = { at -> onLongPress(at) },
+                    onTap = { at -> tap(at, CORNER.toPx()) },
+                    onLongPress = { at -> pressed(at) },
                 )
             }
-            .pointerInput(page, viewW, viewH, pageAspect) {
+            .pointerInput(page, viewW, viewH, pageAspect, fitWidth) {
                 val threshold = 48.dp.toPx()
                 awaitEachGesture {
                     // 손잡이를 끄는 누름은 손잡이 층이 먼저 먹었다 — 넘기기 · 확대로 읽지 않는다.
@@ -838,7 +846,7 @@ private fun PageView(
                         }
                     } while (event.changes.any { it.pressed })
                     // 두 손가락으로 줄였다가 전체 크기로 돌아온 것은 넘기려던 게 아니다.
-                    if (moving && !pinched && !vertical && !viewport.isZoomed && abs(swipe) > threshold) onSwipe(swipe < 0)
+                    if (moving && !pinched && !vertical && !viewport.isZoomed && abs(swipe) > threshold) swiped(swipe < 0)
                 }
             },
     ) {
@@ -947,6 +955,10 @@ private fun SpreadView(
     text: PdfTextState? = null,
 ) {
     val half = viewW / 2f
+    // PageView 와 같은 까닭으로 최신 람다를 읽는다(터치 영역을 바꾼 펼침에서 옛 방향으로 넘어갔다).
+    val tap by rememberUpdatedState(onTap)
+    val swiped by rememberUpdatedState(onSwipe)
+    val pressed by rememberUpdatedState(onLongPress)
     // 쪽 비율을 모르면 그리지 않는다(PageView 와 같다). 앞뒤 쪽은 미리 재 두므로 넘길 때는 바로 안다.
     // 펼침이 바뀌면 값을 새로 시작한다(remember 의 열쇠) — 넘기는 순간 옛 펼침(쪽 하나)의 비율로 새 펼침(쪽 둘)을
     // 그리면 칸 수가 달라 죽는다(처음 쓴 판에서 표지 → 2–3쪽으로 넘길 때 났다).
@@ -987,14 +999,14 @@ private fun SpreadView(
             .fillMaxSize()
             .then(if (text != null) Modifier.selectionHandles(reader, text) else Modifier)
             .pointerInput(pages, viewW, viewH) {
-                detectTapGestures(onTap = { at -> onTap(at, CORNER.toPx()) }, onLongPress = { at -> onLongPress(at) })
+                detectTapGestures(onTap = { at -> tap(at, CORNER.toPx()) }, onLongPress = { at -> pressed(at) })
             }
             .pointerInput(pages, viewW, viewH) {
                 val threshold = 48.dp.toPx()
                 var dragged = 0f
                 detectHorizontalDragGestures(
                     onDragStart = { dragged = 0f },
-                    onDragEnd = { if (abs(dragged) > threshold) onSwipe(dragged < 0) },
+                    onDragEnd = { if (abs(dragged) > threshold) swiped(dragged < 0) },
                 ) { _, amount -> dragged += amount }
             },
     ) {

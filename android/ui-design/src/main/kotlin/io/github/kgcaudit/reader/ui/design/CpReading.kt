@@ -94,10 +94,12 @@ fun CpToast(message: String?, onDone: () -> Unit, modifier: Modifier = Modifier,
         delay(durationMs)
         done()
     }
+    // 줄을 바꿔 다 보인다(0.28.3). 한 줄로 막았을 때 스캔 PDF 안내처럼 긴 알림은 앞머리만 보이고 "…" 로 잘려
+    // 무엇을 하라는지 알 수 없었다. 가장자리에서 띄워 두 줄이 되어도 화면 끝에 붙지 않게 한다.
     Box(
-        modifier.padding(bottom = 64.dp).clip(RoundedCornerShape(20.dp))
+        modifier.padding(start = 24.dp, end = 24.dp, bottom = 64.dp).clip(RoundedCornerShape(20.dp))
             .background(Color(0xE6302A24)).padding(horizontal = 18.dp, vertical = 10.dp),
-    ) { CpText(message, CpTheme.type.label, Color.White) }
+    ) { CpText(message, CpTheme.type.label, Color.White, maxLines = 4, align = TextAlign.Center) }
 }
 
 // ── 하단 정보 ──────────────────────────────────────────────────────
@@ -172,9 +174,17 @@ private fun rememberMinuteTick(): Long = produceState(System.currentTimeMillis()
     }
 }.value
 
-private fun clockText(context: Context, millis: Long): String {
-    val pattern = if (android.text.format.DateFormat.is24HourFormat(context)) "HH:mm" else "a h:mm"
-    return android.text.format.DateFormat.format(pattern, millis).toString()
+private fun clockText(context: Context, millis: Long): String =
+    formatClock(millis, android.text.format.DateFormat.is24HourFormat(context))
+
+/**
+ * 하단 시계 글자. 오전 · 오후는 한국어로 못 박는다(0.28.3) — 휴대폰 언어를 따르게 두었더니 영어로 둔 휴대폰에서 한국어
+ * 화면 한가운데 "AM 9:05" 가 나왔다.
+ */
+fun formatClock(millis: Long, twentyFour: Boolean, zone: java.util.TimeZone = java.util.TimeZone.getDefault()): String {
+    val format = java.text.SimpleDateFormat(if (twentyFour) "HH:mm" else "a h:mm", java.util.Locale.KOREA)
+    format.timeZone = zone
+    return format.format(java.util.Date(millis))
 }
 
 /** 배터리 잔량(%). 끈끈한(sticky) 방송을 읽기만 한다 — 권한도, 받는 쪽 등록도 필요 없다. */
@@ -219,7 +229,7 @@ fun CpImageBlendRow(selected: ImageBlend, onSelect: (ImageBlend) -> Unit, modifi
     CpChoice("그림 흰 바탕", options.map { it.label }, options.indexOf(selected), { onSelect(options[it]) }, modifier)
 }
 
-/** 배경 고르기: 동그라미 견본. 첫째 "시스템" 은 반반 칠(휴대폰 다크 모드를 따름). */
+/** 배경 고르기: 동그라미 견본. 첫째 "휴대폰" 은 반반 칠(휴대폰 다크 모드를 따름). */
 @Composable
 fun CpThemeSwatches(selected: PaperTheme, onSelect: (PaperTheme) -> Unit, modifier: Modifier = Modifier) {
     val c = CpTheme.colors
@@ -233,7 +243,7 @@ fun CpThemeSwatches(selected: PaperTheme, onSelect: (PaperTheme) -> Unit, modifi
             Column(
                 Modifier.padding(start = 6.dp).clip(RoundedCornerShape(CpTheme.metrics.cornerSmall))
                     .selectable(selected = on, role = Role.RadioButton) { onSelect(theme) }
-                    .semantics { contentDescription = "배경 ${theme.label}" }
+                    .semantics { contentDescription = if (theme == PaperTheme.System) "배경 휴대폰 설정" else "배경 ${theme.label}" }
                     .padding(horizontal = 2.dp, vertical = 2.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
@@ -253,7 +263,7 @@ fun CpThemeSwatches(selected: PaperTheme, onSelect: (PaperTheme) -> Unit, modifi
 }
 
 /**
- * 밝기: 막대 + "시스템". 막대를 움직이면 앱 안에서만 그 밝기가 되고(권한 불필요), "시스템" 을 누르면
+ * 밝기: 막대 + "휴대폰". 막대를 움직이면 앱 안에서만 그 밝기가 되고(권한 불필요), "휴대폰" 을 누르면
  * 휴대폰 밝기(자동 밝기 포함)로 돌아간다. 배경 바로 아래 둔다 — 둘 다 화면이 얼마나 눈부신가를 정한다.
  */
 @Composable
@@ -266,13 +276,13 @@ fun CpBrightnessRow(value: Float?, onChange: (Float?) -> Unit, modifier: Modifie
         CpText("밝기", CpTheme.type.body, c.text, Modifier.width(72.dp))
         CpSlider(value ?: 0.5f, onChange = { onChange(it) }, onCommit = { onChange(it) }, Modifier.weight(1f), description = "밝기")
         CpText(
-            "시스템",
+            "휴대폰",
             CpTheme.type.label,
             if (value == null) c.accent else c.textMuted,
             Modifier.padding(start = 8.dp).clip(RoundedCornerShape(CpTheme.metrics.cornerSmall))
                 .clickable { onChange(null) }
-                // 배경 견본에도 "시스템" 이 있다. 화면 읽기로는 둘이 같은 말로 들린다.
-                .semantics { contentDescription = "시스템 밝기" }
+                // 배경 견본에도 "휴대폰" 이 있다. 화면 읽기로는 둘이 같은 말로 들린다.
+                .semantics { contentDescription = "휴대폰 설정 밝기" }
                 .padding(horizontal = 8.dp, vertical = 12.dp),
         )
     }
@@ -398,7 +408,7 @@ fun CpViewSettingsScreen(
                 }
                 CpSectionLabel("넘기기")
                 CpLinkRow("터치 영역", prefs.touch.label, { sub = SettingsPage.Touch }, child)
-                CpChoice("볼륨키로 넘기기", listOf("켬", "끔"), if (prefs.volumeKeys) 0 else 1, {
+                CpChoice("음량 단추로 넘기기", listOf("켬", "끔"), if (prefs.volumeKeys) 0 else 1, {
                     onChange(prefs.copy(volumeKeys = it == 0))
                 }, child)
                 val turns = PageTurn.entries
@@ -432,14 +442,14 @@ fun CpViewSettingsScreen(
                         maxLines = 2,
                     )
                 }
-                CpChoice("가로에서 두쪽보기", listOf("켬", "끔"), if (prefs.twoPagesLandscape) 0 else 1, {
+                CpChoice("가로에서 두 쪽 보기", listOf("켬", "끔"), if (prefs.twoPagesLandscape) 0 else 1, {
                     onChange(prefs.copy(twoPagesLandscape = it == 0))
                 }, child)
                 // 휴대폰에서는 흐리게 두고 까닭을 적는다. 줄을 빼 버리면 태블릿에서 본 설정을 휴대폰에서 찾아 헤맨다.
                 val wide = androidx.compose.ui.platform.LocalConfiguration.current.smallestScreenWidthDp >= ScreenPrefs.WIDE_SCREEN_DP
                 Column(child) {
                     CpChoice(
-                        "세로에서 두쪽보기",
+                        "세로에서 두 쪽 보기",
                         listOf("켬", "끔"),
                         if (prefs.twoPagesPortrait) 0 else 1,
                         { if (wide) onChange(prefs.copy(twoPagesPortrait = it == 0)) },
@@ -459,12 +469,12 @@ fun CpViewSettingsScreen(
                     onChange(prefs.copy(keepScreenOn = keep[it]))
                 }, child)
                 CpLinkRow("하단 정보", prefs.footer.summary, { sub = SettingsPage.Footer }, child)
-                CpChoice("왼쪽 끝 밀어 밝기", listOf("켬", "끔"), if (prefs.brightnessGesture) 0 else 1, {
+                CpChoice("왼쪽 끝을 밀어 밝기 조절", listOf("켬", "끔"), if (prefs.brightnessGesture) 0 else 1, {
                     onChange(prefs.copy(brightnessGesture = it == 0))
                 }, child)
                 if (pdf) {
                     CpSectionLabel("PDF")
-                    CpChoice("두쪽보기에서 표지", listOf("따로", "함께"), if (prefs.pdfCoverAlone) 0 else 1, {
+                    CpChoice("두 쪽 보기에서 표지", listOf("따로", "함께"), if (prefs.pdfCoverAlone) 0 else 1, {
                         onChange(prefs.copy(pdfCoverAlone = it == 0))
                     }, child)
                 }

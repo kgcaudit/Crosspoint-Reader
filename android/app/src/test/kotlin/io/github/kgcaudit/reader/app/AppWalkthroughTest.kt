@@ -14,6 +14,7 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.core.app.ApplicationProvider
 import io.github.kgcaudit.reader.document.BookId
@@ -139,7 +140,17 @@ class AppWalkthroughTest {
         shot("08-view-settings")
 
         // 9. 진행 막대를 끝쪽으로 눌러 멀리 간다. 마지막 장(3/3)으로 가야 한다.
-        node(hasContentDescription("읽은 위치")).performTouchInput { click(centerRight.copy(x = width * 0.97f)) }
+        node(hasContentDescription("지금 위치")).performTouchInput { click(centerRight.copy(x = width * 0.97f)) }
+        waitFor(hasText("3 / 3장"), timeoutMs = 30_000)
+        // 화면 읽기(TalkBack)로도: 막대가 값을 읽어 주고, 쓸어 옮길 수 있고, 두 번 눌러도 가운데로 건너뛰지 않는다.
+        val slider = node(hasContentDescription("지금 위치"))
+        assertTrue(slider.fetchSemanticsNode().config.contains(androidx.compose.ui.semantics.SemanticsProperties.ProgressBarRangeInfo), "막대가 값을 알리지 않는다")
+        slider.performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(0f) }
+        waitFor(hasText("1 / 3장"), timeoutMs = 30_000)
+        slider.performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
+        compose.waitForIdle()
+        waitFor(hasText("1 / 3장"))
+        slider.performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(0.97f) }
         waitFor(hasText("3 / 3장"), timeoutMs = 30_000)
 
         // 10. 지면을 누르면 메뉴가 닫히고, 바뀐 글꼴로 조판된 페이지가 보인다. 보기 판(0.12.0 부터 일곱 줄)이

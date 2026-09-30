@@ -49,6 +49,12 @@ class MainActivity : ComponentActivity() {
     /** 다른 앱이 "연결 프로그램" 으로 보낸 인텐트. 화면이 처리하면 null 로 되돌린다. */
     private val incoming = mutableStateOf<Intent?>(null)
 
+    /**
+     * 파일이 아닌 인텐트(앱 아이콘 · 듣기 알림)로 떠 있는 화면에 돌아온 횟수. [incoming] 과 따로 둔다 — 같은 칸에 넣으면
+     * 받은 파일의 이름을 묻는 사이 아이콘을 누른 것만으로 그 파일이 말없이 버려졌다.
+     */
+    private val returned = mutableIntStateOf(0)
+
     /** 음량 단추 → 리더(설정에서 켰을 때만). */
     private val volumeKeys = VolumeKeyRouter()
 
@@ -57,10 +63,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // 되살아난 경우(savedInstanceState 있음)에는 같은 인텐트를 다시 처리하지 않는다. 읽던
         // 책은 rememberSaveable 이 되돌린다 — 처리하면 읽던 자리 대신 처음부터 다시 연다.
-        if (savedInstanceState == null) incoming.value = intent
+        if (savedInstanceState == null && !fromHistory(intent)) incoming.value = intent
         setContent {
             CompositionLocalProvider(LocalVolumeKeys provides volumeKeys) {
-                CpTheme { OloApp(incoming, hideSystemBars = ::hideSystemBars, leave = ::leaveToCaller, rotate = ::applyRotation) }
+                CpTheme { OloApp(incoming, returned, hideSystemBars = ::hideSystemBars, leave = ::leaveToCaller, rotate = ::applyRotation) }
             }
         }
     }
@@ -93,8 +99,17 @@ class MainActivity : ComponentActivity() {
     public override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        incoming.value = intent
+        if (carriesFile(intent) && !fromHistory(intent)) incoming.value = intent else returned.intValue++
     }
+
+    private fun carriesFile(intent: Intent) = intent.action == Intent.ACTION_VIEW && intent.data != null
+
+    /**
+     * 최근 앱 목록에서 다시 연 것. 작업의 첫 인텐트가 파일 보기였으면 시스템은 그 옛 인텐트를 다시 준다 — 처리하면
+     * (안드로이드 8~11) 오래전에 닫은 파일을 다시 열려다 "파일을 찾을 수 없습니다" 가 떴다.
+     */
+    private fun fromHistory(intent: Intent?) =
+        intent != null && intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0
 
     /**
      * 화면 방향을 창에 건다. 자동은 FULL_SENSOR — 휴대폰의 회전 잠금과 상관없이 네 방향 모두 돈다
@@ -127,6 +142,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun OloApp(
     incoming: MutableState<Intent?>,
+    returned: androidx.compose.runtime.MutableIntState,
     hideSystemBars: (Boolean) -> Unit,
     leave: () -> Unit,
     rotate: (ScreenRotation) -> Unit,
@@ -148,6 +164,21 @@ private fun OloApp(
     LaunchedEffect(prefs.screen.rotation) { rotate(prefs.screen.rotation) }
     // 이번 실행에서 폴더를 훑었는가. 화면(액티비티)이 새로 만들어지면 다시 훑는다.
     var scanned by remember { mutableStateOf(false) }
+    // 뒤로 물러났다 돌아오면 다시 훑는다(0.28.3). 요즘 휴대폰은 앱을 오래 살려 두어서, 화면이 새로 만들어질 때만 훑으면
+    // 앱을 켜 둔 채 폴더에 받은 책이 "새로고침" 을 누를 때까지 보이지 않았다.
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    androidx.compose.runtime.DisposableEffect(lifecycle) {
+        var stopped = false
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> stopped = true
+                androidx.lifecycle.Lifecycle.Event.ON_START -> if (stopped) { stopped = false; scanned = false }
+                else -> Unit
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
     // 다른 앱이 넘긴 파일의 URI. 라이브러리 id 와 따로 두는 이유: 라이브러리에 없는 파일이라
     // library.find 로 되찾을 수 없다.
     var incomingUri by rememberSaveable { mutableStateOf<String?>(null) }
@@ -192,6 +223,10 @@ private fun OloApp(
     LaunchedEffect(reader) {
         container.held = reader?.let { HeldBook(it, openId, incomingUri, incomingFormat, incomingName, incomingSize) }
     }
+
+    // 아이콘 · 알림으로 돌아왔다. 다른 앱에서 연 책이라도 이제 그 앱은 앞에 없다 — 닫으면 라이브러리로 간다. 두면
+    // 닫을 때 앱이 뒤로 사라져 홈이나 엉뚱한 앱이 떴다.
+    LaunchedEffect(returned.intValue) { if (returned.intValue > 0) fromOutside = false }
 
     LaunchedEffect(incoming.value) {
         val intent = incoming.value ?: return@LaunchedEffect

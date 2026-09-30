@@ -102,9 +102,9 @@ class TwoPageTest {
         compose.onRoot().performTouchInput { click(center) }
         node(hasText("보기")).performClick()
         node(hasText("모든 보기 설정")).performClick()
-        waitFor(hasText("가로에서 두쪽보기"))
+        waitFor(hasText("가로에서 두 쪽 보기"))
         // "끔" 은 들여쓰기 · 볼륨키에도 있다 — 가로 두쪽 줄의 것을 누른다.
-        clickInRow("가로에서 두쪽보기", "끔")
+        clickInRow("가로에서 두 쪽 보기", "끔")
         assertFalse(app.container.prefs.load().screen.twoPagesLandscape)
         repeat(3) { compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() } }
         turn("+land")
@@ -141,10 +141,10 @@ class TwoPageTest {
         node(hasText("모든 보기 설정")).performClick()
         waitFor(hasText("넓은 화면(태블릿 · 폴더블)에서만 쓸 수 있습니다"))
         shot("55-two-page-settings-phone")
-        clickInRow("세로에서 두쪽보기", "켬")
+        clickInRow("세로에서 두 쪽 보기", "켬")
         assertFalse(app.container.prefs.load().screen.twoPagesPortrait)
         // EPUB 설정에는 PDF 묶음이 없다.
-        assertFalse(hasNode(hasText("두쪽보기에서 표지")))
+        assertFalse(hasNode(hasText("두 쪽 보기에서 표지")))
     }
 
     @Test
@@ -179,7 +179,7 @@ class TwoPageTest {
         waitFor(hasText("보기"))
         node(hasText("보기")).performClick()
         node(hasText("모든 보기 설정")).performClick()
-        waitFor(hasText("두쪽보기에서 표지"))
+        waitFor(hasText("두 쪽 보기에서 표지"))
         node(hasText("함께")).performClick()
         assertFalse(app.container.prefs.load().screen.pdfCoverAlone)
         repeat(3) { compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() } }

@@ -65,7 +65,7 @@ fun CpReaderBar(
         Column(Modifier.fillMaxSize()) {
             Column(Modifier.fillMaxWidth().background(colors.surface).windowInsetsPadding(WindowInsets.statusBars)) {
                 CpHeader(title = title, subtitle = subtitle, onBack = onBack) {
-                    if (onSearch != null) CpIconButton(CpIcons.Search, "본문에서 찾기", onClick = onSearch)
+                    if (onSearch != null) CpIconButton(CpIcons.Search, "책에서 찾기", onClick = onSearch)
                     if (onListen != null) CpIconButton(CpIcons.Headphones, "듣기", onClick = onListen)
                     CpIconButton(
                         if (bookmarked) CpIcons.BookmarkFilled else CpIcons.Bookmark,
@@ -101,7 +101,7 @@ fun CpReaderBar(
                             dragging = null
                         },
                         modifier = Modifier.weight(1f),
-                        description = "읽은 위치",
+                        description = "지금 위치",
                     )
                     CpText(progressLabel(shown), CpTheme.type.label, colors.text, Modifier.padding(start = 12.dp))
                 }

@@ -61,14 +61,15 @@ data class ScreenPrefs(
  * 가운데를 누를 때마다 눈이 부시다.
  */
 enum class PaperTheme(val label: String, internal val paper: CpPaper?) {
-    System("시스템", null),
+    // 견본 동그라미 아래 이름이라 "휴대폰 설정" 은 칸을 넘는다(0.28.3). 화면 읽기는 "배경 휴대폰 설정" 으로 듣는다.
+    System("휴대폰", null),
     White("흰색", CpPaper(Color(0xFFFFFFFF), Color(0xFF1D1A16), Color(0xFF6B625A), dark = false)),
     Ivory("아이보리", CpPaper(Color(0xFFF4ECD8), Color(0xFF3A2E22), Color(0xFF6E5F4E), dark = false)),
     // 아이보리보다 누런 빛이 한 단계 짙은 종이(0.22.1, 구상안 가안). 본문 대비 10.1 — 나안(#DCC7A1, 8.9)은 낮에 어둡다.
     // 저장은 이름으로 하므로 사이에 끼워도 이미 고른 회색 · 검정이 밀리지 않는다.
     Sepia("세피아", CpPaper(Color(0xFFE9DCC0), Color(0xFF3B2A1A), Color(0xFF6C5842), dark = false)),
     Gray("회색", CpPaper(Color(0xFFDAD8D3), Color(0xFF1F1D1A), Color(0xFF55504A), dark = false)),
-    Black("검정", CpPaper(Color(0xFF121110), Color(0xFFD9D3C9), Color(0xFF9C948A), dark = true)),
+    Black("검은색", CpPaper(Color(0xFF121110), Color(0xFFD9D3C9), Color(0xFF9C948A), dark = true)),
     ;
 
     /** 견본 동그라미에 칠할 색. [System] 은 null(반반 칠). */
@@ -80,7 +81,7 @@ data class CpPaper(val paper: Color, val ink: Color, val inkMuted: Color, val da
 
 enum class KeepScreenOn(val label: String) {
     /** 휴대폰의 화면 꺼짐 시간을 따른다. */
-    System("시스템"),
+    System("휴대폰"),
     /** 마지막으로 넘긴 뒤 10분. 읽다 잠들어도 밤새 켜져 있지 않다. */
     TenMinutes("10분"),
     Always("항상"),
@@ -91,7 +92,7 @@ enum class TouchZones(val label: String, val description: String) {
     Default("기본", "왼쪽 앞 쪽 · 오른쪽 다음 쪽"),
     Reversed("좌우 바꾸기", "왼쪽 다음 쪽 · 오른쪽 앞 쪽"),
     /** 큰 휴대폰을 한 손으로 들고 엄지가 닿는 쪽만 누르는 사람. 앞 쪽은 밀어서 간다. */
-    OneHand("한 손(양쪽 다음)", "어느 쪽을 눌러도 다음 쪽 · 앞 쪽은 밀어서"),
+    OneHand("한 손(양쪽 다음)", "어느 쪽을 눌러도 다음 쪽, 앞 쪽은 밀어서"),
 }
 
 enum class TapAction { Previous, Next, Menu, Bookmark }
@@ -162,6 +163,6 @@ enum class PdfFit(val label: String) {
 
 /** 그림 흰 바탕을 어떻게 보일지. 저장은 이름으로 한다. */
 enum class ImageBlend(val label: String) {
-    Paper("지면색으로"),
+    Paper("배경색으로"),
     Original("그대로"),
 }

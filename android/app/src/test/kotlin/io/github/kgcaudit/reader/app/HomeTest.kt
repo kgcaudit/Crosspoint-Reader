@@ -10,6 +10,7 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.core.app.ApplicationProvider
 import io.github.kgcaudit.reader.document.BookId
@@ -139,10 +140,10 @@ class HomeTest {
         // 이름순: 데미안 · 새 일기 · 큰 책(가나다).
         compose.waitForIdle()
         assertTrue(top("데미안.epub") < top("새 일기.txt") && top("새 일기.txt") < top("큰 책.epub"), "이름순이 아니다: ${listOf("데미안.epub", "새 일기.txt", "큰 책.epub").map { n -> n to compose.onAllNodes(hasText(n), useUnmergedTree = true).fetchSemanticsNodes().map { it.boundsInRoot.top } }}")
-        node(hasContentDescription("차례: 이름순")).performClick()
+        node(hasContentDescription("순서: 이름순")).performClick()
         waitFor(hasText("크기순"))
         node(hasText("크기순")).performClick()
-        compose.waitUntil(10_000) { has(hasContentDescription("차례: 크기순")) }
+        compose.waitUntil(10_000) { has(hasContentDescription("순서: 크기순")) }
         compose.waitForIdle()
         assertTrue(top("큰 책.epub") < top("데미안.epub"), "큰 책이 맨 앞이 아니다")
     }
@@ -158,7 +159,7 @@ class HomeTest {
         assertTrue(has(hasText("읽는 중 · 1권")))
         // 한 번도 열지 않은 책의 판에는 없다 — 이미 읽을 책이다.
         node(hasText("데미안.epub")).performTouchInput { longClick() }
-        waitFor(hasText("읽은 책으로 표시"))
+        waitFor(hasText("읽은 책으로 옮기기"))
         assertFalse(has(hasText("읽을 책으로 되돌리기")))
     }
 
@@ -170,5 +171,48 @@ class HomeTest {
         val density = compose.activity.resources.displayMetrics.density
         val width = node(hasContentDescription("데미안.epub 대신 표지")).fetchSemanticsNode().boundsInRoot.width / density
         assertTrue(width in 90f..140f, "표지 폭 ${width}dp")
+    }
+
+    @Test
+    fun `back closes a home popup instead of leaving the app`() {
+        // 홈의 책 폴더 · 순서 · 표지 판이 뒤로 가기에 닫히지 않고 앱이 나갔다. 다시 들어오면 판이 그대로 떠 있었다(0.28.3).
+        waitFor(hasText("읽는 중 · 2권"))
+        node(hasContentDescription("책 폴더")).performClick()
+        waitFor(hasText("폴더를 빼도", substring = true))
+        compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        compose.waitForIdle()
+        assertFalse(has(hasText("폴더를 빼도", substring = true)), "뒤로 가기에 책 폴더 판이 닫히지 않았다")
+        assertFalse(compose.activity.isFinishing, "뒤로 가기에 앱이 나갔다")
+
+        node(hasText("데미안.epub")).performTouchInput { longClick() }
+        waitFor(hasText("읽은 책으로 옮기기"))
+        compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        compose.waitForIdle()
+        assertFalse(has(hasText("읽은 책으로 옮기기")), "뒤로 가기에 표지 판이 닫히지 않았다")
+        assertFalse(compose.activity.isFinishing)
+    }
+
+    @Test
+    @Config(qualifiers = "w851dp-h393dp-xhdpi")
+    fun `on a landscape phone the cover popup scrolls so its last buttons can still be pressed`() {
+        // 가로 휴대폰(높이 393dp)에서 읽는 중인 책의 표지 판이 화면보다 길어 "닫기" 가 높이 0 으로 눌려 사라졌다.
+        waitFor(hasText("읽는 중 · 2권"))
+        node(hasText("어린 왕자.epub")).performTouchInput { longClick() }
+        waitFor(hasText("닫기"))
+        node(hasText("닫기")).performScrollTo()
+        val close = node(hasText("닫기")).fetchSemanticsNode().boundsInRoot
+        assertTrue(close.height > 20f, "닫기 단추가 눌려 사라졌다: $close")
+        node(hasText("닫기")).performClick()
+        compose.waitUntil(5_000) { !has(hasText("읽을 책으로 되돌리기")) }
+    }
+
+    @Test
+    fun `coming back to the app finds a book dropped into the folder meanwhile`() {
+        // 앱을 켜 둔 채 브라우저로 등록 폴더에 책을 받고 돌아왔다. 화면이 새로 만들어질 때만 훑어서 "새로고침" 을 눌러야 보였다.
+        waitFor(hasText("데미안.epub"))
+        compose.activityRule.scenario.moveToState(androidx.lifecycle.Lifecycle.State.CREATED)
+        File(File(app.cacheDir, "sdcard"), "Books/소설/새로 받은 책.epub").writeBytes(SampleBooks.epub())
+        compose.activityRule.scenario.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED)
+        waitFor(hasText("새로 받은 책.epub"))
     }
 }

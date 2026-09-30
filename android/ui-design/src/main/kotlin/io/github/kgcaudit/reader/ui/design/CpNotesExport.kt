@@ -183,7 +183,9 @@ fun CpNotesExport(
             Row(Modifier.fillMaxWidth().padding(CpTheme.metrics.gutter), horizontalArrangement = Arrangement.End) {
                 CpButton("파일로 저장", { save.launch(exportFileName(title, format)) }, primary = false)
                 Spacer(Modifier.width(10.dp))
-                CpButton("공유", { send(context, title, text) })
+                CpButton("공유", {
+                    if (!send(context, title, text)) toast = "노트가 많아 한 번에 보낼 수 없습니다. 파일로 저장해 주세요."
+                })
             }
         }
         CpToast(toast, { toast = null }, Modifier.align(Alignment.BottomCenter), durationMs = 2_500)
@@ -201,10 +203,20 @@ private fun allDetail(items: List<NoteItem>): String {
     return listOf("${items.size}개", parts).filter { it.isNotEmpty() }.joinToString(" · ")
 }
 
-private fun send(context: Context, title: String, text: String) {
+/**
+ * 공유로 한 번에 보낼 수 있는 길이(글자 수). 글 전체가 인텐트에 실려 가는데, 안드로이드가 앱 사이에 넘기는 짐은 1MB 가
+ * 한도이고 선택 창이 한 벌 더 싣는다. 넘으면 보내기가 예외로 끝나 "공유" 를 눌러도 아무 일도 없었다(0.28.3).
+ */
+internal const val SHARE_LIMIT_CHARS = 100_000
+
+fun shareable(text: String): Boolean = text.length <= SHARE_LIMIT_CHARS
+
+/** 보냈으면 true. 너무 길거나 받을 앱이 없어 못 보냈으면 false — 부르는 쪽이 파일로 저장하라고 알린다. */
+private fun send(context: Context, title: String, text: String): Boolean {
+    if (!shareable(text)) return false
     val intent = Intent(Intent.ACTION_SEND).setType("text/plain")
         .putExtra(Intent.EXTRA_TEXT, text)
         // 메일 앱은 제목 칸을 이것으로 채운다.
         .putExtra(Intent.EXTRA_SUBJECT, "$title 독서노트")
-    runCatching { context.startActivity(Intent.createChooser(intent, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+    return runCatching { context.startActivity(Intent.createChooser(intent, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }.isSuccess
 }

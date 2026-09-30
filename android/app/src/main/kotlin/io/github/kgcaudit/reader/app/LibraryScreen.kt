@@ -157,8 +157,8 @@ fun LibraryScreen(
             notice = if (inside) {
                 "이미 등록한 폴더 안에 있습니다" to "‘${folderName(uri)}’ 폴더의 책은 이미 등록한 ‘${folderName(other)}’ 폴더에서 보입니다."
             } else {
-                "이미 등록한 폴더를 감쌉니다" to "‘${folderName(uri)}’ 안에 이미 등록한 ‘${folderName(other)}’ 폴더가 있습니다. " +
-                    "책이 두 번 보이지 않게, 책 폴더에서 그 폴더를 뺀 뒤 다시 추가해 주세요."
+                "안에 이미 등록한 폴더가 있습니다" to "‘${folderName(uri)}’ 안에 이미 등록한 ‘${folderName(other)}’ 폴더가 있습니다. " +
+                    "책이 두 번 보이지 않게, 책 폴더에서 ‘${folderName(other)}’를 뺀 뒤 ‘${folderName(uri)}’를 추가해 주세요."
             }
         } else if (uri != null) {
             runCatching { data.folders.register(uri) }
@@ -168,9 +168,10 @@ fun LibraryScreen(
         }
     }
 
-    // 앱을 열 때마다 한 번 훑는다. 폴더에 새로 넣은 책이 바로 보여야 한다. 책을 닫고 돌아올 때는 훑지
-    // 않는다 — 이 화면은 책을 여는 동안 사라졌다 다시 생기므로, 여기서 기억하면 돌아올 때마다 훑는다.
-    LaunchedEffect(Unit) {
+    // 앱을 열 때(뒤에서 돌아올 때 포함) 한 번 훑는다. 폴더에 새로 넣은 책이 바로 보여야 한다. 책을 닫고 돌아올 때는
+    // 훑지 않는다 — 이 화면은 책을 여는 동안 사라졌다 다시 생기므로, 여기서 기억하면 돌아올 때마다 훑는다. 값이 열쇠라,
+    // 화면이 떠 있는 채로 앱이 돌아와도 훑는다.
+    LaunchedEffect(scanOnStart) {
         if (scanOnStart && folders.isNotEmpty()) {
             onStartScan()
             rescan()
@@ -291,7 +292,7 @@ fun LibraryScreen(
     }
 
     if (sortMenu) {
-        CpPopup(title = "읽을 책 차례", onDismiss = { sortMenu = false }) {
+        CpPopup(title = "읽을 책 순서", onDismiss = { sortMenu = false }) {
             Spacer(Modifier.height(8.dp))
             LibrarySort.entries.forEach { s ->
                 CpRadioRow(s.label, s == sort, { container.libraryView.setSort(s); sortMenu = false })
@@ -563,7 +564,7 @@ private fun ToReadLabel(text: String, sort: LibrarySort, layout: LibraryLayout, 
         CpText(
             "${sort.label} ▾", CpTheme.type.caption, c.text,
             Modifier.clip(RoundedCornerShape(8.dp)).clickable(role = Role.Button, onClick = onSort)
-                .padding(horizontal = 10.dp, vertical = 10.dp).semantics { contentDescription = "차례: ${sort.label}" },
+                .padding(horizontal = 10.dp, vertical = 10.dp).semantics { contentDescription = "순서: ${sort.label}" },
         )
         CpIconToggle(
             listOf(CpIcons.Grid, CpIcons.Rows),
@@ -676,7 +677,7 @@ private fun CoverMenu(
     }
     CpPopup(title = book.label, message = message, onDismiss = onDismiss) {
         Spacer(Modifier.height(8.dp))
-        CpListRow(if (finished) "읽는 중으로 되돌리기" else "읽은 책으로 표시", onFinished, icon = CpIcons.Bookmark, compact = true)
+        CpListRow(if (finished) "읽는 중으로 되돌리기" else "읽은 책으로 옮기기", onFinished, icon = CpIcons.Bookmark, compact = true)
         onUnread?.let { CpListRow("읽을 책으로 되돌리기", it, icon = CpIcons.Back, compact = true) }
         CpListRow("사진 · 파일에서 표지 고르기", onPick, icon = CpIcons.Folder, compact = true)
         CpListRow(

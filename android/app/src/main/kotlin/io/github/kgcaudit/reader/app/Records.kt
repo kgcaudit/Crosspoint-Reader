@@ -58,7 +58,7 @@ internal fun monthDay(epochMs: Long, today: LocalDate = LocalDate.now()): String
 internal fun backupFileName(today: LocalDate = LocalDate.now()): String = "OLO eBook 읽기 기록 $today.json"
 
 internal fun summaryLine(s: RecordsSummary): String =
-    if (s.books == 0) "아직 기록이 없습니다" else "책 ${s.books}권 · 책갈피 ${s.bookmarks}개 · 형광펜 · 메모 ${s.annotations}개"
+    if (s.books == 0) "아직 기록이 없습니다" else "책 ${s.books}권 · 책갈피 ${s.bookmarks}개 · 형광펜과 메모 ${s.annotations}개"
 
 /** 가져오기 · 만들기의 판. 한 번에 하나만 뜬다. */
 internal sealed interface RecordsPopup {
@@ -204,14 +204,14 @@ private fun PreviewPopup(plan: ImportPlan, onCancel: () -> Unit, onImport: () ->
     val made = if (file.createdAtEpochMs > 0) "${monthDay(file.createdAtEpochMs)}에 만든 백업 · " else ""
     CpPopup(
         title = "백업 파일에서 가져오기",
-        message = "${made}책 ${file.books.size}권의 기록. 이 휴대폰의 기록과 합칩니다 — 읽은 자리는 더 뒤쪽을, 책갈피 · 형광펜 · 메모는 둘 다 남깁니다.",
+        message = "${made}책 ${file.books.size}권의 기록입니다. 이 휴대폰의 기록과 합칩니다. 읽은 자리는 더 많이 읽은 쪽을 따르고, 책갈피 · 형광펜 · 메모는 양쪽 것을 모두 남깁니다.",
         onDismiss = onCancel,
     ) {
         Spacer(Modifier.height(14.dp))
-        CpText("이 휴대폰에서 찾은 책  ${plan.foundBooks}권", CpTheme.type.body, c.text)
+        CpText("이 휴대폰에서 찾은 책 ${plan.foundBooks}권", CpTheme.type.body, c.text)
         if (plan.missing.isNotEmpty()) {
             Spacer(Modifier.height(4.dp))
-            CpText("아직 못 찾은 책  ${plan.missing.size}권", CpTheme.type.body, c.text)
+            CpText("아직 못 찾은 책 ${plan.missing.size}권", CpTheme.type.body, c.text)
             CpText("책 폴더를 추가하면 그때 이어집니다", CpTheme.type.caption, c.textMuted)
         }
         Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.End) {
@@ -227,7 +227,7 @@ private fun DonePopup(result: ImportResult, onClose: () -> Unit) {
     val c = CpTheme.colors
     val counts = buildList {
         add("책갈피 ${result.bookmarks}개")
-        add("형광펜 · 메모 ${result.annotations}개")
+        add("형광펜과 메모 ${result.annotations}개")
         if (result.finished > 0) add("다 읽은 책 ${result.finished}권")
     }.joinToString(" · ")
     val waiting = if (result.missing.isEmpty()) "" else "못 찾은 ${result.missing.size}권의 기록은 기억해 두었다가 책 폴더를 추가하면 이어 붙입니다."

@@ -137,7 +137,7 @@ class ReadingSettingsTest {
         openWith()
         openView()
         shot("40-view-panel")
-        node(hasContentDescription("배경 검정")).performClick()
+        node(hasContentDescription("배경 검은색")).performClick()
         compose.waitForIdle()
         // 검정을 고르면 메뉴 · 도구줄도 어둡다(D3). 지면만 검정이고 메뉴가 흰색이면 누를 때마다 눈이 부시다.
         val bar = page().getPixel(4, (30 * density).toInt())
@@ -294,7 +294,7 @@ class ReadingSettingsTest {
         openWith(ReaderPrefs(screen = ScreenPrefs(brightness = 0.3f)))
         compose.waitUntil(5_000) { brightness() == 0.3f }
         openView()
-        node(hasContentDescription("시스템 밝기")).performClick()
+        node(hasContentDescription("휴대폰 설정 밝기")).performClick()
         compose.waitUntil(5_000) { brightness() < 0f }
         assertEquals(null, app.container.prefs.load().screen.brightness)
 

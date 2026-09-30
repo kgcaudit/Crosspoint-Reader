@@ -313,7 +313,10 @@ fun ReaderScreen(
 
     BoxWithConstraints(
         Modifier.fillMaxSize().background(colors.paper).brightnessEdge(
-            enabled = prefs.screen.brightnessGesture && panel == Panel.None,
+            // 아래 판(메모 · 각주 · 듣기)과 링크 팝업도 같은 상자 안에 떠서 panel 은 None 이다. 따로 막지 않으면 각주를
+            // 왼쪽 끝에서 굴리거나 메모 칸을 끌 때 판 대신 밝기가 바뀌었다(0.28.3).
+            enabled = prefs.screen.brightnessGesture && panel == Panel.None &&
+                memo == null && note == null && external == null && !(listenSheet && listen.active),
             current = { latestPrefs.screen.brightness ?: systemBrightness(context) },
             onDrag = { value ->
                 if (value != null) {

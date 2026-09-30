@@ -97,7 +97,7 @@ class PrefsStoreTest {
         PrefsStore(context).save(chosen)
         assertEquals(chosen, PrefsStore(context).load())
 
-        // "시스템 밝기" 로 돌리면 저장된 값도 지운다 — 남기면 다음에 열 때 어두운 채로 뜬다.
+        // "휴대폰 설정 밝기" 로 돌리면 저장된 값도 지운다 — 남기면 다음에 열 때 어두운 채로 뜬다.
         PrefsStore(context).save(chosen.copy(screen = chosen.screen.copy(brightness = null)))
         assertNull(PrefsStore(context).load().screen.brightness)
     }
