@@ -18,7 +18,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -33,6 +32,7 @@ import io.github.kgcaudit.reader.ui.design.CpPopup
 import io.github.kgcaudit.reader.ui.design.CpSectionLabel
 import io.github.kgcaudit.reader.ui.design.CpText
 import io.github.kgcaudit.reader.ui.design.CpTheme
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -74,7 +74,17 @@ internal sealed interface RecordsPopup {
  * 행([ReadingRecordsRows])과 판([ReadingRecordsPopups])을 나눠 그린다 — 판을 행 옆에 두면 목록 사이에 끼어 그려져
  * 화면을 덮지 못한다.
  */
-internal class RecordsUi(val records: RecordsBackup, val lastBackup: LastBackupStore) {
+internal class RecordsUi(
+    val records: RecordsBackup,
+    val lastBackup: LastBackupStore,
+    /**
+     * 만들기 · 가져오기를 돌리는 범위. 앱 화면 전체의 것을 받는다 — 앱 정보 화면의 범위에서 돌리면 가져오는 중에 뒤로
+     * 가는 순간 일이 끊겨, 결과 판이 뜨지 않고 반쯤 쓴 0바이트 백업 파일이 남았다.
+     */
+    val scope: CoroutineScope,
+) {
+    /** 만드는 중 · 가져오는 중. 이 동안은 판이 떠 있어 다른 것을 누를 수 없다. */
+    var busy by mutableStateOf<String?>(null)
     var summary by mutableStateOf<RecordsSummary?>(null)
     var last by mutableStateOf(lastBackup.load())
     var popup by mutableStateOf<RecordsPopup?>(null)
@@ -85,16 +95,18 @@ internal class RecordsUi(val records: RecordsBackup, val lastBackup: LastBackupS
 @Composable
 internal fun ReadingRecordsRows(ui: RecordsUi) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    val scope = ui.scope
     val records = ui.records
     LaunchedEffect(ui.refresh) { ui.summary = withContext(Dispatchers.IO) { records.summary() } }
 
     val create = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
+        ui.busy = "백업 파일을 만드는 중…"
         scope.launch {
             val made = withContext(Dispatchers.IO) {
                 runCatching { context.contentResolver.openOutputStream(uri, "wt")?.use { records.export(it) } }.getOrNull()
             }
+            ui.busy = null
             if (made == null) {
                 ui.popup = RecordsPopup.Failed("백업 파일을 만들지 못했습니다")
             } else {
@@ -108,11 +120,15 @@ internal fun ReadingRecordsRows(ui: RecordsUi) {
     // 종류를 거르지 않는다(*/*). 파일 관리자 · 드라이브마다 .json 을 다른 종류로 알려, 거르면 백업 파일이 흐리게 보여 못 고른다.
     val open = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
+        ui.busy = "백업 파일을 읽는 중…"
         scope.launch {
-            val plan = withContext(Dispatchers.IO) {
-                runCatching { context.contentResolver.openInputStream(uri)?.use { records.read(it) }?.let { records.plan(it) } }.getOrNull()
+            // 이름 묻기도 입출력 스레드에서 한다. 드라이브 같은 제공자는 대답이 느려 화면이 멈췄다.
+            val popup = withContext(Dispatchers.IO) {
+                val plan = runCatching { context.contentResolver.openInputStream(uri)?.use { records.read(it) }?.let { records.plan(it) } }.getOrNull()
+                plan?.let { RecordsPopup.Preview(it) } ?: RecordsPopup.NotBackup(displayName(context, uri))
             }
-            ui.popup = plan?.let { RecordsPopup.Preview(it) } ?: RecordsPopup.NotBackup(displayName(context, uri))
+            ui.busy = null
+            ui.popup = popup
         }
     }
 
@@ -134,7 +150,13 @@ internal fun ReadingRecordsRows(ui: RecordsUi) {
 
 @Composable
 internal fun ReadingRecordsPopups(ui: RecordsUi) {
-    val scope = rememberCoroutineScope()
+    val scope = ui.scope
+    ui.busy?.let { what ->
+        // 도는 동안 뒤로 가기를 받아 둔다(아무것도 하지 않음). 앱 정보가 닫혀도 일은 끝나지만, 결과 판을 볼 자리가 없어진다.
+        BackHandler { }
+        CpPopup(title = what, message = "잠시만 기다려 주세요. 책이 많으면 몇 초 걸립니다.", onDismiss = null)
+        return
+    }
     val shown = ui.popup ?: return
     val close = { ui.popup = null }
     // 판이 떠 있을 때 뒤로 가기는 판만 닫는다. 앱 정보가 닫히면 판이 남아 있다가 다음에 열 때 다시 뜬다.
@@ -142,8 +164,10 @@ internal fun ReadingRecordsPopups(ui: RecordsUi) {
     when (shown) {
         is RecordsPopup.Preview -> PreviewPopup(shown.plan, close) {
             ui.popup = null
+            ui.busy = "기록을 가져오는 중…"
             scope.launch {
                 val result = withContext(Dispatchers.IO) { runCatching { ui.records.apply(shown.plan) }.getOrNull() }
+                ui.busy = null
                 ui.popup = result?.let { RecordsPopup.Done(it) } ?: RecordsPopup.Failed("기록을 가져오지 못했습니다")
                 ui.refresh++
             }

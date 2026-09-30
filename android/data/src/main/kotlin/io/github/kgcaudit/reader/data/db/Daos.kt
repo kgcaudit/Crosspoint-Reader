@@ -26,6 +26,10 @@ interface BookDao {
     @Query("SELECT * FROM books WHERE displayName = :name AND missing = 0")
     suspend fun visibleByName(name: String): List<BookEntity>
 
+    /** 크기를 알려 주지 않는 제공자(일부 클라우드)의 책. 이름으로만 맞춰 볼 수 있다. */
+    @Query("SELECT * FROM books WHERE displayName = :name AND sizeBytes IS NULL AND missing = 0")
+    suspend fun visibleByNameUnknownSize(name: String): List<BookEntity>
+
     @Query("SELECT * FROM books")
     suspend fun all(): List<BookEntity>
 
@@ -41,8 +45,9 @@ interface BookDao {
     @Query("UPDATE books SET title = :title, author = :author WHERE id = :id")
     suspend fun updateMetadata(id: String, title: String?, author: String?)
 
-    @Query("DELETE FROM books WHERE folderUri = :folderUri")
-    suspend fun deleteFolder(folderUri: String)
+    /** 폴더 등록을 풀었다. 행은 남기고 숨긴다 — 지우면 그 책들의 기록이 이름을 잃어 백업에 담기지 않는다. */
+    @Query("UPDATE books SET missing = 1 WHERE folderUri = :folderUri")
+    suspend fun hideFolder(folderUri: String)
 }
 
 @Dao

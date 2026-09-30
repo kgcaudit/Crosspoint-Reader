@@ -173,7 +173,8 @@ class LibraryTest {
 
         library.forgetFolder(folder)
         assertTrue(visible().isEmpty())
-        assertNull(library.get(BookId(a.uri)))
+        // 행은 숨겨 둘 뿐 지우지 않는다(0.28.1) — 지우면 기록이 파일 이름을 잃어 백업에 담기지 않는다.
+        assertTrue(db.books().all().single().missing)
 
         library.applyScan(folder, ScanResult(listOf(a), complete = true), 2)
         assertEquals(Locator.Reflow(1, 1), progress.get(BookId(a.uri))?.locator)

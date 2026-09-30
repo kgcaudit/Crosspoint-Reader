@@ -59,6 +59,7 @@ class SafTest {
 
     @After
     fun tearDown() {
+        TestDocumentsProvider.onList = null
         db.close()
         base.deleteRecursively()
     }
@@ -86,6 +87,24 @@ class SafTest {
             listOf("메모.txt", "문서.pdf", "어린 왕자.epub"),
             data.library.books().first().map { it.displayName }.sorted(),
         )
+    }
+
+    @Test
+    fun `a folder removed while it is being scanned does not come back as ghost books`() = runTest {
+        // 훑기가 도는 사이 사용자가 책 폴더에서 그 폴더를 뺐다. 훑은 결과를 그대로 넣으면 뺀 폴더의 책이 목록에 되살아나고,
+        // 폴더 목록에는 없어 다시 뺄 수도 없다.
+        put("소설/책.epub", epub("책", "본문"))
+        data.folders.register(tree)
+        TestDocumentsProvider.onList = {
+            TestDocumentsProvider.onList = null
+            kotlinx.coroutines.runBlocking { data.removeFolder(tree) }
+        }
+        data.rescan(tree)
+        assertTrue(data.library.books().first().isEmpty(), "뺀 폴더의 책이 목록에 남았다")
+        // 같은 폴더를 다시 등록하면 다시 훑어 보인다.
+        data.folders.register(tree)
+        data.rescan(tree)
+        assertEquals(listOf("책.epub"), data.library.books().first().map { it.displayName })
     }
 
     @Test

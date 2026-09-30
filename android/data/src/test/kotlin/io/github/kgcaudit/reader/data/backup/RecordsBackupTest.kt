@@ -18,6 +18,7 @@ import io.github.kgcaudit.reader.document.HighlightColor
 import io.github.kgcaudit.reader.document.Locator
 import io.github.kgcaudit.reader.document.ReadingProgress
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Test
@@ -237,6 +238,52 @@ class RecordsBackupTest {
         old.readSome("없는 책.epub")
         new.bring(old.backup())
         assertEquals(listOf("없는 책.epub"), new.records.pending().books.map { it.displayName })
+    }
+
+    @Test
+    fun `records of a removed folder still go into the backup`() = runTest {
+        // 폴더를 빼도 "기록은 남습니다" 라고 약속한다. 백업에서 빠지면 새 휴대폰으로 옮길 때 그 기록을 잃는다.
+        val old = phone("old", "content://old/tree")
+        old.scan("뺀 폴더의 책.epub" to 9L)
+        old.readSome("뺀 폴더의 책.epub")
+        old.library.forgetFolder("content://old/tree")
+        val summary = old.records.summary()
+        assertEquals(1, summary.books)
+        assertEquals(1, summary.bookmarks)
+
+        val new = phone("new", "content://new/tree")
+        new.scan("뺀 폴더의 책.epub" to 9L)
+        assertEquals(1, new.bring(old.backup()).books)
+    }
+
+    @Test
+    fun `a book whose size this phone does not know still gets its records`() = runTest {
+        // 크기를 알려 주지 않는 제공자(일부 클라우드)의 책. 크기로만 맞추면 기록이 영영 기다리기만 한다.
+        val old = phone("old", "content://old/tree")
+        old.scan("구름 위의 책.epub" to 1234L)
+        old.readSome("구름 위의 책.epub")
+        val new = phone("new", "content://new/tree")
+        new.scan("구름 위의 책.epub" to null)
+        assertEquals(1, new.bring(old.backup()).books)
+        assertEquals(1, new.bookmarks.forBook(new.id("구름 위의 책.epub")).size)
+    }
+
+    @Test
+    fun `leaving the screen in the middle of an import does not lose the records waiting for their books`() = runTest {
+        val old = phone("old", "content://old/tree")
+        old.scan("있는 책.epub" to 1L, "없는 책.epub" to 2L)
+        old.readSome("있는 책.epub")
+        old.readSome("없는 책.epub")
+        val text = old.backup()
+        val new = phone("new", "content://new/tree")
+        new.scan("있는 책.epub" to 1L)
+        val plan = new.records.plan(assertNotNull(new.records.read(text.byteInputStream())))
+        // 가져오기가 처음 멈추는 곳(트랜잭션)까지 가자마자 취소한다 — 사용자가 뒤로 간 것과 같다.
+        val job = launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { new.records.apply(plan) }
+        job.cancel()
+        job.join()
+        assertEquals(listOf("없는 책.epub"), new.records.pending().books.map { it.displayName })
+        assertEquals(1, new.bookmarks.forBook(new.id("있는 책.epub")).size)
     }
 }
 

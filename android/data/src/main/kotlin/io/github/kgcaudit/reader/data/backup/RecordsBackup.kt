@@ -9,8 +9,10 @@ import io.github.kgcaudit.reader.data.db.LocatorOrder
 import io.github.kgcaudit.reader.data.db.ProgressEntity
 import io.github.kgcaudit.reader.data.db.ReaderDatabase
 import io.github.kgcaudit.reader.document.Locator
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
@@ -114,8 +116,12 @@ class RecordsBackup(
 
     /** 합쳐 넣는다. 못 찾은 책은 기다리는 기록에 더한다. */
     suspend fun apply(plan: ImportPlan): ImportResult {
-        mergeFound(plan)
-        pendingLock.withLock { writePending((readPending().books + plan.missing).mergedByBook()) }
+        // 도중에 멈추지 않는다. 합치기를 끝낸 뒤 취소가 오면 기다리는 기록을 쓰기 전에 끊겨, 못 찾은 책의 기록이 알림 없이
+        // 사라졌다(가져오는 중 뒤로 가기).
+        withContext(NonCancellable) {
+            mergeFound(plan)
+            pendingLock.withLock { writePending((readPending().books + plan.missing).mergedByBook()) }
+        }
         return ImportResult(
             books = plan.found.size,
             bookmarks = plan.found.sumOf { it.first.bookmarks.size },
@@ -140,7 +146,12 @@ class RecordsBackup(
 
     private suspend fun targetsOf(record: BookRecord): List<BookEntity> {
         val size = record.sizeBytes
-        if (size != null) return db.books().visibleByFile(record.displayName, size)
+        if (size != null) {
+            val same = db.books().visibleByFile(record.displayName, size)
+            if (same.isNotEmpty()) return same
+            // 이 휴대폰의 제공자가 크기를 알려 주지 않는 책(일부 클라우드)은 크기로는 영영 맞지 않는다. 이름이 하나뿐이면 붙인다.
+            return db.books().visibleByNameUnknownSize(record.displayName).takeIf { it.size == 1 }.orEmpty()
+        }
         // 크기를 모르는 기록은 이름으로만 찾되, 같은 이름이 둘 이상이면 붙이지 않는다 — 다른 판에 붙을 수 있다.
         return db.books().visibleByName(record.displayName).takeIf { it.size == 1 }.orEmpty()
     }

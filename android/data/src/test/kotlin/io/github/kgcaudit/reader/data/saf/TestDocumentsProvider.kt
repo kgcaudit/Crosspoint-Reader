@@ -43,6 +43,7 @@ class TestDocumentsProvider : DocumentsProvider() {
     ): Cursor? {
         if (parentDocumentId in failing) throw IllegalStateException("provider bug in $parentDocumentId")
         if (parentDocumentId in unanswered) return null
+        onList?.invoke()
         val dir = fileOf(parentDocumentId)
         return MatrixCursor(projection ?: DEFAULT_PROJECTION).apply {
             dir.listFiles().orEmpty().sortedBy { it.name }.forEach { addRow(this, "$parentDocumentId/${it.name}") }
@@ -78,6 +79,9 @@ class TestDocumentsProvider : DocumentsProvider() {
 
         /** 커서 대신 null 로 답하는 폴더(응답 없는 클라우드 제공자). */
         var unanswered: Set<String> = emptySet()
+
+        /** 폴더 목록을 줄 때마다 부른다. 훑기 한가운데서 무엇을 끼워 넣는 시험용. */
+        var onList: (() -> Unit)? = null
 
         private val DEFAULT_PROJECTION = arrayOf(
             Document.COLUMN_DOCUMENT_ID,

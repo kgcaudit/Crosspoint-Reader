@@ -148,8 +148,11 @@ class Library(private val db: ReaderDatabase) {
      * 등록을 푼 폴더의 책을 목록에서 뺀다.
      *
      * 진도·책갈피는 남긴다. 같은 폴더를 다시 등록하면 URI 가 같으므로 그대로 이어진다.
+     *
+     * 책 행은 지우지 않고 숨긴다(0.28.1). 지우던 때는 그 책들의 기록이 파일 이름을 잃어 백업 파일에서 소리 없이 빠졌다 —
+     * 팝업은 "기록은 남습니다" 라고 약속하는데 새 휴대폰으로는 옮겨지지 않았다.
      */
-    suspend fun forgetFolder(folderUri: String) = books.deleteFolder(folderUri)
+    suspend fun forgetFolder(folderUri: String) = books.hideFolder(folderUri)
 
     /** 모르는 포맷 이름(다음 버전이 쓴 값 등)이 든 행은 목록에서만 빠진다. */
     private fun toBook(row: BookEntity): LibraryBook? {
