@@ -201,7 +201,9 @@ fun ReaderScreen(
         val l = Listening(reader, kit.speaker(prefs.listen.engine), ListenHub.scope)
         ListenHub.attach(context, l)
         panel = Panel.None
-        ListenHub.scope.launch { l.start(position.spineIndex, from ?: page.startChar, prefs.listen.rate, prefs.listen.voice, prefs.listen.join) }
+        ListenHub.scope.launch {
+            l.start(position.spineIndex, from ?: page.startChar, prefs.listen.rate, prefs.listen.voice, prefs.listen.join, pageEnd = if (from == null) page.endCharExclusive else null)
+        }
     }
     // 책을 닫으면 듣기도 끝낸다. 닫은 책을 화면 없이 계속 읽으면 멈출 곳이 잠금 화면뿐이다.
     val closeBook = {
@@ -578,7 +580,7 @@ fun ReaderScreen(
                     onWord = { word ->
                         val quote = snippetOf(state.text, sel.start, sel.endExclusive, state.paragraphStarts)
                         when (word) {
-                            "메모" -> memo = MemoDraft(null, sel, quote, lastPen)
+                            "메모" -> memo = MemoDraft(null, sel, quote, lastPen, state.position?.spineIndex)
                             "복사" -> if (!copyText(context, quote)) say("복사했습니다")
                             "공유" -> shareOut(context, shareText(quote, null, reader.title))
                             "사전" -> if (!lookUp(context, quote)) say("낱말을 찾아 줄 사전 앱이 없습니다")
@@ -789,7 +791,7 @@ fun ReaderScreen(
                         if (draft.annotation != null) {
                             reader.update(draft.annotation.copy(color = pen.color).withNote(text))
                         } else if (sel != null) {
-                            reader.highlight(sel.start, sel.endExclusive, pen.color, text)
+                            reader.highlight(sel.start, sel.endExclusive, pen.color, text, draft.spineIndex)
                             hiddenHint()
                         }
                     }

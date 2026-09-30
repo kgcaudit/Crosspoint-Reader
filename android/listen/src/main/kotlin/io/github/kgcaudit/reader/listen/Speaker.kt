@@ -64,7 +64,14 @@ class AndroidSpeaker(private val context: Context, private val engine: String?) 
         val created = TextToSpeech(context.applicationContext, { status -> done.complete(status == TextToSpeech.SUCCESS) }, engine)
         tts = created
         // 엔진이 대답하지 않는 기기가 있다(엔진을 지운 직후 등). 끝없이 기다리면 단추가 먹통이 된다.
-        ready = withTimeoutOrNull(8_000) { done.await() } == true
+        ready = try {
+            withTimeoutOrNull(8_000) { done.await() } == true
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // 기다리는 사이 화면을 떠났다(목소리 화면을 목록이 뜨기 전에 나감). 끄지 않으면 엔진 서비스에 묶인 채 앱이
+            // 끝날 때까지 남아, 드나들 때마다 쌓였다.
+            shutdown()
+            throw e
+        }
         if (!ready) {
             shutdown()
             return false
@@ -121,20 +128,25 @@ class AndroidSpeaker(private val context: Context, private val engine: String?) 
          */
         suspend fun voices(context: Context): List<VoiceChoice> {
             val probe = AndroidSpeaker(context, null)
-            probe.prepare()
-            val engines = probe.tts?.engines.orEmpty()
-            probe.shutdown()
+            val engines = try {
+                probe.prepare()
+                probe.tts?.engines.orEmpty()
+            } finally {
+                probe.shutdown()
+            }
             val out = ArrayList<VoiceChoice>()
             for (engine in engines) {
                 val speaker = AndroidSpeaker(context, engine.name)
-                if (speaker.prepare()) {
+                // 모으는 도중 취소돼도(화면을 떠남) 켠 엔진은 끈다.
+                try { if (speaker.prepare()) {
                     val korean = runCatching { speaker.tts?.voices }.getOrNull().orEmpty()
                         // 인터넷이 있어야 읽는 목소리는 뺀다. 앱은 인터넷을 쓰지 않는다는 약속을 엔진을 통해 깨지 않는다.
                         .filter { it.locale.language == Locale.KOREAN.language && !it.isNetworkConnectionRequired }
                         .sortedBy { it.name }
                     korean.forEachIndexed { i, v -> out += VoiceChoice(engine.name, engine.label, v.name, voiceLabel(i), needsDownload(v)) }
+                } } finally {
+                    speaker.shutdown()
                 }
-                speaker.shutdown()
             }
             return out
         }

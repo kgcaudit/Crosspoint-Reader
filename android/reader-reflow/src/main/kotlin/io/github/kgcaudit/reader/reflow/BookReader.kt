@@ -340,9 +340,13 @@ class BookReader(
      * 똑같은 구간이 이미 칠해져 있으면 새로 만들지 않고 색 · 메모만 바꾼다 — 같은 곳을 두 번 칠하면 목록에
      * 똑같은 줄이 둘 생기고, 하나를 지워도 칠이 남아 "지웠는데 안 지워진다" 로 보인다.
      */
-    suspend fun highlight(start: Int, end: Int, color: HighlightColor, note: String? = null): Annotation? = run {
-        val spine = _state.value.position?.spineIndex ?: return@run null
-        val text = _state.value.text
+    suspend fun highlight(start: Int, end: Int, color: HighlightColor, note: String? = null, spineIndex: Int? = null): Annotation? = run {
+        val current = _state.value.position?.spineIndex ?: return@run null
+        // 고른 장([spineIndex]). 메모를 쓰는 사이 듣기 · 볼륨키가 장을 넘기면 "지금 장" 은 다른 장이다 — 지금 장의 글로 칠하면
+        // 칠과 메모가 다음 장의 같은 번호 자리, 전혀 다른 문장에 붙었다.
+        val spine = spineIndex ?: current
+        val text = if (spine == current) _state.value.text else runCatching { requireLayout().chapterText(spine) }.getOrNull() ?: return@run null
+        val starts = if (spine == current) _state.value.paragraphStarts else requireLayout().paragraphStarts(spine)
         val from = start.coerceIn(0, text.length)
         val to = end.coerceIn(from, text.length)
         if (from >= to) return@run null
@@ -360,7 +364,7 @@ class BookReader(
                     end = Locator.Reflow(spine, to),
                     color = color,
                     note = note,
-                    snippet = snippetOf(text, from, to, _state.value.paragraphStarts),
+                    snippet = snippetOf(text, from, to, starts),
                     createdAtEpochMs = clock(),
                 ).withNote(note),
             )

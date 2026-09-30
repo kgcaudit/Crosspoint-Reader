@@ -223,6 +223,8 @@ internal data class MemoDraft(
     val selection: Selection?,
     val quote: String,
     val pen: Pen,
+    /** [selection] 을 고른 장. 판이 떠 있는 사이 장이 바뀌어도 이 장에 칠한다. */
+    val spineIndex: Int? = null,
 )
 
 /**

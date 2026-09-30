@@ -87,7 +87,11 @@ class Listening(
     /**
      * 듣기를 켜고 [spine] 장의 글자 [offset] 에서 읽기 시작한다(보이는 쪽의 첫 문장). 엔진이 없으면 알리고 켜지 않는다.
      */
-    suspend fun start(spine: Int, offset: Int, rate: Float, voice: String?, join: WordJoin = WordJoin.Off) {
+    /**
+     * [offset] 부터 듣기를 연다. [pageEnd] 를 주면(보이는 쪽에서 켰다) [onPageShown] 과 같은 규칙으로 그 쪽에서 **시작하는** 첫
+     * 문장부터 읽는다. 쪽 첫 글자가 든 문장부터 읽으면 그 문장은 앞 쪽에서 시작해, 듣기를 누르자 앞 쪽으로 튀어 돌아갔다.
+     */
+    suspend fun start(spine: Int, offset: Int, rate: Float, voice: String?, join: WordJoin = WordJoin.Off, pageEnd: Int? = null) {
         val since = generation
         this.join = join
         _state.value = _state.value.copy(active = true, preparing = true, rate = rate, message = null, join = join)
@@ -101,10 +105,20 @@ class Listening(
         speaker.setRate(rate)
         speaker.setVoice(voice)
         val c = load(spine)
-        val n = c.sentences.indexAt(offset).let { if (it < 0) c.sentences.size else it }
+        // 딱 그 자리에서 시작하는 문장이 먼저다(엔진을 바꿔 듣던 문장부터 다시 열 때). PDF 문장 목록은 보이는 순서(단 · 상자)로
+        // 늘어놓아 글자 번호 순이 아니다 — "이 자리를 포함하는 첫 문장" 으로 찾으면 다른 단의 문장이 먼저 걸렸다.
+        val exact = c.sentences.indexOfFirst { it.start == offset }
+        val onPage = if (exact < 0 && pageEnd != null) c.sentences.indexOfFirst { it.start in offset until pageEnd } else -1
+        val n = when {
+            exact >= 0 -> exact
+            onPage >= 0 -> onPage
+            else -> c.sentences.indexAt(offset).let { if (it < 0) c.sentences.size else it }
+        }
+        // 쪽 전체가 한 문장 안이면 그 문장을 읽되 쪽은 사람이 둔 곳에 둔다.
+        val keepPage = pageEnd != null && exact < 0 && onPage < 0
         _state.value = _state.value.copy(preparing = false)
         // 엔진을 깨우는 사이 끄거나 멈췄으면 speakFrom 이 세대를 보고 읽지 않는다.
-        speakFrom(spine, n, since)
+        speakFrom(spine, n, since, follow = !keepPage)
     }
 
     fun toggle() = if (_state.value.playing) pause() else play()
