@@ -1,6 +1,7 @@
 package io.github.kgcaudit.reader.app
 
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -8,6 +9,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.test.SemanticsMatcher
@@ -17,6 +20,9 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import io.github.kgcaudit.reader.ui.design.AutoTurnState
+import io.github.kgcaudit.reader.ui.design.CpAutoTurnPill
+import io.github.kgcaudit.reader.ui.design.CpBottomSheet
 import io.github.kgcaudit.reader.ui.design.CpButton
 import io.github.kgcaudit.reader.ui.design.CpChoice
 import io.github.kgcaudit.reader.ui.design.CpIconToggle
@@ -164,5 +170,78 @@ class DesignRulesTest {
         val popupRight = 360 * density - 32 * density - 20 * density
         assertTrue(ok.right + 22 * density >= popupRight - 2 * density, "확인 단추가 오른쪽 끝에 있지 않다: $ok (판 글자 끝 $popupRight)")
         assertTrue(ok.left > message.left + 100 * density, "확인 단추가 왼쪽에 있다")
+    }
+
+    // ---------- 모서리(0.31.0, OLO-Design: 알약 · 완전 둥근 모양을 쓰지 않는다) ----------
+
+    /** 화면을 찍어 [tag] 부품의 왼쪽 위 모서리에서 대각선으로 [inset] 들어간 점의 색. */
+    private fun cornerPixel(tag: String, inset: Float): Int {
+        compose.waitForIdle()
+        val b = node(hasTestTag(tag)).boundsInRoot
+        val view = compose.activity.window.decorView
+        val bitmap = android.graphics.Bitmap.createBitmap(view.width, view.height, android.graphics.Bitmap.Config.ARGB_8888)
+        compose.runOnUiThread { view.draw(android.graphics.Canvas(bitmap)) }
+        return bitmap.getPixel((b.left + inset * density).toInt(), (b.top + inset * density).toInt())
+    }
+
+    /** [pixel] 이 [inside](부품 색) 쪽에 더 가까운가 — 모서리 안이면 부품 색, 밖이면 뒤의 색. */
+    private fun closerTo(pixel: Int, inside: androidx.compose.ui.graphics.Color, outside: androidx.compose.ui.graphics.Color): Boolean {
+        fun d(c: androidx.compose.ui.graphics.Color): Float {
+            val r = android.graphics.Color.red(pixel) / 255f - c.red
+            val g = android.graphics.Color.green(pixel) / 255f - c.green
+            val bl = android.graphics.Color.blue(pixel) / 255f - c.blue
+            return r * r + g * g + bl * bl
+        }
+        return d(inside) < d(outside)
+    }
+
+    @Test
+    fun `buttons have the family's 10dp corners, not pill ends`() {
+        // 알약(반지름 24dp)이면 모서리에서 4dp 들어간 점이 아직 바깥(뒤 색), 10dp 면 안(단추 색)이다. 1dp 점은 어느 쪽이든
+        // 바깥 — 각진 네모로 되돌아간 것도 잡는다.
+        var accent = androidx.compose.ui.graphics.Color.Unspecified
+        var paper = androidx.compose.ui.graphics.Color.Unspecified
+        show {
+            accent = CpTheme.colors.accent
+            paper = CpTheme.colors.background
+            Box(Modifier.fillMaxSize().background(paper)) { CpButton("빼기", {}, Modifier.padding(40.dp).testTag("button")) }
+        }
+        assertTrue(closerTo(cornerPixel("button", 4f), accent, paper), "단추 모서리가 10dp 보다 둥글다(알약)")
+        assertTrue(closerTo(cornerPixel("button", 1f), paper, accent), "단추 모서리가 각졌다")
+    }
+
+    @Test
+    fun `the auto turn notice is a 14dp card, not a pill`() {
+        // 14dp 면 5.5dp 들어간 점은 안, 24dp 알약이면 바깥.
+        var surface = androidx.compose.ui.graphics.Color.Unspecified
+        var paper = androidx.compose.ui.graphics.Color.Unspecified
+        show {
+            surface = CpTheme.colors.surface
+            paper = CpTheme.colors.background
+            Box(Modifier.fillMaxSize().background(paper)) {
+                CpAutoTurnPill(AutoTurnState().apply { remaining = 18 }, Modifier.padding(40.dp).testTag("notice"))
+            }
+        }
+        assertTrue(closerTo(cornerPixel("notice", 5.5f), surface, paper), "자동 넘김 알림 모서리가 14dp 보다 둥글다")
+        assertTrue(closerTo(cornerPixel("notice", 1.5f), paper, surface), "자동 넘김 알림 모서리가 각졌다")
+    }
+
+    @Test
+    @Config(qualifiers = "w360dp-h780dp-xxxhdpi")
+    fun `a bottom sheet rounds its top at 18dp, one step below a popup`() {
+        // 18dp 와 20dp 는 0.3dp 차이라 촘촘한 화면(xxxhdpi)에서 잰다. 5.6dp 들어간 점: 18dp 면 안, 20dp 면 바깥.
+        var surface = androidx.compose.ui.graphics.Color.Unspecified
+        var behind = androidx.compose.ui.graphics.Color.Unspecified
+        show {
+            surface = CpTheme.colors.surface
+            behind = CpTheme.colors.background
+            Box(Modifier.fillMaxSize().background(behind)) {
+                CpBottomSheet({}, Modifier.testTag("sheet")) { androidx.compose.foundation.layout.Spacer(Modifier.padding(60.dp)) }
+            }
+        }
+        // 뒤는 막(검정 40%, 0x66)에 덮여 바탕이 60% 밝기로 보인다.
+        val scrimmed = androidx.compose.ui.graphics.Color(behind.red * 0.6f, behind.green * 0.6f, behind.blue * 0.6f)
+        assertTrue(closerTo(cornerPixel("sheet", 5.6f), surface, scrimmed), "아래 판 모서리가 18dp 보다 둥글다")
+        assertTrue(closerTo(cornerPixel("sheet", 1.5f), scrimmed, surface), "아래 판 모서리가 각졌다")
     }
 }

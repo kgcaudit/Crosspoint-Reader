@@ -149,6 +149,8 @@ data class CpMetrics(
     val statusBarHeight: Dp = 28.dp,
     val cornerSmall: Dp = 10.dp,
     val cornerMedium: Dp = 14.dp,
+    /** 아래에서 올라오는 판(OLO-Design large). 팝업(20dp)보다 한 단 작다 — 화면 폭을 다 쓰는 판이 팝업처럼 부풀어 보이지 않게. */
+    val cornerSheet: Dp = 18.dp,
     val cornerDialog: Dp = 20.dp,
     val tileSize: Dp = 40.dp,
     val tileCorner: Dp = 12.dp,

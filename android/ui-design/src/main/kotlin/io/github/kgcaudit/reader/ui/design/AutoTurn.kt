@@ -94,13 +94,17 @@ internal suspend fun AutoTurnState.countDown(onScreen: suspend () -> Unit) {
 /** 알약이 보일 때: 켜져 있고, ✕ 로 끄지 않았고, 메뉴 · 듣기 중이 아닐 때. */
 fun AutoTurnState.visible(setting: AutoTurn, suspended: Boolean): Boolean = setting != AutoTurn.Off && !stopped && !suspended
 
-/** 자동 넘김 중 아래에 뜨는 알약: "자동 넘김 · 다음 쪽까지 18초" ⏸ ✕. */
+/**
+ * 자동 넘김 중 아래에 뜨는 알림: "자동 넘김 · 다음 쪽까지 18초" ⏸ ✕. 모서리는 카드(14dp)다(0.31.0, OLO-Design) — 24dp 알약은
+ * 계열 규칙("알약을 쓰지 않는다")에 어긋났다.
+ */
 @Composable
 fun CpAutoTurnPill(state: AutoTurnState, modifier: Modifier = Modifier) {
     val c = CpTheme.colors
+    val shape = RoundedCornerShape(CpTheme.metrics.cornerMedium)
     Row(
-        modifier.shadow(8.dp, RoundedCornerShape(24.dp)).clip(RoundedCornerShape(24.dp)).background(c.surface)
-            .border(1.dp, c.divider, RoundedCornerShape(24.dp))
+        modifier.shadow(8.dp, shape).clip(shape).background(c.surface)
+            .border(1.dp, c.divider, shape)
             .blockTouches()
             .padding(start = 16.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,

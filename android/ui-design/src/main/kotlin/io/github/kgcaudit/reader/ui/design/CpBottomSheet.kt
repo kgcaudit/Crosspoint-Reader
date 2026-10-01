@@ -46,7 +46,7 @@ fun CpBottomSheet(
         Column(
             Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                 .then(modifier)
-                .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)).background(c.surface)
+                .clip(RoundedCornerShape(topStart = CpTheme.metrics.cornerSheet, topEnd = CpTheme.metrics.cornerSheet)).background(c.surface)
                 .blockTouches()
                 .padding(horizontal = horizontalPadding).padding(top = 10.dp, bottom = 24.dp),
         ) {

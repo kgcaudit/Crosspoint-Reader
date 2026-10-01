@@ -395,9 +395,11 @@ fun CpButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, p
     Box(
         modifier
             .heightIn(min = CpTheme.metrics.touchTarget)
-            .clip(RoundedCornerShape(50))
+            // 알약이 아니라 행 · 선택지와 같은 10dp(0.31.0, OLO-Design "알약 · 완전 둥근 모양을 쓰지 않는다").
+            // 알약 단추는 바로 옆 선택지 칸(10dp)과 다른 앱의 부품처럼 보였다.
+            .clip(RoundedCornerShape(CpTheme.metrics.cornerSmall))
             .background(if (primary) c.accent else Color.Transparent)
-            .border(1.dp, if (primary) c.accent else c.outline, RoundedCornerShape(50))
+            .border(1.dp, if (primary) c.accent else c.outline, RoundedCornerShape(CpTheme.metrics.cornerSmall))
             .clickable(role = Role.Button, onClick = onClick)
             .padding(horizontal = 22.dp),
         contentAlignment = Alignment.Center,
