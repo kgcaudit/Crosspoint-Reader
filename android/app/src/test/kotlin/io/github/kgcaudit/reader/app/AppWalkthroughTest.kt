@@ -352,11 +352,35 @@ class AppWalkthroughTest {
         }
         save(bitmap, "00-launcher-icon")
 
-        // 바탕이 주황이고, 가운데(책)는 밝은 그레이여야 한다.
+        // 바탕이 주황이고, 왼쪽 쪽은 흰색, 가운데 책등 틈으로는 바탕(주황)이 비친다(OLO-Design eBook 마크, 0.31.0).
         val bg = bitmap.getPixel((inset + 12).toInt(), size / 2)
         assertTrue(Color.red(bg) > 190 && Color.green(bg) in 90..140, "바탕색이 주황이 아니다: #${Integer.toHexString(bg)}")
         val book = bitmap.getPixel((size * 0.38f).toInt(), size / 2)
-        assertTrue(Color.red(book) > 220 && Color.green(book) > 220, "책 도형이 밝은 그레이가 아니다: #${Integer.toHexString(book)}")
+        assertTrue(Color.red(book) > 240 && Color.green(book) > 240 && Color.blue(book) > 240, "책 도형이 흰색이 아니다: #${Integer.toHexString(book)}")
+        val spine = bitmap.getPixel(size / 2, size / 2)
+        assertTrue(Color.red(spine) > 180 && Color.green(spine) < 150, "책등 틈으로 바탕이 비치지 않는다: #${Integer.toHexString(spine)}")
+    }
+
+    @Test
+    fun `the launcher mark stays inside the safe circle so no phone mask clips the book`() {
+        // 적응형 아이콘은 제조사마다 원 · 스쿼클 등으로 자른다. 108 격자에서 지름 66 원 안만 늘 보인다. 계열 마크를 그대로
+        // 가져온 처음 판(폭 59%)은 책 모서리가 이 원 밖이라 원형 아이콘에서 양 끝이 잘렸다 — 디자인 세션이 82% 로 줄였다.
+        val app = ApplicationProvider.getApplicationContext<OloApp>()
+        val icon = app.getDrawable(R.mipmap.ic_launcher) as AdaptiveIconDrawable
+        val size = 432
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        icon.foreground.setBounds(0, 0, size, size)
+        icon.foreground.draw(Canvas(bitmap))
+        val safe = size * 33f / 108f
+        var outside = 0
+        var marked = 0
+        for (y in 0 until size step 2) for (x in 0 until size step 2) {
+            if (Color.alpha(bitmap.getPixel(x, y)) < 128) continue
+            marked++
+            if (kotlin.math.hypot(x - size / 2f, y - size / 2f) > safe) outside++
+        }
+        assertTrue(marked > 0, "마크가 그려지지 않았다")
+        assertEquals(0, outside, "마크의 ${outside}점이 안전 원 밖이다")
     }
 
     // ── 도우미 ──────────────────────────────────────────────────────
