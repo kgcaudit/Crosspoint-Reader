@@ -114,6 +114,13 @@ class AboutTest {
             .lines().joinToString(" ") { it.removePrefix(" *").trim() }
         fun words(s: String) = s.split(Regex("\\s+")).filter { it.isNotEmpty() }
         assertEquals(words(source), words(adobe))
+        // UnRAR 허가의 2항(이 문단을 그대로 실어야 고친 원본을 함께 배포할 수 있다)과 RAR 을 만드는 데 쓰지 말라는 조건.
+        val unrar = texts.getValue("UnRAR")
+        listOf("UnRAR source code may be used in any software to handle", "cannot be", "used to develop RAR (WinRAR) compatible archiver", "full text of this paragraph")
+            .forEach { assertTrue(it in unrar, "UnRAR 고지문에 \"$it\" 이 없다") }
+        // 우리가 넣은 원본의 것과 같아야 한다 — 원본을 새 판으로 바꾸고 이 파일을 잊으면 걸린다.
+        assertEquals(File("../archive/src/main/cpp/unrar/license.txt").readText(), unrar)
+        assertEquals(File("../archive/src/main/cpp/sevenz/lzma-sdk-license.txt").readText(), texts.getValue("LZMA SDK (7-Zip)"))
         OPEN_LICENSES.filter { it.badge == "Apache 2.0" }.forEach {
             val text = texts.getValue(it.title)
             assertTrue("Version 2.0, January 2004" in text && "END OF TERMS AND CONDITIONS" in text, "${it.title}: Apache 원문이 온전하지 않다")

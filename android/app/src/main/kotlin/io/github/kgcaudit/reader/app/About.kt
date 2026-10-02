@@ -71,6 +71,22 @@ internal val OPEN_LICENSES = listOf(
         text = R.raw.license_apache_2_0,
     ),
     OpenLicense(
+        title = "LZMA SDK (7-Zip)",
+        subtitle = "cb7(7z) 만화를 풀 때 씁니다",
+        badge = "공개 영역",
+        licenseName = "공개 영역(Public Domain)",
+        source = "이고르 파블로프의 LZMA SDK 26.03, 7z 해제 부분 (7-zip.org/sdk.html)",
+        text = R.raw.license_lzma_sdk,
+    ),
+    OpenLicense(
+        title = "UnRAR",
+        subtitle = "cbr(RAR) 만화를 풀 때 씁니다 — 읽기만 합니다",
+        badge = "UnRAR",
+        licenseName = "UnRAR 라이선스",
+        source = "알렉산드르 로샬의 무료 UnRAR 원본 (rarlab.com/rar_add.htm)",
+        text = R.raw.license_unrar,
+    ),
+    OpenLicense(
         title = "Kotlin · kotlinx.coroutines",
         subtitle = "JetBrains",
         badge = "Apache 2.0",

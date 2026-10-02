@@ -45,6 +45,12 @@ JDK 21 과 Android SDK 가 함께 들어오므로, 그때는 이것만 설치하
 2. `.exe` 실행 → 전부 **Next / 기본값**
 3. 첫 실행 마법사 → **Standard** → Next → Finish
 
+> **0.37.0 부터 APK 빌드에 NDK 와 CMake 가 필요하다**(cbr · cb7 을 푸는 C++ 해제기). Android Studio →
+> Settings → Languages & Frameworks → Android SDK → **SDK Tools** 탭에서 **NDK (Side by side) 27.0.12077973** 과
+> **CMake 3.22.1** 을 고른다(“Show Package Details” 를 켜야 판 번호가 보인다). 고르지 않아도 Gradle 이 첫 빌드 때
+> 스스로 받으려 하지만, 사내망 프록시에서는 그 다운로드가 막히기 쉽다.
+> 윈도우에서는 PC 시험용 해제기(리눅스용 빌드)를 건너뛴다 — 그때 RAR · 7z 시험은 “해제기 없음” 으로 넘어간다.
+
 > `run-tests.bat` 은 Android Studio 의 JDK, Temurin, Microsoft OpenJDK, Corretto,
 > Zulu, JetBrains, `JAVA_HOME`, `PATH` 를 전부 훑어 쓸 수 있는 것을 고른다.
 > 어디에 설치하든 대개 알아서 찾는다.

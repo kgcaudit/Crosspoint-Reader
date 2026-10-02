@@ -26,11 +26,13 @@ room { schemaDirectory("$projectDir/schemas") }
 
 dependencies {
     api(project(":document"))
+    implementation(project(":archive"))
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
     implementation(libs.coroutines.android)
 
+    testImplementation(testFixtures(project(":document")))
     testImplementation(libs.junit4)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
@@ -39,6 +41,9 @@ dependencies {
 }
 
 tasks.withType<Test>().configureEach {
+    // RAR · 7z 해제기의 PC 빌드(:archive 의 hostNatives)를 시험이 싣는다.
+    dependsOn(":archive:hostNatives")
+    systemProperty("java.library.path", rootProject.layout.projectDirectory.dir("archive/build/host-natives").asFile.path)
     // 테스트는 한글 파일 이름을 실제 디스크에 쓴다. 로케일이 POSIX 인 리눅스(클라우드
     // 세션·CI)에서는 JVM 이 경로를 ASCII 로 바꿔 "??.epub" 가 되므로 UTF-8 로 고정한다.
     environment("LC_ALL", "C.UTF-8")

@@ -179,9 +179,9 @@ interface ComicDao {
     @Query("SELECT * FROM comic_units WHERE id = :id")
     suspend fun get(id: String): ComicUnitEntity?
 
-    /** 아직 살피지 않았거나, 살핀 뒤 파일이 바뀐 압축(zip · cbz). */
+    /** 아직 살피지 않았거나, 살핀 뒤 파일이 바뀐 압축(zip · cbz · cbt · cbr · cb7 — 0.37.0 부터 뒤의 셋도). */
     @Query(
-        "SELECT * FROM comic_units WHERE missing = 0 AND kind = 'ARCHIVE' AND extension IN ('zip', 'cbz') " +
+        "SELECT * FROM comic_units WHERE missing = 0 AND kind = 'ARCHIVE' AND extension IN ('zip', 'cbz', 'cbt', 'cbr', 'cb7') " +
             "AND (probed = 0 OR probedSize IS NOT sizeBytes OR probedModified IS NOT lastModifiedEpochMs)",
     )
     suspend fun needingProbe(): List<ComicUnitEntity>

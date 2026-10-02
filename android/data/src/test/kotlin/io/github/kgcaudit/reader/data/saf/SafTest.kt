@@ -300,6 +300,43 @@ class SafTest {
     }
 
     @Test
+    fun `cbr, cb7 and cbt are probed, covered and opened page by page through the provider`() = runTest {
+        // 0.37.0: RAR · 7z 는 C++ 해제기, tar 는 순수 Kotlin. 이름이 cbr 인 zip 도 머리로 가려 연다.
+        val png = javaClass.getResource("/comic.cb7")!!.readBytes() // 7z 견본: 빨강 · 초록 · 파랑 쪽 + ComicInfo
+        val pages = listOf("001.png" to "p1".toByteArray(), "002.png" to "p2".toByteArray(), "003.png" to "p3".toByteArray())
+        put("C/별 01권.cbr", io.github.kgcaudit.reader.document.archive.StoredArchives.rar4(pages))
+        put("C/별 02권.cbt", io.github.kgcaudit.reader.document.archive.StoredArchives.tar(pages))
+        put("C/scan.cb7", png)
+        put("C/별 03권.cbr", zip("001.png" to "z1".toByteArray(), "002.png" to "z2".toByteArray()))
+        put("C/깨진 01권.cb7", png.copyOf(png.size / 2))
+        data.folders.register(tree)
+        data.rescanAll()
+        assertEquals(5, data.probeComics())
+        val works = data.comics.works().first()
+        val star = works.single { it.title == "별" }
+        assertEquals(listOf("1권", "2권", "3권"), star.entries.map { it.label })
+        // 7z 안의 ComicInfo: 작품 이름 · 권 · 오→왼.
+        val seven = works.single { it.title == "칠지" }
+        assertEquals("2권", seven.entries.single().label)
+        assertEquals(true, seven.rightToLeft)
+        assertTrue(works.any { it.title == "깨진" }, "열리지 않는 cb7 이 서재에서 사라졌다")
+        // 표지와 쪽.
+        // 표지: RAR · tar 는 p1, 이름만 cbr 인 zip(3권)은 z1.
+        assertEquals(listOf("p1", "p1", "z1"), star.entries.map { data.comicCover(it.unit)?.decodeToString() })
+        val rar = star.entries.first().unit
+        data.openComic(rar).use { book ->
+            assertEquals(3, book.count)
+            assertEquals("p3", book.read(2)!!.decodeToString())
+            assertEquals("p1", book.read(0)!!.decodeToString())
+        }
+        // 다시 열면 풀어 둔 것을 쓴다(빨라야 한다 — 다시 풀지 않는다).
+        data.openComic(rar).use { assertEquals("p2", it.read(1)!!.decodeToString()) }
+        data.openComic(seven.entries.single().unit).use { assertEquals(3, it.count); assertEquals(0x89.toByte(), it.read(0)!![0]) }
+        data.openComic(star.entries[1].unit).use { assertEquals("p2", it.read(1)!!.decodeToString()) }
+        data.openComic(star.entries[2].unit).use { assertEquals("z2", it.read(1)!!.decodeToString()) }
+    }
+
+    @Test
     fun `comics are found, probed through the provider and grouped into works`() = runTest {
         val jpg = ByteArray(16) { 1 }
         put("Comics/별/별 01권.cbz", zip("001.jpg" to jpg, "002.jpg" to jpg))

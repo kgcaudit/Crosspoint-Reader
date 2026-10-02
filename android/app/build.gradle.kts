@@ -44,8 +44,8 @@ android {
         applicationId = providers.gradleProperty("reader.applicationId").get()
         minSdk = 26
         targetSdk = 35
-        versionCode = 65
-        versionName = "0.36.0"
+        versionCode = 66
+        versionName = "0.37.0"
         resValue("string", "app_name", providers.gradleProperty("reader.appName").get())
         // 앱 정보 화면의 날짜. 구성 캐시 때문에 빌드 파일(판 번호)이 바뀔 때 새로 잡힌다 — 곧 "그 판을 처음 빌드한 날".
         buildConfigField("String", "BUILD_DATE", "\"${LocalDate.now()}\"")
@@ -134,6 +134,9 @@ dependencies {
 
 tasks.withType<Test>().configureEach {
     environment("LC_ALL", "C.UTF-8")
+    // RAR · 7z 해제기의 PC 빌드(:archive 의 hostNatives)를 시험이 싣는다(0.37.0).
+    dependsOn(":archive:hostNatives")
+    systemProperty("java.library.path", rootProject.layout.projectDirectory.dir("archive/build/host-natives").asFile.path)
     providers.gradleProperty("reader.robolectricRepo").orNull?.let {
         systemProperty("robolectric.dependency.repo.url", it)
     }

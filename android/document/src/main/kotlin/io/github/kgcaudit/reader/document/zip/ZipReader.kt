@@ -346,7 +346,7 @@ class ZipReader private constructor(
  * [Inflater] 에 먹일 압축 바이트를 구간 단위로 공급하는 용도다. 구간 밖으로는 절대
  * 넘어가지 않으므로, 한 엔트리를 읽다가 다음 엔트리 데이터까지 흘러 들어가지 않는다.
  */
-private class RangeInputStream(
+internal class RangeInputStream(
     private val source: SeekableSource,
     private val start: Long,
     private val length: Long,

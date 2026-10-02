@@ -1,0 +1,367 @@
+[
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/rar_jni.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/rar_jni.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/rar_jni.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/rar.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/rar.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/rar.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/strlist.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/strlist.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/strlist.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/strfn.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/strfn.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/strfn.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/pathfn.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/pathfn.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/pathfn.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/smallfn.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/smallfn.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/smallfn.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/global.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/global.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/global.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/file.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/file.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/file.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/filefn.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/filefn.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/filefn.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/filcreat.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/filcreat.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/filcreat.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/archive.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/archive.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/archive.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/arcread.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/arcread.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/arcread.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/unicode.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/unicode.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/unicode.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/system.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/system.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/system.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/crypt.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/crypt.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/crypt.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/crc.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/crc.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/crc.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/rawread.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/rawread.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/rawread.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/encname.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/encname.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/encname.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/resource.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/resource.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/resource.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/match.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/match.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/match.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/timefn.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/timefn.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/timefn.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/rdwrfn.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/rdwrfn.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/rdwrfn.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/consio.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/consio.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/consio.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/options.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/options.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/options.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/errhnd.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/errhnd.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/errhnd.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/rarvm.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/rarvm.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/rarvm.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/secpassword.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/secpassword.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/secpassword.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/rijndael.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/rijndael.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/rijndael.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/getbits.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/getbits.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/getbits.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/sha1.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/sha1.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/sha1.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/sha256.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/sha256.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/sha256.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/blake2s.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/blake2s.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/blake2s.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/hash.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/hash.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/hash.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/extinfo.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/extinfo.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/extinfo.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/extract.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/extract.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/extract.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/volume.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/volume.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/volume.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/list.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/list.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/list.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/find.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/find.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/find.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/unpack.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/unpack.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/unpack.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/headers.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/headers.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/headers.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/threadpool.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/threadpool.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/threadpool.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/rs16.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/rs16.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/rs16.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/cmddata.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/cmddata.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/cmddata.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/ui.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/ui.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/ui.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/largepage.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/largepage.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/largepage.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/filestr.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/filestr.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/filestr.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/scantree.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/scantree.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/scantree.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/dll.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/dll.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/dll.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DRARDLL -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -Dolorar_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -fexceptions -w -std=gnu++14 -o CMakeFiles/olorar.dir/unrar/qopen.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/qopen.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/unrar/qopen.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DZ7_PPMD_SUPPORT -Dolo7z_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -O2 -g -DNDEBUG -fPIC -O2 -w -o CMakeFiles/olo7z.dir/sevenz_jni.cpp.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz_jni.cpp",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz_jni.cpp"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DZ7_PPMD_SUPPORT -Dolo7z_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -O2 -g -DNDEBUG -fPIC -O2 -w -o CMakeFiles/olo7z.dir/sevenz/Bcj2.c.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/Bcj2.c",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/Bcj2.c"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DZ7_PPMD_SUPPORT -Dolo7z_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -O2 -g -DNDEBUG -fPIC -O2 -w -o CMakeFiles/olo7z.dir/sevenz/Bra.c.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/Bra.c",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/Bra.c"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DZ7_PPMD_SUPPORT -Dolo7z_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -O2 -g -DNDEBUG -fPIC -O2 -w -o CMakeFiles/olo7z.dir/sevenz/Bra86.c.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/Bra86.c",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/Bra86.c"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DZ7_PPMD_SUPPORT -Dolo7z_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -O2 -g -DNDEBUG -fPIC -O2 -w -o CMakeFiles/olo7z.dir/sevenz/BraIA64.c.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/BraIA64.c",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/BraIA64.c"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DZ7_PPMD_SUPPORT -Dolo7z_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -O2 -g -DNDEBUG -fPIC -O2 -w -o CMakeFiles/olo7z.dir/sevenz/CpuArch.c.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/CpuArch.c",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/CpuArch.c"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DZ7_PPMD_SUPPORT -Dolo7z_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -O2 -g -DNDEBUG -fPIC -O2 -w -o CMakeFiles/olo7z.dir/sevenz/Delta.c.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/Delta.c",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/Delta.c"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DZ7_PPMD_SUPPORT -Dolo7z_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -O2 -g -DNDEBUG -fPIC -O2 -w -o CMakeFiles/olo7z.dir/sevenz/Lzma2Dec.c.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/Lzma2Dec.c",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/Lzma2Dec.c"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DZ7_PPMD_SUPPORT -Dolo7z_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -O2 -g -DNDEBUG -fPIC -O2 -w -o CMakeFiles/olo7z.dir/sevenz/LzmaDec.c.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/LzmaDec.c",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/LzmaDec.c"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DZ7_PPMD_SUPPORT -Dolo7z_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -O2 -g -DNDEBUG -fPIC -O2 -w -o CMakeFiles/olo7z.dir/sevenz/Ppmd7.c.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/Ppmd7.c",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/Ppmd7.c"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DZ7_PPMD_SUPPORT -Dolo7z_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -O2 -g -DNDEBUG -fPIC -O2 -w -o CMakeFiles/olo7z.dir/sevenz/Ppmd7Dec.c.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/Ppmd7Dec.c",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/Ppmd7Dec.c"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DZ7_PPMD_SUPPORT -Dolo7z_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -O2 -g -DNDEBUG -fPIC -O2 -w -o CMakeFiles/olo7z.dir/sevenz/7zCrc.c.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/7zCrc.c",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/7zCrc.c"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DZ7_PPMD_SUPPORT -Dolo7z_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -O2 -g -DNDEBUG -fPIC -O2 -w -o CMakeFiles/olo7z.dir/sevenz/7zCrcOpt.c.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/7zCrcOpt.c",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/7zCrcOpt.c"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DZ7_PPMD_SUPPORT -Dolo7z_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -O2 -g -DNDEBUG -fPIC -O2 -w -o CMakeFiles/olo7z.dir/sevenz/7zAlloc.c.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/7zAlloc.c",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/7zAlloc.c"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DZ7_PPMD_SUPPORT -Dolo7z_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -O2 -g -DNDEBUG -fPIC -O2 -w -o CMakeFiles/olo7z.dir/sevenz/7zArcIn.c.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/7zArcIn.c",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/7zArcIn.c"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DZ7_PPMD_SUPPORT -Dolo7z_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -O2 -g -DNDEBUG -fPIC -O2 -w -o CMakeFiles/olo7z.dir/sevenz/7zBuf.c.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/7zBuf.c",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/7zBuf.c"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DZ7_PPMD_SUPPORT -Dolo7z_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -O2 -g -DNDEBUG -fPIC -O2 -w -o CMakeFiles/olo7z.dir/sevenz/7zBuf2.c.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/7zBuf2.c",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/7zBuf2.c"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DZ7_PPMD_SUPPORT -Dolo7z_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -O2 -g -DNDEBUG -fPIC -O2 -w -o CMakeFiles/olo7z.dir/sevenz/7zDec.c.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/7zDec.c",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/7zDec.c"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DZ7_PPMD_SUPPORT -Dolo7z_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -O2 -g -DNDEBUG -fPIC -O2 -w -o CMakeFiles/olo7z.dir/sevenz/7zFile.c.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/7zFile.c",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/7zFile.c"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DZ7_PPMD_SUPPORT -Dolo7z_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -O2 -g -DNDEBUG -fPIC -O2 -w -o CMakeFiles/olo7z.dir/sevenz/7zStream.c.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/7zStream.c",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/7zStream.c"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DZ7_PPMD_SUPPORT -Dolo7z_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -O2 -g -DNDEBUG -fPIC -O2 -w -o CMakeFiles/olo7z.dir/sevenz/Aes.c.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/Aes.c",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/Aes.c"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DZ7_PPMD_SUPPORT -Dolo7z_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -O2 -g -DNDEBUG -fPIC -O2 -w -o CMakeFiles/olo7z.dir/sevenz/AesOpt.c.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/AesOpt.c",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/AesOpt.c"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DZ7_PPMD_SUPPORT -Dolo7z_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -O2 -g -DNDEBUG -fPIC -O2 -w -o CMakeFiles/olo7z.dir/sevenz/Sha256.c.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/Sha256.c",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/Sha256.c"
+},
+{
+  "directory": "/home/user/Crosspoint-Reader/android/archive/.cxx/RelWithDebInfo/431i186c/arm64-v8a",
+  "command": "/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=aarch64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DZ7_PPMD_SUPPORT -Dolo7z_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -O2 -g -DNDEBUG -fPIC -O2 -w -o CMakeFiles/olo7z.dir/sevenz/Sha256Opt.c.o -c /home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/Sha256Opt.c",
+  "file": "/home/user/Crosspoint-Reader/android/archive/src/main/cpp/sevenz/Sha256Opt.c"
+}
+]

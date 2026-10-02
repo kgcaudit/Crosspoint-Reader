@@ -94,6 +94,25 @@ class UriSources(
         }
     }
 
+    /**
+     * 파일 경로를 받는 해제기(RAR · 7z, 0.37.0)에 줄 경로. 진짜 파일 디스크립터면 `/proc/self/fd/N` — 복사 없이 그 파일이다.
+     * 파이프 · 경로로 읽히지 않는 제공자면 캐시 사본. 돌려받은 것을 닫으면 디스크립터를 닫고 사본을 지운다.
+     */
+    fun localPath(uri: Uri): LocalPath {
+        val pfd = resolver.openFileDescriptor(uri, "r") ?: throw FileNotFoundException("cannot open $uri")
+        val path = "/proc/self/fd/${pfd.fd}"
+        // 크기까지 맞아야 그 파일이다 — 시험 환경(Robolectric)의 디스크립터 번호는 흉내라 다른 파일을 가리킬 수 있다.
+        val direct = pfd.statSize >= 0 && File(path).let { it.canRead() && it.length() == pfd.statSize }
+        if (direct) return LocalPath(path) { pfd.close() }
+        pfd.close()
+        val copy = spool(uri)
+        return LocalPath(copy.path) { copy.delete() }
+    }
+
+    class LocalPath(val path: String, private val release: () -> Unit) : java.io.Closeable {
+        override fun close() = release()
+    }
+
     private fun spool(uri: Uri): File {
         spoolDir.mkdirs()
         val file = File.createTempFile("spool", ".bin", spoolDir)

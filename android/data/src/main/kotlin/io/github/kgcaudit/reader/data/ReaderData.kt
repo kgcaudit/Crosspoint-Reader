@@ -19,7 +19,6 @@ import io.github.kgcaudit.reader.document.comic.ComicInfo
 import io.github.kgcaudit.reader.document.comic.ComicUnit
 import io.github.kgcaudit.reader.document.comic.ComicUnitKind
 import io.github.kgcaudit.reader.document.comic.NaturalOrder
-import io.github.kgcaudit.reader.document.zip.ZipReader
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -36,7 +35,7 @@ import java.io.File
  * 하나여야 한다.
  */
 class ReaderData(
-    context: Context,
+    private val context: Context,
     val database: ReaderDatabase = ReaderDatabase.open(context),
     private val io: CoroutineDispatcher = Dispatchers.IO,
     private val clock: () -> Long = System::currentTimeMillis,
@@ -100,7 +99,7 @@ class ReaderData(
     }
 
     /**
-     * 살필 차례인 만화 압축(zip · cbz)을 연다: 압축 끝의 목록만 읽고(통째로 복사하지 않는다 — 1GB 압축에서 느리고 공간을
+     * 살필 차례인 만화 압축(zip · cbz · cbt · cbr · cb7)을 연다: 압축의 목록만 읽고(통째로 복사하지 않는다 — 1GB 압축에서 느리고 공간을
      * 먹는다), 그림만 들었는지 · 쪽 수 · 표지 · 합본 목차 · ComicInfo 를 적는다. 하나가 깨져도 나머지는 계속한다.
      *
      * @return 살핀 수.
@@ -112,10 +111,10 @@ class ReaderData(
             var contents: ComicContents? = null
             var info: ComicInfo? = null
             try {
-                ZipReader.open(sources.seekableSource(Uri.parse(unit.id))).use { zip ->
-                    contents = ComicContents.ofArchive(zip.entries.keys.toList(), trustExtension = unit.extension != "zip")
+                ComicArchive.open(sources, Uri.parse(unit.id), scratch).use { archive ->
+                    contents = ComicContents.ofArchive(archive.names, trustExtension = unit.extension != "zip")
                     contents?.comicInfo?.let { name ->
-                        info = runCatching { zip.openStream(name)?.reader(Charsets.UTF_8)?.use { ComicInfo.parse(it) } }.getOrNull()
+                        info = runCatching { archive.entry(name)?.reader(Charsets.UTF_8)?.use { ComicInfo.parse(it) } }.getOrNull()
                     }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -139,7 +138,7 @@ class ReaderData(
         val entry = unit.contents?.cover ?: return null
         val uri = Uri.parse(unit.id)
         return when (unit.kind) {
-            ComicUnitKind.ARCHIVE -> ZipReader.open(sources.seekableSource(uri)).use { zip -> zip.openStream(entry)?.use { it.readBytes() } }
+            ComicUnitKind.ARCHIVE -> ComicArchive.open(sources, uri, scratch).use { it.entry(entry)?.use { s -> s.readBytes() } }
             ComicUnitKind.IMAGE_FOLDER -> folderFiles(uri)[entry]?.let { doc -> resolver.openInputStream(doc)?.use { it.readBytes() } }
         }
     }
@@ -152,14 +151,26 @@ class ReaderData(
         val uri = Uri.parse(unit.id)
         return when (unit.kind) {
             ComicUnitKind.ARCHIVE -> {
-                val zip = ZipReader.open(sources.seekableSource(uri))
+                val archive = ComicArchive.open(sources, uri, scratch)
                 try {
                     // 이름이 만화라고 말하지 않아도(zip) 여기까지 왔으면 서재가 만화로 본 것이다 — 그림 하나라도 있으면 연다.
-                    val contents = ComicContents.ofArchive(zip.entries.keys.toList(), trustExtension = true)
+                    val contents = ComicContents.ofArchive(archive.names, trustExtension = true)
                         ?: throw java.io.IOException("no pictures in ${unit.name}")
-                    ComicPages(contents.pages, { name -> zip.openStream(name) }, zip)
+                    if (archive is ComicArchive.Native) {
+                        // RAR · 7z: 한 번에 다 풀어 두고 쪽은 풀린 파일에서 읽는다(쪽마다 풀면 통짜 RAR 은 n²).
+                        val dir = unpackedDir(unit)
+                        if (!File(dir, DONE).isFile) {
+                            dir.deleteRecursively()
+                            archive.unpackAll(dir)
+                            File(dir, DONE).writeText(unit.sizeBytes.toString())
+                        }
+                        archive.close()
+                        ComicPages(contents.pages, { name -> File(dir, name).takeIf { it.isFile }?.inputStream() }, null)
+                    } else {
+                        ComicPages(contents.pages, { name -> archive.entry(name) }, archive)
+                    }
                 } catch (e: Throwable) {
-                    zip.close()
+                    archive.close()
                     throw e
                 }
             }
@@ -170,6 +181,23 @@ class ReaderData(
                 ComicPages(pages, { name -> files[name]?.let { doc -> resolver.openInputStream(doc) } }, null)
             }
         }
+    }
+
+    /** RAR · 7z 를 풀어 둘 곳과 살피기 · 표지용 임시 자리. 캐시 영역 — 시스템이 공간이 모자라면 지워도 다시 풀면 된다. */
+    private val scratch = File(context.cacheDir, "comic-scratch").apply { deleteRecursively() }
+    private val unpacked = File(context.cacheDir, "comic-unpacked")
+
+    /**
+     * 이 권을 풀어 둘 폴더. 같은 권(파일 · 크기)이면 다시 열 때 다시 풀지 않는다. 최근 [KEEP_UNPACKED] 권만 남긴다 — 다 두면
+     * 만화 몇십 권에 캐시가 기가바이트로 쌓인다.
+     */
+    private fun unpackedDir(unit: ComicUnit): File {
+        val key = java.security.MessageDigest.getInstance("SHA-1").digest("${unit.id}|${unit.sizeBytes}".toByteArray())
+            .joinToString("") { "%02x".format(it) }.take(20)
+        val dir = File(unpacked, key)
+        dir.setLastModified(System.currentTimeMillis())
+        unpacked.listFiles()?.filter { it != dir }?.sortedByDescending { it.lastModified() }?.drop(KEEP_UNPACKED - 1)?.forEach { it.deleteRecursively() }
+        return dir
     }
 
     /** 그림 폴더 바로 안의 파일: 이름 → 문서 URI. */
@@ -195,4 +223,11 @@ class ReaderData(
 
     /** 폴더마다 뺀 횟수. 훑는 사이 이 값이 바뀌었으면 그 훑기의 결과는 버린다. */
     private val removals = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
+    private companion object {
+        /** 풀어 둔 RAR · 7z 권을 몇 권까지 남길지. 지금 권과 바로 앞 권(다음 권으로 넘어갔다 돌아올 때). */
+        const val KEEP_UNPACKED = 2
+        /** 다 풀었다는 표시 파일. 풀다가 앱이 닫히면 없으니, 다음에 다시 푼다. */
+        const val DONE = ".olo-unpacked"
+    }
 }

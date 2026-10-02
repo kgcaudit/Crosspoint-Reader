@@ -29,6 +29,7 @@ val plannedAndroidModules = listOf(
     "text-platform",
     "data",
     "listen",
+    "archive",
     "reader-reflow",
     "reader-pdf",
     "ui-design",
