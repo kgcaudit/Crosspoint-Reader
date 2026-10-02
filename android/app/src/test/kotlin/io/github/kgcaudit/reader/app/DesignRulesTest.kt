@@ -10,6 +10,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsNode
@@ -25,6 +26,7 @@ import io.github.kgcaudit.reader.ui.design.CpAutoTurnPill
 import io.github.kgcaudit.reader.ui.design.CpBottomSheet
 import io.github.kgcaudit.reader.ui.design.CpButton
 import io.github.kgcaudit.reader.ui.design.CpChoice
+import io.github.kgcaudit.reader.ui.design.CpIcon
 import io.github.kgcaudit.reader.ui.design.CpIconToggle
 import io.github.kgcaudit.reader.ui.design.CpIcons
 import io.github.kgcaudit.reader.ui.design.CpPopup
@@ -34,6 +36,7 @@ import io.github.kgcaudit.reader.ui.design.CpTextButton
 import io.github.kgcaudit.reader.ui.design.CpTheme
 import io.github.kgcaudit.reader.ui.design.CpThemeSwatches
 import io.github.kgcaudit.reader.ui.design.PaperTheme
+import io.github.kgcaudit.reader.ui.design.R as UiR
 import io.github.kgcaudit.reader.listen.ListenPlayer
 import io.github.kgcaudit.reader.listen.ListenState
 import org.junit.Rule
@@ -270,4 +273,47 @@ class DesignRulesTest {
     @Test
     fun `the listening controller is a 14dp card like the other floating bars`() =
         assertCard14("듣기 조종판") { ListenPlayer(ListenState(active = true), {}, {}, {}, {}, {}, it) }
+
+    // ---------- 계열 메뉴 그림(0.32.3) ----------
+
+    @Test
+    fun `search, refresh, grid and list wear the family menu glyphs in the row's text colour`() {
+        // 앱의 네 아이콘이 OLO-Design 메뉴 그림 파일과 화소까지 같게 그려지는지 — 옛 앱 그림으로 되돌아가면 걸린다. 어두운
+        // 화면에서 보는 까닭: 그림 파일의 선은 어두운 갈색(#574D45)이라 칠하지 않으면 어두운 바탕에 묻힌다.
+        val pairs = listOf(
+            "찾기" to UiR.drawable.ic_menu_search, "새로고침" to UiR.drawable.ic_menu_refresh,
+            "격자" to UiR.drawable.ic_menu_view_grid, "목록" to UiR.drawable.ic_menu_view_list,
+        )
+        var text = androidx.compose.ui.graphics.Color.Unspecified
+        compose.setContent {
+            CpTheme(dark = true) {
+                text = CpTheme.colors.text
+                Column(Modifier.fillMaxSize().background(CpTheme.colors.background).padding(20.dp)) {
+                    val icons = listOf(CpIcons.Search, CpIcons.Refresh, CpIcons.Grid, CpIcons.Rows)
+                    pairs.forEachIndexed { i, (name, id) ->
+                        androidx.compose.foundation.layout.Row {
+                            CpIcon(icons[i], text, Modifier.testTag("app-$name"))
+                            CpIcon(androidx.compose.ui.graphics.vector.ImageVector.vectorResource(id), text, Modifier.padding(start = 20.dp).testTag("family-$name"))
+                        }
+                    }
+                }
+            }
+        }
+        compose.waitForIdle()
+        val view = compose.activity.window.decorView
+        val shot = android.graphics.Bitmap.createBitmap(view.width, view.height, android.graphics.Bitmap.Config.ARGB_8888)
+        compose.runOnUiThread { view.draw(android.graphics.Canvas(shot)) }
+        fun crop(tag: String): IntArray {
+            val b = node(hasTestTag(tag)).boundsInRoot
+            val w = b.width.toInt()
+            val h = b.height.toInt()
+            return IntArray(w * h).also { shot.getPixels(it, 0, w, b.left.toInt(), b.top.toInt(), w, h) }
+        }
+        for ((name, _) in pairs) {
+            val app = crop("app-$name")
+            assertTrue(app.contentEquals(crop("family-$name")), "$name 아이콘이 계열 메뉴 그림과 다르다")
+            val ink = app.count { kotlin.math.abs(android.graphics.Color.red(it) - (text.red * 255).toInt()) < 12 && android.graphics.Color.green(it) > 200 }
+            assertTrue(ink > 10, "$name 아이콘이 글자색으로 칠해지지 않았다")
+        }
+    }
 }

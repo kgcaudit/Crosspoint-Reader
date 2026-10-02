@@ -1,11 +1,13 @@
 package io.github.kgcaudit.reader.ui.design
 
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
+import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.unit.dp
 
 /**
@@ -18,7 +20,8 @@ object CpIcons {
     val Back = line("M15 5 L8 12 L15 19")
     val Forward = line("M9 5 L16 12 L9 19")
     val Plus = line("M12 5 V19 M5 12 H19")
-    val Refresh = line("M19 12 A7 7 0 1 1 16.5 6.6 M19 4 V8 H15")
+    /** 새로고침. 계열 메뉴 그림. */
+    val Refresh: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_menu_refresh)
     val Folder = line("M3.5 7.5 V18 A1.5 1.5 0 0 0 5 19.5 H19 A1.5 1.5 0 0 0 20.5 18 V9.5 A1.5 1.5 0 0 0 19 8 H11.5 L9.5 5.5 H5 A1.5 1.5 0 0 0 3.5 7 Z")
     val Book = line("M4 5.5 C6.5 4.5 9.5 4.5 12 6 C14.5 4.5 17.5 4.5 20 5.5 V18.5 C17.5 17.5 14.5 17.5 12 19 C9.5 17.5 6.5 17.5 4 18.5 Z M12 6 V19")
     val Text = line("M6 3.5 H14.5 L18.5 7.5 V20.5 H6 Z M14.5 3.5 V7.5 H18.5 M9 11 H15.5 M9 14 H15.5 M9 17 H13")
@@ -30,8 +33,12 @@ object CpIcons {
     val Close = line("M6 6 L18 18 M18 6 L6 18")
     /** 화면 회전: 비스듬히 누운 휴대폰과 둥근 화살표. */
     val Rotate = line("M5 8 H12.5 A1 1 0 0 1 13.5 9 V20 A1 1 0 0 1 12.5 21 H5 A1 1 0 0 1 4 20 V9 A1 1 0 0 1 5 8 Z M14 3.5 A6.5 6.5 0 0 1 20.5 10 M20.5 10 L22.5 8 M20.5 10 L18.5 8")
-    /** 본문에서 찾기(돋보기). */
-    val Search = line("M10.5 4 A6.5 6.5 0 1 0 10.5 17 A6.5 6.5 0 1 0 10.5 4 Z M15.5 15.5 L20 20")
+    // 찾기 · 새로고침 · 격자 · 목록은 계열(OLO-Design `icons/menu_symbols.py`) 메뉴 그림이다(0.32.3, 사용자 결정: 가안).
+    // OLO 앱마다 이 넷이 같은 모양이어야 한 식구로 읽힌다. 그림 파일(res/drawable/ic_menu_*)은 생성물을 그대로 넣고
+    // 손으로 고치지 않는다 — 계열이 바꾸면 다시 만들어 넣는다. 단색 선이라 [CpIcon] 이 줄 글자색으로 칠한다. 리소스에서
+    // 읽으므로 이것들만 @Composable 이다. 정렬 그림은 쓰지 않는다 — 순서 판은 라디오 동그라미가 이미 고른 것을 보여 준다.
+    /** 찾기(돋보기). */
+    val Search: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_menu_search)
     /** 밝기(해). */
     val Sun = line("M12 8 A4 4 0 1 0 12 16 A4 4 0 1 0 12 8 Z M12 2.5 V5 M12 19 V21.5 M2.5 12 H5 M19 12 H21.5 M5.3 5.3 L7 7 M17 17 L18.7 18.7 M5.3 18.7 L7 17 M17 7 L18.7 5.3")
     /** 독서노트: 줄 쳐진 쪽지 + 접힌 귀(칠한 글 · 메모 · 책갈피를 모은 곳). */
@@ -57,10 +64,11 @@ object CpIcons {
     /** 펼치기(▾). */
     val ChevronDown = line("M7 10 L12 15 L17 10")
 
-    /** 격자로 보기(네 칸). */
-    val Grid = line("M4.5 4.5 H10.5 V10.5 H4.5 Z M13.5 4.5 H19.5 V10.5 H13.5 Z M4.5 13.5 H10.5 V19.5 H4.5 Z M13.5 13.5 H19.5 V19.5 H13.5 Z")
-    /** 목록으로 보기(작은 표지 + 글 두 줄씩). */
-    val Rows = line("M4.5 5 H8.5 V9.5 H4.5 Z M11.5 6 H19.5 M11.5 8.5 H16.5 M4.5 14.5 H8.5 V19 H4.5 Z M11.5 15.5 H19.5 M11.5 18 H16.5")
+    /** 격자로 보기. 계열 메뉴 그림. */
+    val Grid: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_menu_view_grid)
+    /** 목록으로 보기. 계열 메뉴 그림. */
+    val Rows: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_menu_view_list)
+
 
     private fun line(d: String): ImageVector = ImageVector.Builder(
         defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f,
