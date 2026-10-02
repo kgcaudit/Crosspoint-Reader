@@ -109,5 +109,9 @@ fun CpCover(
 @Composable
 fun cpBookGlyph(): Painter = painterResource(R.drawable.ic_tile_book)
 
+/** 만화 대신 표지의 그림: 칸 줄이 그어진 펼친 책(OLO-Design `ic_tile_comic`). 책 그림과 칸 줄로 갈린다. */
+@Composable
+fun cpComicGlyph(): Painter = painterResource(R.drawable.ic_tile_comic)
+
 /** 대신 표지 글자 밑 띠. 60% 검정 — 가장 밝은 타일(다크의 틸)에서도 흰 글자 대비가 7 을 넘는다. */
 internal val COVER_BAND = Color(0x99000000)

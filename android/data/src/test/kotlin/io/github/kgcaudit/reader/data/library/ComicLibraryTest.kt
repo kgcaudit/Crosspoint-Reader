@@ -132,4 +132,12 @@ class ComicLibraryTest {
         comics.applyScan(phone, ScanResult(emptyList(), true, listOf(a, b)), 2)
         assertEquals(1, works().size, "다시 등록한 폴더에서 합친 것이 풀렸다")
     }
+
+    @Test
+    fun `a merged work keeps the name of the work it was merged into`() = runTest {
+        // 이름마다 한 권씩 — 가장 많이 나온 이름으로 정하면 동률이라 자연 순서로 "One Piece" 가 이겼다.
+        comics.applyScan(phone, ScanResult(emptyList(), true, listOf(cbz("One Piece 01.cbz", "C"), cbz("원피스 02권.cbz", "C"))), 1)
+        comics.merge(works().single { it.title == "One Piece" }, works().single { it.title == "원피스" })
+        assertEquals(listOf("원피스"), titles())
+    }
 }

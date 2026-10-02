@@ -97,7 +97,7 @@ class ContrastTest {
         // 타일 색은 흰 그림용이라 흰 글자는 다크의 (옛) 책 타일에서 3.0, 문서 타일에서 4.4 였다. 글자 밑 어두운 띠(60% 검정) 위에서 본다.
         val band = COVER_BAND
         for ((name, c) in themes) {
-            for ((kind, fill) in listOf("폴더" to c.tiles.folder, "문서" to c.tiles.document, "기타" to c.tiles.other)) {
+            for ((kind, fill) in listOf("폴더" to c.tiles.folder, "문서" to c.tiles.document, "보관(만화)" to c.tiles.archive, "기타" to c.tiles.other)) {
                 assertAtLeast(7.0, Color.White, band.compositeOver(fill), "$name: $kind 대신 표지 글자")
             }
         }
@@ -109,7 +109,7 @@ class ContrastTest {
         // 타일의 흰 글리프는 글자가 아니라 그림이라 3:1 이 기준이다(WCAG 1.4.11).
         for ((name, c) in themes) {
             val t = c.tiles
-            for ((kind, fill) in listOf("폴더" to t.folder, "문서" to t.document, "기타" to t.other)) {
+            for ((kind, fill) in listOf("폴더" to t.folder, "문서" to t.document, "보관(만화)" to t.archive, "기타" to t.other)) {
                 assertAtLeast(3.0, Color.White, fill, "$name: $kind 타일")
             }
         }
@@ -133,6 +133,9 @@ class ContrastTest {
         assertEquals(Color(0xFFF7F4EF), LightColors.background)
         assertEquals(Color(0xFF181613), DarkColors.background)
         assertEquals(Color(0xFF55606B), LightColors.tiles.document)
+        // 만화 칸은 계열 FILEKIND 의 COMIC — 보관 황토(tokens/color.md archive). 다른 OLO 앱에서 cbz 가 이 색이다.
+        assertEquals(Color(0xFF8A6A3B), LightColors.tiles.archive)
+        assertEquals(Color(0xFFB08A54), DarkColors.tiles.archive)
         assertEquals(Color(0xFFA50E2E), LightColors.error)
     }
 

@@ -132,4 +132,15 @@ class ComicShelfTest {
         val units = listOf(archive("1", "원피스 01.cbz", "C"), archive("2", "원피스 필름 01.cbz", "C"))
         assertEquals(2, ComicShelf.group(units).size)
     }
+
+    @Test
+    fun `a folder's volumes are summed up as runs`() {
+        val units = listOf("1권", "2권", "3권", "5권", "4–6권", "7.5권", "외전", "9권")
+            .mapIndexed { i, n -> archive("$i", "작품 $n.cbz", "C") }
+        val work = ComicShelf.group(units).single()
+        // 4–6권 합본은 1–3권과 이어지지만 5권 낱권과 겹친다 — 순서대로 잇되 겹치는 것은 따로 둔다.
+        assertEquals("1–6권 · 5권 · 7.5권 · 9권 · 외전", ComicShelf.summary(work.entries))
+        val chapters = ComicShelf.group((1..48).map { imageFolder("w$it", "%03d화".format(it), "Webtoon", "전학생") }).single()
+        assertEquals("1–48화", ComicShelf.summary(chapters.entries))
+    }
 }

@@ -7,6 +7,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import io.github.kgcaudit.reader.data.library.LibraryBook
 import io.github.kgcaudit.reader.document.BookId
+import io.github.kgcaudit.reader.document.comic.ComicUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -33,6 +34,8 @@ class Cover(val image: ImageBitmap?, val custom: Boolean, val hasOwn: Boolean)
  */
 class CoverStore(
     private val dir: File,
+    /** 만화 단위(압축 · 그림 폴더)에서 표지를 꺼낸다. 규칙은 [extract] 와 같다. 책 꺼내기를 끝에 두어 뒤따르는 람다로 받는다. */
+    private val extractComic: suspend (ComicUnit) -> Bitmap? = { null },
     /** 책에서 표지를 꺼낸다. 표지가 없으면 null, 파일을 못 읽으면 예외. */
     private val extract: suspend (LibraryBook) -> Bitmap?,
 ) {
@@ -54,7 +57,7 @@ class CoverStore(
             memory.get(key)?.let { return@withLock it }
             val version = _version.value
             val custom = File(dir, "custom/${key(book.id)}.jpg").takeIf { it.isFile }?.let(::decodeFile)
-            val own = ownCover(book)
+            val own = ownCover(book.id.value, book.sizeBytes, book.displayName) { extract(book) }
             val cover = Cover(custom ?: own.image, custom = custom != null, hasOwn = own.image != null)
             // 꺼내는 사이에 표지를 고르거나 되돌렸으면 담지 않는다 — 고르기 전에 읽은 옛 표지가 메모리에 남아, 바꿨다는
             // 알림이 뜬 뒤에도 책장에 옛 표지가 보였다. 못 읽은 책도 담지 않는다 — 저장소가 돌아오면 다시 찾아야 한다.
@@ -64,6 +67,22 @@ class CoverStore(
                 if (version != _version.value) memory.remove(key)
             }
             cover
+        }
+    }
+
+    /** 만화 단위의 표지(메모리에 있을 때만). 만화는 사람이 고른 표지가 없다 — 그림이 곧 표지다. */
+    fun cachedComic(unit: ComicUnit): ImageBitmap? = memory.get(comicKey(unit))?.image
+
+    /** 만화 단위의 표지. 없거나 못 읽으면 null(대신 표지). 책 표지와 같은 줄에 서서 한 번에 하나씩 꺼낸다. */
+    suspend fun comic(unit: ComicUnit): ImageBitmap? = withContext(Dispatchers.IO) {
+        val key = comicKey(unit)
+        memory.get(key)?.let { return@withContext it.image }
+        extracting.withLock {
+            memory.get(key)?.let { return@withLock it.image }
+            // 표지 항목을 열쇠에 넣는다 — 살피기 전(표지 모름)에 "없음" 으로 굳힌 표시가 살핀 뒤에도 남지 않게.
+            val own = ownCover("comic|${unit.id}|${unit.contents?.cover}", unit.sizeBytes, unit.name) { extractComic(unit) }
+            if (own.settled) memory.put(key, Cover(own.image, custom = false, hasOwn = own.image != null))
+            own.image
         }
     }
 
@@ -93,21 +112,21 @@ class CoverStore(
     /** 책에서 꺼낸 표지. [settled] 가 false 면 책을 못 읽어 모르는 것이다 — 담아 두지 않고 다음에 다시 찾는다. */
     private class Own(val image: ImageBitmap?, val settled: Boolean)
 
-    private suspend fun ownCover(book: LibraryBook): Own {
+    private suspend fun ownCover(id: String, sizeBytes: Long?, name: String, extract: suspend () -> Bitmap?): Own {
         // 파일 크기를 열쇠에 넣는다 — 같은 이름으로 개정판을 덮어쓰면 옛 판의 표지가 계속 보였다.
-        val key = key(book.id, book.sizeBytes)
+        val key = key(id, sizeBytes)
         val file = File(dir, "auto/$key.jpg")
         if (file.isFile) return Own(decodeFile(file), settled = true)
         val none = File(dir, "auto/$key.none")
         if (none.exists()) return Own(null, settled = true)
         val bitmap = try {
-            extract(book)
+            extract()
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Throwable) {
             // 오류(Error)까지 받는다: 큰 표지 그림이 메모리를 넘기거나(OutOfMemoryError) 엔진이 깨진 PDF 에서 무너져도,
             // 표지 하나 때문에 책장이 닫히면 안 된다 — 대신 표지를 보이면 된다.
-            android.util.Log.w("OloCovers", "cover of ${book.displayName} unreadable", e)
+            android.util.Log.w("OloCovers", "cover of $name unreadable", e)
             return Own(null, settled = false)
         }
         if (bitmap == null) {
@@ -144,12 +163,16 @@ class CoverStore(
         private const val MEMORY_COVERS = 64
 
         /** 고른 표지는 책마다 하나(파일을 바꿔도 사람이 고른 것은 남는다), 책의 표지는 파일 크기마다 하나. */
-        private fun key(id: BookId, sizeBytes: Long? = null): String =
+        private fun key(id: BookId): String = key(id.value, null)
+
+        private fun key(id: String, sizeBytes: Long?): String =
             java.security.MessageDigest.getInstance("SHA-1")
-                .digest((if (sizeBytes == null) id.value else "${id.value}|$sizeBytes").toByteArray())
+                .digest((if (sizeBytes == null) id else "$id|$sizeBytes").toByteArray())
                 .joinToString("") { "%02x".format(it) }.take(20)
 
         private fun memoryKey(book: LibraryBook) = "${book.id.value}|${book.sizeBytes}"
+
+        private fun comicKey(unit: ComicUnit) = "comic|${unit.id}|${unit.sizeBytes}|${unit.contents?.cover}"
 
         /**
          * 그림 바이트를 표지 크기로 읽는다. 먼저 크기만 재고 알맞게 솎아 읽는다 — 폰 사진(4000×3000)을 통째로 풀면

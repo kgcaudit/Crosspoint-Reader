@@ -258,7 +258,9 @@ class ComicLibrary(private val db: ReaderDatabase) {
             notComic = contents == null && !trusted,
             pages = contents?.pages?.size,
             cover = contents?.cover,
-            sections = contents?.sections?.takeIf { it.isNotEmpty() }?.joinToString(ComicUnitEntity.FOLDER_SEPARATOR) { it.name },
+            // 이름과 쪽 수를 함께 적는다 — 작품 화면이 합본 안의 권마다 "181–360쪽" 처럼 범위를 보인다.
+            sections = contents?.sections?.takeIf { it.isNotEmpty() }
+                ?.joinToString(ComicUnitEntity.FOLDER_SEPARATOR) { it.name + ComicUnitEntity.COUNT_SEPARATOR + it.pageCount },
             series = info?.series,
             number = info?.number,
             format = info?.format,
@@ -268,11 +270,15 @@ class ComicLibrary(private val db: ReaderDatabase) {
 
     // ── 손 고침 ─────────────────────────────────────────────
 
-    /** 작품 [from] 의 모든 단위를 작품 [into] 로 합친다. 합친 쪽의 이름 고침은 남는다. */
+    /**
+     * 작품 [from] 의 모든 단위를 작품 [into] 로 합친다. 합친 작품은 [into] 의 이름으로 보인다 — 이름을 적어 두지 않으면
+     * 가장 많이 나온 이름이 이기는데, "One Piece" 1권과 "원피스" 1권처럼 동률이면 자연 순서로 엉뚱한 쪽 이름이 됐다.
+     */
     suspend fun merge(from: Work, into: Work) = db.withTransaction {
         for (entry in from.entries) for (unit in listOf(entry.unit) + entry.copies) {
             comics.setOverride(ComicOverrideEntity(WORK_OF, unit.id, into.key))
         }
+        comics.setOverride(ComicOverrideEntity(TITLE, into.key, into.title))
     }
 
     /** 단위 하나(와 그 같은 권 사본들)를 작품에서 빼 따로 둔다. 빼낸 것은 제 이름으로 새 작품이 된다. */
@@ -298,7 +304,7 @@ class ComicLibrary(private val db: ReaderDatabase) {
     )
 
     private fun toUnit(row: ComicUnitEntity): ComicUnit {
-        val sections = row.sections?.split(ComicUnitEntity.FOLDER_SEPARATOR).orEmpty()
+        val sections = parseSections(row.sections)
         val info = ComicInfo(series = row.infoSeries, number = row.infoNumber, format = row.infoFormat, rightToLeft = row.infoRightToLeft)
             .takeIf { it != ComicInfo() }
         return ComicUnit(
@@ -310,9 +316,20 @@ class ComicLibrary(private val db: ReaderDatabase) {
             info = info,
             // 서재는 쪽 이름이 아니라 합본 목차 · 쪽 수만 쓴다. 쪽 이름은 뷰어가 열 때 다시 읽는다.
             contents = if (sections.size >= 2 || row.pageCount != null || row.coverEntry != null) {
-                ComicContents(emptyList(), sections.mapIndexed { i, n -> ComicContents.Section(n, i, 0) }.takeIf { it.size >= 2 }.orEmpty(), null, row.coverEntry)
+                ComicContents(emptyList(), sections.takeIf { it.size >= 2 }.orEmpty(), null, row.coverEntry)
             } else null,
+            pageCount = row.pageCount,
         )
+    }
+
+    /** "4권␞180␟5권␞180" → 목차. 쪽 수가 빠지거나 깨진 칸은 0 쪽으로 읽는다 — 목차 이름은 그래도 보인다(규칙 6). */
+    private fun parseSections(raw: String?): List<ComicContents.Section> {
+        if (raw.isNullOrEmpty()) return emptyList()
+        var first = 0
+        return raw.split(ComicUnitEntity.FOLDER_SEPARATOR).map { part ->
+            val count = part.substringAfterLast(ComicUnitEntity.COUNT_SEPARATOR, "").toIntOrNull()?.coerceAtLeast(0) ?: 0
+            ComicContents.Section(part.substringBeforeLast(ComicUnitEntity.COUNT_SEPARATOR), first, count).also { first += count }
+        }
     }
 
     companion object {

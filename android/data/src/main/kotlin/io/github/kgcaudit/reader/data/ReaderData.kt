@@ -16,6 +16,8 @@ import io.github.kgcaudit.reader.document.BookmarkRepository
 import io.github.kgcaudit.reader.document.ProgressRepository
 import io.github.kgcaudit.reader.document.comic.ComicContents
 import io.github.kgcaudit.reader.document.comic.ComicInfo
+import io.github.kgcaudit.reader.document.comic.ComicUnit
+import io.github.kgcaudit.reader.document.comic.ComicUnitKind
 import io.github.kgcaudit.reader.document.zip.ZipReader
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -124,6 +126,31 @@ class ReaderData(
             comics.saveProbe(unit, contents, info)
         }
         todo.size
+    }
+
+    /**
+     * 만화 단위의 표지 그림 바이트. 표지 항목을 아직 모르면(살피기 전 zip) null, 파일을 못 읽으면 예외 — 부르는 쪽(표지
+     * 보관소)이 "없음" 과 "못 읽음" 을 갈라, 저장소가 빠진 동안 "표지 없음" 으로 굳히지 않게 한다.
+     *
+     * 압축은 목록(중앙 디렉터리)과 표지 항목 하나만 읽는다. 그림 폴더는 그 안에서 이름이 같은 파일을 찾는다.
+     */
+    fun comicCover(unit: ComicUnit): ByteArray? {
+        val entry = unit.contents?.cover ?: return null
+        val uri = Uri.parse(unit.id)
+        return when (unit.kind) {
+            ComicUnitKind.ARCHIVE -> ZipReader.open(sources.seekableSource(uri)).use { zip -> zip.openStream(entry)?.use { it.readBytes() } }
+            ComicUnitKind.IMAGE_FOLDER -> {
+                val children = android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(uri, android.provider.DocumentsContract.getDocumentId(uri))
+                val projection = arrayOf(android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID, android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                // Bundle 판 query — 5인자 판은 일부 경로(래퍼 · Robolectric)에서 제공자가 받지 않는다(SafDocumentTree 와 같은 까닭).
+                val id = resolver.query(children, projection, null as android.os.Bundle?, null)?.use { c ->
+                    var found: String? = null
+                    while (found == null && c.moveToNext()) if (c.getString(1) == entry) found = c.getString(0)
+                    found
+                } ?: return null
+                resolver.openInputStream(android.provider.DocumentsContract.buildDocumentUriUsingTree(uri, id))?.use { it.readBytes() }
+            }
+        }
     }
 
     /** 폴더 빼기와 훑은 결과 넣기를 차례로 세운다. */

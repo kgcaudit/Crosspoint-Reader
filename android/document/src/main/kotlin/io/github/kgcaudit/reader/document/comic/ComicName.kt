@@ -45,12 +45,18 @@ data class ComicName(
 
         private const val NUM = """(\d+(?:\.\d+)?)"""
 
+        /**
+         * 범위의 이음표. 붙임표(-) · 물결(~ ∼)에 더해 줄표(– —)도 받는다 — 맥 · 워드에서 붙인 이름은 "4–6권" 처럼 줄표가
+         * 들어가는데, 이것을 놓치면 "작품 4–" 와 "6권" 으로 갈려 합본이 엉뚱한 작품이 됐다.
+         */
+        private const val DASH = """[-~∼–—]"""
+
         // 먼저 맞는 것을 쓴다. 범위가 낱권보다 앞이다 — "4-6권" 을 6권으로 읽으면 합본이 6권 자리를 빼앗는다.
         private val VOLUME_RANGE = listOf(
-            Regex("""$NUM\s*[-~∼]\s*$NUM\s*권"""),
-            Regex("""(?i)(?<![a-z])(?:v|vol\.?|volume)\s*$NUM\s*[-~]\s*$NUM(?!\d)"""),
+            Regex("""$NUM\s*$DASH\s*$NUM\s*권"""),
+            Regex("""(?i)(?<![a-z])(?:v|vol\.?|volume)\s*$NUM\s*$DASH\s*$NUM(?!\d)"""),
         )
-        private val CHAPTER_RANGE = Regex("""$NUM\s*[-~∼]\s*$NUM\s*(?:화|회|話)""")
+        private val CHAPTER_RANGE = Regex("""$NUM\s*$DASH\s*$NUM\s*(?:화|회|話)""")
         private val VOLUME = listOf(
             Regex("""제?\s*$NUM\s*권"""),
             Regex("""(?i)(?<![a-z])(?:v|vol\.?|volume)\s*$NUM(?!\d)"""),
@@ -71,7 +77,7 @@ data class ComicName(
             Regex("""(?i)(?<![a-z])(?:sp|special|extra|omake)(?![a-z])\s*\d*"""),
         )
         private val TRAILING = Regex("""(?<![\d.])(\d{1,4}(?:\.\d+)?)\s*$""")
-        private val EDGE = Regex("""^[\s\-_#:·~,.]+|[\s\-_#:·~,.]+$""")
+        private val EDGE = Regex("""^[\s\-–—_#:·~,.]+|[\s\-–—_#:·~,.]+$""")
 
         private val EXTENSION = Regex("""\.[A-Za-z0-9]{1,5}$""")
 

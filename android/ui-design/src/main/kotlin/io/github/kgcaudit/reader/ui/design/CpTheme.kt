@@ -75,6 +75,8 @@ data class CpColors(
 data class CpTiles(
     val folder: Color,
     val document: Color,
+    /** 보관(황토). 계열 FILEKIND 의 COMIC 이 이 색에 펼친 만화 그림([cpComicGlyph])을 얹는다. */
+    val archive: Color,
     val other: Color,
 )
 
@@ -102,6 +104,7 @@ val LightColors = CpColors(
     tiles = CpTiles(
         folder = Clay,
         document = Color(0xFF55606B),
+        archive = Color(0xFF8A6A3B),
         other = Color(0xFF7A7168),
     ),
 )
@@ -127,6 +130,7 @@ val DarkColors = CpColors(
     tiles = CpTiles(
         folder = Color(0xFFD1734F),
         document = Color(0xFF6E7A86),
+        archive = Color(0xFFB08A54),
         other = Color(0xFF938A80),
     ),
 )

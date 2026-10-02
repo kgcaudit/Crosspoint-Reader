@@ -50,7 +50,8 @@ class ComicNameTest {
 
     @Test
     fun `a range is an omnibus, not its last volume`() {
-        for (name in listOf("별을 줍는 아이 4-6권 합본.zip", "별을 줍는 아이 4~6권.zip")) {
+        // 줄표(–)는 맥 · 워드가 붙임표 대신 넣는다.
+        for (name in listOf("별을 줍는 아이 4-6권 합본.zip", "별을 줍는 아이 4~6권.zip", "별을 줍는 아이 4–6권.zip")) {
             val n = p(name)
             assertEquals(4.0, n.volume, name)
             assertEquals(6.0, n.volumeEnd, name)

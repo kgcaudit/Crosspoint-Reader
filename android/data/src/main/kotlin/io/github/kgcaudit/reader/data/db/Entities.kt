@@ -136,7 +136,7 @@ data class ComicUnitEntity(
     val pageCount: Int? = null,
     /** 표지로 쓸 항목 이름(압축 안 · 폴더 안). */
     val coverEntry: String? = null,
-    /** 합본 안 목차: 하위 폴더 이름들을 [FOLDER_SEPARATOR] 로 이은 것. 없으면 null. */
+    /** 합본 안 목차: "이름[COUNT_SEPARATOR]쪽 수" 를 [FOLDER_SEPARATOR] 로 이은 것. 없으면 null. */
     val sections: String? = null,
     val infoSeries: String? = null,
     val infoNumber: Double? = null,
@@ -146,6 +146,8 @@ data class ComicUnitEntity(
     companion object {
         /** 폴더 이름에 들어갈 수 없는 글자(단위 구분자, U+001F). */
         const val FOLDER_SEPARATOR: String = "\u001F"
+        /** [sections] 한 칸 안에서 이름과 쪽 수를 가르는 글자(U+001E). */
+        const val COUNT_SEPARATOR: String = "\u001E"
     }
 }
 

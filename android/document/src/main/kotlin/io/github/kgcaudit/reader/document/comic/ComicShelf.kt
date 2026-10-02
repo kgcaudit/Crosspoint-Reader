@@ -11,6 +11,8 @@ enum class ComicUnitKind { ARCHIVE, IMAGE_FOLDER }
  *   (예: "001화") 여기서 찾는다. 같은 작품이 어디서 모였는지 보이는 데도 쓴다.
  * @param sizeBytes null 은 "모름" — 0 바이트와 다르다.
  * @param contents 살핀 결과. 아직 살피지 않았으면 null(이름만으로 묶는다).
+ * @param pageCount 쪽 수. 서재는 쪽 이름을 들고 있지 않아([ComicContents.pages] 가 빈 채로 온다) 수만 따로 받는다.
+ *   null 은 "아직 모름"(살피기 전) — 0 쪽과 다르다.
  */
 data class ComicUnit(
     val id: String,
@@ -20,6 +22,7 @@ data class ComicUnit(
     val sizeBytes: Long? = null,
     val info: ComicInfo? = null,
     val contents: ComicContents? = null,
+    val pageCount: Int? = null,
 ) {
     /** "Comics › 별을 줍는 아이" — 사람이 읽는 자리. */
     val place: String get() = folders.joinToString(" › ")
@@ -169,7 +172,8 @@ object ComicShelf {
             entries = entries,
             webtoon = entries.isNotEmpty() && entries.all { it.name.chapter != null && it.name.volume == null },
             complete = members.any { it.name.complete },
-            places = members.map { it.unit.place }.distinct(),
+            // 자연 순서로 — 훑은 차례(제공자마다 다르다)를 따르면 작품 정리의 폴더 줄이 열 때마다 뒤바뀐다.
+            places = members.map { it.unit.place }.distinct().sortedWith(NaturalOrder),
             rightToLeft = members.firstNotNullOfOrNull { it.unit.info?.rightToLeft },
         )
     }
@@ -196,6 +200,35 @@ object ComicShelf {
             else -> n.cleaned
         }
         return (head + body).trim()
+    }
+
+    /**
+     * 줄들을 짧게 적는다: 1권 · 2권 · 3권 · 5권 · 외전 → "1–3권 · 5권 · 외전". 작품 정리의 "모은 곳" 이 폴더마다 무엇이
+     * 있는지 한 줄로 보인다 — 권을 하나씩 늘어놓으면 마흔 권짜리 작품은 폴더 줄이 화면을 넘는다.
+     * 이어진 정수 권(또는 화)만 잇는다. 부 · 반 권(12.5) · 특별편은 제 이름 그대로 둔다.
+     */
+    fun summary(entries: List<WorkEntry>): String {
+        class Run(val unit: String, val start: Long, var end: Long)
+        val parts = ArrayList<Any>()
+        for (e in entries) {
+            val n = e.name
+            fun whole(v: Double?) = v?.takeIf { it == Math.floor(it) && it >= 0 }?.toLong()
+            val run = when {
+                n.part != null || n.special -> null
+                n.volume != null && n.chapter == null -> whole(n.volume)?.let { s -> whole(n.volumeEnd ?: n.volume)?.let { Run("권", s, it) } }
+                n.volume == null && n.chapter != null -> whole(n.chapter)?.let { s -> whole(n.chapterEnd ?: n.chapter)?.let { Run("화", s, it) } }
+                else -> null
+            }
+            val last = parts.lastOrNull() as? Run
+            when {
+                run == null -> parts += e.label
+                last != null && last.unit == run.unit && run.start == last.end + 1 -> last.end = run.end
+                else -> parts += run
+            }
+        }
+        return parts.joinToString(" · ") { p ->
+            if (p is Run) (if (p.start == p.end) "${p.start}" else "${p.start}–${p.end}") + p.unit else p.toString()
+        }
     }
 
     private fun sectionLabel(raw: String): String {

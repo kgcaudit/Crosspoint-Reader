@@ -55,6 +55,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import io.github.kgcaudit.reader.ui.design.CpRadioRow
+import io.github.kgcaudit.reader.ui.design.CpTabBar
 import io.github.kgcaudit.reader.ui.design.CpIconToggle
 import io.github.kgcaudit.reader.data.library.NoteCounts
 import io.github.kgcaudit.reader.document.BookFormat
@@ -109,6 +110,13 @@ fun LibraryScreen(
     val shelfIds = shelf.mapTo(HashSet()) { it.book.id }
     val percents by remember { data.library.percents() }.collectAsState(initial = emptyMap())
     val notes by remember { data.library.noteCounts() }.collectAsState(initial = emptyMap())
+    // 만화 작품(0.33.0). 작품이 하나도 없으면 탭을 세우지 않는다 — 만화가 없는 사람에게 빈 탭은 군더더기다.
+    val works by remember { data.comics.works() }.collectAsState(initial = emptyList())
+    var tab by androidx.compose.runtime.saveable.rememberSaveable { mutableIntStateOf(0) }
+    // 열어 둔 작품은 이름 열쇠로 기억한다. 작품은 그때그때 묶이므로, 합치기 · 빼기 뒤에도 열쇠로 다시 찾는다.
+    var openWork by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+    var arranging by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var copiesOf by remember { mutableStateOf<String?>(null) }
     val layout by container.libraryView.layout.collectAsState()
     val sort by container.libraryView.sort.collectAsState()
     var sortMenu by remember { mutableStateOf(false) }
@@ -192,6 +200,8 @@ fun LibraryScreen(
             subtitle = when {
                 folders.isEmpty() -> "책이 있는 폴더를 추가하세요"
                 list == null -> null
+                // 만화가 있으면 폴더 수는 뺀다 — 머리 단추 넷 옆에서 393dp 폭에도 "폴더 1…" 로 잘렸다. 폴더는 폴더 단추에 있다.
+                works.isNotEmpty() -> "책 ${list.size}권 · 만화 ${works.size}작품"
                 else -> "책 ${list.size}권 · 폴더 ${folders.size}개"
             },
         ) {
@@ -207,12 +217,22 @@ fun LibraryScreen(
             CpIconButton(CpIcons.Info, "앱 정보", onAbout)
         }
         if (scanning) CpProgressBar(0.35f, Modifier.padding(horizontal = CpTheme.metrics.gutter), CpBarWeight.Thin)
+        // 위 탭 [책 · 만화](2026-10-02 사용자 결정 1 가안). 찾기 · 폴더 · 새로고침은 두 탭이 함께 쓴다.
+        val comics = folders.isNotEmpty() && works.isNotEmpty()
+        if (comics) CpTabBar(listOf("책 ${list?.size ?: 0}", "만화 ${works.size}"), tab, { tab = it })
 
         if (folders.isEmpty()) {
             EmptyLibrary { pickFolder.launch(null) }
+        } else if (comics && tab == 1) {
+            val columns = shelfColumns()
+            LazyColumn(Modifier.fillMaxSize()) { comicShelf(works, columns) { openWork = it.key } }
         } else if (list != null && list.isEmpty() && !scanning) {
             Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-                CpText("등록한 폴더에 EPUB · TXT · PDF 파일이 없습니다.", CpTheme.type.subtitle, colors.textMuted, maxLines = 2)
+                CpText(
+                    if (comics) "등록한 폴더에 EPUB · TXT · PDF 파일이 없습니다. 만화는 만화 탭에 있습니다."
+                    else "등록한 폴더에 EPUB · TXT · PDF 파일이 없습니다.",
+                    CpTheme.type.subtitle, colors.textMuted, maxLines = 3,
+                )
             }
         } else {
             val columns = shelfColumns()
@@ -272,6 +292,62 @@ fun LibraryScreen(
             onMenu = { coverMenu = it },
             onBack = { searching = false },
         )
+    }
+
+    // 작품 화면 · 작품 정리. 열쇠로 찾지 못하면(합쳐져 사라짐 · 폴더를 뺌) 닫는다.
+    val work = openWork?.let { key -> works.firstOrNull { it.key == key } }
+    if (openWork != null && work == null && works.isNotEmpty()) {
+        LaunchedEffect(openWork) { openWork = null; arranging = false }
+    }
+    if (work != null) {
+        androidx.activity.compose.BackHandler { openWork = null }
+        WorkScreen(
+            work,
+            onBack = { openWork = null },
+            onArrange = { arranging = true },
+            onEntry = { toast = COMIC_VIEWER_LATER },
+            onCopies = { copiesOf = it.slot },
+        )
+        if (arranging) {
+            androidx.activity.compose.BackHandler { arranging = false }
+            WorkArrange(
+                work,
+                others = works.filter { it.key != work.key },
+                onBack = { arranging = false },
+                onMerge = { into ->
+                    // 열어 둔 작품을 합친 쪽으로 옮겨 둔다 — 그대로 두면 열쇠를 잃은 화면이 닫혀 서재로 튕긴다.
+                    openWork = into.key
+                    arranging = false
+                    scope.launch {
+                        withContext(Dispatchers.IO) { data.comics.merge(work, into) }
+                        toast = "‘${work.title}’ — ‘${into.title}’ 작품에 합쳤습니다"
+                    }
+                },
+                onSplit = { entry ->
+                    scope.launch {
+                        withContext(Dispatchers.IO) { data.comics.split(entry) }
+                        toast = "‘${entry.label}’ — 따로 뺐습니다"
+                    }
+                },
+                onRename = { title ->
+                    scope.launch {
+                        withContext(Dispatchers.IO) { data.comics.rename(work, title) }
+                        toast = if (title.isBlank()) "작품 이름을 되돌렸습니다" else "작품 이름을 고쳤습니다"
+                    }
+                },
+                onCopies = { copiesOf = it.slot },
+            )
+        }
+        copiesOf?.let { slot -> work.entries.firstOrNull { it.slot == slot } }?.let { entry ->
+            CopiesPopup(
+                entry,
+                onPick = { unit ->
+                    copiesOf = null
+                    scope.launch { withContext(Dispatchers.IO) { data.comics.prefer(entry, unit.id) } }
+                },
+                onDismiss = { copiesOf = null },
+            )
+        }
     }
 
     if (manageFolders) {
@@ -398,7 +474,7 @@ private fun BookCover(book: LibraryBook, modifier: Modifier = Modifier, small: B
 
 /** 책장 줄 머리: "읽는 중 · 5권". 세 권을 넘으면 옆으로 넘길 수 있다고 알린다. */
 @Composable
-private fun ShelfLabel(text: String, more: Boolean) {
+internal fun ShelfLabel(text: String, more: Boolean) {
     val c = CpTheme.colors
     Row(
         Modifier.fillMaxWidth().padding(start = CpTheme.metrics.gutter, end = CpTheme.metrics.gutter, top = 18.dp, bottom = 6.dp),
@@ -594,7 +670,7 @@ private fun ToReadLabel(text: String, sort: LibrarySort, layout: LibraryLayout, 
 
 /** 격자 한 줄(세 칸). 칸 폭은 화면에서 나온다 — 표지는 칸 밑면에 서므로 한 줄의 표지 밑면이 맞는다. */
 @Composable
-private fun GridRow(books: List<LibraryBook>, item: @Composable (LibraryBook, androidx.compose.ui.unit.Dp) -> Unit) {
+internal fun <T> GridRow(books: List<T>, item: @Composable (T, androidx.compose.ui.unit.Dp) -> Unit) {
     val gutter = CpTheme.metrics.gutter
     val columns = shelfColumns()
     val width = (LocalShelfWidth.current - gutter * 2 - SHELF_GAP * (columns - 1)) / columns
@@ -741,7 +817,7 @@ private fun folderName(uri: Uri): String {
  * 화면에서 표지 하나가 263dp 로 화면보다 커져 제목이 화면 밖으로 밀렸다.
  */
 @Composable
-private fun shelfColumns(): Int {
+internal fun shelfColumns(): Int {
     val screen = LocalShelfWidth.current
     // 태블릿은 표지를 키운다(0.30.0, 구상안 가안). 102dp 로 펼친 폴더블을 채우면 한 줄에 예닐곱 권이 작게 늘어서
     // 제목 글자가 두세 자에서 잘리고 표지 그림이 알아볼 수 없었다.
@@ -751,7 +827,7 @@ private fun shelfColumns(): Int {
 }
 
 /** 라이브러리가 실제로 쓰는 폭(시스템 막대 · 카메라 구멍을 뺀 것). 칸 수 · 칸 폭을 여기서 셈한다. */
-private val LocalShelfWidth = androidx.compose.runtime.compositionLocalOf { 360.dp }
+internal val LocalShelfWidth = androidx.compose.runtime.compositionLocalOf { 360.dp }
 
 /** 책장 한 줄에 한 화면으로 보이는 최소 권수(세로 폰). 더 있으면 옆으로 넘긴다. */
 private const val SHELF_COLUMNS = 3

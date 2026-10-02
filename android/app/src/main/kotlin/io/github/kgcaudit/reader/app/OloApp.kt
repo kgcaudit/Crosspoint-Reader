@@ -104,7 +104,11 @@ class AppContainer(private val app: Application) {
     }
 
     /** 책장 표지. 앱 파일 영역 — 캐시 영역이면 사람이 고른 표지까지 시스템이 지운다. */
-    val covers = CoverStore(File(app.filesDir, "covers"), ::extractCover)
+    val covers = CoverStore(
+        File(app.filesDir, "covers"),
+        extractComic = { unit -> data.comicCover(unit)?.let(CoverStore::decodeScaled) },
+        extract = ::extractCover,
+    )
 
     /**
      * 본문 글꼴(휴대폰 글꼴 + 사용자 글꼴). 사용자가 넣은 폰트는 앱 파일 영역에 둔다 — 캐시
