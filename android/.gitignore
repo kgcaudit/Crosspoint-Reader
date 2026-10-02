@@ -5,6 +5,8 @@ local.properties
 .idea/
 .kotlin/
 captures/
+# NDK · CMake 가 모듈 옆에 만드는 중간 산출물(0.37.0 :archive).
+.cxx/
 
 # 릴리스 서명 키는 저장소에 넣지 않는다(공개 저장소 — 남이 같은 키로 서명해 업데이트인 척할 수 있다).
 *.jks

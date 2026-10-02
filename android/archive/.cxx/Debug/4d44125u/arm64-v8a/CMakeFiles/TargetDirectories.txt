@@ -1,4 +1,0 @@
-/home/user/Crosspoint-Reader/android/archive/.cxx/Debug/4d44125u/arm64-v8a/CMakeFiles/olorar.dir
-/home/user/Crosspoint-Reader/android/archive/.cxx/Debug/4d44125u/arm64-v8a/CMakeFiles/olo7z.dir
-/home/user/Crosspoint-Reader/android/archive/.cxx/Debug/4d44125u/arm64-v8a/CMakeFiles/edit_cache.dir
-/home/user/Crosspoint-Reader/android/archive/.cxx/Debug/4d44125u/arm64-v8a/CMakeFiles/rebuild_cache.dir

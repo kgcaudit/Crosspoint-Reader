@@ -1,1 +1,0 @@
-/home/user/Crosspoint-Reader/android/archive/build/intermediates/cxx/RelWithDebInfo/431i186c/obj/arm64-v8a

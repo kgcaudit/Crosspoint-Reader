@@ -1,1 +1,0 @@
-/home/user/Crosspoint-Reader/android/archive/src/main/cpp/CMakeLists.txt
