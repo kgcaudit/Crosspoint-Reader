@@ -91,9 +91,11 @@ fun ListenPlayer(
         }
     }
     val timer = state.timerEndsAtMs?.let { "${minutesLeft(it, now)}분" } ?: if (state.timer == ListenTimer.ChapterEnd) "장 끝" else null
+    // 떠 있는 막대들과 같은 14dp(0.32.2). 재생 단추는 동그라미 그대로 — 알약이 아니라 누르는 표적이다.
+    val shape = RoundedCornerShape(CpTheme.metrics.cornerMedium)
     Row(
-        modifier.shadow(8.dp, RoundedCornerShape(28.dp)).clip(RoundedCornerShape(28.dp)).background(c.surface)
-            .border(1.dp, c.divider, RoundedCornerShape(28.dp))
+        modifier.shadow(8.dp, shape).clip(shape).background(c.surface)
+            .border(1.dp, c.divider, shape)
             // 조종판 안의 빈 곳을 눌러도 뒤의 지면이 쪽을 넘기지 않게.
             .blockTouches()
             .padding(horizontal = 6.dp, vertical = 2.dp)

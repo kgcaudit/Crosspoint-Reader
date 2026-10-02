@@ -164,9 +164,11 @@ fun CpSearchResultBar(
     modifier: Modifier = Modifier,
 ) {
     val c = CpTheme.colors
+    // 떠 있는 막대는 자동 넘김 알림과 같은 14dp(0.32.2). 24dp 는 이 높이에서 알약이었다.
+    val shape = RoundedCornerShape(CpTheme.metrics.cornerMedium)
     Row(
-        modifier.shadow(8.dp, RoundedCornerShape(24.dp)).clip(RoundedCornerShape(24.dp)).background(c.surface)
-            .border(1.dp, c.divider, RoundedCornerShape(24.dp)).padding(horizontal = 6.dp),
+        modifier.shadow(8.dp, shape).clip(shape).background(c.surface)
+            .border(1.dp, c.divider, shape).padding(horizontal = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         CpIconButton(CpIcons.Back, "앞 결과", onPrevious, tint = if (index > 0) c.text else c.outline)

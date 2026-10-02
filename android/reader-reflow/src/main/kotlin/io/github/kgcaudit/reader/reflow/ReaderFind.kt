@@ -178,10 +178,12 @@ internal fun NoteSheet(title: String, text: String, onGoTo: () -> Unit, onClose:
 @Composable
 internal fun ReturnChip(onClick: () -> Unit, modifier: Modifier = Modifier) {
     val c = CpTheme.colors
+    // 찾기 결과 막대와 같은 14dp(0.32.2) — 24dp 는 48dp 높이에서 알약이었다.
+    val shape = RoundedCornerShape(CpTheme.metrics.cornerMedium)
     Row(
         // 누르는 곳 48dp(0.29.0 — 44dp 였다).
-        modifier.heightIn(min = CpTheme.metrics.touchTarget).shadow(8.dp, RoundedCornerShape(24.dp)).clip(RoundedCornerShape(24.dp)).background(c.surface)
-            .border(1.dp, c.divider, RoundedCornerShape(24.dp)).clickable(onClick = onClick)
+        modifier.heightIn(min = CpTheme.metrics.touchTarget).shadow(8.dp, shape).clip(shape).background(c.surface)
+            .border(1.dp, c.divider, shape).clickable(onClick = onClick)
             .padding(start = 8.dp, end = 18.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

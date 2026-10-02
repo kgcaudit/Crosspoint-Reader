@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -17,8 +18,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -37,7 +40,8 @@ const val COVER_ASPECT: Float = 1f / 1.45f
  * 보이지 않았다(씨네21 의 제호가 잘림). 밑면을 맞추면 책꽂이처럼 줄이 가지런하고 제목 · 진도 줄도 흐트러지지 않는다.
  *
  * 그림이 없으면 **대신 표지** — 종류 색(목록 타일과 같은 뜻의 색) 위에 제목과 부제를 얹어 칸을 채운다. 표지 없는 책도
- * 책장에서 제목으로 알아볼 수 있어야 한다. [small] 은 글자를 얹을 자리가 없어 종류 아이콘만 둔다.
+ * 책장에서 제목으로 알아볼 수 있어야 한다. [small] 은 글자를 얹을 자리가 없어 종류 아이콘만 둔다. [glyph] 가 있으면
+ * 선 아이콘 대신 그 그림(계열 두 톤 타일 그림)을 그대로 — 색을 입히면 두 톤이 한 색으로 뭉갠다.
  */
 @Composable
 fun CpCover(
@@ -48,6 +52,7 @@ fun CpCover(
     icon: ImageVector,
     modifier: Modifier = Modifier,
     small: Boolean = false,
+    glyph: Painter? = null,
 ) {
     val c = CpTheme.colors
     val shape = RoundedCornerShape(if (small) 4.dp else 8.dp)
@@ -76,7 +81,8 @@ fun CpCover(
             .semantics { contentDescription = "$title 대신 표지" },
     ) {
         if (small) {
-            CpIcon(icon, Color.White, Modifier.align(Alignment.Center), size = 18.dp)
+            if (glyph != null) Image(glyph, null, Modifier.align(Alignment.Center).size(22.dp))
+            else CpIcon(icon, Color.White, Modifier.align(Alignment.Center), size = 18.dp)
         } else {
             // 글자 밑에 어두운 띠를 깐다(0.29.0, 구상안 가안). 타일 색은 흰 그림을 얹으려고 고른 색이라, 그 위의 흰 글자는
             // 어두운 테마에서 3.0(부제 2.3)으로 읽기 어려웠다. 띠 위에서는 어느 타일이든 7 이상이다.
@@ -94,6 +100,14 @@ fun CpCover(
         }
     }
 }
+
+/**
+ * EBOOK(EPUB) 종류의 타일 그림 — OLO-Design `icons/static/ic_tile_book.xml` 을 그대로 넣었다(손으로 고치지 않는다).
+ * 계열은 EPUB 을 문서 회청 위의 펼친 책으로 가른다(2026-10-02 사용자 결정): 0.32.1 까지의 청록은 계열의 CODE 색이라
+ * 다른 OLO 앱에서 같은 색이 소스 코드를 뜻했다.
+ */
+@Composable
+fun cpBookGlyph(): Painter = painterResource(R.drawable.ic_tile_book)
 
 /** 대신 표지 글자 밑 띠. 60% 검정 — 가장 밝은 타일(다크의 틸)에서도 흰 글자 대비가 7 을 넘는다. */
 internal val COVER_BAND = Color(0x99000000)

@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.semantics.Role
 import io.github.kgcaudit.reader.ui.design.CpCover
+import io.github.kgcaudit.reader.ui.design.cpBookGlyph
 import io.github.kgcaudit.reader.ui.design.CpToast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -382,10 +383,8 @@ private fun BookCover(book: LibraryBook, modifier: Modifier = Modifier, small: B
         image = rememberCover(book)?.image,
         title = book.label,
         subtitle = book.author ?: book.format.name,
-        fallback = when (book.format) {
-            BookFormat.EPUB -> tiles.book
-            BookFormat.TXT, BookFormat.PDF -> tiles.document
-        },
+        // 세 종류 모두 문서 회청이다(계열 FILEKIND). EPUB 은 색이 아니라 그림(펼친 책)으로 가른다.
+        fallback = tiles.document,
         icon = when (book.format) {
             BookFormat.EPUB -> CpIcons.Book
             BookFormat.TXT -> CpIcons.Text
@@ -393,6 +392,7 @@ private fun BookCover(book: LibraryBook, modifier: Modifier = Modifier, small: B
         },
         modifier = modifier,
         small = small,
+        glyph = if (book.format == BookFormat.EPUB) cpBookGlyph() else null,
     )
 }
 
@@ -540,7 +540,8 @@ private fun HitRow(hit: BookHit, query: String, percent: Float?, onOpen: (Librar
             CpText(listOf(book.format.name, meta).filter { it.isNotEmpty() }.joinToString("  "), CpTheme.type.caption, c.textMuted)
         }
         Spacer(Modifier.width(8.dp))
-        val shape = RoundedCornerShape(50)
+        // 글자 꼬리표는 계열의 칩 모서리(6dp, 0.32.2). 알약이었다.
+        val shape = RoundedCornerShape(CpTheme.metrics.cornerChip)
         val label = if (hit.shelf == Shelf.Reading) "${hit.shelf.label} ${(percent ?: 0f).roundToInt()}%" else hit.shelf.label
         Box(Modifier.clip(shape).border(1.dp, c.outline, shape).padding(horizontal = 10.dp, vertical = 3.dp)) {
             CpText(label, CpTheme.type.caption, c.textMuted)

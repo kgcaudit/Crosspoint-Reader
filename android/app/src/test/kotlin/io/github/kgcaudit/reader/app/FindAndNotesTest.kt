@@ -179,6 +179,16 @@ class FindAndNotesTest {
         // 주석 장에서 그 각주가 칠해져 있다 — 비슷한 문단이 줄지어 있어 어느 것인지 찾지 않아도 되게.
         compose.waitUntil(5_000) { tinted(page()) }
         shot("63-footnote-place")
+        // 돌아가기 칩은 떠 있는 막대와 같은 14dp(0.32.2). 5.5dp 들어간 점은 14dp 면 안, 24dp 알약이면 바깥.
+        run {
+            val chip = compose.onAllNodes(hasText("읽던 곳으로"))[0].fetchSemanticsNode().boundsInRoot
+            val shot = page()
+            fun at(dx: Float, dy: Float) = shot.getPixel((chip.left + dx * density).toInt(), (chip.top + dy * density).toInt())
+            val inside = shot.getPixel((chip.left + 4 * density).toInt(), chip.center.y.toInt())
+            val outside = shot.getPixel((chip.left - 1.5f * density).toInt(), (chip.top + 1.5f * density).toInt())
+            assertTrue(closer(at(5.5f, 5.5f), inside, outside), "돌아가기 칩 모서리가 14dp 보다 둥글다(알약)")
+            assertTrue(closer(at(1.5f, 1.5f), outside, inside), "돌아가기 칩 모서리가 각졌다")
+        }
         node(hasText("읽던 곳으로")).performClick()
         compose.waitUntil(10_000) { !hasNode(hasText("읽던 곳으로")) }
         compose.waitUntil(10_000) { accentNear(page(), lineStart(0)) }
@@ -294,6 +304,13 @@ class FindAndNotesTest {
         return false
     }
 
+
+    /** [pixel] 이 [a] 쪽에 더 가까운가(RGB 거리). 모서리 안팎을 화면에서 직접 뜬 색과 견준다. */
+    private fun closer(pixel: Int, a: Int, b: Int): Boolean {
+        fun d(c: Int) = listOf(android.graphics.Color::red, android.graphics.Color::green, android.graphics.Color::blue)
+            .sumOf { f -> (f(pixel) - f(c)).let { it * it } }
+        return d(a) < d(b)
+    }
     private fun hasNode(matcher: SemanticsMatcher) =
         compose.onAllNodes(matcher, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
 

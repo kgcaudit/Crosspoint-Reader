@@ -67,6 +67,13 @@ class BookSearchTest {
 
     private fun has(matcher: SemanticsMatcher) = compose.onAllNodes(matcher, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
     private fun waitFor(matcher: SemanticsMatcher) = compose.waitUntil(30_000) { has(matcher) }
+
+    /** [pixel] 이 [a] 쪽에 더 가까운가(RGB 거리). 모서리 안팎을 화면에서 직접 뜬 색과 견준다. */
+    private fun closer(pixel: Int, a: Int, b: Int): Boolean {
+        fun d(c: Int) = listOf(android.graphics.Color::red, android.graphics.Color::green, android.graphics.Color::blue)
+            .sumOf { f -> (f(pixel) - f(c)).let { it * it } }
+        return d(a) < d(b)
+    }
     private fun node(matcher: SemanticsMatcher) = compose.onAllNodes(matcher, useUnmergedTree = true)[0]
 
     private fun shot(name: String) {
@@ -92,6 +99,29 @@ class BookSearchTest {
         assertTrue(has(hasText("읽는 중 0%")), "갈래 표시가 없다")
         assertTrue(has(hasText("어린 왕자")))
         shot("103-search-results")
+        // EPUB 의 대신 표지는 계열 EBOOK — 문서 회청 위의 두 톤 펼친 책(0.32.2). 0.32.1 까지의 청록(계열에서는 소스 코드
+        // 색)이면 걸린다. 가운데 책장은 흰색이다.
+        run {
+            // 찾기 화면 밑의 홈 화면도 그 책의 큰 대신 표지를 품고 있다 — 결과 줄의 작은 표지를 고른다.
+            val cover = compose.onAllNodes(hasContentDescription("어린 왕자 대신 표지"), useUnmergedTree = true).fetchSemanticsNodes()
+                .map { it.boundsInRoot }.minBy { it.width }
+            val view = compose.activity.window.decorView
+            val shot = android.graphics.Bitmap.createBitmap(view.width, view.height, android.graphics.Bitmap.Config.ARGB_8888)
+            compose.runOnUiThread { view.draw(android.graphics.Canvas(shot)) }
+            val density = compose.activity.resources.displayMetrics.density
+            val fill = shot.getPixel((cover.left + 4 * density).toInt(), (cover.top + 4 * density).toInt())
+            assertTrue(closer(fill, 0xFF55606B.toInt(), 0xFF3E7F80.toInt()), "EPUB 대신 표지가 문서 회청이 아니다: #${Integer.toHexString(fill)}")
+            // 그림은 채운 두 쪽이라 가운데 20dp 네모의 3분의 1 남짓이 흰색이다. 선 아이콘(0.32.1 까지)은 15% 쯤이다.
+            val half = (10 * density).toInt()
+            var white = 0
+            var all = 0
+            for (y in cover.center.y.toInt() - half until cover.center.y.toInt() + half) for (x in cover.center.x.toInt() - half until cover.center.x.toInt() + half) {
+                val p = shot.getPixel(x, y)
+                all++
+                if (android.graphics.Color.red(p) > 220 && android.graphics.Color.blue(p) > 220) white++
+            }
+            assertTrue(white > all / 4, "펼친 책 그림(채운 두 쪽)이 아니다: 흰 점 ${white * 100 / all}%")
+        }
         // 결과를 누르면 그 책이 열린다.
         node(hasText("어린 왕자")).performClick()
         waitFor(hasText("1 / ", substring = true))

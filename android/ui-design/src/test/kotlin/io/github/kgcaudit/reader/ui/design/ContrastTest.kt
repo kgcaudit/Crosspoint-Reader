@@ -94,14 +94,14 @@ class ContrastTest {
 
     @Test
     fun `titles on a stand-in cover read over every tile in both themes`() {
-        // 타일 색은 흰 그림용이라 흰 글자는 다크의 책 타일에서 3.0 이었다. 글자 밑 어두운 띠(60% 검정) 위에서 본다.
+        // 타일 색은 흰 그림용이라 흰 글자는 다크의 (옛) 책 타일에서 3.0, 문서 타일에서 4.4 였다. 글자 밑 어두운 띠(60% 검정) 위에서 본다.
         val band = COVER_BAND
         for ((name, c) in themes) {
-            for ((kind, fill) in listOf("책" to c.tiles.book, "문서" to c.tiles.document, "기타" to c.tiles.other)) {
+            for ((kind, fill) in listOf("폴더" to c.tiles.folder, "문서" to c.tiles.document, "기타" to c.tiles.other)) {
                 assertAtLeast(7.0, Color.White, band.compositeOver(fill), "$name: $kind 대신 표지 글자")
             }
         }
-        assertTrue(contrast(Color.White, DarkColors.tiles.book) < 4.5, "검사가 띠 없는 흰 글자를 통과시켰다")
+        assertTrue(contrast(Color.White, DarkColors.tiles.document) < 4.5, "검사가 띠 없는 흰 글자를 통과시켰다")
     }
 
     @Test
@@ -109,7 +109,7 @@ class ContrastTest {
         // 타일의 흰 글리프는 글자가 아니라 그림이라 3:1 이 기준이다(WCAG 1.4.11).
         for ((name, c) in themes) {
             val t = c.tiles
-            for ((kind, fill) in listOf("폴더" to t.folder, "문서" to t.document, "책" to t.book, "기타" to t.other)) {
+            for ((kind, fill) in listOf("폴더" to t.folder, "문서" to t.document, "기타" to t.other)) {
                 assertAtLeast(3.0, Color.White, fill, "$name: $kind 타일")
             }
         }

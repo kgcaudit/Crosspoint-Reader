@@ -190,14 +190,15 @@ fun CpReadingNotesList(
         Column(Modifier.fillMaxSize()) {
             if (chips && items != null) {
                 // 옆으로 밀어 본다(0.29.0, 구상안 가안). 한 줄에 우겨 넣으면 360dp 폰에서 마지막 칩이 찌그러졌다. 칩 높이는
-                // 누르는 곳 48dp.
+                // 누르는 곳 48dp. 모서리는 단추와 같은 10dp(0.32.2, 구상안 가안) — 계열은 알약을 쓰지 않고, 이 칩은 높이 ·
+                // 하는 일이 설정의 고르기 단추와 같아 칩용 6dp 보다 단추 쪽에 맞췄다.
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = m.gutter, vertical = 4.dp)) {
                     NoteFilter.entries.forEach { f ->
                         val on = f == filter
                         Box(
-                            Modifier.padding(end = 8.dp).heightIn(min = m.touchTarget).clip(RoundedCornerShape(50))
+                            Modifier.padding(end = 8.dp).heightIn(min = m.touchTarget).clip(RoundedCornerShape(m.cornerSmall))
                                 .background(if (on) c.accent else Color.Transparent)
-                                .border(1.dp, if (on) c.accent else c.outline, RoundedCornerShape(50))
+                                .border(1.dp, if (on) c.accent else c.outline, RoundedCornerShape(m.cornerSmall))
                                 .selectable(selected = on, role = Role.Tab) { onFilter(f) }
                                 .padding(horizontal = 14.dp),
                             contentAlignment = Alignment.Center,

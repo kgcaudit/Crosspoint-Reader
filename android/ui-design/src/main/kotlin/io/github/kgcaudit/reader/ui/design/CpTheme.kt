@@ -69,13 +69,12 @@ data class CpColors(
 /**
  * 목록 행 타일색. 뜻이 있는 색이라 쓰는 자리에서 고르지 않는다 — OLO Explorer 에서 이
  * 슬레이트가 "문서" 였으면 여기서도 문서다. 흰 글리프를 얹으므로 다크에서는 **더 밝다**.
+ * EPUB 은 따로 색이 없다 — 계열 FILEKIND 의 EBOOK 은 [document] 색에 책 그림([cpBookGlyph])으로 가른다.
  */
 @Immutable
 data class CpTiles(
     val folder: Color,
     val document: Color,
-    /** EPUB. Explorer 표에는 EPUB 이 없어, 팔레트의 3차색(틸, Explorer 의 code 타일)을 쓴다. */
-    val book: Color,
     val other: Color,
 )
 
@@ -103,7 +102,6 @@ val LightColors = CpColors(
     tiles = CpTiles(
         folder = Clay,
         document = Color(0xFF55606B),
-        book = Color(0xFF3E7F80),
         other = Color(0xFF7A7168),
     ),
 )
@@ -129,7 +127,6 @@ val DarkColors = CpColors(
     tiles = CpTiles(
         folder = Color(0xFFD1734F),
         document = Color(0xFF6E7A86),
-        book = Color(0xFF55A0A1),
         other = Color(0xFF938A80),
     ),
 )
@@ -147,6 +144,8 @@ data class CpMetrics(
     val rowHeight: Dp = 64.dp,
     val touchTarget: Dp = 48.dp,
     val statusBarHeight: Dp = 28.dp,
+    /** 글자 꼬리표 같은 작은 칩(OLO-Design extraSmall). 22dp 높이에 10dp 를 주면 다시 알약이 된다. */
+    val cornerChip: Dp = 6.dp,
     val cornerSmall: Dp = 10.dp,
     val cornerMedium: Dp = 14.dp,
     /** 아래에서 올라오는 판(OLO-Design large). 팝업(20dp)보다 한 단 작다 — 화면 폭을 다 쓰는 판이 팝업처럼 부풀어 보이지 않게. */

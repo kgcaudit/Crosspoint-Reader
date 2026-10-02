@@ -407,6 +407,17 @@ class ReadingNotesAppTest {
         listOf("전체 3", "책갈피 1", "형광펜 1", "메모 1").forEach { assertTrue(hasNode(hasText(it)), "칩 $it 이 없다") }
         waitFor(hasText("둘째 쪽 메모"))
         shot("76-notes")
+        // 거르기 칩은 단추와 같은 10dp(0.32.2). 고른 칩(채운 강조색)의 모서리에서 4dp 들어간 점은 10dp 면 칩 안, 알약
+        // (반지름 24dp)이면 바깥이다. 1dp 점은 어느 쪽이든 바깥 — 각진 네모로 되돌아간 것도 잡는다.
+        run {
+            val chip = compose.onAllNodes(hasText("전체 3"))[0].fetchSemanticsNode().boundsInRoot
+            val shot = page()
+            fun at(dx: Float, dy: Float) = shot.getPixel((chip.left + dx * density).toInt(), (chip.top + dy * density).toInt())
+            val inside = shot.getPixel((chip.left + 5 * density).toInt(), chip.center.y.toInt())
+            val outside = shot.getPixel((chip.left - 3 * density).toInt(), chip.center.y.toInt())
+            assertTrue(closer(at(4f, 4f), inside, outside), "거르기 칩 모서리가 10dp 보다 둥글다(알약)")
+            assertTrue(closer(at(1f, 1f), outside, inside), "거르기 칩 모서리가 각졌다")
+        }
 
         // 책 순서: 책갈피(1쪽 머리) → 노랑(1쪽 첫 낱말) → 초록(2쪽).
         val mark = node(hasText("보아구렁이는 먹이를", substring = true)).fetchSemanticsNode().boundsInRoot
@@ -636,6 +647,13 @@ class ReadingNotesAppTest {
         compose.waitForIdle()
     }
 
+
+    /** [pixel] 이 [a] 쪽에 더 가까운가(RGB 거리). 모서리 안팎을 화면에서 직접 뜬 색과 견준다. */
+    private fun closer(pixel: Int, a: Int, b: Int): Boolean {
+        fun d(c: Int) = listOf(android.graphics.Color::red, android.graphics.Color::green, android.graphics.Color::blue)
+            .sumOf { f -> (f(pixel) - f(c)).let { it * it } }
+        return d(a) < d(b)
+    }
     private fun hasNode(matcher: SemanticsMatcher) =
         compose.onAllNodes(matcher, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
 

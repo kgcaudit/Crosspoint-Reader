@@ -29,10 +29,13 @@ import io.github.kgcaudit.reader.ui.design.CpIconToggle
 import io.github.kgcaudit.reader.ui.design.CpIcons
 import io.github.kgcaudit.reader.ui.design.CpPopup
 import io.github.kgcaudit.reader.ui.design.CpPopupButtons
+import io.github.kgcaudit.reader.ui.design.CpSearchResultBar
 import io.github.kgcaudit.reader.ui.design.CpTextButton
 import io.github.kgcaudit.reader.ui.design.CpTheme
 import io.github.kgcaudit.reader.ui.design.CpThemeSwatches
 import io.github.kgcaudit.reader.ui.design.PaperTheme
+import io.github.kgcaudit.reader.listen.ListenPlayer
+import io.github.kgcaudit.reader.listen.ListenState
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -244,4 +247,27 @@ class DesignRulesTest {
         assertTrue(closerTo(cornerPixel("sheet", 5.6f), surface, scrimmed), "아래 판 모서리가 18dp 보다 둥글다")
         assertTrue(closerTo(cornerPixel("sheet", 1.5f), scrimmed, surface), "아래 판 모서리가 각졌다")
     }
+
+    // ---------- 떠 있는 막대(0.32.2): 알약 → 14dp ----------
+
+    /** 떠 있는 막대 [content] 의 모서리를 잰다. 14dp 면 5.5dp 들어간 점은 안, 24 · 28dp 알약이면 바깥. 1.5dp 점은 늘 바깥. */
+    private fun assertCard14(what: String, content: @androidx.compose.runtime.Composable (Modifier) -> Unit) {
+        var surface = androidx.compose.ui.graphics.Color.Unspecified
+        var paper = androidx.compose.ui.graphics.Color.Unspecified
+        show {
+            surface = CpTheme.colors.surface
+            paper = CpTheme.colors.background
+            Box(Modifier.fillMaxSize().background(paper)) { content(Modifier.padding(40.dp).testTag("bar")) }
+        }
+        assertTrue(closerTo(cornerPixel("bar", 5.5f), surface, paper), "$what 모서리가 14dp 보다 둥글다(알약)")
+        assertTrue(closerTo(cornerPixel("bar", 1.5f), paper, surface), "$what 모서리가 각졌다")
+    }
+
+    @Test
+    fun `the search result bar is a 14dp card like the auto turn notice`() =
+        assertCard14("찾기 결과 막대") { CpSearchResultBar(0, 16, {}, {}, {}, {}, it) }
+
+    @Test
+    fun `the listening controller is a 14dp card like the other floating bars`() =
+        assertCard14("듣기 조종판") { ListenPlayer(ListenState(active = true), {}, {}, {}, {}, {}, it) }
 }
