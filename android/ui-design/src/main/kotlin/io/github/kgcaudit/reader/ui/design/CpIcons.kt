@@ -33,9 +33,10 @@ object CpIcons {
     val Close = line("M6 6 L18 18 M18 6 L6 18")
     /** 화면 회전: 비스듬히 누운 휴대폰과 둥근 화살표. */
     val Rotate = line("M5 8 H12.5 A1 1 0 0 1 13.5 9 V20 A1 1 0 0 1 12.5 21 H5 A1 1 0 0 1 4 20 V9 A1 1 0 0 1 5 8 Z M14 3.5 A6.5 6.5 0 0 1 20.5 10 M20.5 10 L22.5 8 M20.5 10 L18.5 8")
-    // 찾기 · 새로고침 · 격자 · 목록은 계열(OLO-Design `icons/menu_symbols.py`) 메뉴 그림이다(0.32.3, 사용자 결정: 가안).
+    // 찾기 · 새로고침 · 격자 · 목록은 계열(OLO-Design `icons/control_symbols.py`, 0.32.3 까지는 menu_symbols.py) 메뉴
+    // 그림이다(0.32.3 사용자 결정: 가안, 0.32.4 계열 개정 7c5cfd7 을 그대로 받음).
     // OLO 앱마다 이 넷이 같은 모양이어야 한 식구로 읽힌다. 그림 파일(res/drawable/ic_menu_*)은 생성물을 그대로 넣고
-    // 손으로 고치지 않는다 — 계열이 바꾸면 다시 만들어 넣는다. 단색 선이라 [CpIcon] 이 줄 글자색으로 칠한다. 리소스에서
+    // 손으로 고치지 않는다 — 계열이 바꾸면 다시 만들어 넣는다. 단색(선 · 채움)이라 [CpIcon] 이 줄 글자색으로 칠한다. 리소스에서
     // 읽으므로 이것들만 @Composable 이다. 정렬 그림은 쓰지 않는다 — 순서 판은 라디오 동그라미가 이미 고른 것을 보여 준다.
     /** 찾기(돋보기). */
     val Search: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_menu_search)
