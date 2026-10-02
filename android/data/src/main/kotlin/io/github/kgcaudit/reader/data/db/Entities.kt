@@ -99,3 +99,65 @@ data class AnnotationEntity(
     val snippet: String,
     val createdAtEpochMs: Long,
 )
+
+/**
+ * 만화 단위 하나(압축 파일 하나 · 그림 폴더 하나, 0.33.0). 책([BookEntity])과 표를 나눈다 — 책 표의 형식(`BookFormat`)
+ * 으로 넣으면 리더 쪽 갈래(조판할 책인가 · PDF 인가)마다 만화가 끼어든다. 책처럼 **지우지 않고 숨긴다**([missing]).
+ *
+ * 살핀 결과(`probed*` · `page*` · `info*`)는 압축을 열어 목록만 읽은 것이다. 파일 크기나 수정 시각이 바뀌면 다시 살핀다.
+ * 모든 null 은 "모름"(아직 살피지 않음 · 적혀 있지 않음)이다 — 0 · false 와 다르다(규칙 5).
+ */
+@Entity(tableName = "comic_units", indices = [Index("folderUri")])
+data class ComicUnitEntity(
+    /** 문서 URI(압축 파일 · 그림 폴더). 진도 · 책갈피 · 손 고침의 열쇠. */
+    @PrimaryKey val id: String,
+    val folderUri: String,
+    val name: String,
+    /** `ARCHIVE` · `IMAGE_FOLDER`. */
+    val kind: String,
+    /** 확장자(소문자). 그림 폴더는 빈 글. 그냥 zip 은 살펴서 그림만 들어 있어야 보인다. */
+    val extension: String,
+    /** 등록 폴더에서 이 단위가 든 폴더까지의 이름들, [FOLDER_SEPARATOR] 로 잇는다. 작품 이름 · 모은 곳에 쓴다. */
+    val folders: String,
+    val sizeBytes: Long?,
+    val lastModifiedEpochMs: Long?,
+    val addedAtEpochMs: Long,
+    @ColumnInfo(defaultValue = "0") val missing: Boolean,
+    /**
+     * 살핀 적이 있다. 크기 · 수정 시각만으로 가리면 둘 다 알려 주지 않는 제공자의 zip 은 살핀 뒤에도 "안 살핌" 으로 보여
+     * 영영 목록에 나오지 않는다.
+     */
+    @ColumnInfo(defaultValue = "0") val probed: Boolean = false,
+    /** 마지막으로 살핀 파일의 크기 · 수정 시각. 지금 값과 다르면 다시 살핀다. */
+    val probedSize: Long? = null,
+    val probedModified: Long? = null,
+    /** 살펴 보니 만화가 아니었다(그림만 든 zip 이 아님). 목록에서 뺀다. */
+    @ColumnInfo(defaultValue = "0") val notComic: Boolean = false,
+    val pageCount: Int? = null,
+    /** 표지로 쓸 항목 이름(압축 안 · 폴더 안). */
+    val coverEntry: String? = null,
+    /** 합본 안 목차: 하위 폴더 이름들을 [FOLDER_SEPARATOR] 로 이은 것. 없으면 null. */
+    val sections: String? = null,
+    val infoSeries: String? = null,
+    val infoNumber: Double? = null,
+    val infoFormat: String? = null,
+    val infoRightToLeft: Boolean? = null,
+) {
+    companion object {
+        /** 폴더 이름에 들어갈 수 없는 글자(단위 구분자, U+001F). */
+        const val FOLDER_SEPARATOR: String = "\u001F"
+    }
+}
+
+/**
+ * 만화 묶음을 손으로 고친 것(0.33.0). 다시 훑어도 남는다 — 그래서 단위 URI · 작품 열쇠로 적고, 단위 행이 숨겨져도 지우지
+ * 않는다.
+ *
+ * @param kind `WORK_OF`(단위 → 작품 열쇠: 합치기 · 빼기), `TITLE`(작품 열쇠 → 보이는 이름), `PREFERRED`(같은 권 열쇠 → 고른 단위).
+ */
+@Entity(tableName = "comic_overrides", primaryKeys = ["kind", "subject"])
+data class ComicOverrideEntity(
+    val kind: String,
+    val subject: String,
+    val value: String,
+)

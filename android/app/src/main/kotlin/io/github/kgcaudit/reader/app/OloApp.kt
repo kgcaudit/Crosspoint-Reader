@@ -96,7 +96,12 @@ class AppContainer(private val app: Application) {
     private val appScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.Main.immediate)
 
     /** 폴더 훑기. 라이브러리 화면이 아니라 여기 둔다 — 책을 여느라 화면이 사라져도 끝까지 훑는다. */
-    val scan = LibraryScan(appScope) { data.rescanAll().values.all { it.complete } }
+    // 훑은 뒤 만화 압축을 살핀다(목록만 읽음, 0.33.0). 살피기가 실패해도 훑기는 끝까지 읽은 것이다 — 결과에 넣지 않는다.
+    val scan = LibraryScan(appScope) {
+        val complete = data.rescanAll().values.all { it.complete }
+        runCatching { data.probeComics() }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+        complete
+    }
 
     /** 책장 표지. 앱 파일 영역 — 캐시 영역이면 사람이 고른 표지까지 시스템이 지운다. */
     val covers = CoverStore(File(app.filesDir, "covers"), ::extractCover)

@@ -24,6 +24,11 @@ class SafDocumentTree(
 
     override val rootKey: String = DocumentsContract.getTreeDocumentId(treeUri)
 
+    /** "primary:Comics/별" → "별". 문서 id 의 모양은 제공자마다 다르지만 마지막 경로 조각이 폴더 이름인 것이 대부분이다. */
+    override val rootName: String = rootKey.substringAfterLast(':').trimEnd('/').substringAfterLast('/')
+
+    override val rootUri: String? = runCatching { DocumentsContract.buildDocumentUriUsingTree(treeUri, rootKey).toString() }.getOrNull()
+
     override fun children(key: String): List<TreeEntry> {
         val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, key)
         // 제공자는 다른 앱이다. 그 쪽의 버그(IllegalStateException, NullPointerException …)가

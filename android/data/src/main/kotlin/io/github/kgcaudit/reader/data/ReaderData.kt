@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import io.github.kgcaudit.reader.data.backup.RecordsBackup
 import io.github.kgcaudit.reader.data.db.ReaderDatabase
+import io.github.kgcaudit.reader.data.library.ComicLibrary
 import io.github.kgcaudit.reader.data.library.Library
 import io.github.kgcaudit.reader.data.library.LibraryScanner
 import io.github.kgcaudit.reader.data.library.ScanResult
@@ -13,8 +14,13 @@ import io.github.kgcaudit.reader.data.saf.UriSources
 import io.github.kgcaudit.reader.document.AnnotationRepository
 import io.github.kgcaudit.reader.document.BookmarkRepository
 import io.github.kgcaudit.reader.document.ProgressRepository
+import io.github.kgcaudit.reader.document.comic.ComicContents
+import io.github.kgcaudit.reader.document.comic.ComicInfo
+import io.github.kgcaudit.reader.document.zip.ZipReader
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -38,6 +44,7 @@ class ReaderData(
     val progress: ProgressRepository = RoomProgressRepository(database.progress(), database.recent())
     val annotations: AnnotationRepository = RoomAnnotationRepository(database.annotations())
     val library: Library = Library(database)
+    val comics: ComicLibrary = ComicLibrary(database)
     val folders: LibraryFolders = LibraryFolders(resolver)
     val sources: UriSources = UriSources(resolver, File(context.cacheDir, "spool"))
 
@@ -67,6 +74,7 @@ class ReaderData(
         val applied = folderLock.withLock {
             if ((removals[key] ?: 0) != removalsAtStart) return@withLock false
             library.applyScan(key, result, clock())
+            comics.applyScan(key, result, clock())
             true
         }
         if (!applied) return@withContext ScanResult(emptyList(), complete = true)
@@ -83,8 +91,39 @@ class ReaderData(
         folderLock.withLock {
             folders.unregister(folderUri)
             library.forgetFolder(folderUri.toString())
+            comics.forgetFolder(folderUri.toString())
             removals[folderUri.toString()] = (removals[folderUri.toString()] ?: 0) + 1
         }
+    }
+
+    /**
+     * 살필 차례인 만화 압축(zip · cbz)을 연다: 압축 끝의 목록만 읽고(통째로 복사하지 않는다 — 1GB 압축에서 느리고 공간을
+     * 먹는다), 그림만 들었는지 · 쪽 수 · 표지 · 합본 목차 · ComicInfo 를 적는다. 하나가 깨져도 나머지는 계속한다.
+     *
+     * @return 살핀 수.
+     */
+    suspend fun probeComics(): Int = withContext(io) {
+        val todo = comics.needingProbe()
+        for (unit in todo) {
+            currentCoroutineContext().ensureActive()
+            var contents: ComicContents? = null
+            var info: ComicInfo? = null
+            try {
+                ZipReader.open(sources.seekableSource(Uri.parse(unit.id))).use { zip ->
+                    contents = ComicContents.ofArchive(zip.entries.keys.toList(), trustExtension = unit.extension != "zip")
+                    contents?.comicInfo?.let { name ->
+                        info = runCatching { zip.openStream(name)?.reader(Charsets.UTF_8)?.use { ComicInfo.parse(it) } }.getOrNull()
+                    }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // 열 수 없는 압축(깨짐 · 암호 · 제공자 오류). cbz 는 그대로 보이고 zip 은 만화가 아닌 것으로 둔다.
+                contents = null
+            }
+            comics.saveProbe(unit, contents, info)
+        }
+        todo.size
     }
 
     /** 폴더 빼기와 훑은 결과 넣기를 차례로 세운다. */

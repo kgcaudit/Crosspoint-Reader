@@ -86,7 +86,7 @@ class MigrationTest {
             val notes = RoomAnnotationRepository(db.annotations())
             notes.add(Annotation(0, book, Locator.Reflow(3, 10), Locator.Reflow(3, 20), HighlightColor.Green, "메모", "칠한 글", 7))
             assertEquals(listOf("칠한 글"), notes.forBook(book).map { it.snippet })
-            assertEquals(3, db.openHelper.readableDatabase.version)
+            assertEquals(4, db.openHelper.readableDatabase.version)
         } finally {
             db.close()
         }
@@ -110,6 +110,33 @@ class MigrationTest {
             assertEquals(null, shelf.single().finishedAtEpochMs)
             library.setFinished(book, 9, nowEpochMs = 9)
             assertEquals(9L, library.shelf().first().single().finishedAtEpochMs)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `upgrading from version 3 keeps the books and starts with an empty comic shelf`() = runTest {
+        // 0.32 까지(스키마 3)에는 만화 표가 없다. 올린 뒤 책 · 진도는 그대로이고, 만화를 훑어 넣을 수 있어야 한다.
+        writeVersion(3) { db ->
+            db.execSQL(
+                "INSERT INTO books (id, folderUri, displayName, format, sizeBytes, lastModifiedEpochMs, title, author, addedAtEpochMs, missing) " +
+                    "VALUES ('${book.value}', 'content://books/tree/root', 'a.epub', 'EPUB', 10, 1, NULL, NULL, 1, 0)",
+            )
+            db.execSQL("INSERT INTO progress (bookId, locator, percent, updatedAtEpochMs) VALUES ('${book.value}', 'r:3:130', 12.5, 6)")
+        }
+        val db = ReaderDatabase.open(context)
+        try {
+            assertEquals(listOf("a.epub"), io.github.kgcaudit.reader.data.library.Library(db).books().first().map { it.displayName })
+            assertEquals(Locator.Reflow(3, 130), RoomProgressRepository(db.progress()).get(book)?.locator)
+            val comics = io.github.kgcaudit.reader.data.library.ComicLibrary(db)
+            assertEquals(emptyList(), comics.works().first())
+            val unit = io.github.kgcaudit.reader.data.library.ScannedComic(
+                "content://c/별 01권.cbz", "별 01권.cbz", listOf("C"), io.github.kgcaudit.reader.document.comic.ComicUnitKind.ARCHIVE, "cbz", 10, 1,
+            )
+            comics.applyScan("content://c", io.github.kgcaudit.reader.data.library.ScanResult(emptyList(), true, listOf(unit)), 5)
+            assertEquals(listOf("별"), comics.works().first().map { it.title })
+            assertEquals(4, db.openHelper.readableDatabase.version)
         } finally {
             db.close()
         }

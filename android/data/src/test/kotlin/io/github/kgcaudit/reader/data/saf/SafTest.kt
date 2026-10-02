@@ -290,4 +290,51 @@ class SafTest {
         }
         return out.toByteArray()
     }
+
+    // ── 만화(0.33.0) ───────────────────────────────────────────────
+
+    private fun zip(vararg entries: Pair<String, ByteArray>): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        java.util.zip.ZipOutputStream(out).use { z -> for ((n, b) in entries) { z.putNextEntry(java.util.zip.ZipEntry(n)); z.write(b); z.closeEntry() } }
+        return out.toByteArray()
+    }
+
+    @Test
+    fun `comics are found, probed through the provider and grouped into works`() = runTest {
+        val jpg = ByteArray(16) { 1 }
+        put("Comics/별/별 01권.cbz", zip("001.jpg" to jpg, "002.jpg" to jpg))
+        put("Comics/별/별 4-6권 합본.cbz", zip("합본/4권/1.jpg" to jpg, "합본/5권/1.jpg" to jpg, "합본/6권/1.jpg" to jpg))
+        put("Download/scan.cbz", zip("1.jpg" to jpg, "ComicInfo.xml" to "<ComicInfo><Series>별</Series><Number>2</Number></ComicInfo>".toByteArray()))
+        put("Download/사진.zip", zip("a.jpg" to jpg, "b.jpg" to jpg))
+        put("Download/소설.zip", zip("소설.txt" to "글".toByteArray(), "표지.jpg" to jpg))
+        put("Download/깨진 01권.cbz", "이것은 압축이 아니다".toByteArray())
+        put("Webtoon/전학생/001화/1.jpg", jpg); put("Webtoon/전학생/001화/2.jpg", jpg); put("Webtoon/전학생/001화/3.jpg", jpg)
+        put("Books/책.epub", epub("책", "본문"))
+
+        data.folders.register(tree)
+        data.rescanAll()
+        // cbz 넷 + zip 둘. 다시 부르면 이미 살핀 것은 건너뛴다.
+        assertEquals(6, data.probeComics())
+        assertEquals(0, data.probeComics())
+        val works = data.comics.works().first()
+        val star = works.single { it.title == "별" }
+        assertEquals(listOf("1권", "2권", "4–6권"), star.entries.map { it.label })
+        assertEquals(listOf("4권", "5권", "6권"), star.entries.single { it.label == "4–6권" }.sections)
+        assertTrue(works.any { it.title == "사진" }, "그림만 든 zip 이 만화로 보이지 않는다")
+        assertTrue(works.none { it.title == "소설" }, "소설 zip 이 만화로 보였다")
+        assertTrue(works.any { it.title == "깨진" }, "열리지 않는 cbz 가 서재에서 사라졌다")
+        assertTrue(works.single { it.title == "전학생" }.webtoon)
+        // 책은 책대로.
+        assertEquals(listOf("책.epub"), data.library.books().first().map { it.displayName })
+    }
+
+    @Test
+    fun `removing a folder takes its comics off the shelf too`() = runTest {
+        put("별 01권.cbz", zip("1.jpg" to ByteArray(4)))
+        data.folders.register(tree)
+        data.rescanAll()
+        assertEquals(listOf("별"), data.comics.works().first().map { it.title })
+        data.removeFolder(tree)
+        assertTrue(data.comics.works().first().isEmpty(), "뺀 폴더의 만화가 서재에 남았다")
+    }
 }

@@ -2,9 +2,19 @@ package io.github.kgcaudit.reader.data.library
 
 import androidx.room.withTransaction
 import io.github.kgcaudit.reader.data.db.BookEntity
+import io.github.kgcaudit.reader.data.db.ComicOverrideEntity
+import io.github.kgcaudit.reader.data.db.ComicUnitEntity
 import io.github.kgcaudit.reader.data.db.ReaderDatabase
 import io.github.kgcaudit.reader.document.BookFormat
 import io.github.kgcaudit.reader.document.BookId
+import io.github.kgcaudit.reader.document.comic.ComicContents
+import io.github.kgcaudit.reader.document.comic.ComicInfo
+import io.github.kgcaudit.reader.document.comic.ComicOverrides
+import io.github.kgcaudit.reader.document.comic.ComicShelf
+import io.github.kgcaudit.reader.document.comic.ComicUnit
+import io.github.kgcaudit.reader.document.comic.ComicUnitKind
+import io.github.kgcaudit.reader.document.comic.Work
+import io.github.kgcaudit.reader.document.comic.WorkEntry
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
@@ -166,5 +176,150 @@ class Library(private val db: ReaderDatabase) {
             sizeBytes = row.sizeBytes,
             addedAtEpochMs = row.addedAtEpochMs,
         )
+    }
+}
+
+/**
+ * 만화 서재(0.33.0): 훑은 만화 단위 + 손 고침 → 작품들([ComicShelf.group]). 책 [Library] 와 같은 DB 를 쓰되 표가 다르다.
+ *
+ * 작품은 저장하지 않고 **매번 계산한다** — 저장하면 훑기 · 손 고침 · 살피기 결과가 바뀔 때마다 작품 표도 맞춰 고쳐야 하고,
+ * 한 군데를 놓치면 옛 묶음이 남는다. 단위 수천 개도 묶기는 순수 계산이라 한 번에 끝난다.
+ */
+class ComicLibrary(private val db: ReaderDatabase) {
+
+    private val comics = db.comics()
+
+    /** 서재에 보일 만화 단위들(순수 모형). */
+    fun units(): Flow<List<ComicUnit>> = comics.observeVisible().map { rows -> rows.map(::toUnit) }
+
+    fun overrides(): Flow<ComicOverrides> = comics.observeOverrides().map(::toOverrides)
+
+    /** 작품들. 훑기 · 살피기 · 손 고침이 바뀌면 다시 계산된다. */
+    fun works(): Flow<List<Work>> = combine(units(), overrides()) { units, overrides -> ComicShelf.group(units, overrides) }
+
+    /**
+     * 한 폴더의 훑기 결과 중 만화를 반영한다. 책과 같은 규칙: 지우지 않고 숨기며, 끝까지 읽은 훑기만 숨긴다. 파일이 바뀌면
+     * (크기 · 수정 시각) 살핀 결과는 그대로 두되 다시 살필 차례가 된다([ComicDao.needingProbe]).
+     */
+    suspend fun applyScan(folderUri: String, result: ScanResult, nowEpochMs: Long) = db.withTransaction {
+        val existing = comics.inFolder(folderUri).associateBy { it.id }
+        comics.upsert(
+            result.comics.map { found ->
+                val old = existing[found.uri]
+                val folderPages = found.folderContents
+                ComicUnitEntity(
+                    id = found.uri,
+                    folderUri = folderUri,
+                    name = found.name,
+                    kind = found.kind.name,
+                    extension = found.extension,
+                    folders = found.folders.joinToString(ComicUnitEntity.FOLDER_SEPARATOR),
+                    sizeBytes = found.sizeBytes,
+                    lastModifiedEpochMs = found.lastModifiedEpochMs,
+                    addedAtEpochMs = old?.addedAtEpochMs ?: nowEpochMs,
+                    missing = false,
+                    probed = old?.probed ?: false,
+                    probedSize = old?.probedSize,
+                    probedModified = old?.probedModified,
+                    notComic = old?.notComic ?: false,
+                    // 그림 폴더는 훑으며 이미 쪽을 셌다. 압축은 살핀 값을 이어 쓴다.
+                    pageCount = folderPages?.pages?.size ?: old?.pageCount,
+                    coverEntry = folderPages?.cover ?: old?.coverEntry,
+                    sections = old?.sections,
+                    infoSeries = old?.infoSeries,
+                    infoNumber = old?.infoNumber,
+                    infoFormat = old?.infoFormat,
+                    infoRightToLeft = old?.infoRightToLeft,
+                )
+            },
+        )
+        if (result.complete) {
+            val seen = result.comics.mapTo(HashSet()) { it.uri }
+            existing.values.filter { !it.missing && it.id !in seen }.map { it.id }.chunked(500).forEach { comics.markMissing(it) }
+        }
+    }
+
+    /** 등록을 푼 폴더의 만화를 숨긴다. 손 고침은 남긴다 — 다시 등록하면 같은 URI 라 그대로 이어진다. */
+    suspend fun forgetFolder(folderUri: String) = comics.hideFolder(folderUri)
+
+    /** 살필 차례인 압축(zip · cbz). */
+    suspend fun needingProbe(): List<ComicUnitEntity> = comics.needingProbe()
+
+    /**
+     * 살핀 결과를 적는다. [contents] 가 null 이면 만화가 아니다(그냥 zip) — 단, cbz 처럼 이름이 만화라고 말하는 것은 열지
+     * 못했어도 숨기지 않는다: 깨진 압축 하나가 서재에서 사라지면 무엇이 깨졌는지조차 알 수 없다(규칙 6).
+     */
+    suspend fun saveProbe(unit: ComicUnitEntity, contents: ComicContents?, info: ComicInfo?) {
+        val trusted = unit.extension in LibraryScanner.COMIC_ARCHIVES
+        comics.saveProbe(
+            id = unit.id,
+            size = unit.sizeBytes,
+            modified = unit.lastModifiedEpochMs,
+            notComic = contents == null && !trusted,
+            pages = contents?.pages?.size,
+            cover = contents?.cover,
+            sections = contents?.sections?.takeIf { it.isNotEmpty() }?.joinToString(ComicUnitEntity.FOLDER_SEPARATOR) { it.name },
+            series = info?.series,
+            number = info?.number,
+            format = info?.format,
+            rightToLeft = info?.rightToLeft,
+        )
+    }
+
+    // ── 손 고침 ─────────────────────────────────────────────
+
+    /** 작품 [from] 의 모든 단위를 작품 [into] 로 합친다. 합친 쪽의 이름 고침은 남는다. */
+    suspend fun merge(from: Work, into: Work) = db.withTransaction {
+        for (entry in from.entries) for (unit in listOf(entry.unit) + entry.copies) {
+            comics.setOverride(ComicOverrideEntity(WORK_OF, unit.id, into.key))
+        }
+    }
+
+    /** 단위 하나(와 그 같은 권 사본들)를 작품에서 빼 따로 둔다. 빼낸 것은 제 이름으로 새 작품이 된다. */
+    suspend fun split(entry: WorkEntry) = db.withTransaction {
+        val own = "$OWN_PREFIX${entry.unit.id}"
+        for (unit in listOf(entry.unit) + entry.copies) comics.setOverride(ComicOverrideEntity(WORK_OF, unit.id, own))
+        comics.setOverride(ComicOverrideEntity(TITLE, own, entry.name.series.ifBlank { entry.name.cleaned }))
+    }
+
+    /** 작품 이름을 고친다. 빈 이름이면 고침을 지워 원래 이름으로 돌아간다. 파일 이름은 바꾸지 않는다. */
+    suspend fun rename(work: Work, title: String) {
+        val t = title.trim()
+        if (t.isEmpty()) comics.clearOverride(TITLE, work.key) else comics.setOverride(ComicOverrideEntity(TITLE, work.key, t))
+    }
+
+    /** 같은 권 여러 곳 중 읽을 것을 고른다. */
+    suspend fun prefer(entry: WorkEntry, unitId: String) = comics.setOverride(ComicOverrideEntity(PREFERRED, entry.slot, unitId))
+
+    private fun toOverrides(rows: List<ComicOverrideEntity>): ComicOverrides = ComicOverrides(
+        workOf = rows.filter { it.kind == WORK_OF }.associate { it.subject to it.value },
+        titles = rows.filter { it.kind == TITLE }.associate { it.subject to it.value },
+        preferred = rows.filter { it.kind == PREFERRED }.associate { it.subject to it.value },
+    )
+
+    private fun toUnit(row: ComicUnitEntity): ComicUnit {
+        val sections = row.sections?.split(ComicUnitEntity.FOLDER_SEPARATOR).orEmpty()
+        val info = ComicInfo(series = row.infoSeries, number = row.infoNumber, format = row.infoFormat, rightToLeft = row.infoRightToLeft)
+            .takeIf { it != ComicInfo() }
+        return ComicUnit(
+            id = row.id,
+            name = row.name,
+            folders = row.folders.split(ComicUnitEntity.FOLDER_SEPARATOR).filter { it.isNotEmpty() },
+            kind = runCatching { ComicUnitKind.valueOf(row.kind) }.getOrDefault(ComicUnitKind.ARCHIVE),
+            sizeBytes = row.sizeBytes,
+            info = info,
+            // 서재는 쪽 이름이 아니라 합본 목차 · 쪽 수만 쓴다. 쪽 이름은 뷰어가 열 때 다시 읽는다.
+            contents = if (sections.size >= 2 || row.pageCount != null || row.coverEntry != null) {
+                ComicContents(emptyList(), sections.mapIndexed { i, n -> ComicContents.Section(n, i, 0) }.takeIf { it.size >= 2 }.orEmpty(), null, row.coverEntry)
+            } else null,
+        )
+    }
+
+    companion object {
+        const val WORK_OF: String = "WORK_OF"
+        const val TITLE: String = "TITLE"
+        const val PREFERRED: String = "PREFERRED"
+        /** 빼낸 단위의 작품 열쇠 머리. 이름 열쇠(글자 · 숫자뿐)와 겹치지 않게 기호를 넣는다. */
+        const val OWN_PREFIX: String = "#own:"
     }
 }

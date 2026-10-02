@@ -162,3 +162,55 @@ interface AnnotationDao {
 data class BookCount(val bookId: String, val count: Int)
 
 data class AnnotationCount(val bookId: String, val count: Int, val memos: Int)
+
+@Dao
+interface ComicDao {
+
+    /** 서재에 보일 단위: 숨기지 않았고, 살펴서 만화가 아니라고 나온 것이 아니고, 그냥 zip 이면 살펴서 만화라고 나온 것. */
+    @Query(
+        "SELECT * FROM comic_units WHERE missing = 0 AND notComic = 0 " +
+            "AND (extension != 'zip' OR probed = 1)",
+    )
+    fun observeVisible(): Flow<List<ComicUnitEntity>>
+
+    @Query("SELECT * FROM comic_units WHERE folderUri = :folderUri")
+    suspend fun inFolder(folderUri: String): List<ComicUnitEntity>
+
+    @Query("SELECT * FROM comic_units WHERE id = :id")
+    suspend fun get(id: String): ComicUnitEntity?
+
+    /** 아직 살피지 않았거나, 살핀 뒤 파일이 바뀐 압축(zip · cbz). */
+    @Query(
+        "SELECT * FROM comic_units WHERE missing = 0 AND kind = 'ARCHIVE' AND extension IN ('zip', 'cbz') " +
+            "AND (probed = 0 OR probedSize IS NOT sizeBytes OR probedModified IS NOT lastModifiedEpochMs)",
+    )
+    suspend fun needingProbe(): List<ComicUnitEntity>
+
+    @Upsert
+    suspend fun upsert(units: List<ComicUnitEntity>)
+
+    @Query("UPDATE comic_units SET missing = 1 WHERE id IN (:ids)")
+    suspend fun markMissing(ids: List<String>)
+
+    @Query("UPDATE comic_units SET missing = 1 WHERE folderUri = :folderUri")
+    suspend fun hideFolder(folderUri: String)
+
+    @Query(
+        "UPDATE comic_units SET probed = 1, probedSize = :size, probedModified = :modified, notComic = :notComic, pageCount = :pages, " +
+            "coverEntry = :cover, sections = :sections, infoSeries = :series, infoNumber = :number, infoFormat = :format, " +
+            "infoRightToLeft = :rightToLeft WHERE id = :id",
+    )
+    suspend fun saveProbe(
+        id: String, size: Long?, modified: Long?, notComic: Boolean, pages: Int?, cover: String?, sections: String?,
+        series: String?, number: Double?, format: String?, rightToLeft: Boolean?,
+    )
+
+    @Query("SELECT * FROM comic_overrides")
+    fun observeOverrides(): Flow<List<ComicOverrideEntity>>
+
+    @Upsert
+    suspend fun setOverride(override: ComicOverrideEntity)
+
+    @Query("DELETE FROM comic_overrides WHERE kind = :kind AND subject = :subject")
+    suspend fun clearOverride(kind: String, subject: String)
+}

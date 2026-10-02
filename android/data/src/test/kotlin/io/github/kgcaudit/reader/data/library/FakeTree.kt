@@ -11,6 +11,8 @@ class FakeTree(
     paths: List<String>,
     private val failing: Set<String> = emptySet(),
     private val sizes: Map<String, Long> = emptyMap(),
+    override val rootName: String = "",
+    override val rootUri: String? = null,
 ) : DocumentTree {
 
     private val children = HashMap<String, MutableList<TreeEntry>>()

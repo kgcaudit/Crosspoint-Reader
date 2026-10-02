@@ -81,3 +81,48 @@ class LibraryScannerTest {
         assertEquals(listOf("위.epub"), result.books.map { it.displayName })
     }
 }
+
+class ComicScanTest {
+
+    private suspend fun scan(vararg paths: String, rootName: String = "Comics", rootUri: String? = "content://fake/root") =
+        LibraryScanner.scan(FakeTree(paths.toList(), rootName = rootName, rootUri = rootUri))
+
+    @Test
+    fun `comic archives are found with the folders they sit in, and are not books`() = kotlinx.coroutines.test.runTest {
+        val r = scan("별을 줍는 아이/별을 줍는 아이 01권.cbz", "Download/바다.cbr", "x/사진.zip", "x/소설.epub")
+        assertEquals(listOf("소설.epub"), r.books.map { it.displayName })
+        val star = r.comics.single { it.name.endsWith(".cbz") }
+        assertEquals(listOf("Comics", "별을 줍는 아이"), star.folders)
+        assertEquals("cbz", star.extension)
+        // 그냥 zip 도 후보로 올린다 — 살펴서 그림만 들었는지 본다.
+        assertEquals("zip", r.comics.single { it.name == "사진.zip" }.extension)
+        assertEquals(setOf("cbz", "cbr", "zip"), r.comics.map { it.extension }.toSet())
+    }
+
+    @Test
+    fun `a folder of pictures is one comic unit, a folder with a book or two pictures is not`() = kotlinx.coroutines.test.runTest {
+        val r = scan(
+            "전학생/001화/1.jpg", "전학생/001화/2.jpg", "전학생/001화/3.jpg",
+            "전학생/002화/1.jpg", "전학생/002화/2.jpg", "전학생/002화/3.webp",
+            "전학생/cover.jpg",
+            "책/소설.epub", "책/a.jpg", "책/b.jpg", "책/c.jpg",
+            "표지/a.jpg", "표지/b.jpg",
+        )
+        val folders = r.comics.filter { it.kind == io.github.kgcaudit.reader.document.comic.ComicUnitKind.IMAGE_FOLDER }
+        assertEquals(listOf("001화", "002화"), folders.map { it.name }.sorted())
+        assertEquals(listOf("Comics", "전학생"), folders.first().folders)
+        assertEquals(3, folders.first().folderContents!!.pages.size)
+        // 폴더 단위의 열쇠는 그 폴더 자신의 URI.
+        assertEquals(FakeTree.uriOf("전학생/001화"), folders.single { it.name == "001화" }.uri)
+    }
+
+    @Test
+    fun `the registered folder itself can be a picture folder`() = kotlinx.coroutines.test.runTest {
+        val r = scan("1.jpg", "2.jpg", "3.jpg", rootName = "017화")
+        assertEquals("content://fake/root", r.comics.single().uri)
+        assertEquals("017화", r.comics.single().name)
+        // 등록 폴더의 URI 를 모르면(옛 제공자) 건너뛸 뿐 훑기는 끝까지 간다.
+        val unknown = scan("1.jpg", "2.jpg", "3.jpg", rootUri = null)
+        assertTrue(unknown.comics.isEmpty() && unknown.complete)
+    }
+}
