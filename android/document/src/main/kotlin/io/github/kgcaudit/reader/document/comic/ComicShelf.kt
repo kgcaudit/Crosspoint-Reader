@@ -34,11 +34,14 @@ data class ComicUnit(
  * @param workOf 단위 → 작품 열쇠. "다른 작품과 합치기" · "이 작품에서 빼기" 가 여기에 적힌다.
  * @param titles 작품 열쇠 → 보이는 이름("작품 이름 고치기"). 파일 이름은 바꾸지 않는다.
  * @param preferred 같은 권이 여러 곳에 있을 때 고른 단위. 열쇠는 [WorkEntry.slot].
+ * @param rightToLeft 작품 열쇠 → 사람이 고른 넘기는 방향. 작품마다 기억한다(2026-10-02 사용자 결정 3) — 1권에서 오→왼으로
+ *   바꾸면 2권도 오→왼으로 열린다.
  */
 data class ComicOverrides(
     val workOf: Map<String, String> = emptyMap(),
     val titles: Map<String, String> = emptyMap(),
     val preferred: Map<String, String> = emptyMap(),
+    val rightToLeft: Map<String, Boolean> = emptyMap(),
 )
 
 /**
@@ -65,7 +68,7 @@ data class WorkEntry(
  * @param key 이름 열쇠([ComicName.key]). 손 고침이 이것으로 작품을 가리킨다.
  * @param webtoon 모든 줄이 화 단위다(권이 없다).
  * @param places 이 작품의 단위가 들어 있던 폴더들(중복 없이). 둘 이상이면 "2곳에서 모음".
- * @param rightToLeft ComicInfo 가 정한 넘기는 방향. 아무도 정하지 않았으면 null.
+ * @param rightToLeft 넘기는 방향: 사람이 고른 값 → ComicInfo. 아무도 정하지 않았으면 null.
  */
 data class Work(
     val key: String,
@@ -174,7 +177,7 @@ object ComicShelf {
             complete = members.any { it.name.complete },
             // 자연 순서로 — 훑은 차례(제공자마다 다르다)를 따르면 작품 정리의 폴더 줄이 열 때마다 뒤바뀐다.
             places = members.map { it.unit.place }.distinct().sortedWith(NaturalOrder),
-            rightToLeft = members.firstNotNullOfOrNull { it.unit.info?.rightToLeft },
+            rightToLeft = overrides.rightToLeft[key] ?: members.firstNotNullOfOrNull { it.unit.info?.rightToLeft },
         )
     }
 

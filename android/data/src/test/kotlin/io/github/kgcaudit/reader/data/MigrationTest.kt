@@ -86,7 +86,7 @@ class MigrationTest {
             val notes = RoomAnnotationRepository(db.annotations())
             notes.add(Annotation(0, book, Locator.Reflow(3, 10), Locator.Reflow(3, 20), HighlightColor.Green, "메모", "칠한 글", 7))
             assertEquals(listOf("칠한 글"), notes.forBook(book).map { it.snippet })
-            assertEquals(4, db.openHelper.readableDatabase.version)
+            assertEquals(5, db.openHelper.readableDatabase.version)
         } finally {
             db.close()
         }
@@ -136,7 +136,31 @@ class MigrationTest {
             )
             comics.applyScan("content://c", io.github.kgcaudit.reader.data.library.ScanResult(emptyList(), true, listOf(unit)), 5)
             assertEquals(listOf("별"), comics.works().first().map { it.title })
-            assertEquals(4, db.openHelper.readableDatabase.version)
+            assertEquals(5, db.openHelper.readableDatabase.version)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `upgrading from version 4 keeps the comics and their hand fixes and starts with no reading position`() = runTest {
+        // 0.33 (스키마 4)에는 만화 진도 표가 없다. 올린 뒤 만화 · 손 고침은 그대로이고, 진도 · 책갈피를 적을 수 있어야 한다.
+        writeVersion(4) { db ->
+            db.execSQL(
+                "INSERT INTO comic_units (id, folderUri, name, kind, extension, folders, sizeBytes, lastModifiedEpochMs, addedAtEpochMs, missing, probed, notComic) " +
+                    "VALUES ('content://c/a.cbz', 'content://c', '별 01권.cbz', 'ARCHIVE', 'cbz', 'C', 10, 1, 1, 0, 1, 0)",
+            )
+            db.execSQL("INSERT INTO comic_overrides (kind, subject, value) VALUES ('TITLE', '별', '별(보관용)')")
+        }
+        val db = ReaderDatabase.open(context)
+        try {
+            val comics = io.github.kgcaudit.reader.data.library.ComicLibrary(db)
+            assertEquals(listOf("별(보관용)"), comics.works().first().map { it.title })
+            assertEquals(null, comics.progressOf("content://c/a.cbz"))
+            comics.saveProgress("content://c/a.cbz", 4, 10, 7)
+            assertEquals(4, comics.progressOf("content://c/a.cbz")?.page)
+            assertEquals(true, comics.toggleBookmark("content://c/a.cbz", 4, 7))
+            assertEquals(5, db.openHelper.readableDatabase.version)
         } finally {
             db.close()
         }

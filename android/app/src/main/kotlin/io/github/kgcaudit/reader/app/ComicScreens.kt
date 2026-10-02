@@ -38,6 +38,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import io.github.kgcaudit.reader.document.comic.ComicProgress
+import io.github.kgcaudit.reader.document.comic.ComicReading
 import io.github.kgcaudit.reader.document.comic.ComicShelf
 import io.github.kgcaudit.reader.document.comic.ComicUnit
 import io.github.kgcaudit.reader.document.comic.NaturalOrder
@@ -77,7 +79,7 @@ private fun rememberComicCover(unit: ComicUnit): ImageBitmap? {
 
 /** 작품 · 권의 표지. 그림이 없으면 계열 COMIC 타일(보관 황토 + 칸 줄 그린 펼친 책). */
 @Composable
-private fun ComicCover(unit: ComicUnit, title: String, subtitle: String?, modifier: Modifier = Modifier, small: Boolean = false) {
+internal fun ComicCover(unit: ComicUnit, title: String, subtitle: String?, modifier: Modifier = Modifier, small: Boolean = false) {
     CpCover(
         image = rememberComicCover(unit),
         title = title,
@@ -102,12 +104,62 @@ private fun Work.face(): ComicUnit = entries.first().unit
 /**
  * 만화 탭 내용(구상안 ①가): "만화 · N작품" 머리와 작품 격자. 읽는 중 책장은 뷰어가 붙은 뒤(진도가 생긴 뒤)에 선다.
  */
-internal fun LazyListScope.comicShelf(works: List<Work>, columns: Int, onOpen: (Work) -> Unit) {
+internal fun LazyListScope.comicShelf(
+    works: List<Work>,
+    progress: Map<String, ComicProgress>,
+    columns: Int,
+    onOpen: (Work) -> Unit,
+    onResume: (WorkEntry) -> Unit,
+) {
+    // 읽는 중: 이어 볼 권이 있는 작품, 최근에 본 차례. 마지막 권까지 다 읽은 작품은 뺀다 — 이어 볼 것이 없다.
+    val reading = works.mapNotNull { w -> ComicReading.resume(w, progress)?.let { (e, p) -> Triple(w, e, p) } }
+        .filter { (_, _, p) -> p?.finished != true }
+        .sortedByDescending { (w, _, _) -> w.entries.flatMap { e -> listOf(e.unit) + e.copies }.maxOf { u -> progress[u.id]?.updatedAtEpochMs ?: 0L } }
+    if (reading.isNotEmpty()) {
+        item(key = "comic-reading-label") { ShelfLabel("읽는 중 · ${reading.size}작품", more = reading.size > columns) }
+        item(key = "comic-reading") {
+            ShelfRow(reading, { it.first.key }) { (work, entry, p), width -> ResumeItem(work, entry, p, width, onResume) }
+        }
+        item { Spacer(Modifier.height(14.dp)); io.github.kgcaudit.reader.ui.design.CpDivider() }
+    }
     item(key = "comic-label") { ShelfLabel("만화 · ${works.size}작품", more = false) }
     items(works.chunked(columns), key = { "c" + it.first().key }) { row ->
         GridRow(row) { work, width -> WorkItem(work, width, onOpen) }
     }
     item { Spacer(Modifier.height(24.dp)) }
+}
+
+/** 읽는 중 한 칸: 이어 볼 권의 표지 · 작품 이름 · 진도 막대 · "3권 · 45쪽". 누르면 곧바로 그 자리부터. */
+@Composable
+private fun ResumeItem(work: Work, entry: WorkEntry, progress: ComicProgress?, width: Dp, onResume: (WorkEntry) -> Unit) {
+    val c = CpTheme.colors
+    Column(
+        Modifier.width(width).clickable(role = Role.Button) { onResume(entry) }
+            .semantics(mergeDescendants = true) { contentDescription = "${work.title} ${entry.label} 이어 보기" },
+    ) {
+        Box {
+            ComicCover(entry.unit, work.title, entry.label, Modifier.fillMaxWidth())
+            if (work.volumeCount > 1) CountBadge(countLabel(work), Modifier.align(Alignment.BottomEnd))
+        }
+        Spacer(Modifier.height(8.dp))
+        CpText(work.title, CpTheme.type.label, c.text)
+        Spacer(Modifier.height(6.dp))
+        io.github.kgcaudit.reader.ui.design.CpProgressBar(progress?.fraction ?: 0f, Modifier.fillMaxWidth(), io.github.kgcaudit.reader.ui.design.CpBarWeight.Thin)
+        Spacer(Modifier.height(4.dp))
+        CpText(resumeLabel(entry, progress), CpTheme.type.caption, c.textMuted)
+    }
+}
+
+/** "3권 · 45쪽" · 아직 펼치지 않은 다음 권이면 "4권 · 처음부터". */
+internal fun resumeLabel(entry: WorkEntry, progress: ComicProgress?): String =
+    "${entry.label} · ${progress?.let { "${it.page + 1}쪽" } ?: "처음부터"}"
+
+@Composable
+private fun CountBadge(text: String, modifier: Modifier) {
+    Box(
+        modifier.padding(5.dp).clip(RoundedCornerShape(CpTheme.metrics.cornerChip))
+            .background(BADGE).padding(horizontal = 6.dp, vertical = 2.dp),
+    ) { CpText(text, CpTheme.type.caption, Color.White) }
 }
 
 /** 작품 한 칸: 표지(두 권 이상이면 권 수 꼬리표) · 이름 · "만화 · 12권". */
@@ -121,12 +173,7 @@ private fun WorkItem(work: Work, width: Dp, onOpen: (Work) -> Unit) {
         Box {
             ComicCover(work.face(), work.title, kindLabel(work), Modifier.fillMaxWidth())
             // 한 권뿐이면 꼬리표가 할 말이 없다(구상안: 고양이 탐정).
-            if (work.volumeCount > 1) {
-                Box(
-                    Modifier.align(Alignment.BottomEnd).padding(5.dp).clip(RoundedCornerShape(CpTheme.metrics.cornerChip))
-                        .background(BADGE).padding(horizontal = 6.dp, vertical = 2.dp),
-                ) { CpText(countLabel(work), CpTheme.type.caption, Color.White) }
-            }
+            if (work.volumeCount > 1) CountBadge(countLabel(work), Modifier.align(Alignment.BottomEnd))
         }
         Spacer(Modifier.height(8.dp))
         CpText(work.title, CpTheme.type.label, c.text)
@@ -156,15 +203,30 @@ internal fun workSubtitle(work: Work): String = listOfNotNull(
  * 들인다). 같은 권이 여러 곳이면 한 줄만 보이고 "같은 권 n곳" 꼬리표를 단다.
  */
 @Composable
-internal fun WorkScreen(work: Work, onBack: () -> Unit, onArrange: () -> Unit, onEntry: (WorkEntry) -> Unit, onCopies: (WorkEntry) -> Unit) {
+internal fun WorkScreen(
+    work: Work,
+    progress: Map<String, ComicProgress>,
+    onBack: () -> Unit,
+    onArrange: () -> Unit,
+    onEntry: (WorkEntry, Int?) -> Unit,
+    onCopies: (WorkEntry) -> Unit,
+) {
     CpFullScreen(side = false) {
         CpHeader(work.title, subtitle = workSubtitle(work), onBack = onBack) {
             CpIconButton(CpIcons.More, "작품 정리", onArrange)
         }
         LazyColumn(Modifier.fillMaxSize()) {
+            // "3권 이어 보기 · 45쪽"(구상안 ②). 아무것도 펼치지 않았으면 없다 — 처음부터는 1권 줄을 누르면 된다.
+            ComicReading.resume(work, progress)?.let { (entry, p) ->
+                item(key = "resume") {
+                    Row(Modifier.padding(horizontal = CpTheme.metrics.gutter, vertical = 8.dp)) {
+                        CpButton("${entry.label} 이어 보기" + (p?.let { " · ${it.page + 1}쪽" } ?: ""), { onEntry(entry, null) })
+                    }
+                }
+            }
             item { CpSectionLabel("${if (work.webtoon) "화" else "권"} · ${work.volumeCount}") }
             for (entry in work.entries) {
-                item(key = entry.slot) { EntryRow(entry, work.title, onEntry, onCopies) }
+                item(key = entry.slot) { EntryRow(entry, work.title, progress[entry.unit.id], { onEntry(it, null) }, onCopies) }
                 val sections = entry.unit.contents?.sections.orEmpty()
                 entry.sections.forEachIndexed { i, label ->
                     item(key = entry.slot + "#" + i) {
@@ -173,7 +235,8 @@ internal fun WorkScreen(work: Work, onBack: () -> Unit, onArrange: () -> Unit, o
                             // 한 쪽뿐이면 "5–5쪽" 이 아니라 "5쪽".
                             if (it.pageCount == 1) "${it.firstPage + 1}쪽" else "${it.firstPage + 1}–${it.firstPage + it.pageCount}쪽"
                         }
-                        UnitRow(entry.unit, work.title, label, pages, indent = ENTRY_LEAD, onClick = { onEntry(entry) })
+                        // 합본 안의 권을 누르면 그 권의 첫 쪽부터.
+                        UnitRow(entry.unit, work.title, label, pages, indent = ENTRY_LEAD, onClick = { onEntry(entry, section?.firstPage) })
                     }
                 }
             }
@@ -187,17 +250,20 @@ internal val ENTRY_COVER = 40.dp
 internal val ENTRY_LEAD = ENTRY_COVER + 14.dp
 
 @Composable
-private fun EntryRow(entry: WorkEntry, title: String, onEntry: (WorkEntry) -> Unit, onCopies: (WorkEntry) -> Unit) {
-    val pages = entry.unit.pageCount
+private fun EntryRow(entry: WorkEntry, title: String, progress: ComicProgress?, onEntry: (WorkEntry) -> Unit, onCopies: (WorkEntry) -> Unit) {
+    val pages = progress?.pageCount?.takeIf { it > 0 } ?: entry.unit.pageCount
     // 범위로 읽힌 합본은 "4–6권 합본", 목차로만 알아본 합본은 이름 그대로(이미 "합본" 이 붙은 경우가 많다).
     val label = if (entry.omnibus && entry.name.isRange) "${entry.label} 합본" else entry.label
     val sub = when {
+        // 읽은 권은 진도를 먼저(구상안 ②: "180쪽 · 다 읽음" · "45 / 182쪽").
+        progress?.finished == true -> listOfNotNull(pages?.let { "${it}쪽" }, "다 읽음").joinToString(" · ")
+        progress != null && pages != null -> "${progress.page + 1} / ${pages}쪽"
         entry.omnibus && pages != null -> "한 파일 · ${pages}쪽"
         entry.omnibus -> "한 파일"
         pages != null -> "${pages}쪽"
         else -> null
     }
-    UnitRow(entry.unit, title, label, sub, indent = 0.dp, onClick = { onEntry(entry) }) {
+    UnitRow(entry.unit, title, label, sub, indent = 0.dp, onClick = { onEntry(entry) }, progress = progress?.let { if (it.finished) 1f else it.fraction }) {
         if (entry.copies.isNotEmpty()) {
             val shape = RoundedCornerShape(CpTheme.metrics.cornerChip)
             Box(
@@ -221,6 +287,8 @@ private fun UnitRow(
     sub: String?,
     indent: Dp,
     onClick: () -> Unit,
+    /** 펼친 권의 진도(0..1). null 이면 막대가 없다. */
+    progress: Float? = null,
     trailing: @Composable () -> Unit = {},
 ) {
     val c = CpTheme.colors
@@ -234,6 +302,7 @@ private fun UnitRow(
         Column(Modifier.weight(1f)) {
             CpText(label, CpTheme.type.body, c.text)
             sub?.let { CpText(it, CpTheme.type.caption, c.textMuted) }
+            progress?.let { io.github.kgcaudit.reader.ui.design.CpProgressBar(it, Modifier.fillMaxWidth().padding(top = 4.dp), io.github.kgcaudit.reader.ui.design.CpBarWeight.Thin) }
         }
         trailing()
     }
@@ -376,5 +445,3 @@ private fun RenamePopup(current: String, onDismiss: () -> Unit, onSave: (String)
     }
 }
 
-/** 만화를 눌렀을 때. 뷰어는 다음 판이다(docs/COMIC_PLAN.md) — 아무 일도 안 일어나면 고장처럼 보인다. */
-internal const val COMIC_VIEWER_LATER: String = "만화 보기는 다음 판에서 열립니다"

@@ -92,6 +92,8 @@ fun LibraryScreen(
     scanOnStart: Boolean = true,
     onStartScan: () -> Unit = {},
     onAbout: () -> Unit = {},
+    /** 만화 한 권을 연다(단위 id, 시작 쪽 — null 이면 읽던 자리). */
+    onOpenComic: (String, Int?) -> Unit = { _, _ -> },
 ) {
     val context = LocalContext.current
     val container = context.container
@@ -112,6 +114,7 @@ fun LibraryScreen(
     val notes by remember { data.library.noteCounts() }.collectAsState(initial = emptyMap())
     // 만화 작품(0.33.0). 작품이 하나도 없으면 탭을 세우지 않는다 — 만화가 없는 사람에게 빈 탭은 군더더기다.
     val works by remember { data.comics.works() }.collectAsState(initial = emptyList())
+    val comicProgress by remember { data.comics.progress() }.collectAsState(initial = emptyMap())
     var tab by androidx.compose.runtime.saveable.rememberSaveable { mutableIntStateOf(0) }
     // 열어 둔 작품은 이름 열쇠로 기억한다. 작품은 그때그때 묶이므로, 합치기 · 빼기 뒤에도 열쇠로 다시 찾는다.
     var openWork by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
@@ -225,7 +228,9 @@ fun LibraryScreen(
             EmptyLibrary { pickFolder.launch(null) }
         } else if (comics && tab == 1) {
             val columns = shelfColumns()
-            LazyColumn(Modifier.fillMaxSize()) { comicShelf(works, columns) { openWork = it.key } }
+            LazyColumn(Modifier.fillMaxSize()) {
+                comicShelf(works, comicProgress, columns, onOpen = { openWork = it.key }, onResume = { entry -> onOpenComic(entry.unit.id, null) })
+            }
         } else if (list != null && list.isEmpty() && !scanning) {
             Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
                 CpText(
@@ -240,13 +245,13 @@ fun LibraryScreen(
                 if (reading.isNotEmpty()) {
                     item { ShelfLabel("읽는 중 · ${reading.size}권", more = reading.size > columns) }
                     item(key = "reading") {
-                        ShelfRow(reading) { book, width -> ShelfItem(book, width, percents[book.id], onOpen, onLongClick = { coverMenu = it }) }
+                        ShelfRow(reading, { it.id.value }) { book, width -> ShelfItem(book, width, percents[book.id], onOpen, onLongClick = { coverMenu = it }) }
                     }
                 }
                 if (finished.isNotEmpty()) {
                     item { ShelfLabel("읽은 책 · ${finished.size}권", more = finished.size > columns) }
                     item(key = "finished") {
-                        ShelfRow(finished.map { it.book }) { book, width ->
+                        ShelfRow(finished.map { it.book }, { it.id.value }) { book, width ->
                             val at = finished.first { it.book.id == book.id }.finishedAtEpochMs!!
                             DoneItem(book, width, at, onOpen, onLongClick = { coverMenu = it })
                         }
@@ -303,9 +308,10 @@ fun LibraryScreen(
         androidx.activity.compose.BackHandler { openWork = null }
         WorkScreen(
             work,
+            comicProgress,
             onBack = { openWork = null },
             onArrange = { arranging = true },
-            onEntry = { toast = COMIC_VIEWER_LATER },
+            onEntry = { entry, page -> onOpenComic(entry.unit.id, page) },
             onCopies = { copiesOf = it.slot },
         )
         if (arranging) {
@@ -490,14 +496,14 @@ internal fun ShelfLabel(text: String, more: Boolean) {
  * 목록을 뒤져야 했다). 칸 폭은 화면에 세 권이 들어가는 만큼으로 늘 같다 — 두 권뿐이어도 표지가 커지지 않는다.
  */
 @Composable
-private fun ShelfRow(books: List<LibraryBook>, item: @Composable (LibraryBook, androidx.compose.ui.unit.Dp) -> Unit) {
+internal fun <T> ShelfRow(books: List<T>, key: (T) -> Any, item: @Composable (T, androidx.compose.ui.unit.Dp) -> Unit) {
     val gutter = CpTheme.metrics.gutter
     val screen = LocalShelfWidth.current
     // 넷째 칸이 오른쪽 끝에 조금 보이게 한다(구상안) — 옆으로 넘길 수 있다는 것을 표지 자체가 알린다.
     val columns = shelfColumns()
     val width = (screen - gutter * 2 - SHELF_GAP * (columns - 1) - SHELF_PEEK) / columns
     LazyRow(contentPadding = PaddingValues(horizontal = gutter), horizontalArrangement = Arrangement.spacedBy(SHELF_GAP)) {
-        items(books, key = { it.id.value }) { item(it, width) }
+        items(books, key = key) { item(it, width) }
     }
 }
 

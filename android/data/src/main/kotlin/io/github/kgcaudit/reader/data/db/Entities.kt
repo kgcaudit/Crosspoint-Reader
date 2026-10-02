@@ -155,11 +155,35 @@ data class ComicUnitEntity(
  * 만화 묶음을 손으로 고친 것(0.33.0). 다시 훑어도 남는다 — 그래서 단위 URI · 작품 열쇠로 적고, 단위 행이 숨겨져도 지우지
  * 않는다.
  *
- * @param kind `WORK_OF`(단위 → 작품 열쇠: 합치기 · 빼기), `TITLE`(작품 열쇠 → 보이는 이름), `PREFERRED`(같은 권 열쇠 → 고른 단위).
+ * @param kind `WORK_OF`(단위 → 작품 열쇠: 합치기 · 빼기), `TITLE`(작품 열쇠 → 보이는 이름), `PREFERRED`(같은 권 열쇠 → 고른 단위),
+ *   `RTL`(작품 열쇠 → 넘기는 방향 "1"/"0", 0.34.0).
  */
 @Entity(tableName = "comic_overrides", primaryKeys = ["kind", "subject"])
 data class ComicOverrideEntity(
     val kind: String,
     val subject: String,
     val value: String,
+)
+
+/**
+ * 만화 한 권(단위)의 읽은 자리(0.34.0). 책의 진도(`progress`)와 따로 둔다 — 책 진도는 글자 자리(Locator)이고 책 표의 행을
+ * 가리키지만, 만화는 쪽 번호이고 만화 단위를 가리킨다.
+ *
+ * @param finishedAtEpochMs 마지막 쪽까지 넘긴 때. null 은 "아직" — 0 과 다르다(규칙 5).
+ */
+@Entity(tableName = "comic_progress")
+data class ComicProgressEntity(
+    @PrimaryKey val unitId: String,
+    val page: Int,
+    val pageCount: Int,
+    val updatedAtEpochMs: Long,
+    val finishedAtEpochMs: Long? = null,
+)
+
+/** 만화 책갈피: 권 하나의 쪽 하나. 같은 쪽에 두 번 꽂지 않는다(열쇠). */
+@Entity(tableName = "comic_bookmarks", primaryKeys = ["unitId", "page"])
+data class ComicBookmarkEntity(
+    val unitId: String,
+    val page: Int,
+    val createdAtEpochMs: Long,
 )

@@ -2,6 +2,8 @@ package io.github.kgcaudit.reader.data.library
 
 import androidx.room.withTransaction
 import io.github.kgcaudit.reader.data.db.BookEntity
+import io.github.kgcaudit.reader.data.db.ComicBookmarkEntity
+import io.github.kgcaudit.reader.data.db.ComicProgressEntity
 import io.github.kgcaudit.reader.data.db.ComicOverrideEntity
 import io.github.kgcaudit.reader.data.db.ComicUnitEntity
 import io.github.kgcaudit.reader.data.db.ReaderDatabase
@@ -10,6 +12,7 @@ import io.github.kgcaudit.reader.document.BookId
 import io.github.kgcaudit.reader.document.comic.ComicContents
 import io.github.kgcaudit.reader.document.comic.ComicInfo
 import io.github.kgcaudit.reader.document.comic.ComicOverrides
+import io.github.kgcaudit.reader.document.comic.ComicProgress
 import io.github.kgcaudit.reader.document.comic.ComicShelf
 import io.github.kgcaudit.reader.document.comic.ComicUnit
 import io.github.kgcaudit.reader.document.comic.ComicUnitKind
@@ -242,6 +245,9 @@ class ComicLibrary(private val db: ReaderDatabase) {
     /** 등록을 푼 폴더의 만화를 숨긴다. 손 고침은 남긴다 — 다시 등록하면 같은 URI 라 그대로 이어진다. */
     suspend fun forgetFolder(folderUri: String) = comics.hideFolder(folderUri)
 
+    /** 단위 하나(뷰어가 열 때). 숨긴 것도 준다 — 읽던 권을 되살릴 때 서재 훑기 사이에 잠깐 숨어 있을 수 있다. */
+    suspend fun unit(id: String): ComicUnit? = comics.get(id)?.let(::toUnit)
+
     /** 살필 차례인 압축(zip · cbz). */
     suspend fun needingProbe(): List<ComicUnitEntity> = comics.needingProbe()
 
@@ -294,6 +300,41 @@ class ComicLibrary(private val db: ReaderDatabase) {
         if (t.isEmpty()) comics.clearOverride(TITLE, work.key) else comics.setOverride(ComicOverrideEntity(TITLE, work.key, t))
     }
 
+    /** 작품의 넘기는 방향을 고른다. 작품 열쇠에 적어 같은 작품의 다른 권도 같은 방향으로 열린다(사용자 결정 3). */
+    suspend fun setRightToLeft(work: Work, rightToLeft: Boolean) =
+        comics.setOverride(ComicOverrideEntity(RTL, work.key, if (rightToLeft) "1" else "0"))
+
+    // ── 읽기 ────────────────────────────────────────────────
+
+    /** 권마다의 읽은 자리. 열쇠는 단위 id. */
+    fun progress(): Flow<Map<String, ComicProgress>> = comics.observeProgress().map { rows ->
+        rows.associate { it.unitId to ComicProgress(it.page, it.pageCount, it.updatedAtEpochMs, it.finishedAtEpochMs) }
+    }
+
+    suspend fun progressOf(unitId: String): ComicProgress? =
+        comics.progress(unitId)?.let { ComicProgress(it.page, it.pageCount, it.updatedAtEpochMs, it.finishedAtEpochMs) }
+
+    /**
+     * 읽은 자리를 적는다. 마지막 쪽에 닿으면 다 읽은 것으로 — 한 번 다 읽은 권은 앞 쪽을 다시 들춰 봐도 "다 읽음" 이 남는다
+     * (다 읽은 때를 지우면 서재의 "다 읽음" 이 들춰 볼 때마다 깜빡였다).
+     */
+    suspend fun saveProgress(unitId: String, page: Int, pageCount: Int, nowEpochMs: Long) {
+        val old = comics.progress(unitId)
+        val last = pageCount > 0 && page >= pageCount - 1
+        val finished = old?.finishedAtEpochMs ?: if (last) nowEpochMs else null
+        comics.saveProgress(ComicProgressEntity(unitId, page.coerceAtLeast(0), pageCount, nowEpochMs, finished))
+    }
+
+    fun bookmarks(unitId: String): Flow<List<Int>> = comics.observeBookmarks(unitId).map { rows -> rows.map { it.page } }
+
+    /** 책갈피를 꽂거나 뺀다. 꽂았으면 true. */
+    suspend fun toggleBookmark(unitId: String, page: Int, nowEpochMs: Long): Boolean = db.withTransaction {
+        if (comics.removeBookmark(unitId, page) > 0) false else {
+            comics.addBookmark(ComicBookmarkEntity(unitId, page, nowEpochMs))
+            true
+        }
+    }
+
     /** 같은 권 여러 곳 중 읽을 것을 고른다. */
     suspend fun prefer(entry: WorkEntry, unitId: String) = comics.setOverride(ComicOverrideEntity(PREFERRED, entry.slot, unitId))
 
@@ -301,6 +342,8 @@ class ComicLibrary(private val db: ReaderDatabase) {
         workOf = rows.filter { it.kind == WORK_OF }.associate { it.subject to it.value },
         titles = rows.filter { it.kind == TITLE }.associate { it.subject to it.value },
         preferred = rows.filter { it.kind == PREFERRED }.associate { it.subject to it.value },
+        // "1"/"0" 밖의 값(손상)은 버린다 — "정하지 않음" 으로 남아 ComicInfo 와 기본값을 따른다(규칙 5 · 6).
+        rightToLeft = rows.filter { it.kind == RTL }.mapNotNull { r -> when (r.value) { "1" -> r.subject to true; "0" -> r.subject to false; else -> null } }.toMap(),
     )
 
     private fun toUnit(row: ComicUnitEntity): ComicUnit {
@@ -336,6 +379,7 @@ class ComicLibrary(private val db: ReaderDatabase) {
         const val WORK_OF: String = "WORK_OF"
         const val TITLE: String = "TITLE"
         const val PREFERRED: String = "PREFERRED"
+        const val RTL: String = "RTL"
         /** 빼낸 단위의 작품 열쇠 머리. 이름 열쇠(글자 · 숫자뿐)와 겹치지 않게 기호를 넣는다. */
         const val OWN_PREFIX: String = "#own:"
     }

@@ -38,7 +38,9 @@ data class ComicName(
 
         private val COMPLETE = Regex("""[(\[【]\s*(?:완결?|完)\s*[)\]】]""")
         private val LEADING_TAG = Regex("""^\s*[\[(【{][^\])】}]*[\])】}]\s*""")
-        private val ANY_TAG = Regex("""\([^)]*\)|\[[^\]]*]|\{[^}]*}|【[^】]*】""")
+        // 닫는 ] · } 도 꼭 \ 로 막는다. 안드로이드 정규식(ICU)은 짝 없는 ] · } 를 문법 오류로 봐서, 막지 않았던 0.33.0 은
+        // 만화가 하나라도 있는 휴대폰에서 켜자마자 죽었다(PC 시험은 통과 — RegexPortabilityTest 가 이제 원본을 검사한다).
+        private val ANY_TAG = Regex("""\([^)]*\)|\[[^\]]*\]|\{[^}]*\}|【[^】]*】""")
         // 숫자 사이의 점(12.5)은 남기고, 낱말을 잇는 점 · 밑줄만 띄어쓰기로.
         private val SEPARATOR = Regex("""_|(?<!\d)\.|\.(?!\d)""")
         private val SPACES = Regex("""\s+""")

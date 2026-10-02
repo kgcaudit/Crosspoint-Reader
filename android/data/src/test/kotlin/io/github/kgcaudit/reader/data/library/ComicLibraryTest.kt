@@ -140,4 +140,41 @@ class ComicLibraryTest {
         comics.merge(works().single { it.title == "One Piece" }, works().single { it.title == "원피스" })
         assertEquals(listOf("원피스"), titles())
     }
+
+    @Test
+    fun `reading position is kept per volume and finishing sticks when paging back`() = runTest {
+        comics.saveProgress("a", 10, 100, 1)
+        assertEquals(10, comics.progressOf("a")?.page)
+        assertEquals(null, comics.progressOf("a")?.finishedAtEpochMs)
+        comics.saveProgress("a", 99, 100, 2)
+        assertEquals(2L, comics.progressOf("a")?.finishedAtEpochMs, "마지막 쪽에 닿았는데 다 읽음이 아니다")
+        // 다 읽은 권을 앞으로 들춰 봐도 다 읽음은 남는다.
+        comics.saveProgress("a", 3, 100, 3)
+        assertEquals(2L, comics.progressOf("a")?.finishedAtEpochMs)
+        assertEquals(3, comics.progress().first().getValue("a").page)
+        assertEquals(null, comics.progressOf("b"))
+    }
+
+    @Test
+    fun `a bookmark toggles on and off for one page of one volume`() = runTest {
+        assertTrue(comics.toggleBookmark("a", 12, 1))
+        assertTrue(comics.toggleBookmark("a", 3, 2))
+        assertTrue(comics.toggleBookmark("b", 12, 3))
+        assertEquals(listOf(3, 12), comics.bookmarks("a").first())
+        assertEquals(false, comics.toggleBookmark("a", 12, 4))
+        assertEquals(listOf(3), comics.bookmarks("a").first())
+        assertEquals(listOf(12), comics.bookmarks("b").first(), "다른 권의 책갈피가 함께 빠졌다")
+    }
+
+    @Test
+    fun `the direction chosen for a work holds for its other volumes, and a broken value is ignored`() = runTest {
+        comics.applyScan(phone, ScanResult(emptyList(), true, listOf(cbz("별 01권.cbz", "C"), cbz("별 02권.cbz", "C"))), 1)
+        assertEquals(null, works().single().rightToLeft)
+        comics.setRightToLeft(works().single(), true)
+        assertEquals(true, works().single().rightToLeft)
+        comics.setRightToLeft(works().single(), false)
+        assertEquals(false, works().single().rightToLeft, "왼→오로 되돌린 것이 \"정하지 않음\" 과 섞였다")
+        db.comics().setOverride(io.github.kgcaudit.reader.data.db.ComicOverrideEntity(ComicLibrary.RTL, works().single().key, "yes"))
+        assertEquals(null, works().single().rightToLeft)
+    }
 }

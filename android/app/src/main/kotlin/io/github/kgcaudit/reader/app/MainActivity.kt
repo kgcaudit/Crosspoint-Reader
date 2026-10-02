@@ -151,6 +151,10 @@ private fun OloApp(
     val context = androidx.compose.ui.platform.LocalContext.current
     val container = context.container
     var openId by rememberSaveable { mutableStateOf<String?>(null) }
+    // 연 만화(단위 id)와 시작 쪽. 책과 따로 둔다 — 만화는 OpenedBook 이 아니다(쪽 그림만 있고 글자 리더가 없다).
+    var comicId by rememberSaveable { mutableStateOf<String?>(null) }
+    var comicStart by rememberSaveable { mutableStateOf<Int?>(null) }
+    val libraryState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     /** 라이브러리 위에 뜬 앱 정보([ABOUT]) · 라이선스 본문(그 번호). 화면을 돌려도 남게 저장한다. */
     var aboutPage by rememberSaveable { mutableStateOf<Int?>(null) }
     // 앱 정보를 닫았다 열어도 "마지막 백업" · 기록 수가 이어지게 여기서 든다.
@@ -313,13 +317,30 @@ private fun OloApp(
     }
 
     when (val current = reader) {
-        null -> when (val shown = aboutPage) {
-            null -> LibraryScreen(
+        null -> if (comicId != null) {
+            LaunchedEffect(comicId) { hideSystemBars(true) }
+            CpReaderTheme(prefs.screen.theme) {
+                ComicHost(
+                    unitId = comicId!!,
+                    startAt = comicStart,
+                    prefs = prefs.screen,
+                    onPrefsChange = { prefs = prefs.copy(screen = it); container.prefs.save(prefs) },
+                    onOpen = { next -> comicStart = null; comicId = next },
+                    onClose = { comicId = null; comicStart = null; hideSystemBars(false) },
+                    onChrome = { showing -> hideSystemBars(!showing) },
+                    onFail = { message -> failure = message; comicId = null; comicStart = null; hideSystemBars(false) },
+                )
+            }
+        } else when (val shown = aboutPage) {
+            // 만화를 닫고 돌아오면 보던 탭 · 작품 화면이 그대로여야 한다. 서재는 만화를 여는 동안 화면에서 빠지므로 그 안의
+            // rememberSaveable 이 버려진다 — 상태 보관소에 맡겨 둔다(책장 스크롤도 함께 남는다).
+            null -> libraryState.SaveableStateProvider("library") { LibraryScreen(
                 onOpen = { book -> fromOutside = false; openId = book.id.value },
                 scanOnStart = !scanned,
                 onStartScan = { scanned = true },
                 onAbout = { aboutPage = ABOUT },
-            )
+                onOpenComic = { id, page -> comicStart = page; comicId = id },
+            ) }
             ABOUT -> AboutScreen(records, onBack = { aboutPage = null }, onLicense = { aboutPage = it })
             else -> LicenseScreen(OPEN_LICENSES[shown.coerceIn(OPEN_LICENSES.indices)], onBack = { aboutPage = ABOUT })
         }

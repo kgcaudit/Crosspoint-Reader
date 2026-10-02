@@ -159,12 +159,6 @@ class ComicShelfAppTest {
     }
 
     @Test
-    fun `tapping a volume says the viewer comes next instead of doing nothing`() {
-        openStar()
-        compose.seeBriefly(hasText(COMIC_VIEWER_LATER)) { node(hasText("2권")).performClick() }
-    }
-
-    @Test
     fun `the arrange screen shows where the volumes came from`() {
         openStar()
         click(hasContentDescription("작품 정리"))

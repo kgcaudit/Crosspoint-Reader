@@ -213,4 +213,22 @@ interface ComicDao {
 
     @Query("DELETE FROM comic_overrides WHERE kind = :kind AND subject = :subject")
     suspend fun clearOverride(kind: String, subject: String)
+
+    @Query("SELECT * FROM comic_progress")
+    fun observeProgress(): Flow<List<ComicProgressEntity>>
+
+    @Query("SELECT * FROM comic_progress WHERE unitId = :unitId")
+    suspend fun progress(unitId: String): ComicProgressEntity?
+
+    @Upsert
+    suspend fun saveProgress(progress: ComicProgressEntity)
+
+    @Query("SELECT * FROM comic_bookmarks WHERE unitId = :unitId ORDER BY page")
+    fun observeBookmarks(unitId: String): Flow<List<ComicBookmarkEntity>>
+
+    @Upsert
+    suspend fun addBookmark(bookmark: ComicBookmarkEntity)
+
+    @Query("DELETE FROM comic_bookmarks WHERE unitId = :unitId AND page = :page")
+    suspend fun removeBookmark(unitId: String, page: Int): Int
 }

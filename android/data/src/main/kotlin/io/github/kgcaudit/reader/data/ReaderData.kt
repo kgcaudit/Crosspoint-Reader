@@ -18,6 +18,7 @@ import io.github.kgcaudit.reader.document.comic.ComicContents
 import io.github.kgcaudit.reader.document.comic.ComicInfo
 import io.github.kgcaudit.reader.document.comic.ComicUnit
 import io.github.kgcaudit.reader.document.comic.ComicUnitKind
+import io.github.kgcaudit.reader.document.comic.NaturalOrder
 import io.github.kgcaudit.reader.document.zip.ZipReader
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -139,17 +140,53 @@ class ReaderData(
         val uri = Uri.parse(unit.id)
         return when (unit.kind) {
             ComicUnitKind.ARCHIVE -> ZipReader.open(sources.seekableSource(uri)).use { zip -> zip.openStream(entry)?.use { it.readBytes() } }
-            ComicUnitKind.IMAGE_FOLDER -> {
-                val children = android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(uri, android.provider.DocumentsContract.getDocumentId(uri))
-                val projection = arrayOf(android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID, android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME)
-                // Bundle 판 query — 5인자 판은 일부 경로(래퍼 · Robolectric)에서 제공자가 받지 않는다(SafDocumentTree 와 같은 까닭).
-                val id = resolver.query(children, projection, null as android.os.Bundle?, null)?.use { c ->
-                    var found: String? = null
-                    while (found == null && c.moveToNext()) if (c.getString(1) == entry) found = c.getString(0)
-                    found
-                } ?: return null
-                resolver.openInputStream(android.provider.DocumentsContract.buildDocumentUriUsingTree(uri, id))?.use { it.readBytes() }
+            ComicUnitKind.IMAGE_FOLDER -> folderFiles(uri)[entry]?.let { doc -> resolver.openInputStream(doc)?.use { it.readBytes() } }
+        }
+    }
+
+    /**
+     * 만화 한 권을 연다(0.34.0). 쪽 이름은 이때 다시 읽는다 — 서재는 쪽 수만 들고 있다. 압축은 목록만 읽고 쪽은 볼 때
+     * 하나씩 꺼낸다(1GB 압축을 통째로 복사하면 느리고 공간을 먹는다). 그림이 하나도 없으면 [java.io.IOException].
+     */
+    fun openComic(unit: ComicUnit): ComicPages {
+        val uri = Uri.parse(unit.id)
+        return when (unit.kind) {
+            ComicUnitKind.ARCHIVE -> {
+                val zip = ZipReader.open(sources.seekableSource(uri))
+                try {
+                    // 이름이 만화라고 말하지 않아도(zip) 여기까지 왔으면 서재가 만화로 본 것이다 — 그림 하나라도 있으면 연다.
+                    val contents = ComicContents.ofArchive(zip.entries.keys.toList(), trustExtension = true)
+                        ?: throw java.io.IOException("no pictures in ${unit.name}")
+                    ComicPages(contents.pages, { name -> zip.openStream(name)?.use { it.readBytes() } }, zip)
+                } catch (e: Throwable) {
+                    zip.close()
+                    throw e
+                }
             }
+            ComicUnitKind.IMAGE_FOLDER -> {
+                val files = folderFiles(uri)
+                val pages = files.keys.filter(ComicContents::isImageName).sortedWith(NaturalOrder)
+                if (pages.isEmpty()) throw java.io.IOException("no pictures in ${unit.name}")
+                ComicPages(pages, { name -> files[name]?.let { doc -> resolver.openInputStream(doc)?.use { it.readBytes() } } }, null)
+            }
+        }
+    }
+
+    /** 그림 폴더 바로 안의 파일: 이름 → 문서 URI. */
+    private fun folderFiles(folder: Uri): Map<String, Uri> {
+        val children = android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(folder, android.provider.DocumentsContract.getDocumentId(folder))
+        val projection = arrayOf(android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID, android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+        // Bundle 판 query — 5인자 판은 일부 경로(래퍼 · Robolectric)에서 제공자가 받지 않는다(SafDocumentTree 와 같은 까닭).
+        val cursor = resolver.query(children, projection, null as android.os.Bundle?, null)
+            ?: throw java.io.IOException("provider returned no cursor for $children")
+        return cursor.use { c ->
+            val out = LinkedHashMap<String, Uri>()
+            while (c.moveToNext()) {
+                val id = c.getString(0) ?: continue
+                val name = c.getString(1) ?: continue
+                out[name] = android.provider.DocumentsContract.buildDocumentUriUsingTree(folder, id)
+            }
+            out
         }
     }
 
