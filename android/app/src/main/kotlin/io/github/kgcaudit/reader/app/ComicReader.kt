@@ -56,6 +56,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import io.github.kgcaudit.reader.document.image.ImageSize
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -63,12 +65,14 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import io.github.kgcaudit.reader.document.comic.ComicReading
+import io.github.kgcaudit.reader.document.comic.ComicSpreads
 import io.github.kgcaudit.reader.document.comic.ComicView
 import io.github.kgcaudit.reader.document.comic.Webtoon
 import io.github.kgcaudit.reader.document.comic.Work
 import io.github.kgcaudit.reader.document.comic.WorkEntry
 import io.github.kgcaudit.reader.pdf.PageViewport
 import io.github.kgcaudit.reader.ui.design.CpBrightnessRow
+import io.github.kgcaudit.reader.ui.design.ComicSpread
 import io.github.kgcaudit.reader.ui.design.CpButton
 import io.github.kgcaudit.reader.ui.design.CpChoice
 import io.github.kgcaudit.reader.ui.design.CpFullScreen
@@ -136,8 +140,11 @@ fun ComicReader(
     /** 사람이 고른 보는 방식(null 은 자동). */
     view: ComicView? = null,
     onView: (ComicView?) -> Unit = {},
+    /** 쪽 크기(머리만 읽은 것). 두 쪽 보기의 짝 · 함께 맞춤에 쓴다. 모르면 빈 목록. */
+    sizes: List<ImageSize?> = emptyList(),
 ) {
     val count = book.pageCount
+    // 지금 판의 첫 쪽. 두 쪽 보기를 켜고 끄면 그 쪽이 든 판으로 맞춘다.
     var page by rememberSaveable(book.unit.id) { mutableIntStateOf(startPage.coerceIn(0, (count - 1).coerceAtLeast(0))) }
     var ended by rememberSaveable(book.unit.id) { mutableStateOf(false) }
     var panel by remember { mutableStateOf(ComicPanel.None) }
@@ -145,11 +152,20 @@ fun ComicReader(
     var toastCount by remember { mutableIntStateOf(0) }
     val rtl = ComicReading.rightToLeft(work)
     val next = work?.let { ComicReading.nextAfter(it, book.unit.id) }
-    val bookmarked = page in bookmarks
     val turns = rememberPageTurnState()
     val latestPrefs by rememberUpdatedState(prefs)
+    // 두 쪽 보기는 화면 모양에 따라 정한다(가로에서 · 늘). 판 목록은 그때마다 다시 짠다 — 짝은 쪽 크기로 정해진다.
+    var screen by remember { mutableStateOf(IntSize.Zero) }
+    val two = prefs.comicSpread.twoPages(screen.width.toFloat(), screen.height.toFloat()) && count > 1
+    val spreads = remember(two, count, sizes) {
+        if (two) ComicSpreads.of(List(count) { sizes.getOrNull(it) }) else List(count) { listOf(it) }
+    }
+    val spreadIndex = ComicSpreads.indexOf(spreads, page)
+    val shown = spreads.getOrElse(spreadIndex) { listOf(page) }
+    val bookmarked = shown.any { it in bookmarks }
 
-    LaunchedEffect(page) { onPage(page) }
+    // 자리는 판의 마지막 쪽으로 적는다 — 끝 판을 보면 다 읽음이고, 다시 열면 그 쪽이 든 판이 나온다.
+    LaunchedEffect(shown) { onPage(shown.last()) }
     LaunchedEffect(panel) { onChrome(panel != ComicPanel.None) }
     ReadingWindow(prefs, activity = page)
 
@@ -157,18 +173,19 @@ fun ComicReader(
         toast = message
         toastCount++
     }
-    /** 읽는 순서로 한 쪽. 마지막 쪽에서 앞으로 가면 권 끝 판. */
+    /** 읽는 순서로 한 판(한 쪽 또는 두 쪽). 마지막 판에서 앞으로 가면 권 끝 판. */
     fun advance(forward: Boolean) {
         if (forward) {
-            if (page < count - 1) { turns.request(); page++ } else ended = true
-        } else if (page > 0) {
+            if (spreadIndex < spreads.size - 1) { turns.request(); page = spreads[spreadIndex + 1].first() } else ended = true
+        } else if (spreadIndex > 0) {
             turns.request()
-            page--
+            page = spreads[spreadIndex - 1].first()
         }
     }
     fun toggleBookmark() {
         say(if (bookmarked) "책갈피를 뺐습니다" else "책갈피를 꽂았습니다")
-        onBookmark(page)
+        // 두 쪽 중 이미 꽂힌 쪽이 있으면 그것을 뺀다. 없으면 판의 첫 쪽에 꽂는다.
+        onBookmark(shown.firstOrNull { it in bookmarks } ?: shown.first())
     }
     VolumeKeyPaging(enabled = prefs.volumeKeys && panel == ComicPanel.None && !ended) { forward -> advance(forward) }
 
@@ -184,40 +201,41 @@ fun ComicReader(
 
     Box(Modifier.fillMaxSize().background(COMIC_BACKDROP)) {
         Column(Modifier.fillMaxSize()) {
-            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().windowInsetsPadding(WindowInsets.displayCutout)) {
+            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().windowInsetsPadding(WindowInsets.displayCutout).onSizeChanged { screen = it }) {
                 val viewW = constraints.maxWidth.toFloat()
                 val viewH = constraints.maxHeight.toFloat()
                 val w = constraints.maxWidth
                 val h = constraints.maxHeight
-                // 지금 쪽의 확대 · 위치. 쪽이 바뀌면 다시 전체가 보인다.
-                var aspect by remember(page) { mutableStateOf(book.knownAspect(page)) }
-                var viewport by remember(page, w, h, aspect) { mutableStateOf(aspect?.let { PageViewport.fit(viewW, viewH, it) }) }
-                LaunchedEffect(page, w, h) {
-                    book.page(page, w, h)
-                    aspect = book.knownAspect(page)
-                    // 앞뒤 쪽을 미리 풀어 둔다 — 넘길 때 빈 화면이 번쩍이지 않게.
-                    for (near in intArrayOf(page + 1, page - 1, page + 2)) if (near in 0 until count) book.page(near, w, h)
+                // 지금 판의 확대 · 위치. 판이 바뀌면 다시 전체가 보인다. 두 쪽은 한 그림처럼 함께 맞추고 함께 확대한다.
+                var aspect by remember(shown) { mutableStateOf(spreadAspect(book, sizes, shown)) }
+                var viewport by remember(shown, w, h, aspect) { mutableStateOf(aspect?.let { PageViewport.fit(viewW, viewH, it) }) }
+                LaunchedEffect(shown, w, h) {
+                    for (p in shown) book.page(p, w, h)
+                    aspect = spreadAspect(book, sizes, shown)
+                    // 앞뒤 판을 미리 풀어 둔다 — 넘길 때 빈 화면이 번쩍이지 않게.
+                    for (near in listOf(spreadIndex + 1, spreadIndex - 1)) spreads.getOrNull(near)?.forEach { book.page(it, w, h) }
                 }
                 if (w > 0 && h > 0 && count > 0) {
                     // 오→왼: 넘김 효과를 통째로 거울에 비춘다(말림이 왼쪽 모서리에서 일어난다). 쪽 그림은 안에서 다시 뒤집어
                     // 바로 보인다. 누름은 거울 밖에서 받는다 — 화면 좌표가 그대로라 누름 구역 계산이 하나다.
                     Box(Modifier.fillMaxSize().graphicsLayer { scaleX = if (rtl) -1f else 1f }) {
                         CpPageTurn(
-                            key = page,
+                            key = shown,
                             effect = prefs.pageTurn,
-                            forward = { from, to -> to > from },
+                            forward = { from, to -> to.first() > from.first() },
                             turns = turns,
+                            spread = shown.size == 2,
                             sound = prefs.turnSound,
                             haptic = prefs.turnHaptic,
-                        ) { shown ->
-                            ComicPageImage(book, shown, w, h, if (shown == page) viewport else null, mirrored = rtl)
+                        ) { pages ->
+                            ComicPageImage(book, sizes, pages, w, h, if (pages == shown) viewport else null, mirrored = rtl)
                         }
                     }
                 }
                 Box(
                     Modifier.fillMaxSize().clipToBounds()
-                        .semantics { contentDescription = "만화 ${page + 1}쪽" }
-                        .pointerInput(page, w, h, rtl) {
+                        .semantics { contentDescription = "만화 ${pagesLabel(shown)}쪽" }
+                        .pointerInput(shown, w, h, rtl) {
                             detectTapGestures(
                                 onDoubleTap = { at -> viewport = viewport?.toggleZoom(at.x, at.y) },
                                 onTap = { at ->
@@ -232,7 +250,7 @@ fun ComicReader(
                                 },
                             )
                         }
-                        .pointerInput(page, w, h, rtl) {
+                        .pointerInput(shown, w, h, rtl) {
                             val threshold = 48.dp.toPx()
                             awaitEachGesture {
                                 awaitFirstDown(requireUnconsumed = false)
@@ -269,7 +287,7 @@ fun ComicReader(
                         },
                 )
             }
-            ComicFooter(title, page, count, rtl, Modifier.windowInsetsPadding(WindowInsets.displayCutout))
+            ComicFooter(title, shown, count, rtl, Modifier.windowInsetsPadding(WindowInsets.displayCutout))
         }
         if (bookmarked) CpRibbon(Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.displayCutout).padding(end = 20.dp))
         CpToast(toast, onDone = { toast = null }, Modifier.align(Alignment.BottomCenter), key = toastCount)
@@ -279,7 +297,7 @@ fun ComicReader(
         ComicPanel.None -> Unit
         ComicPanel.Bar, ComicPanel.View -> CpReaderBar(
             title = title,
-            subtitle = "${page + 1} / ${count}쪽",
+            subtitle = "${pagesLabel(shown)} / ${count}쪽",
             bookmarked = bookmarked,
             onBookmark = ::toggleBookmark,
             onBack = onClose,
@@ -290,9 +308,10 @@ fun ComicReader(
             above = {
                 if (panel == ComicPanel.View) {
                     Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                        // 두 쪽 보기는 C3 에서 이 판에 더한다.
                         ViewChoice(view, onView)
                         CpChoice("넘기는 방향", listOf("왼→오", "오→왼"), if (rtl) 1 else 0, { onDirection(it == 1) })
+                        val choices = ComicSpread.entries
+                        CpChoice("두 쪽 보기", choices.map { it.label }, choices.indexOf(prefs.comicSpread), { onPrefsChange(prefs.copy(comicSpread = choices[it])) })
                         CpBrightnessRow(prefs.brightness, { onPrefsChange(prefs.copy(brightness = it)) })
                         CpLinkRow("모든 보기 설정", "", { panel = ComicPanel.Settings })
                     }
@@ -346,26 +365,39 @@ internal fun pageAt(fraction: Float, pageCount: Int): Int =
  * 좌우로 뒤집어 그린다 — 바깥 거울(오→왼 넘김 효과)과 겹쳐 바로 보인다.
  */
 @Composable
-private fun ComicPageImage(book: ComicBook, index: Int, w: Int, h: Int, viewport: PageViewport?, mirrored: Boolean) {
-    var bitmap by remember(index, w, h) { mutableStateOf<Bitmap?>(book.cached(index, w, h)) }
-    var broken by remember(index, w, h) { mutableStateOf(book.isBroken(index)) }
-    LaunchedEffect(index, w, h) {
-        if (bitmap == null && !broken) {
-            bitmap = book.page(index, w, h)
-            broken = bitmap == null
+private fun ComicPageImage(book: ComicBook, sizes: List<ImageSize?>, pages: List<Int>, w: Int, h: Int, viewport: PageViewport?, mirrored: Boolean) {
+    val bitmaps = remember(pages, w, h) { androidx.compose.runtime.mutableStateListOf(*pages.map { book.cached(it, w, h) }.toTypedArray()) }
+    var broken by remember(pages, w, h) { mutableStateOf(pages.any { book.isBroken(it) }) }
+    LaunchedEffect(pages, w, h) {
+        pages.forEachIndexed { k, p ->
+            if (bitmaps[k] == null && !book.isBroken(p)) bitmaps[k] = book.page(p, w, h)
         }
+        broken = pages.any { book.isBroken(it) }
     }
     Box(Modifier.fillMaxSize()) {
         Canvas(Modifier.fillMaxSize()) {
-            val b = bitmap ?: return@Canvas
-            val vp = viewport ?: PageViewport.fit(size.width, size.height, b.width.toFloat() / b.height)
+            // 각 쪽의 비. 아직 모르면 푼 그림에서, 그것도 없으면 그리지 않는다(흔들리지 않게).
+            val aspects = pages.mapIndexed { k, p -> sizes.getOrNull(p)?.let { it.width.toFloat() / it.height } ?: bitmaps[k]?.let { it.width.toFloat() / it.height } }
+            if (aspects.any { it == null }) return@Canvas
+            val total = aspects.sumOf { it!!.toDouble() }.toFloat()
+            val vp = viewport ?: PageViewport.fit(size.width, size.height, total)
             withTransform({ if (mirrored) scale(-1f, 1f, pivot = center) }) {
-                drawImage(
-                    b.asImageBitmap(),
-                    dstOffset = IntOffset(vp.left.roundToInt(), vp.top.roundToInt()),
-                    dstSize = IntSize(vp.width.roundToInt(), vp.height.roundToInt()),
-                    filterQuality = FilterQuality.Medium,
-                )
+                // 화면에 보이는 차례로 늘어놓는다: 오→왼 책은 앞 쪽이 오른쪽(구상안 ⑥). 바깥 거울 · 안쪽 뒤집기가 서로를 지워
+                // 자리는 여기 적은 그대로 보인다.
+                val order = if (mirrored) pages.indices.reversed() else pages.indices
+                var x = vp.left
+                for (k in order) {
+                    val pw = vp.width * aspects[k]!! / total
+                    bitmaps[k]?.let { b ->
+                        drawImage(
+                            b.asImageBitmap(),
+                            dstOffset = IntOffset(x.roundToInt(), vp.top.roundToInt()),
+                            dstSize = IntSize(pw.roundToInt(), vp.height.roundToInt()),
+                            filterQuality = FilterQuality.Medium,
+                        )
+                    }
+                    x += pw
+                }
             }
         }
         if (broken) {
@@ -385,8 +417,24 @@ private fun ComicPageImage(book: ComicBook, index: Int, w: Int, h: Int, viewport
  * 따른다).
  */
 @Composable
-private fun ComicFooter(title: String, page: Int, count: Int, rtl: Boolean, modifier: Modifier) =
-    ComicFooterLine(title, "${page + 1} / $count" + if (rtl) "  ← 오→왼" else "", if (count > 1) page / (count - 1f) else 1f, rtl, modifier)
+private fun ComicFooter(title: String, shown: List<Int>, count: Int, rtl: Boolean, modifier: Modifier) =
+    ComicFooterLine(title, "${pagesLabel(shown)} / $count" + if (rtl) "  ← 오→왼" else "", if (count > 1) shown.last() / (count - 1f) else 1f, rtl, modifier)
+
+/** "12" · 두 쪽이면 "2–3". */
+internal fun pagesLabel(shown: List<Int>): String =
+    if (shown.size >= 2) "${shown.first() + 1}–${shown.last() + 1}" else "${(shown.firstOrNull() ?: 0) + 1}"
+
+/**
+ * 판의 가로/세로 비: 쪽들을 같은 높이로 나란히 놓은 폭의 합. 크기를 모르는 쪽은 푼 그림의 비, 그것도 모르면 null(아직 기다림).
+ */
+internal fun spreadAspect(book: ComicBook, sizes: List<ImageSize?>, pages: List<Int>): Float? {
+    var sum = 0f
+    for (p in pages) sum += pageAspect(book, sizes, p) ?: return null
+    return sum
+}
+
+private fun pageAspect(book: ComicBook, sizes: List<ImageSize?>, page: Int): Float? =
+    sizes.getOrNull(page)?.let { it.width.toFloat() / it.height } ?: book.knownAspect(page)
 
 /** 아래 줄 그리기. 웹툰(%)도 같은 모양으로 쓴다. */
 @Composable
@@ -596,6 +644,7 @@ fun ComicHost(
             onChrome = onChrome,
             view = work?.view,
             onView = onView,
+            sizes = sizes,
         )
         ComicView.WEBTOON -> WebtoonReader(
             book = opened,

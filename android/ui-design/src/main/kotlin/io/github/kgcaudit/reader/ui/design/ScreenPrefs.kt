@@ -55,6 +55,8 @@ data class ScreenPrefs(
      * 한 화면에 말풍선 하나만 보인다. 휴대폰 세로에서는 늘 꽉 채운다.
      */
     val webtoonColumn: Int = DEFAULT_WEBTOON_COLUMN,
+    /** 만화 두 쪽 보기(0.36.0). 기본 "가로에서" — 가로로 돌리면 종이 만화책처럼 펼친다(구상안 ⑥). */
+    val comicSpread: ComicSpread = ComicSpread.Landscape,
 ) {
     /**
      * 지금 화면에서 두 쪽을 펼칠지. 세로 두쪽은 기기의 가장 짧은 폭이 [WIDE_SCREEN_DP] 이상일 때만 — 휴대폰
@@ -125,6 +127,20 @@ enum class TouchZones(val label: String, val description: String) {
 }
 
 enum class TapAction { Previous, Next, Menu, Bookmark }
+
+/** 만화 두 쪽 보기. 책 · PDF 의 두쪽보기와 따로 둔다 — 글은 가로 한 쪽이 읽기 힘들지만 만화는 한 쪽을 크게 보려는 사람도 있다. */
+enum class ComicSpread(val label: String) {
+    Off("끔"),
+    Landscape("가로에서"),
+    /** 세로 휴대폰에서도 — 작지만 펼침면 그림을 이어 보려는 사람. */
+    Always("늘");
+
+    fun twoPages(widthPx: Float, heightPx: Float): Boolean = when (this) {
+        Off -> false
+        Landscape -> widthPx > heightPx
+        Always -> true
+    }
+}
 
 /**
  * 누른 자리의 동작.

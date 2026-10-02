@@ -343,6 +343,7 @@ class PrefsStore(context: Context) {
             // 범위 밖(손상)이면 기본으로 — 0% 기둥이면 웹툰이 보이지 않는다.
             webtoonColumn = sp.getInt(KEY_WEBTOON_COLUMN, ScreenPrefs.DEFAULT_WEBTOON_COLUMN)
                 .takeIf { it in ScreenPrefs.WEBTOON_COLUMN_RANGE } ?: ScreenPrefs.DEFAULT_WEBTOON_COLUMN,
+            comicSpread = enumOf(KEY_COMIC_SPREAD, io.github.kgcaudit.reader.ui.design.ComicSpread.Landscape),
         ),
         listen = ListenPrefs(
             // 망가진 값(범위 밖)은 범위 안으로 — 0 배속으로 저장된 값 때문에 듣기가 안 되면 안 된다.
@@ -399,6 +400,7 @@ class PrefsStore(context: Context) {
             .putString(KEY_PDF_FIT, prefs.screen.pdfFit.name)
             .putString(KEY_IMAGE_BLEND, prefs.screen.imageBlend.name)
             .putInt(KEY_WEBTOON_COLUMN, prefs.screen.webtoonColumn)
+            .putString(KEY_COMIC_SPREAD, prefs.screen.comicSpread.name)
             .putFloat(KEY_LISTEN_RATE, prefs.listen.rate)
             .putString(KEY_LISTEN_ENGINE, prefs.listen.engine)
             .putString(KEY_LISTEN_VOICE, prefs.listen.voice)
@@ -466,6 +468,7 @@ class PrefsStore(context: Context) {
         private const val KEY_PDF_FIT = "pdfFit"
         private const val KEY_IMAGE_BLEND = "imageBlend"
         private const val KEY_WEBTOON_COLUMN = "webtoonColumn"
+        private const val KEY_COMIC_SPREAD = "comicSpread"
         private const val KEY_LISTEN_JOIN = "listenJoin"
         private const val KEY_LISTEN_RATE = "listenRate"
         private const val KEY_LISTEN_ENGINE = "listenEngine"
