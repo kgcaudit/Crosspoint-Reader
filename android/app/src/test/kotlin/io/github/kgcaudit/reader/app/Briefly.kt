@@ -25,5 +25,7 @@ internal fun ComposeTestRule.seeBriefly(matcher: SemanticsMatcher, timeoutMs: Lo
         }
     } finally {
         mainClock.autoAdvance = true
+        // 멈춰 둔 사이 시작한 넘김 효과(0.32.0)를 끝까지 — 진행 중인 채 시험이 끝나면 다음 시험의 화면이 쉬지 못했다.
+        waitForIdle()
     }
 }

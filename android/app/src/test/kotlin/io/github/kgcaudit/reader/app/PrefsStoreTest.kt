@@ -129,6 +129,31 @@ class PrefsStoreTest {
     }
 
     @Test
+    fun `readers coming from 0_31 get the curl unless they had picked an effect themselves`() {
+        // 0.31 까지 저장할 때마다 "없음"(옛 기본)이 적혔다. 그대로 읽으면 말림 기본이 아무에게도 닿지 않는다. 서서히 · 밀기는
+        // 사람이 고른 것이라 지킨다.
+        val sp = context.getSharedPreferences("reader", Context.MODE_PRIVATE)
+        sp.edit().clear().putString("pageTurn", "None").commit()
+        assertEquals(io.github.kgcaudit.reader.ui.design.PageTurn.Curl, PrefsStore(context).load().screen.pageTurn)
+        sp.edit().clear().putString("pageTurn", "Slide").commit()
+        assertEquals(io.github.kgcaudit.reader.ui.design.PageTurn.Slide, PrefsStore(context).load().screen.pageTurn)
+        // 새로 고른 값(없음 포함)은 그대로 남는다.
+        PrefsStore(context).save(
+            ReaderPrefs(
+                screen = io.github.kgcaudit.reader.ui.design.ScreenPrefs(
+                    pageTurn = io.github.kgcaudit.reader.ui.design.PageTurn.None,
+                    turnSound = io.github.kgcaudit.reader.ui.design.TurnSound.Swish,
+                    turnHaptic = true,
+                ),
+            ),
+        )
+        val loaded = PrefsStore(context).load().screen
+        assertEquals(io.github.kgcaudit.reader.ui.design.PageTurn.None, loaded.pageTurn)
+        assertEquals(io.github.kgcaudit.reader.ui.design.TurnSound.Swish, loaded.turnSound)
+        assertEquals(true, loaded.turnHaptic)
+    }
+
+    @Test
     fun `a paper colour chosen before sepia was added keeps its meaning`() {
         // 0.22.1 에서 세피아를 아이보리와 회색 사이에 끼웠다. 순번으로 저장했다면 회색을 고른 사람이 세피아를 보게 된다.
         context.getSharedPreferences("reader", Context.MODE_PRIVATE).edit().putString("theme", "Gray").commit()

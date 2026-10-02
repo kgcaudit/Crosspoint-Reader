@@ -320,7 +320,9 @@ class PrefsStore(context: Context) {
             twoPagesLandscape = sp.getBoolean(KEY_TWO_PAGES_LANDSCAPE, true),
             twoPagesPortrait = sp.getBoolean(KEY_TWO_PAGES_PORTRAIT, true),
             pdfCoverAlone = sp.getBoolean(KEY_PDF_COVER_ALONE, true),
-            pageTurn = enumOf(KEY_PAGE_TURN, PageTurn.None),
+            pageTurn = pageTurn(),
+            turnSound = enumOf(KEY_TURN_SOUND, io.github.kgcaudit.reader.ui.design.TurnSound.Off),
+            turnHaptic = sp.getBoolean(KEY_TURN_HAPTIC, false),
             brightnessGesture = sp.getBoolean(KEY_BRIGHTNESS_GESTURE, true),
             autoTurn = enumOf(KEY_AUTO_TURN, AutoTurn.Off),
             showHighlights = sp.getBoolean(KEY_SHOW_HIGHLIGHTS, true),
@@ -338,6 +340,16 @@ class PrefsStore(context: Context) {
     )
 
     /** 저장된 이름의 값. 모르는 이름(나중 판에서 빠진 것)이면 기본값 — 옛 설정 때문에 책이 안 열리면 안 된다. */
+    /**
+     * 넘김 효과. 0.32.0 에서 기본을 "말림" 으로 바꾸며 저장 이름도 바꿨다 — 저장할 때마다 모든 설정을 쓰므로 옛 이름에는
+     * 거의 모두 "없음"(옛 기본)이 적혀 있다. 옛 값이 서서히 · 밀기면 사람이 고른 것이니 지키고, 없음이거나 없으면 말림.
+     */
+    private fun pageTurn(): PageTurn {
+        sp.getString(KEY_PAGE_TURN, null)?.let { saved -> PageTurn.entries.firstOrNull { it.name == saved }?.let { return it } }
+        val old = PageTurn.entries.firstOrNull { it.name == sp.getString(KEY_PAGE_TURN_OLD, null) }
+        return if (old == PageTurn.Fade || old == PageTurn.Slide) old else PageTurn.Curl
+    }
+
     private inline fun <reified E : Enum<E>> enumOf(key: String, default: E): E =
         enumValues<E>().firstOrNull { it.name == sp.getString(key, null) } ?: default
 
@@ -364,6 +376,8 @@ class PrefsStore(context: Context) {
             .putBoolean(KEY_TWO_PAGES_PORTRAIT, prefs.screen.twoPagesPortrait)
             .putBoolean(KEY_PDF_COVER_ALONE, prefs.screen.pdfCoverAlone)
             .putString(KEY_PAGE_TURN, prefs.screen.pageTurn.name)
+            .putString(KEY_TURN_SOUND, prefs.screen.turnSound.name)
+            .putBoolean(KEY_TURN_HAPTIC, prefs.screen.turnHaptic)
             .putBoolean(KEY_BRIGHTNESS_GESTURE, prefs.screen.brightnessGesture)
             .putString(KEY_AUTO_TURN, prefs.screen.autoTurn.name)
             .putBoolean(KEY_SHOW_HIGHLIGHTS, prefs.screen.showHighlights)
@@ -425,7 +439,11 @@ class PrefsStore(context: Context) {
          */
         private const val KEY_TWO_PAGES_PORTRAIT = "twoPagesPortraitV2"
         private const val KEY_PDF_COVER_ALONE = "pdfCoverAlone"
-        private const val KEY_PAGE_TURN = "pageTurn"
+        private const val KEY_PAGE_TURN = "pageTurnV2"
+        /** 0.31 까지의 넘김 효과 — 읽기만 한다([pageTurn]). */
+        private const val KEY_PAGE_TURN_OLD = "pageTurn"
+        private const val KEY_TURN_SOUND = "turnSound"
+        private const val KEY_TURN_HAPTIC = "turnHaptic"
         private const val KEY_BRIGHTNESS_GESTURE = "brightnessGesture"
         private const val KEY_AUTO_TURN = "autoTurn"
         private const val KEY_SHOW_HIGHLIGHTS = "showHighlights"

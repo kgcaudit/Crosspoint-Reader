@@ -88,6 +88,8 @@ import io.github.kgcaudit.reader.layout.html.Link
 import io.github.kgcaudit.reader.ui.design.CpBrightnessOverlay
 import io.github.kgcaudit.reader.ui.design.CpBrightnessRow
 import io.github.kgcaudit.reader.ui.design.CpPageTurn
+import io.github.kgcaudit.reader.ui.design.PageTurn
+import io.github.kgcaudit.reader.ui.design.rememberPageTurnState
 import io.github.kgcaudit.reader.ui.design.ReadingSpeed
 import io.github.kgcaudit.reader.ui.design.brightnessEdge
 import io.github.kgcaudit.reader.ui.design.systemBrightness
@@ -254,7 +256,10 @@ fun ReaderScreen(
     )
     // 듣는 동안에는 볼륨키를 음량으로 돌려준다(0.28.1, 사용자 결정). 가져가면 목소리를 줄일 수 없고, 누를 때마다 쪽이 넘어가
     // 듣기가 그 쪽 첫 문장으로 건너뛰어 읽던 곳을 놓쳤다.
+    // 사람이 넘길 때만 넘김 효과 · 소리(0.32.0). 다시 짠 쪽 · 목차로 건너뛴 쪽에는 내지 않는다.
+    val turns = rememberPageTurnState()
     VolumeKeyPaging(enabled = prefs.screen.volumeKeys && panel == Panel.None && !listen.active) { forward ->
+        turns.request()
         scope.go { if (forward) reader.next() else reader.previous() }
     }
     fun toggleBookmark() = scope.go {
@@ -418,7 +423,15 @@ fun ReaderScreen(
         }
         frames[frameKey] = frame
         // 넘김 효과(E7): 쪽이 바뀔 때만. 그리는 것만 움직이고 누르기 · 밀기는 아래의 고정된 층이 받는다.
-        CpPageTurn(frameKey, prefs.screen.pageTurn, forward = { from, to -> from == null || to == null || isAfter(to.first to to.second, from.first to from.second) }) { key ->
+        CpPageTurn(
+            frameKey,
+            prefs.screen.pageTurn,
+            forward = { from, to -> from == null || to == null || isAfter(to.first to to.second, from.first to from.second) },
+            turns = turns,
+            spread = state.spread,
+            sound = prefs.screen.turnSound,
+            haptic = prefs.screen.turnHaptic,
+        ) { key ->
             val shown = frames[key] ?: frame
             val imageFilter = paperImageFilter(colors.paper, prefs.screen.imageBlend)
             Canvas(Modifier.fillMaxSize().background(colors.paper)) {
@@ -512,8 +525,8 @@ fun ReaderScreen(
                             return@detectTapGestures
                         }
                         when (action) {
-                            TapAction.Previous -> scope.go { reader.previous() }
-                            TapAction.Next -> scope.go { reader.next() }
+                            TapAction.Previous -> { turns.request(); scope.go { reader.previous() } }
+                            TapAction.Next -> { turns.request(); scope.go { reader.next() } }
                             TapAction.Menu -> panel = Panel.Bar
                             TapAction.Bookmark -> Unit
                         }
@@ -521,15 +534,36 @@ fun ReaderScreen(
                 }
                 .pointerInput(reader) {
                     var dragged = 0f
+                    // 끌기가 시작된 방향(앞으로면 true). 정해지면 바로 넘긴다 — 손가락을 따라 말리려면 아래에 다음 쪽이 있어야 한다.
+                    var committed: Boolean? = null
                     val threshold = 48.dp.toPx()
+                    val start = 12.dp.toPx()
+                    fun follows() = latestPrefs.screen.pageTurn.let { it == PageTurn.Curl || it == PageTurn.Cover }
+                    fun back(forward: Boolean) = scope.go { if (forward) reader.previous() else reader.next() }
                     detectHorizontalDragGestures(
-                        onDragStart = { dragged = 0f },
+                        onDragStart = { dragged = 0f; committed = null },
                         onDragEnd = {
-                            if (abs(dragged) > threshold) {
+                            val way = committed
+                            if (way != null) {
+                                // 화면 폭의 4분의 1 또는 48dp 넘게 끌었으면 넘기고, 아니면 제자리로 말려 돌아간다.
+                                val far = abs(dragged) > maxOf(threshold, size.width * 0.25f)
+                                turns.dragEnd(far) { back(way) }
+                            } else if (abs(dragged) > threshold) {
+                                turns.request()
                                 if (dragged < 0) scope.go { reader.next() } else scope.go { reader.previous() }
                             }
                         },
-                    ) { _, amount -> dragged += amount }
+                        onDragCancel = { committed?.let { way -> turns.dragEnd(false) { back(way) } } },
+                    ) { _, amount ->
+                        dragged += amount
+                        if (committed == null && follows() && abs(dragged) > start) {
+                            val way = dragged < 0
+                            committed = way
+                            turns.dragStart()
+                            scope.go { if (way) reader.next() else reader.previous() }
+                        }
+                        if (committed != null) turns.drag(abs(dragged) / size.width)
+                    }
                 }
                 // 손잡이 끌기. 맨 안쪽에 달아 누름을 먼저 받는다 — 손잡이를 잡았으면 소비해서 넘기기 · 누르기가
                 // 끼어들지 않게 한다. 손잡이 밖이면 건드리지 않고 흘려보낸다.
@@ -601,6 +635,7 @@ fun ReaderScreen(
                                 val spine = state.position?.spineIndex
                                 if (spine != null) {
                                     carry = spine to sel
+                                    turns.request()
                                     scope.go { reader.next() }
                                 }
                             }
@@ -672,6 +707,8 @@ fun ReaderScreen(
         // 자동 넘김(L7). 메뉴가 열렸거나 듣는 중이면 쉰다.
         val autoSuspended = panel != Panel.None || listen.active || selection != null || memo != null
         val autoTurn = rememberAutoTurn(prefs.screen.autoTurn, state.position?.let { it.spineIndex to it.pageIndex }, autoSuspended) {
+            // 효과는 내되 소리 · 진동은 없이 — 손을 대지 않았는데 소리가 나면 놀란다.
+            turns.request(quiet = true)
             scope.go { reader.next() }
         }
         val lift = if (listen.active || autoTurn.visible(prefs.screen.autoTurn, autoSuspended)) 124.dp else 64.dp

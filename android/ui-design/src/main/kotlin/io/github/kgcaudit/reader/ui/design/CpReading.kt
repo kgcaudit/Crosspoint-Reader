@@ -420,6 +420,25 @@ fun CpViewSettingsScreen(
                 CpChoice("넘김 효과", turns.map { it.label }, turns.indexOf(prefs.pageTurn), {
                     onChange(prefs.copy(pageTurn = turns[it]))
                 }, child)
+                // 소리 · 진동(0.32.0). 고르면 한 번 들려 준다 — "들어 보기" 단추를 따로 두면 줄이 하나 더 늘고, 고른 뒤 또 눌러야 한다.
+                val feedback = rememberTurnFeedback()
+                val view = androidx.compose.ui.platform.LocalView.current
+                val sounds = TurnSound.entries
+                CpChoice("넘김 소리", sounds.map { it.label }, sounds.indexOf(prefs.turnSound), {
+                    onChange(prefs.copy(turnSound = sounds[it]))
+                    feedback.preview(sounds[it])
+                }, child)
+                CpChoice("넘김 진동", listOf("끔", "켬"), if (prefs.turnHaptic) 1 else 0, {
+                    onChange(prefs.copy(turnHaptic = it == 1))
+                    if (it == 1) view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+                }, child)
+                CpText(
+                    "소리를 고르면 한 번 들려 줍니다. 휴대폰이 무음 · 진동일 때와 듣기 · 자동 넘김 중에는 소리가 나지 않습니다. " +
+                        "휴대폰의 \"애니메이션 제거\" 가 켜져 있으면 효과 없이 넘깁니다.",
+                    CpTheme.type.caption, CpTheme.colors.textMuted,
+                    Modifier.padding(start = CpTheme.metrics.gutter + CpTheme.metrics.levelIndent, end = CpTheme.metrics.gutter, top = 4.dp, bottom = 4.dp),
+                    maxLines = Int.MAX_VALUE,
+                )
                 val autos = AutoTurn.entries
                 CpChoice("자동 넘김", autos.map { it.label }, autos.indexOf(prefs.autoTurn), {
                     onChange(prefs.copy(autoTurn = autos[it]))
@@ -648,32 +667,3 @@ fun systemBrightness(context: Context): Float = runCatching {
     android.provider.Settings.System.getInt(context.contentResolver, android.provider.Settings.System.SCREEN_BRIGHTNESS) / 255f
 }.getOrDefault(0.5f).coerceIn(0.02f, 1f)
 
-// ── 넘김 효과(E7) ─────────────────────────────────────────────────
-
-/**
- * 쪽이 바뀔 때의 효과. [key] 가 바뀌면 옛 쪽에서 새 쪽으로 — 서서히(겹쳐 사라짐) 또는 밀기(옆으로 빠짐).
- * [forward] 는 앞으로 넘겼는지(밀기의 방향). [PageTurn.None] 이면 그대로 바꿔 그린다(지금까지와 같다).
- */
-@Composable
-fun <K> CpPageTurn(key: K, effect: PageTurn, forward: (from: K, to: K) -> Boolean, content: @Composable (K) -> Unit) {
-    if (effect == PageTurn.None) {
-        content(key)
-        return
-    }
-    androidx.compose.animation.AnimatedContent(
-        targetState = key,
-        transitionSpec = {
-            val ahead = forward(initialState, targetState)
-            when (effect) {
-                PageTurn.Fade -> androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(TURN_MS)) togetherWith
-                    androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(TURN_MS))
-                else -> androidx.compose.animation.slideInHorizontally(androidx.compose.animation.core.tween(TURN_MS)) { w -> if (ahead) w else -w } togetherWith
-                    androidx.compose.animation.slideOutHorizontally(androidx.compose.animation.core.tween(TURN_MS)) { w -> if (ahead) -w else w }
-            }
-        },
-        label = "page turn",
-    ) { content(it) }
-}
-
-/** 넘김 효과의 길이. 길면 빠르게 넘기는 사람을 붙잡는다. */
-private const val TURN_MS = 220

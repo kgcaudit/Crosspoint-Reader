@@ -28,8 +28,15 @@ data class ScreenPrefs(
     val twoPagesPortrait: Boolean = true,
     /** PDF 두쪽보기에서 표지(1쪽)를 따로 한 장으로(T4). 잡지의 양면 기사 · 광고가 제짝으로 맞붙는다. */
     val pdfCoverAlone: Boolean = true,
-    /** 쪽 넘김 효과(E7). 기본 없음 — e-ink 원형에는 효과가 없었고, 지금까지의 모양이다. */
-    val pageTurn: PageTurn = PageTurn.None,
+    /**
+     * 쪽 넘김 효과(E7). 기본 말림(0.32.0, 사용자 결정 — 구상안 가안). "없음" 이 기본이던 때는 쪽이 딱딱 끊겨 바뀌어
+     * 종이책을 넘기는 맛이 없었다.
+     */
+    val pageTurn: PageTurn = PageTurn.Curl,
+    /** 넘길 때의 소리(0.32.0). 기본 끔 — 다른 전자책 앱도 대개 소리가 없고, 지하철 · 도서관에서 갑자기 나면 곤란하다. */
+    val turnSound: TurnSound = TurnSound.Off,
+    /** 넘길 때 가볍게 톡(0.32.0). 기본 끔. */
+    val turnHaptic: Boolean = false,
     /** 왼쪽 끝을 위아래로 밀어 밝기(E6). 기본 켬(리디와 같다). 옆으로 미는 넘김과는 방향으로 가른다. */
     val brightnessGesture: Boolean = true,
     /** n초마다 다음 쪽(L7). 기본 끔. 듣기가 켜져 있으면 쉰다 — 듣기가 쪽을 따라 넘긴다. */
@@ -118,11 +125,26 @@ fun TouchZones.actionAt(x: Float, y: Float, width: Float, cornerPx: Float): TapA
     }
 }
 
-/** 하단 정보 한 자리에 보일 것. */
+/** 쪽 넘김 효과. 덮기 · 말림은 0.32.0. */
 enum class PageTurn(val label: String) {
     None("없음"),
     Fade("서서히"),
     Slide("밀기"),
+    /** 다음 쪽이 오른쪽에서 들어와 지금 쪽을 덮는다. */
+    Cover("덮기"),
+    /** 종이 모서리가 원통처럼 말려 넘어간다. 끌면 손가락을 따라간다. */
+    Curl("말림"),
+}
+
+/** 넘김 소리. 앱이 합성한 소리다(android/tools/turn_sounds.py) — 사용 조건을 따질 외부 녹음이 없다. */
+enum class TurnSound(val label: String) {
+    Off("끔"),
+    /** 종이가 스치는 부드러운 바스락, 0.30초. */
+    Rustle("사락"),
+    /** 휙 + 끝에 종이가 내려앉는 툭, 0.42초. */
+    Swish("휙"),
+    /** 아주 짧은 톡, 0.09초. */
+    Tap("톡"),
 }
 
 enum class FooterItem(val label: String) {

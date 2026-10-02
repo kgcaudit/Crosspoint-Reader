@@ -13,6 +13,7 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.test.core.app.ApplicationProvider
 import io.github.kgcaudit.reader.reflow.ReaderPrefs
 import io.github.kgcaudit.reader.text.UserFonts
+import org.junit.After
 import org.junit.Before
 import kotlinx.coroutines.test.StandardTestDispatcher
 import org.junit.Rule
@@ -46,6 +47,13 @@ class PublisherFontsTest {
      */
     @get:Rule
     val compose = createAndroidComposeRule<MainActivity>(StandardTestDispatcher())
+
+    /**
+     * 넘김 효과(0.32.0 부터 기본 말림)가 도는 채로 시험이 끝나면, 같은 JVM 의 다음 시험 화면이 60초 동안 쉬지 못하고
+     * 줄줄이 실패했다(AppNotIdleException). 쪽을 넘기고 끝나는 시험이 많아 시험마다 붙이지 않고 여기서 기다린다.
+     */
+    @After
+    fun settleTurn() = compose.waitForIdle()
 
     private val shots = File(System.getProperty("reader.screenshots") ?: "build/screenshots").apply { mkdirs() }
     private val app = ApplicationProvider.getApplicationContext<OloApp>()

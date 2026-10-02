@@ -17,6 +17,7 @@ import io.github.kgcaudit.reader.document.pdf.TestPdf.Companion.pages
 import io.github.kgcaudit.reader.reflow.ReaderPrefs
 import io.github.kgcaudit.reader.ui.design.ScreenPrefs
 import kotlinx.coroutines.test.StandardTestDispatcher
+import org.junit.After
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -42,6 +43,13 @@ class TwoPageTest {
     /** 효과를 UI 스레드 하나에서 돌린다 — 실제 앱과 같게(AppWalkthroughTest 의 설명 참고). */
     @get:Rule
     val compose = createAndroidComposeRule<MainActivity>(StandardTestDispatcher())
+
+    /**
+     * 넘김 효과(0.32.0 부터 기본 말림)가 도는 채로 시험이 끝나면, 같은 JVM 의 다음 시험 화면이 60초 동안 쉬지 못하고
+     * 줄줄이 실패했다(AppNotIdleException). 쪽을 넘기고 끝나는 시험이 많아 시험마다 붙이지 않고 여기서 기다린다.
+     */
+    @After
+    fun settleTurn() = compose.waitForIdle()
 
     private val shots = File(System.getProperty("reader.screenshots") ?: "build/screenshots").apply { mkdirs() }
     private val app get() = ApplicationProvider.getApplicationContext<OloApp>()
@@ -198,10 +206,15 @@ class TwoPageTest {
     /** [label] 줄에 있는 [option] 단추를 누른다. 같은 글자의 단추가 여러 줄에 있다. */
     private fun clickInRow(label: String, option: String) {
         val row = node(hasText(label)).fetchSemanticsNode().boundsInRoot
-        val candidates = compose.onAllNodes(hasText(option), useUnmergedTree = true).fetchSemanticsNodes()
+        // 누를 수 있는 단추(합친 나무)에서 찾는다 — 글자 마디 자체에는 누르기 동작이 없다.
+        val button = hasText(option) and androidx.compose.ui.test.hasClickAction()
+        val candidates = compose.onAllNodes(button).fetchSemanticsNodes()
         val index = candidates.indexOfFirst { n -> n.boundsInRoot.center.y in row.top - 20f..row.bottom + 20f }
         check(index >= 0) { "$label 줄에 $option 이 없다" }
-        compose.onAllNodes(hasText(option), useUnmergedTree = true)[index].performClick()
+        // 좌표로 누르지 않고 누르기 동작으로 고른다 — 0.32.0 에 넘김 소리 · 진동 줄이 더해져 이 줄이 화면 아래로 밀리자,
+        // 화면 밖을 누른 클릭이 아무것도 바꾸지 않았다.
+        compose.onAllNodes(button)[index]
+            .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
         compose.waitForIdle()
     }
 

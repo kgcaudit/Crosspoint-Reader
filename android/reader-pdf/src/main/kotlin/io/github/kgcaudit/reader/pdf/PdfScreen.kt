@@ -109,6 +109,7 @@ import io.github.kgcaudit.reader.ui.design.AutoTurn
 import io.github.kgcaudit.reader.ui.design.CpAutoTurnPill
 import io.github.kgcaudit.reader.ui.design.KeepScreenOn
 import io.github.kgcaudit.reader.ui.design.rememberAutoTurn
+import io.github.kgcaudit.reader.ui.design.rememberPageTurnState
 import io.github.kgcaudit.reader.ui.design.visible
 import io.github.kgcaudit.reader.ui.design.ScreenPrefs
 import io.github.kgcaudit.reader.ui.design.TapAction
@@ -205,8 +206,11 @@ fun PdfScreen(
      * 누름 · 볼륨 키 · 자동 넘김의 "앞으로 / 뒤로". 폭 맞춤이면 쪽 안에서 한 화면 옮기고, 쪽 끝이면 넘긴다.
      * 셋이 따로 판단하면 누르면 내려가는데 볼륨 키는 쪽을 건너뛰어 쪽 아래쪽을 못 읽는다.
      */
-    fun advance(forward: Boolean) {
+    // 사람이 넘길 때만 넘김 효과 · 소리(0.32.0). 목차 · 책갈피로 건너뛴 쪽, 폭 맞춤에서 쪽 안을 내려간 것에는 내지 않는다.
+    val turns = rememberPageTurnState()
+    fun advance(forward: Boolean, quiet: Boolean = false) {
         if (fitWidth && scroller.scroll?.invoke(forward) == true) return
+        turns.request(quiet)
         scope.go {
             if (forward) {
                 reader.next()
@@ -423,12 +427,16 @@ fun PdfScreen(
                 }
                 // 넘김 효과 동안 옛 쪽도 자리를 알리므로, 지금 보이는 쪽의 것만 받는다.
                 val onPlaced: (List<Placed>) -> Unit = { list -> if (list.all { it.page in reader.state.value.shown } && list != text.placed) text.placed = list }
-                val onSwipe: (Boolean) -> Unit = { forward -> scope.go { if (forward) reader.next() else reader.previous() } }
+                val onSwipe: (Boolean) -> Unit = { forward -> turns.request(); scope.go { if (forward) reader.next() else reader.previous() } }
                 // 넘김 효과(E7): 보이는 쪽(들)이 바뀔 때.
                 if (state.ready && state.pageCount > 0 && viewW > 0f && viewH > 0f) CpPageTurn(
                     key = state.shown,
                     effect = prefs.pageTurn,
                     forward = { from, to -> (to.firstOrNull() ?: 0) > (from.firstOrNull() ?: 0) },
+                    turns = turns,
+                    spread = twoPages,
+                    sound = prefs.turnSound,
+                    haptic = prefs.turnHaptic,
                 ) { shown ->
                     // 쪽 그림의 흰 바탕을 지면색으로(0.24.0). 쪽 · 펼침 그리는 곳이 여기서 받는다.
                     androidx.compose.runtime.CompositionLocalProvider(
@@ -511,7 +519,8 @@ fun PdfScreen(
         }
         // 자동 넘김(L7). PDF 도 글자 없이 쪽만 넘기면 되므로 같이 쓴다. 메뉴가 열렸거나 듣는 중 · 고르는 중이면 쉰다.
         val autoSuspended = panel != PdfPanel.None || heard.active || text.selection != null || text.memo != null
-        val autoTurn = rememberAutoTurn(prefs.autoTurn, state.page, autoSuspended) { advance(true) }
+        // 자동 넘김은 효과만 — 손을 대지 않았는데 소리가 나면 놀란다.
+        val autoTurn = rememberAutoTurn(prefs.autoTurn, state.page, autoSuspended) { advance(true, quiet = true) }
         val lift = if (heard.active || autoTurn.visible(prefs.autoTurn, autoSuspended)) 124.dp else 64.dp
         if (panel == PdfPanel.None) {
             if (heard.active) {

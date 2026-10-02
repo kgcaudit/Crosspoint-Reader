@@ -66,6 +66,13 @@ class ListenAppTest {
     @get:Rule
     val compose = createAndroidComposeRule<MainActivity>(StandardTestDispatcher())
 
+    /**
+     * 넘김 효과(0.32.0 부터 기본 말림)가 도는 채로 시험이 끝나면, 같은 JVM 의 다음 시험 화면이 60초 동안 쉬지 못하고
+     * 줄줄이 실패했다(AppNotIdleException). 쪽을 넘기고 끝나는 시험이 많아 시험마다 붙이지 않고 여기서 기다린다.
+     */
+    @After
+    fun settleTurn() = compose.waitForIdle()
+
     private val shots = File(System.getProperty("reader.screenshots") ?: "build/screenshots").apply { mkdirs() }
     private val app get() = ApplicationProvider.getApplicationContext<OloApp>()
     private val density get() = compose.activity.resources.displayMetrics.density
@@ -525,6 +532,7 @@ class ListenAppTest {
         assertFalse(hasNode(hasText("다음 쪽까지", substring = true)))
         assertEquals(AutoTurn.S15, app.container.prefs.load().screen.autoTurn)
         compose.mainClock.autoAdvance = true
+        compose.waitForIdle()
     }
 
     @Test
@@ -554,6 +562,8 @@ class ListenAppTest {
         waitTicking { hasNode(hasText("2 / ", substring = true)) }
         waitTicking { hasNode(hasText("다음 쪽까지", substring = true)) }
         compose.mainClock.autoAdvance = true
+        // 넘김 효과(0.32.0 기본 말림)가 진행 중인 채로 끝내면 다음 시험의 화면이 쉬지 못했다 — 끝나기를 기다린다.
+        compose.waitForIdle()
     }
 
     // ── 도구 ────────────────────────────────────────────────────────
