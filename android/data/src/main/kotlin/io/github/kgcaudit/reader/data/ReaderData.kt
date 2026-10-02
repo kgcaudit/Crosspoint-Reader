@@ -157,7 +157,7 @@ class ReaderData(
                     // 이름이 만화라고 말하지 않아도(zip) 여기까지 왔으면 서재가 만화로 본 것이다 — 그림 하나라도 있으면 연다.
                     val contents = ComicContents.ofArchive(zip.entries.keys.toList(), trustExtension = true)
                         ?: throw java.io.IOException("no pictures in ${unit.name}")
-                    ComicPages(contents.pages, { name -> zip.openStream(name)?.use { it.readBytes() } }, zip)
+                    ComicPages(contents.pages, { name -> zip.openStream(name) }, zip)
                 } catch (e: Throwable) {
                     zip.close()
                     throw e
@@ -167,7 +167,7 @@ class ReaderData(
                 val files = folderFiles(uri)
                 val pages = files.keys.filter(ComicContents::isImageName).sortedWith(NaturalOrder)
                 if (pages.isEmpty()) throw java.io.IOException("no pictures in ${unit.name}")
-                ComicPages(pages, { name -> files[name]?.let { doc -> resolver.openInputStream(doc)?.use { it.readBytes() } } }, null)
+                ComicPages(pages, { name -> files[name]?.let { doc -> resolver.openInputStream(doc) } }, null)
             }
         }
     }

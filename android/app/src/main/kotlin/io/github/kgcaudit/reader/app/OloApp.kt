@@ -123,6 +123,9 @@ class AppContainer(private val app: Application) {
     @androidx.annotation.VisibleForTesting
     internal var pdfEngine: (android.os.ParcelFileDescriptor) -> PdfSource = ::PlatformPdfSource
 
+    /** 웹툰 띠 풀기(BitmapRegionDecoder). 테스트가 끈다 — Robolectric 의 띠 풀기는 빈(투명) 그림을 돌려줘, 대신 길(전체를 줄여 풀고 자르기)로 시험한다. */
+    internal var comicRegions: Boolean = true
+
     /** 듣기 엔진(4단계). 테스트가 가짜로 바꾼다 — Robolectric 에는 음성 엔진이 없다. */
     internal var listenKit: ListenKit = ListenKit.android(app)
 
@@ -337,6 +340,9 @@ class PrefsStore(context: Context) {
             showHighlights = sp.getBoolean(KEY_SHOW_HIGHLIGHTS, true),
             pdfFit = enumOf(KEY_PDF_FIT, PdfFit.Page),
             imageBlend = enumOf(KEY_IMAGE_BLEND, io.github.kgcaudit.reader.ui.design.ImageBlend.Paper),
+            // 범위 밖(손상)이면 기본으로 — 0% 기둥이면 웹툰이 보이지 않는다.
+            webtoonColumn = sp.getInt(KEY_WEBTOON_COLUMN, ScreenPrefs.DEFAULT_WEBTOON_COLUMN)
+                .takeIf { it in ScreenPrefs.WEBTOON_COLUMN_RANGE } ?: ScreenPrefs.DEFAULT_WEBTOON_COLUMN,
         ),
         listen = ListenPrefs(
             // 망가진 값(범위 밖)은 범위 안으로 — 0 배속으로 저장된 값 때문에 듣기가 안 되면 안 된다.
@@ -392,6 +398,7 @@ class PrefsStore(context: Context) {
             .putBoolean(KEY_SHOW_HIGHLIGHTS, prefs.screen.showHighlights)
             .putString(KEY_PDF_FIT, prefs.screen.pdfFit.name)
             .putString(KEY_IMAGE_BLEND, prefs.screen.imageBlend.name)
+            .putInt(KEY_WEBTOON_COLUMN, prefs.screen.webtoonColumn)
             .putFloat(KEY_LISTEN_RATE, prefs.listen.rate)
             .putString(KEY_LISTEN_ENGINE, prefs.listen.engine)
             .putString(KEY_LISTEN_VOICE, prefs.listen.voice)
@@ -458,6 +465,7 @@ class PrefsStore(context: Context) {
         private const val KEY_SHOW_HIGHLIGHTS = "showHighlights"
         private const val KEY_PDF_FIT = "pdfFit"
         private const val KEY_IMAGE_BLEND = "imageBlend"
+        private const val KEY_WEBTOON_COLUMN = "webtoonColumn"
         private const val KEY_LISTEN_JOIN = "listenJoin"
         private const val KEY_LISTEN_RATE = "listenRate"
         private const val KEY_LISTEN_ENGINE = "listenEngine"

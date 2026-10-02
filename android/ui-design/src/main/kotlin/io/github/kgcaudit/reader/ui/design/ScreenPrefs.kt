@@ -50,6 +50,11 @@ data class ScreenPrefs(
     val pdfFit: PdfFit = PdfFit.Page,
     /** 책 속 그림 · PDF 쪽의 흰 바탕을 지면색에 맞출지(0.24.0). 기본 켬 — 흰 네모가 따로 떠 보이지 않게. */
     val imageBlend: ImageBlend = ImageBlend.Paper,
+    /**
+     * 웹툰 기둥 폭(넓은 화면의 %, 0.35.0 — 사용자 결정 7). 태블릿 · 가로 화면에서 웹툰을 꽉 채우면 한 컷이 화면보다 커져
+     * 한 화면에 말풍선 하나만 보인다. 휴대폰 세로에서는 늘 꽉 채운다.
+     */
+    val webtoonColumn: Int = DEFAULT_WEBTOON_COLUMN,
 ) {
     /**
      * 지금 화면에서 두 쪽을 펼칠지. 세로 두쪽은 기기의 가장 짧은 폭이 [WIDE_SCREEN_DP] 이상일 때만 — 휴대폰
@@ -61,7 +66,21 @@ data class ScreenPrefs(
     companion object {
         /** 태블릿 · 펼친 폴더블. 안드로이드가 "넓은 화면" 으로 보는 경계(sw600dp)와 같다. */
         const val WIDE_SCREEN_DP = 600
+
+        /** 웹툰 기둥 폭 기본 · 범위(%). 70% 면 폴더블 본 화면에서 휴대폰 한 대 폭쯤이다. */
+        const val DEFAULT_WEBTOON_COLUMN = 70
+        val WEBTOON_COLUMN_RANGE = 40..100
     }
+
+    /**
+     * 웹툰을 그릴 기둥 폭(px). 휴대폰 세로는 꽉 채우고, 가로 · 넓은 화면은 [webtoonColumn]% (사용자 결정 7).
+     */
+    fun webtoonWidth(viewWidth: Float, viewHeight: Float, smallestWidthDp: Int): Float =
+        if (viewWidth > viewHeight || smallestWidthDp >= WIDE_SCREEN_DP) {
+            viewWidth * webtoonColumn.coerceIn(WEBTOON_COLUMN_RANGE) / 100f
+        } else {
+            viewWidth
+        }
 }
 
 /**

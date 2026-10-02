@@ -177,4 +177,18 @@ class ComicLibraryTest {
         db.comics().setOverride(io.github.kgcaudit.reader.data.db.ComicOverrideEntity(ComicLibrary.RTL, works().single().key, "yes"))
         assertEquals(null, works().single().rightToLeft)
     }
+
+    @Test
+    fun `a webtoon is finished only when the reader says the end was reached, and the view choice can be cleared`() = runTest {
+        comics.saveProgress("w", 3, 4, 1, offset = 0.1f, atEnd = false)
+        assertEquals(null, comics.progressOf("w")?.finishedAtEpochMs, "마지막 그림 머리만 보였는데 다 읽음이 됐다")
+        comics.saveProgress("w", 3, 4, 2, offset = 1f, atEnd = true)
+        assertEquals(2L, comics.progressOf("w")?.finishedAtEpochMs)
+        comics.applyScan(phone, ScanResult(emptyList(), true, listOf(cbz("전학생 001화.cbz", "C"), cbz("전학생 002화.cbz", "C"))), 1)
+        assertEquals(null, works().single().view)
+        comics.setView(works().single(), io.github.kgcaudit.reader.document.comic.ComicView.PAGE)
+        assertEquals(io.github.kgcaudit.reader.document.comic.ComicView.PAGE, works().single().view)
+        comics.setView(works().single(), null)
+        assertEquals(null, works().single().view, "자동으로 되돌리지 못했다")
+    }
 }

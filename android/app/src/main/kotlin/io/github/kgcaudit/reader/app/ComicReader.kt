@@ -63,6 +63,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import io.github.kgcaudit.reader.document.comic.ComicReading
+import io.github.kgcaudit.reader.document.comic.ComicView
+import io.github.kgcaudit.reader.document.comic.Webtoon
 import io.github.kgcaudit.reader.document.comic.Work
 import io.github.kgcaudit.reader.document.comic.WorkEntry
 import io.github.kgcaudit.reader.pdf.PageViewport
@@ -106,7 +108,7 @@ import kotlin.math.roundToInt
 
 /** 쪽 밖 바탕. 거의 검정 — 순검정이면 OLED 에서 쪽 가장자리가 번져 보인다. */
 internal val COMIC_BACKDROP = Color(0xFF141311)
-private val COMIC_INK_MUTED = Color(0xFFB9B2A8)
+internal val COMIC_INK_MUTED = Color(0xFFB9B2A8)
 
 private enum class ComicPanel { None, Bar, View, Settings, Pages, Bookmarks }
 
@@ -131,6 +133,9 @@ fun ComicReader(
     onNext: (WorkEntry) -> Unit,
     onClose: () -> Unit,
     onChrome: (Boolean) -> Unit,
+    /** 사람이 고른 보는 방식(null 은 자동). */
+    view: ComicView? = null,
+    onView: (ComicView?) -> Unit = {},
 ) {
     val count = book.pageCount
     var page by rememberSaveable(book.unit.id) { mutableIntStateOf(startPage.coerceIn(0, (count - 1).coerceAtLeast(0))) }
@@ -285,7 +290,8 @@ fun ComicReader(
             above = {
                 if (panel == ComicPanel.View) {
                     Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                        // 보는 방식(웹툰) · 두 쪽 보기는 다음 단계(C2 · C3)에서 이 판에 더한다.
+                        // 두 쪽 보기는 C3 에서 이 판에 더한다.
+                        ViewChoice(view, onView)
                         CpChoice("넘기는 방향", listOf("왼→오", "오→왼"), if (rtl) 1 else 0, { onDirection(it == 1) })
                         CpBrightnessRow(prefs.brightness, { onPrefsChange(prefs.copy(brightness = it)) })
                         CpLinkRow("모든 보기 설정", "", { panel = ComicPanel.Settings })
@@ -322,6 +328,13 @@ internal fun objectParticle(word: String): String {
     val last = word.trimEnd().lastOrNull() ?: return "을"
     if (last !in '가'..'힣') return "을"
     return if ((last - '가') % 28 == 0) "를" else "을"
+}
+
+/** 보기 판의 "보는 방식" 줄: 자동 · 쪽 넘김 · 웹툰. 고른 값은 작품마다 기억한다(결정 2). */
+@Composable
+internal fun ViewChoice(view: ComicView?, onView: (ComicView?) -> Unit) {
+    val options = listOf(null, ComicView.PAGE, ComicView.WEBTOON)
+    CpChoice("보는 방식", listOf("자동", "쪽 넘김", "웹툰"), options.indexOf(view), { onView(options[it]) })
 }
 
 /** 진행 막대 0..1 → 쪽. 막대 위 숫자와 가는 곳이 같아야 한다. */
@@ -372,8 +385,12 @@ private fun ComicPageImage(book: ComicBook, index: Int, w: Int, h: Int, viewport
  * 따른다).
  */
 @Composable
-private fun ComicFooter(title: String, page: Int, count: Int, rtl: Boolean, modifier: Modifier) {
-    val fraction = if (count > 1) page / (count - 1f) else 1f
+private fun ComicFooter(title: String, page: Int, count: Int, rtl: Boolean, modifier: Modifier) =
+    ComicFooterLine(title, "${page + 1} / $count" + if (rtl) "  ← 오→왼" else "", if (count > 1) page / (count - 1f) else 1f, rtl, modifier)
+
+/** 아래 줄 그리기. 웹툰(%)도 같은 모양으로 쓴다. */
+@Composable
+internal fun ComicFooterLine(title: String, position: String, fraction: Float, rtl: Boolean, modifier: Modifier) {
     Column(modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 12.dp)) {
         Box(Modifier.fillMaxWidth().height(2.dp).background(Color(0x33FFFFFF))) {
             Box(
@@ -384,7 +401,7 @@ private fun ComicFooter(title: String, page: Int, count: Int, rtl: Boolean, modi
         }
         Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             CpText(title, CpTheme.type.caption, COMIC_INK_MUTED, Modifier.weight(1f))
-            CpText("${page + 1} / $count" + if (rtl) "  ← 오→왼" else "", CpTheme.type.caption, COMIC_INK_MUTED)
+            CpText(position, CpTheme.type.caption, COMIC_INK_MUTED)
         }
     }
 }
@@ -437,7 +454,7 @@ private const val THUMB_W = 240
 private const val THUMB_H = 340
 
 @Composable
-private fun BookmarkList(book: ComicBook, pages: List<Int>, onBack: () -> Unit, onPick: (Int) -> Unit) {
+internal fun BookmarkList(book: ComicBook, pages: List<Int>, onBack: () -> Unit, onPick: (Int) -> Unit) {
     CpFullScreen {
         CpHeader("책갈피", subtitle = "${pages.size}개", onBack = onBack)
         if (pages.isEmpty()) {
@@ -466,7 +483,13 @@ private fun VolumeEnd(entryLabel: String, workTitle: String?, next: WorkEntry?, 
             .padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
-    ) {
+    ) { EndCard(entryLabel, workTitle, next, onNext, onLibrary) }
+}
+
+/** 권 · 화 끝 판의 내용. 쪽 넘김은 화면을 덮고, 웹툰은 목록 맨 끝에 이어 붙인다. */
+@Composable
+internal fun EndCard(entryLabel: String, workTitle: String?, next: WorkEntry?, onNext: (WorkEntry) -> Unit, onLibrary: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
         CpText("${entryLabel}${objectParticle(entryLabel)} 다 읽었습니다", CpTheme.type.title, Color.White)
         Spacer(Modifier.height(24.dp))
         if (next != null) {
@@ -484,7 +507,8 @@ private fun VolumeEnd(entryLabel: String, workTitle: String?, next: WorkEntry?, 
 }
 
 /**
- * 서재에서 만화 한 권을 연다: 단위를 찾아 열고, 작품 · 책갈피를 지켜보며, 넘길 때마다 자리를 적는다. 열지 못하면 [onFail].
+ * 서재에서 만화 한 권을 연다: 단위를 찾아 열고, 보는 방식(쪽 넘김 · 웹툰)을 정하고, 작품 · 책갈피를 지켜보며, 자리를
+ * 적는다. 열지 못하면 [onFail].
  */
 @Composable
 fun ComicHost(
@@ -498,23 +522,30 @@ fun ComicHost(
     onChrome: (Boolean) -> Unit,
     onFail: (String) -> Unit,
 ) {
-    val data = LocalContext.current.container.data
+    val container = LocalContext.current.container
+    val data = container.data
     val scope = rememberCoroutineScope()
     var book by remember(unitId) { mutableStateOf<ComicBook?>(null) }
-    var start by remember(unitId) { mutableIntStateOf(0) }
+    var sizes by remember(unitId) { mutableStateOf<List<io.github.kgcaudit.reader.document.image.ImageSize?>>(emptyList()) }
+    // 지금 자리(그림 번호 · 그 안의 비율). 보는 방식을 바꿔도 같은 그림에서 이어진다.
+    var position by remember(unitId) { mutableStateOf(0 to 0f) }
     LaunchedEffect(unitId) {
         val opened = runCatching {
             withContext(Dispatchers.IO) {
                 val unit = data.comics.unit(unitId) ?: throw java.io.FileNotFoundException(unitId)
                 val p = data.comics.progressOf(unitId)
                 val pages = data.openComic(unit)
-                // 다 읽은 권을 다시 열면 처음부터 — 끝 쪽에서 열면 곧바로 "다 읽었습니다" 판이 뜬다.
-                start = when {
-                    startAt != null -> startAt
-                    p == null || (p.finished && p.page >= pages.count - 1) -> 0
-                    else -> p.page
+                val comic = ComicBook(unit, pages, regions = container.comicRegions)
+                // 크기는 머리만 읽는다 — 웹툰 판별 · 기둥 배치에 쓴다.
+                sizes = comic.sizes()
+                position = when {
+                    startAt != null -> startAt to 0f
+                    // 다 읽고 끝에 멈춘 권을 다시 열면 처음부터 — 끝에서 열면 곧바로 "다 읽었습니다" 판이 뜬다. 다 읽은 뒤 앞으로
+                    // 들춰 보던 자리면 그 자리다.
+                    p == null || (p.finished && p.page >= pages.count - 1) -> 0 to 0f
+                    else -> p.page to (p.offset ?: 0f)
                 }
-                ComicBook(unit, pages)
+                comic
             }
         }
         opened.onSuccess { book = it }.onFailure {
@@ -532,26 +563,60 @@ fun ComicHost(
     androidx.compose.runtime.DisposableEffect(unitId) { onDispose { book?.close() } }
     val works by remember { data.comics.works() }.collectAsState(initial = null)
     val bookmarks by remember(unitId) { data.comics.bookmarks(unitId) }.collectAsState(initial = emptyList())
-    val opened = book ?: run {
+    val opened = book
+    val all = works
+    if (opened == null || all == null) {
         Box(Modifier.fillMaxSize().background(COMIC_BACKDROP))
         return
     }
-    val work = works?.firstOrNull { w -> ComicReading.entryOf(w, unitId) != null }
+    val work = all.firstOrNull { w -> ComicReading.entryOf(w, unitId) != null }
     val entry = work?.let { ComicReading.entryOf(it, unitId) }
     val title = listOfNotNull(work?.title, entry?.label).joinToString(" ").ifEmpty { opened.unit.name }
-    ComicReader(
-        book = opened,
-        title = title,
-        work = work,
-        startPage = start,
-        bookmarks = bookmarks,
-        prefs = prefs,
-        onPrefsChange = onPrefsChange,
-        onPage = { p -> scope.launch(Dispatchers.IO) { data.comics.saveProgress(unitId, p, opened.pageCount, System.currentTimeMillis()) } },
-        onBookmark = { p -> scope.launch(Dispatchers.IO) { data.comics.toggleBookmark(unitId, p, System.currentTimeMillis()) } },
-        onDirection = { r -> work?.let { w -> scope.launch(Dispatchers.IO) { data.comics.setRightToLeft(w, r) } } },
-        onNext = { n -> onOpen(n.unit.id) },
-        onClose = onClose,
-        onChrome = onChrome,
-    )
+    val view = Webtoon.view(work?.view, opened.unit.info, sizes)
+    val now = { System.currentTimeMillis() }
+    val onBookmark: (Int) -> Unit = { p -> scope.launch(Dispatchers.IO) { data.comics.toggleBookmark(unitId, p, now()) } }
+    val onView: (ComicView?) -> Unit = { v -> work?.let { w -> scope.launch(Dispatchers.IO) { data.comics.setView(w, v) } } }
+    when (view) {
+        ComicView.PAGE -> ComicReader(
+            book = opened,
+            title = title,
+            work = work,
+            startPage = position.first,
+            bookmarks = bookmarks,
+            prefs = prefs,
+            onPrefsChange = onPrefsChange,
+            onPage = { p ->
+                position = p to 0f
+                scope.launch(Dispatchers.IO) { data.comics.saveProgress(unitId, p, opened.pageCount, now()) }
+            },
+            onBookmark = onBookmark,
+            onDirection = { r -> work?.let { w -> scope.launch(Dispatchers.IO) { data.comics.setRightToLeft(w, r) } } },
+            onNext = { n -> onOpen(n.unit.id) },
+            onClose = onClose,
+            onChrome = onChrome,
+            view = work?.view,
+            onView = onView,
+        )
+        ComicView.WEBTOON -> WebtoonReader(
+            book = opened,
+            sizes = sizes,
+            title = title,
+            work = work,
+            startIndex = position.first,
+            startOffset = position.second,
+            bookmarks = bookmarks,
+            prefs = prefs,
+            onPrefsChange = onPrefsChange,
+            view = work?.view,
+            onView = onView,
+            onPosition = { i, f, end ->
+                position = i to f
+                scope.launch(Dispatchers.IO) { data.comics.saveProgress(unitId, i, opened.pageCount, now(), offset = f, atEnd = end) }
+            },
+            onBookmark = onBookmark,
+            onNext = { n -> onOpen(n.unit.id) },
+            onClose = onClose,
+            onChrome = onChrome,
+        )
+    }
 }

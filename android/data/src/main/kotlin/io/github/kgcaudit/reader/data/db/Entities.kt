@@ -156,7 +156,8 @@ data class ComicUnitEntity(
  * 않는다.
  *
  * @param kind `WORK_OF`(단위 → 작품 열쇠: 합치기 · 빼기), `TITLE`(작품 열쇠 → 보이는 이름), `PREFERRED`(같은 권 열쇠 → 고른 단위),
- *   `RTL`(작품 열쇠 → 넘기는 방향 "1"/"0", 0.34.0).
+ *   `RTL`(작품 열쇠 → 넘기는 방향 "1"/"0", 0.34.0),
+ *   `VIEW`(작품 열쇠 → 보는 방식 `PAGE`/`WEBTOON`, 0.35.0).
  */
 @Entity(tableName = "comic_overrides", primaryKeys = ["kind", "subject"])
 data class ComicOverrideEntity(
@@ -178,6 +179,8 @@ data class ComicProgressEntity(
     val pageCount: Int,
     val updatedAtEpochMs: Long,
     val finishedAtEpochMs: Long? = null,
+    /** 웹툰: 그 그림 안의 비율(0..1, 0.35.0). null 은 쪽 넘김으로 읽음. */
+    val offset: Float? = null,
 )
 
 /** 만화 책갈피: 권 하나의 쪽 하나. 같은 쪽에 두 번 꽂지 않는다(열쇠). */

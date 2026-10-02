@@ -42,6 +42,8 @@ data class ComicOverrides(
     val titles: Map<String, String> = emptyMap(),
     val preferred: Map<String, String> = emptyMap(),
     val rightToLeft: Map<String, Boolean> = emptyMap(),
+    /** 작품 열쇠 → 사람이 고른 보는 방식(쪽 넘김 · 웹툰). 작품마다 기억한다 — 웹툰은 화마다 파일이 따로라, 파일마다 기억하면 화를 넘길 때마다 다시 골라야 한다. */
+    val view: Map<String, ComicView> = emptyMap(),
 )
 
 /**
@@ -78,6 +80,8 @@ data class Work(
     val complete: Boolean,
     val places: List<String>,
     val rightToLeft: Boolean?,
+    /** 사람이 고른 보는 방식. null 이면 ComicInfo · 쪽 모양으로 정한다([Webtoon.view]). */
+    val view: ComicView? = null,
 ) {
     val volumeCount: Int get() = entries.size
 }
@@ -178,6 +182,7 @@ object ComicShelf {
             // 자연 순서로 — 훑은 차례(제공자마다 다르다)를 따르면 작품 정리의 폴더 줄이 열 때마다 뒤바뀐다.
             places = members.map { it.unit.place }.distinct().sortedWith(NaturalOrder),
             rightToLeft = overrides.rightToLeft[key] ?: members.firstNotNullOfOrNull { it.unit.info?.rightToLeft },
+            view = overrides.view[key],
         )
     }
 

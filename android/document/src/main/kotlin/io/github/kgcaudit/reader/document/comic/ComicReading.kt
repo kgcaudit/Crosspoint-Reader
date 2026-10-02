@@ -12,11 +12,21 @@ data class ComicProgress(
     val pageCount: Int,
     val updatedAtEpochMs: Long,
     val finishedAtEpochMs: Long? = null,
+    /**
+     * 웹툰에서 그 그림 안의 비율(0..1, 0.35.0). null 은 "쪽 넘김으로 읽음 · 모름". 화면 폭이 바뀌어도(회전 · 기둥 폭) 같은
+     * 칸으로 돌아오도록 픽셀이 아니라 비율로 둔다.
+     */
+    val offset: Float? = null,
 ) {
     val finished: Boolean get() = finishedAtEpochMs != null
 
     /** 0..1. 마지막 쪽에 닿으면 1. */
-    val fraction: Float get() = if (pageCount <= 1) (if (finished) 1f else 0f) else (page.toFloat() / (pageCount - 1)).coerceIn(0f, 1f)
+    val fraction: Float get() = when {
+        // 웹툰: 그림 수로 나눈 자리 + 그 그림 안의 비율. 한 화가 긴 그림 몇 장뿐이라 그림 번호만으로는 막대가 듬성듬성 뛴다.
+        offset != null && pageCount > 0 -> ((page + offset.coerceIn(0f, 1f)) / pageCount).coerceIn(0f, 1f)
+        pageCount <= 1 -> if (finished) 1f else 0f
+        else -> (page.toFloat() / (pageCount - 1)).coerceIn(0f, 1f)
+    }
 }
 
 /** 만화를 읽는 동안의 순수 규칙들 — 방향 · 다음 권 · 이어 볼 권. */

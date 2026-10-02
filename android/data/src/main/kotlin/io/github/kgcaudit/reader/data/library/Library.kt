@@ -16,6 +16,7 @@ import io.github.kgcaudit.reader.document.comic.ComicProgress
 import io.github.kgcaudit.reader.document.comic.ComicShelf
 import io.github.kgcaudit.reader.document.comic.ComicUnit
 import io.github.kgcaudit.reader.document.comic.ComicUnitKind
+import io.github.kgcaudit.reader.document.comic.ComicView
 import io.github.kgcaudit.reader.document.comic.Work
 import io.github.kgcaudit.reader.document.comic.WorkEntry
 import kotlinx.coroutines.flow.Flow
@@ -304,25 +305,40 @@ class ComicLibrary(private val db: ReaderDatabase) {
     suspend fun setRightToLeft(work: Work, rightToLeft: Boolean) =
         comics.setOverride(ComicOverrideEntity(RTL, work.key, if (rightToLeft) "1" else "0"))
 
+    /** 작품의 보는 방식을 고른다. null 이면 고른 것을 지워 자동(ComicInfo · 쪽 모양)으로 돌아간다. */
+    suspend fun setView(work: Work, view: ComicView?) =
+        if (view == null) comics.clearOverride(VIEW, work.key) else comics.setOverride(ComicOverrideEntity(VIEW, work.key, view.name))
+
     // ── 읽기 ────────────────────────────────────────────────
 
     /** 권마다의 읽은 자리. 열쇠는 단위 id. */
     fun progress(): Flow<Map<String, ComicProgress>> = comics.observeProgress().map { rows ->
-        rows.associate { it.unitId to ComicProgress(it.page, it.pageCount, it.updatedAtEpochMs, it.finishedAtEpochMs) }
+        rows.associate { it.unitId to ComicProgress(it.page, it.pageCount, it.updatedAtEpochMs, it.finishedAtEpochMs, it.offset) }
     }
 
     suspend fun progressOf(unitId: String): ComicProgress? =
-        comics.progress(unitId)?.let { ComicProgress(it.page, it.pageCount, it.updatedAtEpochMs, it.finishedAtEpochMs) }
+        comics.progress(unitId)?.let { ComicProgress(it.page, it.pageCount, it.updatedAtEpochMs, it.finishedAtEpochMs, it.offset) }
 
     /**
      * 읽은 자리를 적는다. 마지막 쪽에 닿으면 다 읽은 것으로 — 한 번 다 읽은 권은 앞 쪽을 다시 들춰 봐도 "다 읽음" 이 남는다
      * (다 읽은 때를 지우면 서재의 "다 읽음" 이 들춰 볼 때마다 깜빡였다).
      */
-    suspend fun saveProgress(unitId: String, page: Int, pageCount: Int, nowEpochMs: Long) {
+    suspend fun saveProgress(
+        unitId: String,
+        page: Int,
+        pageCount: Int,
+        nowEpochMs: Long,
+        /** 웹툰: 그림 안의 비율. 쪽 넘김이면 null. */
+        offset: Float? = null,
+        /**
+         * 끝에 닿았는가. 쪽 넘김은 마지막 쪽이면 끝이다. 웹툰은 마지막 그림이 화면에 들어온 것만으로는 아니다 — 긴 그림의
+         * 머리만 보였을 수 있어, 화면이 더 내려가지 않을 때 부르는 쪽이 알려 준다.
+         */
+        atEnd: Boolean = pageCount > 0 && page >= pageCount - 1,
+    ) {
         val old = comics.progress(unitId)
-        val last = pageCount > 0 && page >= pageCount - 1
-        val finished = old?.finishedAtEpochMs ?: if (last) nowEpochMs else null
-        comics.saveProgress(ComicProgressEntity(unitId, page.coerceAtLeast(0), pageCount, nowEpochMs, finished))
+        val finished = old?.finishedAtEpochMs ?: if (atEnd) nowEpochMs else null
+        comics.saveProgress(ComicProgressEntity(unitId, page.coerceAtLeast(0), pageCount, nowEpochMs, finished, offset?.coerceIn(0f, 1f)))
     }
 
     fun bookmarks(unitId: String): Flow<List<Int>> = comics.observeBookmarks(unitId).map { rows -> rows.map { it.page } }
@@ -343,6 +359,7 @@ class ComicLibrary(private val db: ReaderDatabase) {
         titles = rows.filter { it.kind == TITLE }.associate { it.subject to it.value },
         preferred = rows.filter { it.kind == PREFERRED }.associate { it.subject to it.value },
         // "1"/"0" 밖의 값(손상)은 버린다 — "정하지 않음" 으로 남아 ComicInfo 와 기본값을 따른다(규칙 5 · 6).
+        view = rows.filter { it.kind == VIEW }.mapNotNull { r -> ComicView.entries.firstOrNull { it.name == r.value }?.let { r.subject to it } }.toMap(),
         rightToLeft = rows.filter { it.kind == RTL }.mapNotNull { r -> when (r.value) { "1" -> r.subject to true; "0" -> r.subject to false; else -> null } }.toMap(),
     )
 
@@ -380,6 +397,7 @@ class ComicLibrary(private val db: ReaderDatabase) {
         const val TITLE: String = "TITLE"
         const val PREFERRED: String = "PREFERRED"
         const val RTL: String = "RTL"
+        const val VIEW: String = "VIEW"
         /** 빼낸 단위의 작품 열쇠 머리. 이름 열쇠(글자 · 숫자뿐)와 겹치지 않게 기호를 넣는다. */
         const val OWN_PREFIX: String = "#own:"
     }

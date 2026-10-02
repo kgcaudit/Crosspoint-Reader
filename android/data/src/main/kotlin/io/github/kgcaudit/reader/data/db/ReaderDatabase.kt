@@ -11,15 +11,16 @@ import androidx.room.RoomDatabase
         BookEntity::class, ProgressEntity::class, BookmarkEntity::class, RecentEntity::class, AnnotationEntity::class,
         ComicUnitEntity::class, ComicOverrideEntity::class, ComicProgressEntity::class, ComicBookmarkEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
     // 1 → 2: 형광펜 표(annotations)를 더했다(0.15.0). 표를 더하기만 하므로 Room 이 만든 SQL 로 충분하다 —
     // 손으로 쓴 CREATE 문은 한 글자만 어긋나도 열 때 스키마 검사에 걸려 앱이 죽는다.
     // 2 → 3: 최근 표에 다 읽은 때(finishedAtEpochMs, 비어 있음)를 더했다(0.23.0). 열을 더하기만 한다.
     // 3 → 4: 만화 단위 · 손 고침 표를 더했다(0.33.0). 표를 더하기만 한다.
     // 4 → 5: 만화 진도 · 책갈피 표를 더했다(0.34.0). 표를 더하기만 한다.
+    // 5 → 6: 만화 진도에 웹툰 위치(offset, 비어 있음)를 더했다(0.35.0). 열을 더하기만 한다.
     autoMigrations = [
-        AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5),
+        AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5), AutoMigration(from = 5, to = 6),
     ],
 )
 abstract class ReaderDatabase : RoomDatabase() {

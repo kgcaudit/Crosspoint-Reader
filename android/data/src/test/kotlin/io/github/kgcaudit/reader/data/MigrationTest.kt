@@ -86,7 +86,7 @@ class MigrationTest {
             val notes = RoomAnnotationRepository(db.annotations())
             notes.add(Annotation(0, book, Locator.Reflow(3, 10), Locator.Reflow(3, 20), HighlightColor.Green, "메모", "칠한 글", 7))
             assertEquals(listOf("칠한 글"), notes.forBook(book).map { it.snippet })
-            assertEquals(5, db.openHelper.readableDatabase.version)
+            assertEquals(6, db.openHelper.readableDatabase.version)
         } finally {
             db.close()
         }
@@ -136,7 +136,7 @@ class MigrationTest {
             )
             comics.applyScan("content://c", io.github.kgcaudit.reader.data.library.ScanResult(emptyList(), true, listOf(unit)), 5)
             assertEquals(listOf("별"), comics.works().first().map { it.title })
-            assertEquals(5, db.openHelper.readableDatabase.version)
+            assertEquals(6, db.openHelper.readableDatabase.version)
         } finally {
             db.close()
         }
@@ -160,7 +160,26 @@ class MigrationTest {
             comics.saveProgress("content://c/a.cbz", 4, 10, 7)
             assertEquals(4, comics.progressOf("content://c/a.cbz")?.page)
             assertEquals(true, comics.toggleBookmark("content://c/a.cbz", 4, 7))
-            assertEquals(5, db.openHelper.readableDatabase.version)
+            assertEquals(6, db.openHelper.readableDatabase.version)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `upgrading from version 5 keeps comic reading positions and adds the webtoon offset`() = runTest {
+        writeVersion(5) { db ->
+            db.execSQL("INSERT INTO comic_progress (unitId, page, pageCount, updatedAtEpochMs, finishedAtEpochMs) VALUES ('content://c/a.cbz', 4, 10, 7, NULL)")
+        }
+        val db = ReaderDatabase.open(context)
+        try {
+            val comics = io.github.kgcaudit.reader.data.library.ComicLibrary(db)
+            val kept = comics.progressOf("content://c/a.cbz")
+            assertEquals(4, kept?.page)
+            assertEquals(null, kept?.offset, "옛 진도에 웹툰 위치가 생겼다")
+            comics.saveProgress("content://c/a.cbz", 2, 10, 8, offset = 0.25f)
+            assertEquals(0.25f, comics.progressOf("content://c/a.cbz")?.offset)
+            assertEquals(6, db.openHelper.readableDatabase.version)
         } finally {
             db.close()
         }
