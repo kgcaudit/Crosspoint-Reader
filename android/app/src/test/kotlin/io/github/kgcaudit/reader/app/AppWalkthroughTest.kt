@@ -360,13 +360,26 @@ class AppWalkthroughTest {
         }
         save(bitmap, "00-launcher-icon")
 
-        // 바탕이 주황이고, 왼쪽 쪽은 흰색, 가운데 책등 틈으로는 바탕(주황)이 비친다(OLO-Design eBook 마크, 0.31.0).
+        // 먹붓 마크(OLO-Design 806cabb, 0.32.1): 붓으로 그린 쪽 외곽선 · 줄 글자 · 흰 책등. 쪽 안은 비어 바탕(주황)이 비친다 —
+        // 면이 꽉 차 보이면 붓 느낌이 사라진다(디자인 세션이 "면이 꽉 차 보임" 을 오류로 꼽았다). 0.31 아이콘은 반대로 쪽이
+        // 흰 면이고 책등이 틈이었다.
+        fun at(fx: Float, fy: Float) = bitmap.getPixel((size * fx).toInt(), (size * fy).toInt())
+        fun light(c: Int) = Color.red(c) > 240 && Color.green(c) > 240 && Color.blue(c) > 240
         val bg = bitmap.getPixel((inset + 12).toInt(), size / 2)
-        assertTrue(Color.red(bg) > 190 && Color.green(bg) in 90..140, "바탕색이 주황이 아니다: #${Integer.toHexString(bg)}")
-        val book = bitmap.getPixel((size * 0.38f).toInt(), size / 2)
-        assertTrue(Color.red(book) > 240 && Color.green(book) > 240 && Color.blue(book) > 240, "책 도형이 흰색이 아니다: #${Integer.toHexString(book)}")
-        val spine = bitmap.getPixel(size / 2, size / 2)
-        assertTrue(Color.red(spine) > 180 && Color.green(spine) < 150, "책등 틈으로 바탕이 비치지 않는다: #${Integer.toHexString(spine)}")
+        assertTrue(Color.red(bg) > 190 && Color.green(bg) in 90..160, "바탕색이 주황이 아니다: #${Integer.toHexString(bg)}")
+        assertTrue(light(at(0.5f, 0.5f)), "책등이 흰 붓 획이 아니다: #${Integer.toHexString(at(0.5f, 0.5f))}")
+        val inside = at(0.38f, 0.5f)
+        assertTrue(Color.red(inside) > 190 && Color.green(inside) < 160, "쪽 안이 비어 있지 않다(면이 꽉 찼다): #${Integer.toHexString(inside)}")
+        // 줄 글자: 쪽 안의 같은 세로줄에서 바탕보다 밝은 가로 획이 여럿.
+        val x = (size * 0.33f).toInt()
+        var strokes = 0
+        var wasLight = false
+        for (y in (size * 0.33f).toInt()..(size * 0.66f).toInt()) {
+            val isLight = Color.green(bitmap.getPixel(x, y)) > 175
+            if (isLight && !wasLight) strokes++
+            wasLight = isLight
+        }
+        assertTrue(strokes >= 3, "쪽에 줄 글자가 보이지 않는다: ${strokes}줄")
     }
 
     @Test
