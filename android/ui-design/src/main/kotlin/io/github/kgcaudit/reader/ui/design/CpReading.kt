@@ -123,7 +123,16 @@ data class FooterInfo(
 
 /** 하단 한 줄: 진행 막대 + 왼쪽 · 가운데 · 오른쪽. CrossPoint `drawStatusBar` 의 자리. */
 @Composable
-fun CpReadingFooter(info: FooterInfo, footer: Footer, color: Color, modifier: Modifier = Modifier) {
+fun CpReadingFooter(
+    info: FooterInfo,
+    footer: Footer,
+    color: Color,
+    modifier: Modifier = Modifier,
+    /** 막대 빈 곳 색. 만화처럼 어두운 바탕 위면 부르는 쪽이 준다. */
+    track: Color = CpTheme.colors.readingTrack,
+    /** 막대가 오른쪽에서 차오른다(오→왼 만화, 0.42.0). 글자 칸은 그대로 — 제목은 늘 왼쪽이다. */
+    reversed: Boolean = false,
+) {
     val needsClock = FooterItem.Clock in footer.slots || FooterItem.Battery in footer.slots
     val now = if (needsClock) rememberMinuteTick() else 0L
     val context = LocalContext.current
@@ -146,7 +155,17 @@ fun CpReadingFooter(info: FooterInfo, footer: Footer, color: Color, modifier: Mo
     Column(modifier.fillMaxWidth().padding(horizontal = CpTheme.metrics.gutter)) {
         // 빈 곳은 지면의 흐린 글자색을 옅게(0.29.0). UI 의 progressTrack 은 세피아 1.09 · 회색 1.04 로 지면에 묻혀 얼마
         // 남았는지 보이지 않았다.
-        CpProgressBar(info.percent / 100f, weight = CpBarWeight.Thin, track = CpTheme.colors.readingTrack)
+        androidx.compose.runtime.CompositionLocalProvider(
+            androidx.compose.ui.platform.LocalLayoutDirection provides
+                if (reversed) androidx.compose.ui.unit.LayoutDirection.Rtl else androidx.compose.ui.platform.LocalLayoutDirection.current,
+        ) {
+            CpProgressBar(
+                info.percent / 100f,
+                Modifier.semantics { contentDescription = if (reversed) "진행 오른쪽부터" else "진행 왼쪽부터" },
+                weight = CpBarWeight.Thin,
+                track = track,
+            )
+        }
         Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             // 양쪽 칸이 같은 몫을 가져야 가운데가 화면 가운데에 선다. 제목이 길면 말줄임으로 끊긴다.
             CpText(text(footer.left), CpTheme.type.caption, color, Modifier.weight(1f))
@@ -382,6 +401,47 @@ fun VolumeKeyPaging(enabled: Boolean, onPage: (forward: Boolean) -> Unit) {
 
 // ── 보기 설정(전체 화면) ────────────────────────────────────────────
 
+/** 보기 설정을 연 리더. 그 리더가 따르는 줄만 보인다. */
+enum class CpReaderKind { Book, Pdf, Comic, Webtoon }
+
+/**
+ * 두 쪽 보기 두 줄(가로에서 · 세로에서). 책 · PDF · 만화가 같은 줄 · 같은 값을 쓴다(0.42.0) — 만화만 따로 "끔 / 넓은 화면에서 /
+ * 가로에서 / 늘" 을 두었을 때는 모든 보기 설정의 이 두 줄을 바꿔도 만화가 따르지 않았다.
+ *
+ * @param fitWidth PDF 폭 맞춤: 두 쪽이 꺼진다. 줄을 흐리게 하고 까닭을 적는다 — 말없이 꺼지면 고장으로 보인다.
+ */
+@Composable
+fun CpTwoPageRows(prefs: ScreenPrefs, onChange: (ScreenPrefs) -> Unit, modifier: Modifier = Modifier, fitWidth: Boolean = false) {
+    // 휴대폰에서는 흐리게 두고 까닭을 적는다. 줄을 빼 버리면 태블릿에서 본 설정을 휴대폰에서 찾아 헤맨다.
+    val wide = androidx.compose.ui.platform.LocalConfiguration.current.smallestScreenWidthDp >= ScreenPrefs.WIDE_SCREEN_DP
+    val note = Modifier.padding(start = CpTheme.metrics.gutter, bottom = 6.dp)
+    Column(modifier) {
+        CpChoice(
+            "가로에서 두 쪽 보기", listOf("켬", "끔"), if (prefs.twoPagesLandscape) 0 else 1,
+            { if (!fitWidth) onChange(prefs.copy(twoPagesLandscape = it == 0)) },
+            if (fitWidth) Modifier.alpha(0.45f) else Modifier,
+        )
+        CpChoice(
+            "세로에서 두 쪽 보기", listOf("켬", "끔"), if (prefs.twoPagesPortrait) 0 else 1,
+            { if (wide && !fitWidth) onChange(prefs.copy(twoPagesPortrait = it == 0)) },
+            if (wide && !fitWidth) Modifier else Modifier.alpha(0.45f),
+        )
+        when {
+            fitWidth -> CpText("폭 맞춤에서는 한 쪽씩 보입니다", CpTheme.type.caption, CpTheme.colors.textMuted, note)
+            // 세로 줄 바로 아래라 "세로 두 쪽은" 을 붙이지 않는다(0.30.0 부터의 문구 그대로).
+            !wide -> CpText("넓은 화면(태블릿 · 폴더블)에서만 쓸 수 있습니다", CpTheme.type.caption, CpTheme.colors.textMuted, note)
+        }
+    }
+}
+
+/** 두 쪽 보기에서 표지(1쪽)를 따로 둘지. PDF · 만화. */
+@Composable
+private fun CoverAloneRow(prefs: ScreenPrefs, onChange: (ScreenPrefs) -> Unit, modifier: Modifier) {
+    CpChoice("두 쪽 보기에서 표지", listOf("따로", "함께"), if (prefs.pdfCoverAlone) 0 else 1, {
+        onChange(prefs.copy(pdfCoverAlone = it == 0))
+    }, modifier)
+}
+
 /**
  * 모든 보기 설정. 묶음 제목(글자만) 아래 설정 줄은 한 단([CpMetrics.levelIndent]) 안쪽이다(위계 규칙).
  *
@@ -399,6 +459,11 @@ fun CpViewSettingsScreen(
     pdf: Boolean = false,
     /** "형광펜 · 메모" 줄을 보인다. PDF 는 글자를 꺼낼 수 있는 휴대폰(안드로이드 15+)에서만 칠이 있다. */
     highlights: Boolean = !pdf,
+    /**
+     * 어느 리더에서 열었나(0.42.0). 그 리더가 따르지 않는 줄은 보이지 않는다 — 0.41 까지 만화 · 웹툰은 PDF 인 척 열어
+     * 두 쪽 보기 · 넘김 효과 · 자동 넘김 줄이 보였는데, 바꿔도 아무 일이 없었다.
+     */
+    reader: CpReaderKind = if (pdf) CpReaderKind.Pdf else CpReaderKind.Book,
 ) {
     var sub by remember { mutableStateOf(SettingsPage.Main) }
     androidx.activity.compose.BackHandler(enabled = sub != SettingsPage.Main) { sub = SettingsPage.Main }
@@ -416,39 +481,45 @@ fun CpViewSettingsScreen(
                 CpChoice("음량 단추로 넘기기", listOf("켬", "끔"), if (prefs.volumeKeys) 0 else 1, {
                     onChange(prefs.copy(volumeKeys = it == 0))
                 }, child)
-                val turns = PageTurn.entries
-                CpChoice("넘김 효과", turns.map { it.label }, turns.indexOf(prefs.pageTurn), {
-                    onChange(prefs.copy(pageTurn = turns[it]))
-                }, child)
-                // 소리 · 진동(0.32.0). 고르면 한 번 들려 준다 — "들어 보기" 단추를 따로 두면 줄이 하나 더 늘고, 고른 뒤 또 눌러야 한다.
-                val feedback = rememberTurnFeedback()
-                val view = androidx.compose.ui.platform.LocalView.current
-                val sounds = TurnSound.entries
-                CpChoice("넘김 소리", sounds.map { it.label }, sounds.indexOf(prefs.turnSound), {
-                    onChange(prefs.copy(turnSound = sounds[it]))
-                    feedback.preview(sounds[it])
-                }, child)
-                CpChoice("넘김 진동", listOf("끔", "켬"), if (prefs.turnHaptic) 1 else 0, {
-                    onChange(prefs.copy(turnHaptic = it == 1))
-                    if (it == 1) view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
-                }, child)
-                CpText(
-                    "소리를 고르면 한 번 들려 줍니다. 휴대폰이 무음 · 진동일 때와 듣기 · 자동 넘김 중에는 소리가 나지 않습니다. " +
-                        "휴대폰의 \"애니메이션 제거\" 가 켜져 있으면 효과 없이 넘깁니다.",
-                    CpTheme.type.caption, CpTheme.colors.textMuted,
-                    Modifier.padding(start = CpTheme.metrics.gutter + CpTheme.metrics.levelIndent, end = CpTheme.metrics.gutter, top = 4.dp, bottom = 4.dp),
-                    maxLines = Int.MAX_VALUE,
-                )
-                val autos = AutoTurn.entries
-                CpChoice("자동 넘김", autos.map { it.label }, autos.indexOf(prefs.autoTurn), {
-                    onChange(prefs.copy(autoTurn = autos[it]))
-                }, child)
-                CpText(
-                    "자동 넘김은 가운데를 누르면 멈춥니다. 듣기와 함께 켜면 듣기가 넘김을 맡습니다.",
-                    CpTheme.type.caption, CpTheme.colors.textMuted,
-                    Modifier.padding(start = CpTheme.metrics.gutter + CpTheme.metrics.levelIndent, end = CpTheme.metrics.gutter, top = 4.dp, bottom = 4.dp),
-                    maxLines = 2,
-                )
+                // 만화는 앞뒤 쪽이 붙어 미끄러지는 넘김으로 정했다(2026-10-03 결정 7). 웹툰은 넘기지 않고 내린다.
+                if (reader == CpReaderKind.Book || reader == CpReaderKind.Pdf) {
+                    val turns = PageTurn.entries
+                    CpChoice("넘김 효과", turns.map { it.label }, turns.indexOf(prefs.pageTurn), {
+                        onChange(prefs.copy(pageTurn = turns[it]))
+                    }, child)
+                }
+                if (reader != CpReaderKind.Webtoon) {
+                    // 소리 · 진동(0.32.0). 고르면 한 번 들려 준다 — "들어 보기" 단추를 따로 두면 줄이 하나 더 늘고, 고른 뒤 또 눌러야 한다.
+                    val feedback = rememberTurnFeedback()
+                    val view = androidx.compose.ui.platform.LocalView.current
+                    val sounds = TurnSound.entries
+                    CpChoice("넘김 소리", sounds.map { it.label }, sounds.indexOf(prefs.turnSound), {
+                        onChange(prefs.copy(turnSound = sounds[it]))
+                        feedback.preview(sounds[it])
+                    }, child)
+                    // 켬 · 끔 차례는 다른 줄과 같게(0.42.0) — 이 줄만 끔이 앞이라 같은 자리를 눌러 반대로 골랐다.
+                    CpChoice("넘김 진동", listOf("켬", "끔"), if (prefs.turnHaptic) 0 else 1, {
+                        onChange(prefs.copy(turnHaptic = it == 0))
+                        if (it == 0) view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+                    }, child)
+                    CpText(
+                        "소리를 고르면 한 번 들려 줍니다. 휴대폰이 무음 · 진동일 때와 듣기 · 자동 넘김 중에는 소리가 나지 않습니다. " +
+                            "휴대폰의 \"애니메이션 제거\" 가 켜져 있으면 효과 없이 넘깁니다.",
+                        CpTheme.type.caption, CpTheme.colors.textMuted,
+                        Modifier.padding(start = CpTheme.metrics.gutter + CpTheme.metrics.levelIndent, end = CpTheme.metrics.gutter, top = 4.dp, bottom = 4.dp),
+                        maxLines = Int.MAX_VALUE,
+                    )
+                    val autos = AutoTurn.entries
+                    CpChoice("자동 넘김", autos.map { it.label }, autos.indexOf(prefs.autoTurn), {
+                        onChange(prefs.copy(autoTurn = autos[it]))
+                    }, child)
+                    CpText(
+                        "자동 넘김은 가운데를 누르면 멈춥니다. 듣기와 함께 켜면 듣기가 넘김을 맡습니다.",
+                        CpTheme.type.caption, CpTheme.colors.textMuted,
+                        Modifier.padding(start = CpTheme.metrics.gutter + CpTheme.metrics.levelIndent, end = CpTheme.metrics.gutter, top = 4.dp, bottom = 4.dp),
+                        maxLines = 2,
+                    )
+                }
                 CpSectionLabel("화면")
                 val rotations = ScreenRotation.entries
                 CpChoice("화면 회전", rotations.map { it.label }, rotations.indexOf(prefs.rotation), {
@@ -466,41 +537,25 @@ fun CpViewSettingsScreen(
                         maxLines = 2,
                     )
                 }
-                CpChoice("가로에서 두 쪽 보기", listOf("켬", "끔"), if (prefs.twoPagesLandscape) 0 else 1, {
-                    onChange(prefs.copy(twoPagesLandscape = it == 0))
-                }, child)
-                // 휴대폰에서는 흐리게 두고 까닭을 적는다. 줄을 빼 버리면 태블릿에서 본 설정을 휴대폰에서 찾아 헤맨다.
-                val wide = androidx.compose.ui.platform.LocalConfiguration.current.smallestScreenWidthDp >= ScreenPrefs.WIDE_SCREEN_DP
-                Column(child) {
-                    CpChoice(
-                        "세로에서 두 쪽 보기",
-                        listOf("켬", "끔"),
-                        if (prefs.twoPagesPortrait) 0 else 1,
-                        { if (wide) onChange(prefs.copy(twoPagesPortrait = it == 0)) },
-                        if (wide) Modifier else Modifier.alpha(0.45f),
-                    )
-                    if (!wide) {
-                        CpText(
-                            "넓은 화면(태블릿 · 폴더블)에서만 쓸 수 있습니다",
-                            CpTheme.type.caption,
-                            CpTheme.colors.textMuted,
-                            Modifier.padding(start = CpTheme.metrics.gutter, bottom = 6.dp),
-                        )
-                    }
+                if (reader != CpReaderKind.Webtoon) {
+                    CpTwoPageRows(prefs, onChange, child, fitWidth = reader == CpReaderKind.Pdf && prefs.pdfFit == PdfFit.Width)
+                    // 만화도 PDF 처럼 표지(1쪽)를 따로 둔다 — 2쪽부터 짝이 맞아야 펼침면 그림이 이어진다.
+                    if (reader == CpReaderKind.Comic) CoverAloneRow(prefs, onChange, child)
                 }
                 val keep = KeepScreenOn.entries
                 CpChoice("화면 켜짐 유지", keep.map { it.label }, keep.indexOf(prefs.keepScreenOn), {
                     onChange(prefs.copy(keepScreenOn = keep[it]))
                 }, child)
                 CpLinkRow("하단 정보", prefs.footer.summary, { sub = SettingsPage.Footer }, child)
-                CpChoice("왼쪽 끝을 밀어 밝기 조절", listOf("켬", "끔"), if (prefs.brightnessGesture) 0 else 1, {
-                    onChange(prefs.copy(brightnessGesture = it == 0))
-                }, child)
-                if (pdf) {
-                    CpSectionLabel("PDF")
-                    CpChoice("두 쪽 보기에서 표지", listOf("따로", "함께"), if (prefs.pdfCoverAlone) 0 else 1, {
-                        onChange(prefs.copy(pdfCoverAlone = it == 0))
+                // 웹툰은 세로로 밀어 내린다 — 왼쪽 끝의 위아래 밀기와 같은 몸짓이다.
+                if (reader != CpReaderKind.Webtoon) {
+                    CpChoice("왼쪽 끝을 밀어 밝기 조절", listOf("켬", "끔"), if (prefs.brightnessGesture) 0 else 1, {
+                        onChange(prefs.copy(brightnessGesture = it == 0))
                     }, child)
+                }
+                if (reader == CpReaderKind.Pdf) {
+                    CpSectionLabel("PDF")
+                    CoverAloneRow(prefs, onChange, child)
                 }
             }
         }

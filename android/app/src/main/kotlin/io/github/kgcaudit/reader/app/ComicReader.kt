@@ -79,7 +79,14 @@ import io.github.kgcaudit.reader.document.comic.Work
 import io.github.kgcaudit.reader.document.comic.WorkEntry
 import io.github.kgcaudit.reader.pdf.PageViewport
 import io.github.kgcaudit.reader.ui.design.CpBrightnessRow
-import io.github.kgcaudit.reader.ui.design.ComicSpread
+import io.github.kgcaudit.reader.ui.design.CpTwoPageRows
+import io.github.kgcaudit.reader.ui.design.CpReaderKind
+import io.github.kgcaudit.reader.ui.design.CpAutoTurnPill
+import io.github.kgcaudit.reader.ui.design.CpBrightnessOverlay
+import io.github.kgcaudit.reader.ui.design.brightnessEdge
+import io.github.kgcaudit.reader.ui.design.rememberAutoTurn
+import io.github.kgcaudit.reader.ui.design.systemBrightness
+import io.github.kgcaudit.reader.ui.design.visible
 import io.github.kgcaudit.reader.ui.design.CpButton
 import io.github.kgcaudit.reader.ui.design.CpChoice
 import io.github.kgcaudit.reader.ui.design.CpFullScreen
@@ -165,12 +172,15 @@ fun ComicReader(
     val rtl = ComicReading.rightToLeft(work)
     val next = work?.let { ComicReading.nextAfter(it, book.unit.id) }
     val latestPrefs by rememberUpdatedState(prefs)
-    // 두 쪽 보기는 화면 모양에 따라 정한다(넓은 화면에서 · 가로에서 · 늘). 판 목록은 그때마다 다시 짠다 — 짝은 쪽 크기로 정해진다.
+    // 두 쪽 보기는 책 · PDF 와 같은 설정을 따른다(0.42.0): 가로에서 두 쪽 · 세로에서 두 쪽(넓은 화면만) · 두 쪽의 표지.
+    // 0.41 까지는 만화만 따로 고르는 값이 있어, 모든 보기 설정의 같은 이름 줄을 바꿔도 만화는 따르지 않았다.
+    // 판 목록은 화면 모양이 바뀔 때마다 다시 짠다 — 짝은 쪽 크기로 정해진다.
     var screen by remember { mutableStateOf(IntSize.Zero) }
     val smallestWidth = androidx.compose.ui.platform.LocalConfiguration.current.smallestScreenWidthDp
-    val two = prefs.comicSpread.twoPages(screen.width.toFloat(), screen.height.toFloat(), smallestWidth) && count > 1
-    val spreads = remember(two, count, sizes) {
-        if (two) ComicSpreads.of(List(count) { sizes.getOrNull(it) }) else List(count) { listOf(it) }
+    val density = androidx.compose.ui.platform.LocalDensity.current.density
+    val two = prefs.twoPages(screen.width / density, screen.height / density, smallestWidth) && count > 1
+    val spreads = remember(two, count, sizes, prefs.pdfCoverAlone) {
+        if (two) ComicSpreads.of(List(count) { sizes.getOrNull(it) }, coverAlone = prefs.pdfCoverAlone) else List(count) { listOf(it) }
     }
     val spreadIndex = ComicSpreads.indexOf(spreads, page)
     val shown = spreads.getOrElse(spreadIndex) { listOf(page) }
@@ -179,7 +189,17 @@ fun ComicReader(
     // 자리는 판의 마지막 쪽으로 적는다 — 끝 판을 보면 다 읽음이고, 다시 열면 그 쪽이 든 판이 나온다.
     LaunchedEffect(shown) { onPage(shown.last()) }
     LaunchedEffect(panel) { onChrome(panel != ComicPanel.None) }
-    ReadingWindow(prefs, activity = page)
+    // 왼쪽 끝을 밀어 밝기(0.42.0 — 책과 같다). 미는 동안의 값은 창에만 걸고, 손을 떼면 저장한다.
+    var dragBrightness by remember { mutableStateOf<Float?>(null) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    ReadingWindow(
+        prefs.copy(
+            brightness = dragBrightness ?: prefs.brightness,
+            // 자동 넘김 중에는 화면이 꺼지면 안 된다 — 꺼지면 넘김도 멈춘 채 다음 쪽을 못 본다.
+            keepScreenOn = if (prefs.autoTurn != io.github.kgcaudit.reader.ui.design.AutoTurn.Off) io.github.kgcaudit.reader.ui.design.KeepScreenOn.Always else prefs.keepScreenOn,
+        ),
+        activity = page,
+    )
 
     fun say(message: String) {
         toast = message
@@ -233,7 +253,20 @@ fun ComicReader(
         }
     }
 
-    Box(Modifier.fillMaxSize().background(COMIC_BACKDROP)) {
+    Box(
+        Modifier.fillMaxSize().background(COMIC_BACKDROP).brightnessEdge(
+            enabled = prefs.brightnessGesture && panel == ComicPanel.None && !ended,
+            current = { latestPrefs.brightness ?: systemBrightness(context) },
+            onDrag = { value ->
+                if (value != null) {
+                    dragBrightness = value
+                } else {
+                    dragBrightness?.let { v -> onPrefsChange(latestPrefs.copy(brightness = v)) }
+                    dragBrightness = null
+                }
+            },
+        ),
+    ) {
         Column(Modifier.fillMaxSize()) {
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().windowInsetsPadding(WindowInsets.displayCutout).onSizeChanged { screen = it }) {
                 val viewW = constraints.maxWidth.toFloat()
@@ -329,9 +362,19 @@ fun ComicReader(
                         },
                 )
             }
-            ComicFooter(title, shown, count, rtl, Modifier.windowInsetsPadding(WindowInsets.displayCutout))
+            ComicFooter(
+                title, work?.let { ComicReading.entryOf(it, book.unit.id)?.label }, shown, count, rtl, prefs.footer,
+                Modifier.windowInsetsPadding(WindowInsets.displayCutout),
+            )
         }
         if (bookmarked) CpRibbon(Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.displayCutout).padding(end = 20.dp))
+        // 자동 넘김(0.42.0 — 책 · PDF 와 같다). 메뉴가 열렸거나 권 끝 판이 떠 있으면 쉰다.
+        val autoSuspended = panel != ComicPanel.None || ended
+        val autoTurn = rememberAutoTurn(prefs.autoTurn, page, autoSuspended) { advance(true) }
+        if (autoTurn.visible(prefs.autoTurn, autoSuspended)) {
+            CpAutoTurnPill(autoTurn, Modifier.align(Alignment.BottomCenter).padding(bottom = 60.dp))
+        }
+        CpBrightnessOverlay(dragBrightness, Modifier.align(Alignment.CenterStart))
         CpToast(toast, onDone = { toast = null }, Modifier.align(Alignment.BottomCenter), key = toastCount)
     }
 
@@ -355,8 +398,8 @@ fun ComicReader(
                     Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
                         ViewChoice(view, onView)
                         CpChoice("넘기는 방향", listOf("왼→오", "오→왼"), if (rtl) 1 else 0, { onDirection(it == 1) })
-                        val choices = ComicSpread.entries
-                        CpChoice("두 쪽 보기", choices.map { it.label }, choices.indexOf(prefs.comicSpread), { onPrefsChange(prefs.copy(comicSpread = choices[it])) })
+                        // 책 · PDF 와 같은 두 줄(0.42.0).
+                        CpTwoPageRows(prefs, onPrefsChange)
                         CpBrightnessRow(prefs.brightness, { onPrefsChange(prefs.copy(brightness = it)) })
                         CpLinkRow("모든 보기 설정", "", { panel = ComicPanel.Settings })
                     }
@@ -368,7 +411,7 @@ fun ComicReader(
             CpToolButton(CpIcons.Bookmark, "책갈피", { panel = ComicPanel.Bookmarks })
             CpToolButton(CpIcons.View, "보기", { panel = if (panel == ComicPanel.View) ComicPanel.Bar else ComicPanel.View }, selected = panel == ComicPanel.View)
         }
-        ComicPanel.Settings -> CpViewSettingsScreen(prefs, onPrefsChange, onBack = { panel = ComicPanel.View }, pdf = true, highlights = false)
+        ComicPanel.Settings -> CpViewSettingsScreen(prefs, onPrefsChange, onBack = { panel = ComicPanel.View }, highlights = false, reader = CpReaderKind.Comic)
         ComicPanel.Pages -> PageGrid(book, title, page, onBack = { panel = ComicPanel.Bar }) { panel = ComicPanel.None; page = it }
         ComicPanel.Bookmarks -> BookmarkList(book, bookmarks, onBack = { panel = ComicPanel.Bar }) { panel = ComicPanel.None; page = it }
     }
@@ -447,12 +490,15 @@ private fun ComicPageImage(book: ComicBook, sizes: List<ImageSize?>, pages: List
 }
 
 /**
- * 아래 줄: 가는 진행 막대 + "제목 · 12 / 180". 오→왼 책은 막대가 오른쪽에서 차오른다(네이버 시리즈 — 진행도 읽는 방향을
- * 따른다).
+ * 아래 줄: 진행 막대 + 하단 정보 세 자리(책과 같은 설정, 0.42.0). 오→왼 책은 막대가 오른쪽에서 차오른다(네이버 시리즈 —
+ * 진행도 읽는 방향을 따른다). 쪽 자리에 방향 표시를 붙인다: "12 / 180  ← 오→왼".
  */
 @Composable
-private fun ComicFooter(title: String, shown: List<Int>, count: Int, rtl: Boolean, modifier: Modifier) =
-    ComicFooterLine(title, "${pagesLabel(shown)} / $count" + if (rtl) "  ← 오→왼" else "", if (count > 1) shown.last() / (count - 1f) else 1f, rtl, modifier)
+private fun ComicFooter(title: String, entry: String?, shown: List<Int>, count: Int, rtl: Boolean, footer: io.github.kgcaudit.reader.ui.design.Footer, modifier: Modifier) =
+    ComicFooterLine(
+        title, entry, "${pagesLabel(shown)} / $count" + if (rtl) "  ← 오→왼" else "",
+        if (count > 1) shown.last() / (count - 1f) else 1f, rtl, footer, modifier,
+    )
 
 /** "12" · 두 쪽이면 "2–3". */
 internal fun pagesLabel(shown: List<Int>): String =
@@ -470,22 +516,35 @@ internal fun spreadAspect(book: ComicBook, sizes: List<ImageSize?>, pages: List<
 private fun pageAspect(book: ComicBook, sizes: List<ImageSize?>, page: Int): Float? =
     sizes.getOrNull(page)?.let { it.width.toFloat() / it.height } ?: book.knownAspect(page)
 
-/** 아래 줄 그리기. 웹툰(%)도 같은 모양으로 쓴다. */
+/**
+ * 아래 줄 그리기. 웹툰(%)도 같은 모양으로 쓴다. 세 자리는 책의 하단 정보 설정을 따른다 — 0.41 까지는 "제목 · 쪽" 으로
+ * 박혀 있어 설정에서 시계 · 배터리를 골라도 만화에는 나오지 않았다. 장 이름 자리에는 권 · 화 이름이 선다. 남은 쪽 · 시간은
+ * 만화에 없어 빈칸이다.
+ */
 @Composable
-internal fun ComicFooterLine(title: String, position: String, fraction: Float, rtl: Boolean, modifier: Modifier) {
-    Column(modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 12.dp)) {
-        Box(Modifier.fillMaxWidth().height(2.dp).background(Color(0x33FFFFFF))) {
-            Box(
-                Modifier.fillMaxWidth(fraction.coerceIn(0f, 1f)).height(2.dp).background(CpTheme.colors.accent)
-                    .align(if (rtl) Alignment.CenterEnd else Alignment.CenterStart)
-                    .semantics { contentDescription = if (rtl) "진행 오른쪽부터" else "진행 왼쪽부터" },
-            )
-        }
-        Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            CpText(title, CpTheme.type.caption, COMIC_INK_MUTED, Modifier.weight(1f))
-            CpText(position, CpTheme.type.caption, COMIC_INK_MUTED)
-        }
-    }
+internal fun ComicFooterLine(
+    title: String,
+    entry: String?,
+    position: String,
+    fraction: Float,
+    rtl: Boolean,
+    footer: io.github.kgcaudit.reader.ui.design.Footer,
+    modifier: Modifier,
+) {
+    io.github.kgcaudit.reader.ui.design.CpReadingFooter(
+        io.github.kgcaudit.reader.ui.design.FooterInfo(
+            bookTitle = title,
+            chapterTitle = entry,
+            page = position,
+            percent = fraction.coerceIn(0f, 1f) * 100f,
+            chapterPagesLeft = null,
+        ),
+        footer,
+        COMIC_INK_MUTED,
+        modifier.padding(top = 6.dp, bottom = 12.dp),
+        track = Color(0x33FFFFFF),
+        reversed = rtl,
+    )
 }
 
 /** 쪽 목록(구상안 ③): 쪽 그림 격자, 지금 쪽 강조. 목차가 없는 만화의 "목차" 다. */

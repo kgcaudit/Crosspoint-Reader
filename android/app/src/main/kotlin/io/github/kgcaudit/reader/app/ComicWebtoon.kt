@@ -224,7 +224,10 @@ fun WebtoonReader(
                     }
                 }
             }
-            ComicFooterLine(title, "${(percent * 100).roundToInt()}%", percent, rtl = false, Modifier.windowInsetsPadding(WindowInsets.displayCutout))
+            ComicFooterLine(
+                title, work?.let { ComicReading.entryOf(it, book.unit.id)?.label }, "${(percent * 100).roundToInt()}%", percent,
+                rtl = false, footer = prefs.footer, modifier = Modifier.windowInsetsPadding(WindowInsets.displayCutout),
+            )
         }
         if (bookmarked) CpRibbon(Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.displayCutout).padding(end = 20.dp))
         CpToast(toast, onDone = { toast = null }, Modifier.align(Alignment.BottomCenter), key = toastCount)
@@ -268,7 +271,10 @@ fun WebtoonReader(
                 CpToolButton(CpIcons.Bookmark, "책갈피", { panel = WebtoonPanel.Bookmarks })
                 CpToolButton(CpIcons.View, "보기", { panel = if (panel == WebtoonPanel.View) WebtoonPanel.Bar else WebtoonPanel.View }, selected = panel == WebtoonPanel.View)
             }
-            WebtoonPanel.Settings -> CpViewSettingsScreen(prefs, onPrefsChange, onBack = { panel = WebtoonPanel.View }, pdf = true, highlights = false)
+            WebtoonPanel.Settings -> CpViewSettingsScreen(
+                prefs, onPrefsChange, onBack = { panel = WebtoonPanel.View }, highlights = false,
+                reader = io.github.kgcaudit.reader.ui.design.CpReaderKind.Webtoon,
+            )
             WebtoonPanel.Bookmarks -> BookmarkList(book, bookmarks, onBack = { panel = WebtoonPanel.Bar }) { i ->
                 panel = WebtoonPanel.None
                 val (item, o) = itemAt(column.offsetOf(i, 0f))

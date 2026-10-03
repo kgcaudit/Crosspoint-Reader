@@ -225,6 +225,20 @@ class WebtoonAppTest {
     }
 
     @Test
+    fun `webtoon settings show only what a webtoon follows`() {
+        // 0.41 까지 웹툰 설정에는 두 쪽 보기 · 넘김 효과 · 자동 넘김 · 왼쪽 끝 밝기가 보였는데 바꿔도 아무 일이 없었다.
+        openChapter("전학생", "1화")
+        compose.onRoot().performTouchInput { click(center) }
+        click(hasText("보기"))
+        click(hasText("모든 보기 설정"))
+        waitFor(hasText("하단 정보"))
+        for (row in listOf("가로에서 두 쪽 보기", "세로에서 두 쪽 보기", "두 쪽 보기에서 표지", "넘김 효과", "넘김 소리", "자동 넘김", "왼쪽 끝을 밀어 밝기 조절")) {
+            assertTrue(!has(hasText(row)), "웹툰 설정에 따르지 않는 줄이 있다: $row")
+        }
+        assertTrue(has(hasText("화면 켜짐 유지")))
+    }
+
+    @Test
     @Config(qualifiers = "w851dp-h393dp-xhdpi")
     fun `a wide screen shows the webtoon as a centred column`() {
         openChapter("전학생", "1화")

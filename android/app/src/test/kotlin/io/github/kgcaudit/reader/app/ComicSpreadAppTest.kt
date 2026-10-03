@@ -10,6 +10,7 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.flow.first
@@ -29,6 +30,7 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlin.math.abs
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -172,10 +174,77 @@ class ComicSpreadAppTest {
         next(); waitFor(page("2–3"))
         compose.onRoot().performTouchInput { click(center) }
         click(hasText("보기"))
-        click(hasText("끔"))
+        // 책과 같은 "가로에서 두 쪽 보기" 줄(0.42.0). 끔이 둘(가로 · 세로) — 위의 것이 가로다.
+        waitFor(hasText("가로에서 두 쪽 보기"))
+        compose.onAllNodes(hasText("끔"), useUnmergedTree = true)[0].performClick()
         // 보던 판의 첫 쪽이 한 쪽으로.
         waitFor(page("2"))
-        assertEquals(io.github.kgcaudit.reader.ui.design.ComicSpread.Off, app.container.prefs.load().screen.comicSpread)
+        assertEquals(false, app.container.prefs.load().screen.twoPagesLandscape)
+    }
+
+    @Test
+    @Config(qualifiers = "w673dp-h841dp-xhdpi")
+    fun `turning off two pages in all view settings applies to comics too`() {
+        // 0.41 의 고장: 모든 보기 설정의 두 쪽 줄을 꺼도 만화는 두 쪽 그대로였다(만화만의 설정을 따로 읽었다).
+        // 세로 태블릿에서 잰다 — 가로 휴대폰은 보기 판이 굴러야 줄이 보이고, 그 굴리기가 시험 힙을 넘겼다.
+        openVolume()
+        waitFor(page("1"))
+        next(); waitFor(page("2–3"))
+        compose.onRoot().performTouchInput { click(center) }
+        click(hasText("보기"))
+        click(hasText("모든 보기 설정"))
+        waitFor(hasText("세로에서 두 쪽 보기"))
+        // 만화가 따르지 않는 넘김 효과 줄은 없다(줄 구성은 ViewSettingsRowsTest 가 따로 잰다).
+        assertFalse(has(hasText("넘김 효과")), "만화는 붙은 밀기로 넘기는데 넘김 효과 줄이 보인다")
+        val y = node(hasText("세로에서 두 쪽 보기")).fetchSemanticsNode().boundsInRoot.center.y
+        compose.onAllNodes(hasText("끔"), useUnmergedTree = true).let { nodes ->
+            val i = nodes.fetchSemanticsNodes().indexOfFirst { kotlin.math.abs(it.boundsInRoot.center.y - y) < 40f }
+            nodes[i].performClick()
+        }
+        compose.waitUntil(10_000) { !app.container.prefs.load().screen.twoPagesPortrait }
+        compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        waitFor(page("2"))
+    }
+
+    @Test
+    fun `an old comic-only two page setting is ignored`() {
+        // 망가뜨린 입력: 0.41 이 남긴 만화 전용 값 "끔". 이제 책과 같은 설정(가로 켬)을 따른다.
+        app.getSharedPreferences("reader", android.content.Context.MODE_PRIVATE).edit().putString("comicSpread", "Off").commit()
+        compose.activityRule.scenario.recreate()
+        openVolume()
+        waitFor(page("1"))
+        next(); waitFor(page("2–3"))
+    }
+
+    @Test
+    fun `the footer follows the reading footer setting and auto turn works in comics`() {
+        runBlocking {
+            val p = app.container.prefs.load()
+            app.container.prefs.save(
+                p.copy(
+                    screen = p.screen.copy(
+                        footer = io.github.kgcaudit.reader.ui.design.Footer(
+                            io.github.kgcaudit.reader.ui.design.FooterItem.ChapterTitle,
+                            io.github.kgcaudit.reader.ui.design.FooterItem.None,
+                            io.github.kgcaudit.reader.ui.design.FooterItem.Percent,
+                        ),
+                        autoTurn = io.github.kgcaudit.reader.ui.design.AutoTurn.entries.first { it.seconds != null },
+                    ),
+                ),
+            )
+        }
+        compose.activityRule.scenario.recreate()
+        openVolume()
+        waitFor(page("1"))
+        // 장 이름 자리에 권 이름, 오른쪽에 %. 0.41 까지는 "제목 · 쪽" 으로 박혀 있었다.
+        waitFor(hasText("1권"))
+        assertTrue(has(hasText("0%")))
+        assertFalse(has(hasText("1 / 7")), "꺼 둔 쪽 자리가 보인다")
+        // 자동 넘김: 손대지 않아도 다음 판으로.
+        val seconds = io.github.kgcaudit.reader.ui.design.AutoTurn.entries.first { it.seconds != null }.seconds!!
+        compose.mainClock.advanceTimeBy((seconds + 2) * 1_000L)
+        waitFor(page("2–3"))
     }
 
     /** 화면 가운데 줄 [fx] 자리가 [page] 쪽 색인가(기다리지 않는다 — 끄는 중의 한 순간을 잰다). */
@@ -243,8 +312,8 @@ class ComicSpreadAppTest {
     @Test
     @Config(qualifiers = "w673dp-h841dp-xhdpi")
     fun `a tablet held upright shows two pages by default`() {
-        // 0.40.0 사용자 결정 8: 기본값 "넓은 화면에서" — 태블릿은 세로로 들어도 두 쪽.
-        assertEquals(io.github.kgcaudit.reader.ui.design.ComicSpread.Wide, app.container.prefs.load().screen.comicSpread)
+        // 0.40.0 사용자 결정 8: 태블릿은 세로로 들어도 두 쪽. 0.42.0 부터 책과 같은 "세로에서 두 쪽 보기"(기본 켬)를 따른다.
+        assertEquals(true, app.container.prefs.load().screen.twoPagesPortrait)
         openVolume()
         waitFor(page("1"))
         next(); waitFor(page("2–3"))
