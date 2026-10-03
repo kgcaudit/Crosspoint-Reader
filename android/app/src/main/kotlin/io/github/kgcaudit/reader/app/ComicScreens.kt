@@ -139,17 +139,24 @@ internal fun LazyListScope.comicShelf(
                 ResumeLine(work, e, p, status.getValue(work.key).newVolumes)
             }
         },
+        // 읽는 중 칸은 이어 볼 권의 표지를 세운다 — 누르면 그 자리부터(격자 칸과 같다).
+        shelf = { work, width ->
+            val e = resumeOf(work, progress).first
+            ShelfWork(work, e.unit, e.label, width, "${work.title} ${e.label} 이어 보기", { onResume(e) }, onMenu)
+        },
     )
     shelfSection(
         "comic-finished", "다 읽은 작품 · ${finished.size}작품", finished, { it.key }, layout, columns,
         grid = { work, width -> WorkItem(work, width, onOpen, onMenu) { DoneLine(status.getValue(work.key).finishedAtEpochMs) } },
         row = { work -> WorkRow(work, onClick = { onOpen(work) }, onMenu = onMenu) { DoneLine(status.getValue(work.key).finishedAtEpochMs) } },
+        shelf = { work, width -> ShelfWork(work, work.face(), kindLabel(work), width, "${work.title} 작품", { onOpen(work) }, onMenu) },
     )
     shelfSection(
         "comic-to-read", "읽을 작품 · ${toRead.size}작품", toRead, { it.key }, layout, columns,
         divider = reading.isNotEmpty() || finished.isNotEmpty(),
         grid = { work, width -> WorkItem(work, width, onOpen, onMenu) },
         row = { work -> WorkRow(work, onClick = { onOpen(work) }, onMenu = onMenu) },
+        shelf = { work, width -> ShelfWork(work, work.face(), kindLabel(work), width, "${work.title} 작품", { onOpen(work) }, onMenu) },
     )
     item { Spacer(Modifier.height(24.dp)) }
 }
@@ -227,6 +234,19 @@ private fun WorkItem(work: Work, width: Dp, onOpen: (Work) -> Unit, onMenu: (Wor
             Spacer(Modifier.height(4.dp))
             CpText("${kindLabel(work)} · ${countLabel(work)}", CpTheme.type.caption, c.textMuted)
         }
+    }
+}
+
+/** 책장 보기의 작품 한 칸: 표지와 권 수 꼬리표만. */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun ShelfWork(work: Work, unit: ComicUnit, subtitle: String, width: Dp, description: String, onClick: () -> Unit, onMenu: (Work) -> Unit) {
+    Box(
+        Modifier.width(width).combinedClickable(role = Role.Button, onLongClick = { onMenu(work) }, onClick = onClick)
+            .semantics(mergeDescendants = true) { contentDescription = description },
+    ) {
+        ComicCover(unit, work.title, subtitle, Modifier.fillMaxWidth())
+        if (work.volumeCount > 1) CountBadge(countLabel(work), Modifier.align(Alignment.BottomEnd))
     }
 }
 

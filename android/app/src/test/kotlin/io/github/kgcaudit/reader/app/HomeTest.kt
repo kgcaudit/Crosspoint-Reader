@@ -140,6 +140,36 @@ class HomeTest {
     }
 
     @Test
+    fun `the bookshelf view stands covers on wooden planks for every section and is remembered`() {
+        waitFor(hasText("읽을 책 · 3권"))
+        node(hasContentDescription("책장으로 보기")).performClick()
+        compose.waitForIdle()
+        // 세 갈래 모두 책장 — 읽는 중의 책도 판 위에 선다(보기 도구가 탭 전체에 먹는다).
+        assertTrue(has(hasText("읽는 중 · 2권")))
+        assertTrue(has(hasContentDescription("어린 왕자.epub 대신 표지")))
+        assertFalse(has(hasText("0%")), "책장 보기에 진도 글자가 남았다 — 격자 칸이 그대로다")
+        val view = compose.activity.window.decorView
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        compose.runOnUiThread { view.draw(Canvas(bitmap)) }
+        File(shots, "104-home-shelf.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        // 표지 사이 여백이 나무색(붉은 갈색)이다. 지면색(밝은 미색)이면 판만 그은 격자다.
+        val density = compose.activity.resources.displayMetrics.density
+        val cover = compose.onAllNodes(hasContentDescription("어린 왕자.epub 대신 표지"), useUnmergedTree = true).fetchSemanticsNodes().single().boundsInRoot
+        val p = bitmap.getPixel((4 * density).toInt(), cover.center.y.toInt())
+        val r = android.graphics.Color.red(p); val g = android.graphics.Color.green(p); val b = android.graphics.Color.blue(p)
+        assertTrue(r in 100..190 && r > g + 20 && g > b, "책장 바탕이 나무색이 아니다: #${Integer.toHexString(p)}")
+        // 판: 표지 바로 아래가 판 색(더 밝은 나무).
+        val plank = bitmap.getPixel(cover.center.x.toInt(), (cover.bottom + 5 * density).toInt())
+        assertTrue(android.graphics.Color.red(plank) > r, "표지 밑에 판이 없다: #${Integer.toHexString(plank)}")
+        compose.activityRule.scenario.recreate()
+        waitFor(hasText("읽을 책 · 3권"))
+        assertEquals(LibraryLayout.Shelf, LibraryViewStore(app).layout.value)
+        // 책장에서도 표지를 누르면 책이 열린다.
+        compose.onAllNodes(hasContentDescription("데미안.epub 대신 표지"), useUnmergedTree = true)[0].performClick()
+        waitFor(hasText("1 / ", substring = true))
+    }
+
+    @Test
     fun `sorting by size puts the biggest book first and by name in Korean order`() {
         waitFor(hasText("읽을 책 · 3권"))
         node(hasContentDescription("목록으로 보기")).performClick()

@@ -9,7 +9,7 @@ import java.text.Collator
 import java.util.Locale
 
 /** 서재를 어떻게 늘어놓을까. 탭 전체(읽는 중 · 읽은 · 읽을)에 함께 적용한다(0.38.0, 2026-10-03 사용자 결정 3). */
-enum class LibraryLayout(val label: String) { Grid("격자로 보기"), List("목록으로 보기") }
+enum class LibraryLayout(val label: String) { Grid("격자로 보기"), List("목록으로 보기"), Shelf("책장으로 보기") }
 
 /** 서재의 차례. 탭 전체에 함께 적용한다. */
 enum class LibrarySort(val label: String) {

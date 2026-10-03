@@ -252,22 +252,25 @@ fun LibraryScreen(
                 val finishedSorted = sort.sort(finished.map { it.book }) { finishedAt[it.id] }
                 // 읽을 책: 한 번도 열지 않은 책. 모든 책 목록(0.24.x)은 책장의 책을 한 번 더 보여 줘 길기만 했다.
                 val toRead = sort.sort(list.orEmpty().filter { it.id !in shelfIds })
-                LazyColumn(Modifier.fillMaxSize()) {
+                LazyColumn(Modifier.fillMaxSize().shelfBackground(layout, wood())) {
                     shelfSection(
                         "reading", "읽는 중 · ${reading.size}권", readingSorted, { it.id.value }, layout, columns,
                         grid = { book, width -> ShelfItem(book, width, percents[book.id], onOpen, onLongClick = { coverMenu = it }) },
                         row = { book -> DetailRow(book, notes[book.id], onOpen, onMenu = { coverMenu = it }) { PercentLine(percents[book.id]) } },
+                        shelf = { book, width -> ShelfCover(book, width, onOpen, onLongClick = { coverMenu = it }) },
                     )
                     shelfSection(
                         "finished", "읽은 책 · ${finished.size}권", finishedSorted, { it.id.value }, layout, columns,
                         grid = { book, width -> DoneItem(book, width, finishedAt[book.id]!!, onOpen, onLongClick = { coverMenu = it }) },
                         row = { book -> DetailRow(book, notes[book.id], onOpen, onMenu = { coverMenu = it }) { DoneLine(finishedAt[book.id]) } },
+                        shelf = { book, width -> ShelfCover(book, width, onOpen, onLongClick = { coverMenu = it }) },
                     )
                     shelfSection(
                         "to-read", "읽을 책 · ${toRead.size}권", toRead, { it.id.value }, layout, columns,
                         divider = shelf.isNotEmpty(),
                         grid = { book, width -> GridItem(book, width, onOpen, onLongClick = { coverMenu = it }) },
                         row = { book -> DetailRow(book, notes[book.id], onOpen, onMenu = { coverMenu = it }) },
+                        shelf = { book, width -> ShelfCover(book, width, onOpen, onLongClick = { coverMenu = it }) },
                     )
                     item { Spacer(Modifier.height(24.dp)) }
                 }
@@ -278,7 +281,7 @@ fun LibraryScreen(
             EmptyLibrary { pickFolder.launch(null) }
         } else if (comics) {
             androidx.compose.foundation.pager.HorizontalPager(pager, Modifier.fillMaxSize(), verticalAlignment = Alignment.Top) { page ->
-                if (page == 0) bookPage() else LazyColumn(Modifier.fillMaxSize()) {
+                if (page == 0) bookPage() else LazyColumn(Modifier.fillMaxSize().shelfBackground(layout, wood())) {
                     comicShelf(
                         works, comicProgress, sort, layout, columns,
                         onOpen = { openWork = it.key },
@@ -509,11 +512,11 @@ private fun BookCover(book: LibraryBook, modifier: Modifier = Modifier, small: B
     )
 }
 
-/** 갈래 머리: "읽는 중 · 5권". */
+/** 갈래 머리: "읽는 중 · 5권". 책장 보기에서는 나무 위의 밝은 글자. */
 @Composable
-internal fun ShelfLabel(text: String) {
+internal fun ShelfLabel(text: String, color: androidx.compose.ui.graphics.Color = CpTheme.colors.textMuted) {
     CpText(
-        text, CpTheme.type.label, CpTheme.colors.textMuted,
+        text, CpTheme.type.label, color,
         Modifier.fillMaxWidth().padding(start = CpTheme.metrics.gutter, end = CpTheme.metrics.gutter, top = 18.dp, bottom = 6.dp),
     )
 }
@@ -534,13 +537,26 @@ internal fun <T> LazyListScope.shelfSection(
     divider: Boolean = false,
     grid: @Composable (T, androidx.compose.ui.unit.Dp) -> Unit,
     row: @Composable (T) -> Unit,
+    /** 책장 보기의 한 칸(표지만). */
+    shelf: @Composable (T, androidx.compose.ui.unit.Dp) -> Unit,
 ) {
     if (items.isEmpty()) return
-    if (divider) item(key = "$key-divider") { Spacer(Modifier.height(14.dp)); CpDivider() }
-    item(key = "$key-label") { ShelfLabel(label) }
+    // 책장 보기는 판이 갈래를 가른다 — 선을 더 그으면 나무 위에 회색 줄이 뜬다.
+    if (divider && layout != LibraryLayout.Shelf) item(key = "$key-divider") { Spacer(Modifier.height(14.dp)); CpDivider() }
+    item(key = "$key-label") { if (layout == LibraryLayout.Shelf) ShelfLabel(label, wood().label) else ShelfLabel(label) }
     when (layout) {
         LibraryLayout.Grid -> items(items.chunked(columns), key = { "$key-g" + id(it.first()) }) { cells -> GridRow(cells, grid) }
         LibraryLayout.List -> items(items, key = { "$key-l" + id(it) }) { row(it) }
+        LibraryLayout.Shelf -> items(items.chunked(columns), key = { "$key-s" + id(it.first()) }) { cells -> WoodRow(cells, shelf) }
+    }
+}
+
+/** 책장 보기의 책 한 권: 표지만. 누르면 열고 길게 누르면 표지 판 — 격자 칸과 같다. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ShelfCover(book: LibraryBook, width: androidx.compose.ui.unit.Dp, onOpen: (LibraryBook) -> Unit, onLongClick: (LibraryBook) -> Unit) {
+    Box(Modifier.width(width).combinedClickable(role = Role.Button, onLongClick = { onLongClick(book) }, onClick = { onOpen(book) })) {
+        BookCover(book, Modifier.fillMaxWidth())
     }
 }
 
@@ -704,7 +720,7 @@ private fun Marked(text: String, query: String, style: androidx.compose.ui.text.
     )
 }
 
-/** 탭 아래 보기 도구 한 줄: 차례 ▾ · · · 격자 | 목록. 탭 전체에 적용한다(0.38.0). */
+/** 탭 아래 보기 도구 한 줄: 차례 ▾ · · · 격자 | 목록 | 책장. 탭 전체에 적용한다(0.38.0). */
 @Composable
 private fun LibraryTools(sort: LibrarySort, layout: LibraryLayout, onSort: () -> Unit, onLayout: (LibraryLayout) -> Unit) {
     val c = CpTheme.colors
@@ -724,7 +740,7 @@ private fun LibraryTools(sort: LibrarySort, layout: LibraryLayout, onSort: () ->
         }
         Spacer(Modifier.weight(1f))
         CpIconToggle(
-            listOf(CpIcons.Grid, CpIcons.Rows),
+            listOf(CpIcons.Grid, CpIcons.Rows, CpIcons.Shelf),
             LibraryLayout.entries.map { it.label },
             layout.ordinal,
             { onLayout(LibraryLayout.entries[it]) },
@@ -905,4 +921,4 @@ internal val LocalShelfWidth = androidx.compose.runtime.compositionLocalOf { 360
 private const val SHELF_COLUMNS = 3
 private val SHELF_ITEM = 102.dp
 private val SHELF_ITEM_TABLET = 130.dp
-private val SHELF_GAP = 14.dp
+internal val SHELF_GAP = 14.dp

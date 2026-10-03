@@ -213,6 +213,21 @@ class ComicShelfAppTest {
     }
 
     @Test
+    fun `the bookshelf view stands work covers on planks and the reading cover still resumes`() {
+        read("별을 줍는 아이", "2권", 0, 10)
+        click(hasText("만화 4"))
+        waitFor(hasText("읽는 중 · 1작품"))
+        click(hasContentDescription("책장으로 보기"))
+        waitFor(hasContentDescription("별을 줍는 아이 2권 이어 보기"))
+        // 표지만 선다 — 작품 이름 · "만화 · 5권" 글줄이 없다.
+        assertFalse(has(hasText("만화 · 5권")), "책장 보기에 격자 글줄이 남았다")
+        assertTrue(has(hasContentDescription("전학생 작품")))
+        shot("comic-tab-shelf")
+        click(hasContentDescription("별을 줍는 아이 2권 이어 보기"))
+        waitFor(hasContentDescription("만화 1쪽"))
+    }
+
+    @Test
     fun `a work lists its volumes with the omnibus inside indented to the omnibus text`() {
         openStar()
         assertTrue(has(hasText("만화 · 5권 · 2곳에서 모음")))

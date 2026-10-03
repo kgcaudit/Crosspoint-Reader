@@ -69,6 +69,11 @@ object CpIcons {
     val Grid: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_menu_view_grid)
     /** 목록으로 보기. 계열 메뉴 그림. */
     val Rows: ImageVector @Composable get() = ImageVector.vectorResource(R.drawable.ic_menu_view_list)
+    /**
+     * 책장으로 보기(0.39.0): 선반 위에 선 책 둘과 기댄 책 하나. 계열 메뉴 그림에는 책장이 없다 — 목록 그림(줄 셋)을
+     * 빌려 쓰면 옆의 목록 단추와 구별되지 않는다.
+     */
+    val Shelf = line("M5 5 V17.5 M5 5 H8.5 V17.5 M10.5 7 V17.5 M10.5 7 H13.5 V17.5 M15.5 8.5 L19 16.5 M3 20 H21")
 
 
     private fun line(d: String): ImageVector = ImageVector.Builder(
