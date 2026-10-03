@@ -347,6 +347,9 @@ fun ComicReader(
             progress = if (count > 1) page / (count - 1f) else 1f,
             progressLabel = { "${pageAt(it, count) + 1}쪽" },
             onSeek = { target -> page = pageAt(target, count) },
+            // 오→왼: 위 막대도 아래 줄처럼 오른쪽에서 차오른다(2026-10-03 사용자 결정 9). 0.40 까지는 위는 왼쪽, 아래는
+            // 오른쪽에서 차올라 한 화면에 두 막대가 서로 반대로 갔다.
+            progressRightToLeft = rtl,
             above = {
                 if (panel == ComicPanel.View) {
                     Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {

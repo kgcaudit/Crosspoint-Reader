@@ -603,9 +603,24 @@ fun CpSlider(
     onCommit: (Float) -> Unit,
     modifier: Modifier = Modifier,
     description: String = "위치",
+    /**
+     * 오른쪽에서 차오른다(0.41.0, 오→왼 만화). 그리기는 배치 방향을 뒤집어 맞추지만 손가락 좌표는 뒤집히지 않는다 — 누른
+     * 자리를 따로 뒤집지 않으면 오른쪽 끝을 눌러 첫 쪽으로 가려다 마지막 쪽으로 갔다.
+     */
+    reversed: Boolean = false,
 ) {
+    androidx.compose.runtime.CompositionLocalProvider(
+        androidx.compose.ui.platform.LocalLayoutDirection provides
+            if (reversed) androidx.compose.ui.unit.LayoutDirection.Rtl else androidx.compose.ui.platform.LocalLayoutDirection.current,
+    ) { SliderBody(value, onChange, onCommit, modifier, description, reversed) }
+}
+
+@Composable
+private fun SliderBody(value: Float, onChange: (Float) -> Unit, onCommit: (Float) -> Unit, modifier: Modifier, description: String, reversed: Boolean) {
     val c = CpTheme.colors
     val latest = androidx.compose.runtime.rememberUpdatedState(value)
+    val flip = androidx.compose.runtime.rememberUpdatedState(reversed)
+    fun at(x: Float, width: Int): Float = (x / width).coerceIn(0f, 1f).let { if (flip.value) 1f - it else it }
     // pointerInput(Unit) 은 처음 받은 람다를 끝까지 쥔다. 부르는 쪽이 바뀐 값을 담은 람다를 다시 넘겨도
     // 옛것이 불린다 — 최신 것을 거쳐 부른다.
     val change = androidx.compose.runtime.rememberUpdatedState(onChange)
@@ -631,7 +646,7 @@ fun CpSlider(
             }
             .pointerInput(Unit) {
                 detectTapGestures { offset ->
-                    val v = (offset.x / size.width).coerceIn(0f, 1f)
+                    val v = at(offset.x, size.width)
                     change.value(v)
                     commit.value(v)
                 }
@@ -643,7 +658,7 @@ fun CpSlider(
                     // "끄는 중" 에 머물러 막대와 숫자가 멈춘다.
                     onDragCancel = { commit.value(latest.value) },
                 ) { pointer, _ ->
-                    change.value((pointer.position.x / size.width).coerceIn(0f, 1f))
+                    change.value(at(pointer.position.x, size.width))
                 }
             },
         contentAlignment = Alignment.CenterStart,

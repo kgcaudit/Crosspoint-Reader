@@ -60,6 +60,11 @@ fun CpReaderBar(
     onSearch: (() -> Unit)? = null,
     /** 듣기(L1: 위쪽 헤드폰, 찾기 옆). PDF 처럼 글자가 없으면 null — 단추가 없다(L8). */
     onListen: (() -> Unit)? = null,
+    /**
+     * 진행 막대가 오른쪽에서 차오른다(오→왼 만화, 0.41.0). 쪽 숫자도 왼쪽으로 옮긴다 — 막대가 시작하는 쪽 반대편 끝에
+     * 서야 "여기까지 왔다" 로 읽힌다. 화면 아래 줄과 같은 방향이어야 위아래가 서로 반대로 차오르지 않는다.
+     */
+    progressRightToLeft: Boolean = false,
     tools: @Composable RowScope.() -> Unit,
 ) {
     val colors = CpTheme.colors
@@ -105,18 +110,22 @@ fun CpReaderBar(
                         .heightIn(max = maxPanel).verticalScroll(rememberScrollState()),
                 ) { above() }
                 val shown = dragging ?: progress
-                Row(Modifier.fillMaxWidth().padding(horizontal = CpTheme.metrics.gutter), verticalAlignment = Alignment.CenterVertically) {
-                    CpSlider(
-                        value = shown,
-                        onChange = { dragging = it },
-                        onCommit = { target ->
-                            onSeek(target)
-                            dragging = null
-                        },
-                        modifier = Modifier.weight(1f),
-                        description = "지금 위치",
-                    )
-                    CpText(progressLabel(shown), CpTheme.type.label, colors.text, Modifier.padding(start = 12.dp))
+                val direction = if (progressRightToLeft) androidx.compose.ui.unit.LayoutDirection.Rtl else androidx.compose.ui.platform.LocalLayoutDirection.current
+                androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides direction) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = CpTheme.metrics.gutter), verticalAlignment = Alignment.CenterVertically) {
+                        CpSlider(
+                            value = shown,
+                            onChange = { dragging = it },
+                            onCommit = { target ->
+                                onSeek(target)
+                                dragging = null
+                            },
+                            modifier = Modifier.weight(1f),
+                            description = "지금 위치",
+                            reversed = progressRightToLeft,
+                        )
+                        CpText(progressLabel(shown), CpTheme.type.label, colors.text, Modifier.padding(start = 12.dp))
+                    }
                 }
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),

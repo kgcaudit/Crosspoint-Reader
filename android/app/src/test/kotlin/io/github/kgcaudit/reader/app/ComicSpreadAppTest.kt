@@ -257,4 +257,32 @@ class ComicSpreadAppTest {
         waitFor(page("1"))
         next(); waitFor(page("2"))
     }
+
+    @Test
+    @Config(qualifiers = "w393dp-h851dp-xhdpi")
+    fun `right to left fills the top slider from the right like the bottom bar, and a tap on its left goes toward the end`() {
+        // 0.41.0 사용자 결정 9: 오→왼이면 위 막대 · 아래 줄 모두 오른쪽에서 차오른다.
+        runBlocking { app.container.data.comics.setRightToLeft(app.container.data.comics.works().first().single(), true) }
+        openVolume()
+        waitFor(page("1"))
+        next(rtl = true); waitFor(page("2"))
+        next(rtl = true); waitFor(page("3"))
+        assertTrue(has(hasContentDescription("진행 오른쪽부터")), "아래 줄이 오른쪽부터가 아니다")
+        compose.onRoot().performTouchInput { click(center) }
+        waitFor(hasContentDescription("지금 위치"))
+        compose.mainClock.advanceTimeBy(1_000)
+        val bar = node(hasContentDescription("지금 위치")).fetchSemanticsNode().boundsInRoot
+        val shot = screen()
+        File(shots, "comic-rtl-bar.png").outputStream().use { shot.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        // 3쪽(1/3 지점): 오른쪽 끝 가까이는 칠해졌고 왼쪽 끝 가까이는 비었다.
+        val y = bar.center.y.toInt()
+        val accent = shot.getPixel((bar.right - bar.width * 0.08f).toInt(), y)
+        val empty = shot.getPixel((bar.left + bar.width * 0.08f).toInt(), y)
+        assertTrue(!near(accent, empty), "막대 양 끝이 같은 색이다 — 채움이 보이지 않는다")
+        assertTrue(android.graphics.Color.red(accent) > android.graphics.Color.blue(accent) + 40, "오른쪽 끝이 강조색이 아니다(왼쪽부터 찼다): #${Integer.toHexString(accent)}")
+        // 막대 왼쪽 끝을 누르면 끝 쪽으로 — 오른쪽이 처음, 왼쪽이 끝이다.
+        compose.onRoot().performTouchInput { click(androidx.compose.ui.geometry.Offset(bar.left + 4f, bar.center.y)) }
+        compose.mainClock.advanceTimeBy(1_000)
+        waitFor(page("7"))
+    }
 }
