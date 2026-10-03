@@ -23,6 +23,8 @@ data class ComicUnit(
     val info: ComicInfo? = null,
     val contents: ComicContents? = null,
     val pageCount: Int? = null,
+    /** 서재에 처음 들어온 때. 다 읽은 작품에 "새 권" 이 왔는지 가린다. null 은 모름. */
+    val addedAtEpochMs: Long? = null,
 ) {
     /** "Comics › 별을 줍는 아이" — 사람이 읽는 자리. */
     val place: String get() = folders.joinToString(" › ")
@@ -44,6 +46,8 @@ data class ComicOverrides(
     val rightToLeft: Map<String, Boolean> = emptyMap(),
     /** 작품 열쇠 → 사람이 고른 보는 방식(쪽 넘김 · 웹툰). 작품마다 기억한다 — 웹툰은 화마다 파일이 따로라, 파일마다 기억하면 화를 넘길 때마다 다시 골라야 한다. */
     val view: Map<String, ComicView> = emptyMap(),
+    /** 작품 열쇠 → 사람이 길게 눌러 옮긴 갈래(0.38.0). */
+    val shelf: Map<String, ShelfMark> = emptyMap(),
 )
 
 /**
@@ -82,6 +86,8 @@ data class Work(
     val rightToLeft: Boolean?,
     /** 사람이 고른 보는 방식. null 이면 ComicInfo · 쪽 모양으로 정한다([Webtoon.view]). */
     val view: ComicView? = null,
+    /** 사람이 옮긴 서재 갈래. null 이면 권 진도의 집계만 따른다([WorkStatuses.of]). */
+    val shelfMark: ShelfMark? = null,
 ) {
     val volumeCount: Int get() = entries.size
 }
@@ -183,6 +189,7 @@ object ComicShelf {
             places = members.map { it.unit.place }.distinct().sortedWith(NaturalOrder),
             rightToLeft = overrides.rightToLeft[key] ?: members.firstNotNullOfOrNull { it.unit.info?.rightToLeft },
             view = overrides.view[key],
+            shelfMark = overrides.shelf[key],
         )
     }
 

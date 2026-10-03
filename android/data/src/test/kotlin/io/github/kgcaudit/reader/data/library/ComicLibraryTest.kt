@@ -7,6 +7,9 @@ import io.github.kgcaudit.reader.data.db.ReaderDatabase
 import io.github.kgcaudit.reader.document.comic.ComicContents
 import io.github.kgcaudit.reader.document.comic.ComicInfo
 import io.github.kgcaudit.reader.document.comic.ComicUnitKind
+import io.github.kgcaudit.reader.document.comic.ShelfMark
+import io.github.kgcaudit.reader.document.comic.WorkShelf
+import io.github.kgcaudit.reader.document.comic.WorkStatuses
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -190,5 +193,32 @@ class ComicLibraryTest {
         assertEquals(io.github.kgcaudit.reader.document.comic.ComicView.PAGE, works().single().view)
         comics.setView(works().single(), null)
         assertEquals(null, works().single().view, "자동으로 되돌리지 못했다")
+    }
+
+    @Test
+    fun `a work moved to finished stays there across rescans until a new volume arrives`() = runTest {
+        comics.applyScan(phone, ScanResult(emptyList(), true, listOf(cbz("별 01권.cbz", "C"), cbz("별 02권.cbz", "C"))), 1)
+        comics.setShelf(works().single(), ShelfMark.Finished(5, 2))
+        comics.applyScan(phone, ScanResult(emptyList(), true, listOf(cbz("별 01권.cbz", "C"), cbz("별 02권.cbz", "C"))), 6)
+        assertEquals(WorkShelf.FINISHED, WorkStatuses.of(works().single(), emptyMap()).shelf, "다시 훑었더니 옮긴 갈래를 잃었다")
+        // 3권이 들어왔다(훑은 때 7) → 읽는 중 + 새 권.
+        comics.applyScan(phone, ScanResult(emptyList(), true, listOf(cbz("별 01권.cbz", "C"), cbz("별 02권.cbz", "C"), cbz("별 03권.cbz", "C"))), 7)
+        val status = WorkStatuses.of(works().single(), emptyMap())
+        assertEquals(WorkShelf.READING, status.shelf)
+        assertTrue(status.newVolumes)
+        assertEquals(7L, works().single().entries.last().unit.addedAtEpochMs, "들어온 때가 단위에 실리지 않았다")
+        comics.setShelf(works().single(), null)
+        assertEquals(null, works().single().shelfMark)
+    }
+
+    @Test
+    fun `a broken shelf mark is ignored and the work follows its volumes`() = runTest {
+        // 망가뜨린 입력: 다음 판이 쓴 모르는 표시 · 잘린 표시. 작품이 엉뚱한 칸에 붙박이지 않는다.
+        comics.applyScan(phone, ScanResult(emptyList(), true, listOf(cbz("별 01권.cbz", "C"))), 1)
+        for (bad in listOf("LATER:5", "DONE:", "DONE:5:x")) {
+            db.comics().setOverride(io.github.kgcaudit.reader.data.db.ComicOverrideEntity(ComicLibrary.SHELF, works().single().key, bad))
+            assertEquals(null, works().single().shelfMark, bad)
+            assertEquals(WorkShelf.TO_READ, WorkStatuses.of(works().single(), emptyMap()).shelf)
+        }
     }
 }

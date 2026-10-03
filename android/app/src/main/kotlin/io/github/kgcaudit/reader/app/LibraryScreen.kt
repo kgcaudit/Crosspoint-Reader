@@ -8,8 +8,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.semantics.Role
 import io.github.kgcaudit.reader.ui.design.CpCover
@@ -120,6 +119,8 @@ fun LibraryScreen(
     var openWork by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
     var arranging by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var copiesOf by remember { mutableStateOf<String?>(null) }
+    // 길게 누른 작품(열쇠). 갈래 옮기기 판을 띄운다.
+    var workMenu by remember { mutableStateOf<String?>(null) }
     val layout by container.libraryView.layout.collectAsState()
     val sort by container.libraryView.sort.collectAsState()
     var sortMenu by remember { mutableStateOf(false) }
@@ -222,63 +223,72 @@ fun LibraryScreen(
         if (scanning) CpProgressBar(0.35f, Modifier.padding(horizontal = CpTheme.metrics.gutter), CpBarWeight.Thin)
         // 위 탭 [책 · 만화](2026-10-02 사용자 결정 1 가안). 찾기 · 폴더 · 새로고침은 두 탭이 함께 쓴다.
         val comics = folders.isNotEmpty() && works.isNotEmpty()
-        if (comics) CpTabBar(listOf("책 ${list?.size ?: 0}", "만화 ${works.size}"), tab, { tab = it })
+        // 좌우로 밀면 책 ↔ 만화(0.38.0, 2026-10-03 사용자 결정 6). 그래서 탭 안에는 옆으로 밀리는 줄을 두지 않는다 — 탭 밀기와
+        // 같은 몸짓이라 어느 쪽이 받을지 사람이 알 수 없다(Material 탭 지침).
+        val pager = androidx.compose.foundation.pager.rememberPagerState(initialPage = tab) { 2 }
+        LaunchedEffect(pager) { androidx.compose.runtime.snapshotFlow { pager.currentPage }.collect { tab = it } }
+        if (comics) CpTabBar(listOf("책 ${list?.size ?: 0}", "만화 ${works.size}"), pager.currentPage, { scope.launch { pager.animateScrollToPage(it) } })
+        // 보기 도구는 탭 바로 아래 한 줄, 탭 전체(읽는 중 · 읽은 · 읽을)에 함께 적용한다(사용자 결정 3). 읽을 책에만 붙어 있던
+        // 때는 위 두 갈래가 왜 그 차례 · 모양을 따르지 않는지 알 수 없었다.
+        if (folders.isNotEmpty() && (comics || !list.isNullOrEmpty())) {
+            LibraryTools(sort, layout, onSort = { sortMenu = true }, onLayout = container.libraryView::setLayout)
+        }
+
+        val columns = shelfColumns()
+        val bookPage: @Composable () -> Unit = {
+            if (list != null && list.isEmpty() && !scanning) {
+                Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+                    CpText(
+                        if (comics) "등록한 폴더에 EPUB · TXT · PDF 파일이 없습니다. 만화는 만화 탭에 있습니다."
+                        else "등록한 폴더에 EPUB · TXT · PDF 파일이 없습니다.",
+                        CpTheme.type.subtitle, colors.textMuted, maxLines = 3,
+                    )
+                }
+            } else {
+                // 최근 읽은 순: 책장은 이미 연 차례(최근이 앞)로 온다 — 그 자리를 그대로 열쇠로 쓴다.
+                val opened = reading.withIndex().associate { (i, b) -> b.id to (reading.size - i).toLong() }
+                val readingSorted = sort.sort(reading) { opened[it.id] }
+                val finishedAt = finished.associate { it.book.id to it.finishedAtEpochMs }
+                val finishedSorted = sort.sort(finished.map { it.book }) { finishedAt[it.id] }
+                // 읽을 책: 한 번도 열지 않은 책. 모든 책 목록(0.24.x)은 책장의 책을 한 번 더 보여 줘 길기만 했다.
+                val toRead = sort.sort(list.orEmpty().filter { it.id !in shelfIds })
+                LazyColumn(Modifier.fillMaxSize()) {
+                    shelfSection(
+                        "reading", "읽는 중 · ${reading.size}권", readingSorted, { it.id.value }, layout, columns,
+                        grid = { book, width -> ShelfItem(book, width, percents[book.id], onOpen, onLongClick = { coverMenu = it }) },
+                        row = { book -> DetailRow(book, notes[book.id], onOpen, onMenu = { coverMenu = it }) { PercentLine(percents[book.id]) } },
+                    )
+                    shelfSection(
+                        "finished", "읽은 책 · ${finished.size}권", finishedSorted, { it.id.value }, layout, columns,
+                        grid = { book, width -> DoneItem(book, width, finishedAt[book.id]!!, onOpen, onLongClick = { coverMenu = it }) },
+                        row = { book -> DetailRow(book, notes[book.id], onOpen, onMenu = { coverMenu = it }) { DoneLine(finishedAt[book.id]) } },
+                    )
+                    shelfSection(
+                        "to-read", "읽을 책 · ${toRead.size}권", toRead, { it.id.value }, layout, columns,
+                        divider = shelf.isNotEmpty(),
+                        grid = { book, width -> GridItem(book, width, onOpen, onLongClick = { coverMenu = it }) },
+                        row = { book -> DetailRow(book, notes[book.id], onOpen, onMenu = { coverMenu = it }) },
+                    )
+                    item { Spacer(Modifier.height(24.dp)) }
+                }
+            }
+        }
 
         if (folders.isEmpty()) {
             EmptyLibrary { pickFolder.launch(null) }
-        } else if (comics && tab == 1) {
-            val columns = shelfColumns()
-            LazyColumn(Modifier.fillMaxSize()) {
-                comicShelf(works, comicProgress, columns, onOpen = { openWork = it.key }, onResume = { entry -> onOpenComic(entry.unit.id, null) })
-            }
-        } else if (list != null && list.isEmpty() && !scanning) {
-            Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-                CpText(
-                    if (comics) "등록한 폴더에 EPUB · TXT · PDF 파일이 없습니다. 만화는 만화 탭에 있습니다."
-                    else "등록한 폴더에 EPUB · TXT · PDF 파일이 없습니다.",
-                    CpTheme.type.subtitle, colors.textMuted, maxLines = 3,
-                )
+        } else if (comics) {
+            androidx.compose.foundation.pager.HorizontalPager(pager, Modifier.fillMaxSize(), verticalAlignment = Alignment.Top) { page ->
+                if (page == 0) bookPage() else LazyColumn(Modifier.fillMaxSize()) {
+                    comicShelf(
+                        works, comicProgress, sort, layout, columns,
+                        onOpen = { openWork = it.key },
+                        onResume = { entry -> onOpenComic(entry.unit.id, null) },
+                        onMenu = { workMenu = it.key },
+                    )
+                }
             }
         } else {
-            val columns = shelfColumns()
-            LazyColumn(Modifier.fillMaxSize()) {
-                if (reading.isNotEmpty()) {
-                    item { ShelfLabel("읽는 중 · ${reading.size}권", more = reading.size > columns) }
-                    item(key = "reading") {
-                        ShelfRow(reading, { it.id.value }) { book, width -> ShelfItem(book, width, percents[book.id], onOpen, onLongClick = { coverMenu = it }) }
-                    }
-                }
-                if (finished.isNotEmpty()) {
-                    item { ShelfLabel("읽은 책 · ${finished.size}권", more = finished.size > columns) }
-                    item(key = "finished") {
-                        ShelfRow(finished.map { it.book }, { it.id.value }) { book, width ->
-                            val at = finished.first { it.book.id == book.id }.finishedAtEpochMs!!
-                            DoneItem(book, width, at, onOpen, onLongClick = { coverMenu = it })
-                        }
-                    }
-                }
-                // 읽을 책: 한 번도 열지 않은 책. 모든 책 목록(0.24.x)은 책장의 책을 한 번 더 보여 줘 길기만 했다.
-                val toRead = sort.sort(list.orEmpty().filter { it.id !in shelfIds })
-                if (toRead.isNotEmpty()) {
-                    if (shelf.isNotEmpty()) item { Spacer(Modifier.height(14.dp)); CpDivider() }
-                    item(key = "to-read") {
-                        ToReadLabel(
-                            "읽을 책 · ${toRead.size}권", sort, layout,
-                            onSort = { sortMenu = true },
-                            onLayout = container.libraryView::setLayout,
-                        )
-                    }
-                    when (layout) {
-                        LibraryLayout.Grid -> items(toRead.chunked(columns), key = { "g" + it.first().id.value }) { row ->
-                            GridRow(row) { book, width -> GridItem(book, width, onOpen, onLongClick = { coverMenu = it }) }
-                        }
-                        LibraryLayout.List -> items(toRead, key = { "l" + it.id.value }) { book ->
-                            DetailRow(book, notes[book.id], onOpen, onMenu = { coverMenu = it })
-                        }
-                    }
-                }
-                item { Spacer(Modifier.height(24.dp)) }
-            }
+            bookPage()
         }
     }
     }
@@ -356,6 +366,27 @@ fun LibraryScreen(
         }
     }
 
+    // 작품 갈래 옮기기(길게 눌러, 0.38.0). 책의 표지 판과 같은 자리 · 같은 모양.
+    workMenu?.let { key -> works.firstOrNull { it.key == key } }?.let { w ->
+        androidx.activity.compose.BackHandler { workMenu = null }
+        val status = io.github.kgcaudit.reader.document.comic.WorkStatuses.of(w, comicProgress)
+        fun move(mark: io.github.kgcaudit.reader.document.comic.ShelfMark, done: String) {
+            workMenu = null
+            scope.launch {
+                withContext(Dispatchers.IO) { data.comics.setShelf(w, mark) }
+                toast = "‘${w.title}’ — $done"
+            }
+        }
+        WorkMenu(
+            w, status.shelf,
+            onOpen = { workMenu = null; openWork = w.key },
+            onFinished = { move(io.github.kgcaudit.reader.document.comic.ShelfMark.Finished(System.currentTimeMillis(), w.volumeCount), "다 읽은 작품으로 옮겼습니다") },
+            onReading = { move(io.github.kgcaudit.reader.document.comic.ShelfMark.Reading(System.currentTimeMillis()), "읽는 중으로 되돌렸습니다") },
+            onToRead = { move(io.github.kgcaudit.reader.document.comic.ShelfMark.ToRead(System.currentTimeMillis()), "읽을 작품으로 되돌렸습니다") },
+            onDismiss = { workMenu = null },
+        )
+    }
+
     if (manageFolders) {
         CpPopup(title = "책 폴더", message = "폴더를 빼도 그 책들의 읽은 자리와 책갈피는 남습니다. 다시 추가하면 이어집니다.", onDismiss = { manageFolders = false }) {
             Spacer(Modifier.height(8.dp))
@@ -387,7 +418,7 @@ fun LibraryScreen(
     }
 
     if (sortMenu) {
-        CpPopup(title = "읽을 책 순서", onDismiss = { sortMenu = false }) {
+        CpPopup(title = "순서", message = "읽는 중 · 읽은 · 읽을 갈래가 모두 이 차례를 따릅니다.", onDismiss = { sortMenu = false }) {
             Spacer(Modifier.height(8.dp))
             LibrarySort.entries.forEach { s ->
                 CpRadioRow(s.label, s == sort, { container.libraryView.setSort(s); sortMenu = false }, inset = 0.dp)
@@ -478,33 +509,59 @@ private fun BookCover(book: LibraryBook, modifier: Modifier = Modifier, small: B
     )
 }
 
-/** 책장 줄 머리: "읽는 중 · 5권". 세 권을 넘으면 옆으로 넘길 수 있다고 알린다. */
+/** 갈래 머리: "읽는 중 · 5권". */
 @Composable
-internal fun ShelfLabel(text: String, more: Boolean) {
-    val c = CpTheme.colors
-    Row(
+internal fun ShelfLabel(text: String) {
+    CpText(
+        text, CpTheme.type.label, CpTheme.colors.textMuted,
         Modifier.fillMaxWidth().padding(start = CpTheme.metrics.gutter, end = CpTheme.metrics.gutter, top = 18.dp, bottom = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        CpText(text, CpTheme.type.label, c.textMuted, Modifier.weight(1f))
-        if (more) CpText("옆으로 넘겨 보기 ›", CpTheme.type.caption, c.textMuted)
-    }
+    )
 }
 
 /**
- * 책장 한 줄: 열어 본 책을 모두 옆으로 늘어놓는다(0.23.0 — 세 권만 보이던 때는 네 번째 책을 다시 찾으려면 모든 책
- * 목록을 뒤져야 했다). 칸 폭은 화면에 세 권이 들어가는 만큼으로 늘 같다 — 두 권뿐이어도 표지가 커지지 않는다.
+ * 서재 갈래 하나(머리 + 칸들). 세 갈래가 모두 같은 보기([layout])를 따른다(0.38.0). 빈 갈래는 머리째 숨긴다.
+ *
+ * 읽는 중도 옆으로 넘기지 않고 줄을 바꿔 늘어놓는다 — 탭을 좌우로 밀어 책 ↔ 만화를 오가므로, 그 안에서 옆으로 밀리는 줄은
+ * 같은 몸짓을 두고 다툰다(2026-10-03 사용자 결정 6).
  */
-@Composable
-internal fun <T> ShelfRow(books: List<T>, key: (T) -> Any, item: @Composable (T, androidx.compose.ui.unit.Dp) -> Unit) {
-    val gutter = CpTheme.metrics.gutter
-    val screen = LocalShelfWidth.current
-    // 넷째 칸이 오른쪽 끝에 조금 보이게 한다(구상안) — 옆으로 넘길 수 있다는 것을 표지 자체가 알린다.
-    val columns = shelfColumns()
-    val width = (screen - gutter * 2 - SHELF_GAP * (columns - 1) - SHELF_PEEK) / columns
-    LazyRow(contentPadding = PaddingValues(horizontal = gutter), horizontalArrangement = Arrangement.spacedBy(SHELF_GAP)) {
-        items(books, key = key) { item(it, width) }
+internal fun <T> LazyListScope.shelfSection(
+    key: String,
+    label: String,
+    items: List<T>,
+    id: (T) -> String,
+    layout: LibraryLayout,
+    columns: Int,
+    divider: Boolean = false,
+    grid: @Composable (T, androidx.compose.ui.unit.Dp) -> Unit,
+    row: @Composable (T) -> Unit,
+) {
+    if (items.isEmpty()) return
+    if (divider) item(key = "$key-divider") { Spacer(Modifier.height(14.dp)); CpDivider() }
+    item(key = "$key-label") { ShelfLabel(label) }
+    when (layout) {
+        LibraryLayout.Grid -> items(items.chunked(columns), key = { "$key-g" + id(it.first()) }) { cells -> GridRow(cells, grid) }
+        LibraryLayout.List -> items(items, key = { "$key-l" + id(it) }) { row(it) }
     }
+}
+
+/** 목록 보기의 읽는 중 줄: 진도 막대 · 몇 %. */
+@Composable
+private fun PercentLine(percent: Float?) {
+    val p = percent ?: 0f
+    Row(Modifier.padding(top = 6.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        CpProgressBar(p / 100f, Modifier.weight(1f), CpBarWeight.Thin)
+        Spacer(Modifier.width(6.dp))
+        CpText("${p.roundToInt()}%", CpTheme.type.caption, CpTheme.colors.textMuted)
+    }
+}
+
+/** 목록 보기의 다 읽은 줄: "다 읽음 · 9월 28일". 날짜를 모르면 "다 읽음". */
+@Composable
+internal fun DoneLine(finishedAtEpochMs: Long?) {
+    CpText(
+        listOfNotNull("다 읽음", finishedAtEpochMs?.let(::monthDay)).joinToString(" · "),
+        CpTheme.type.caption, CpTheme.colors.accentText, Modifier.padding(top = 4.dp),
+    )
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -647,15 +704,15 @@ private fun Marked(text: String, query: String, style: androidx.compose.ui.text.
     )
 }
 
-/** 읽을 책 머리: "읽을 책 · 9권" | 차례 ▾ | 격자 · 목록. */
+/** 탭 아래 보기 도구 한 줄: 차례 ▾ · · · 격자 | 목록. 탭 전체에 적용한다(0.38.0). */
 @Composable
-private fun ToReadLabel(text: String, sort: LibrarySort, layout: LibraryLayout, onSort: () -> Unit, onLayout: (LibraryLayout) -> Unit) {
+private fun LibraryTools(sort: LibrarySort, layout: LibraryLayout, onSort: () -> Unit, onLayout: (LibraryLayout) -> Unit) {
     val c = CpTheme.colors
     Row(
-        Modifier.fillMaxWidth().padding(start = CpTheme.metrics.gutter, end = 8.dp, top = 12.dp, bottom = 8.dp),
+        // 차례 글자가 갈래 머리와 같은 시작선에 선다 — 누르는 곳의 안쪽 여백(10dp)만큼 덜 들인다.
+        Modifier.fillMaxWidth().padding(start = CpTheme.metrics.gutter - 10.dp, end = 8.dp, top = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        CpText(text, CpTheme.type.label, c.textMuted, Modifier.weight(1f))
         // 누르는 곳 48dp(0.29.0 — 36dp 였다). ▾ 는 글자 대신 아이콘: 삼성 글꼴 스타일에 따라 모양이 바뀌었다.
         Row(
             Modifier.heightIn(min = CpTheme.metrics.touchTarget).clip(RoundedCornerShape(8.dp)).clickable(role = Role.Button, onClick = onSort)
@@ -665,6 +722,7 @@ private fun ToReadLabel(text: String, sort: LibrarySort, layout: LibraryLayout, 
             CpText(sort.label, CpTheme.type.caption, c.text)
             CpIcon(CpIcons.ChevronDown, c.textMuted, size = 18.dp)
         }
+        Spacer(Modifier.weight(1f))
         CpIconToggle(
             listOf(CpIcons.Grid, CpIcons.Rows),
             LibraryLayout.entries.map { it.label },
@@ -705,7 +763,14 @@ private fun GridItem(book: LibraryBook, width: androidx.compose.ui.unit.Dp, onOp
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun DetailRow(book: LibraryBook, notes: NoteCounts?, onOpen: (LibraryBook) -> Unit, onMenu: (LibraryBook) -> Unit) {
+private fun DetailRow(
+    book: LibraryBook,
+    notes: NoteCounts?,
+    onOpen: (LibraryBook) -> Unit,
+    onMenu: (LibraryBook) -> Unit,
+    /** 갈래에 따른 줄(읽는 중: 진도, 읽은: 끝낸 날). 읽을 책은 없다. */
+    status: (@Composable () -> Unit)? = null,
+) {
     val c = CpTheme.colors
     Row(
         Modifier.fillMaxWidth()
@@ -718,6 +783,7 @@ private fun DetailRow(book: LibraryBook, notes: NoteCounts?, onOpen: (LibraryBoo
         Column(Modifier.weight(1f)) {
             CpText(book.label, CpTheme.type.body, c.text, maxLines = 2)
             book.author?.let { CpText(it, CpTheme.type.subtitle, c.textMuted) }
+            status?.invoke()
             Spacer(Modifier.height(4.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 val shape = RoundedCornerShape(4.dp)
@@ -835,9 +901,8 @@ internal fun shelfColumns(): Int {
 /** 라이브러리가 실제로 쓰는 폭(시스템 막대 · 카메라 구멍을 뺀 것). 칸 수 · 칸 폭을 여기서 셈한다. */
 internal val LocalShelfWidth = androidx.compose.runtime.compositionLocalOf { 360.dp }
 
-/** 책장 한 줄에 한 화면으로 보이는 최소 권수(세로 폰). 더 있으면 옆으로 넘긴다. */
+/** 한 줄에 서는 최소 권수(세로 폰). */
 private const val SHELF_COLUMNS = 3
 private val SHELF_ITEM = 102.dp
 private val SHELF_ITEM_TABLET = 130.dp
 private val SHELF_GAP = 14.dp
-private val SHELF_PEEK = 28.dp

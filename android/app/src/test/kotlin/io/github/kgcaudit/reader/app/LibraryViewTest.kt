@@ -18,12 +18,12 @@ class LibraryViewTest {
     private val app = ApplicationProvider.getApplicationContext<android.app.Application>()
 
     @Test
-    fun `a view setting written by a newer version falls back to grid and name order`() {
+    fun `a view setting written by a newer version falls back to grid and recent order`() {
         // 망가뜨린 입력: 모르는 이름. 앱이 닫히거나 빈 화면이 되지 않고 기본 보기로 연다.
         app.getSharedPreferences("library", Context.MODE_PRIVATE).edit().putString("layout", "Carousel").putString("sort", "Rating").commit()
         val store = LibraryViewStore(app)
         assertEquals(LibraryLayout.Grid, store.layout.value)
-        assertEquals(LibrarySort.Name, store.sort.value)
+        assertEquals(LibrarySort.Recent, store.sort.value)
     }
 
     @Test
@@ -33,6 +33,17 @@ class LibraryViewTest {
         val books = listOf(book("zoo", 10), book("Apple", null), book("하늘", 30), book("가을", 20))
         assertEquals(listOf("Apple", "zoo", "가을", "하늘"), LibrarySort.Name.sort(books).map { it.displayName })
         assertEquals(listOf("하늘", "가을", "zoo", "Apple"), LibrarySort.Size.sort(books).map { it.displayName })
+    }
+
+    @Test
+    fun `recent order puts the latest read first and falls back to names where nothing was read`() {
+        fun book(name: String) = LibraryBook(BookId(name), BookFormat.EPUB, name, null, null, null, null)
+        val books = listOf(book("가을"), book("하늘"), book("나무"), book("zoo"))
+        val readAt = mapOf("하늘" to 30L, "나무" to 10L)
+        // 읽은 때가 있는 것이 앞(최근 먼저), 없는 것은 그 뒤에 이름순.
+        assertEquals(listOf("하늘", "나무", "zoo", "가을"), LibrarySort.Recent.sort(books) { readAt[it.displayName] }.map { it.displayName })
+        // 읽을 갈래(읽은 때가 없다)는 이름순 — 차례가 뒤죽박죽이면 찾을 수 없다.
+        assertEquals(listOf("zoo", "가을", "나무", "하늘"), LibrarySort.Recent.sort(books).map { it.displayName })
     }
 
     @Test

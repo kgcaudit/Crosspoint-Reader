@@ -8,22 +8,38 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.text.Collator
 import java.util.Locale
 
-/** 읽을 책을 어떻게 늘어놓을까. */
+/** 서재를 어떻게 늘어놓을까. 탭 전체(읽는 중 · 읽은 · 읽을)에 함께 적용한다(0.38.0, 2026-10-03 사용자 결정 3). */
 enum class LibraryLayout(val label: String) { Grid("격자로 보기"), List("목록으로 보기") }
 
-/** 읽을 책의 차례. */
+/** 서재의 차례. 탭 전체에 함께 적용한다. */
 enum class LibrarySort(val label: String) {
+    /**
+     * 최근 읽은 것이 앞(기본, 0.38.0). 읽는 중 · 읽은 갈래가 이 차례일 때 이어 볼 책이 맨 앞에 선다. 한 번도 열지 않은
+     * 갈래에는 읽은 때가 없으니 이름순으로 선다.
+     */
+    Recent("최근 읽은 순"),
     Name("이름순"),
     Added("추가한 순"),
     Size("크기순");
 
-    fun sort(books: List<LibraryBook>): List<LibraryBook> = when (this) {
-        // 한글은 가나다, 영문은 대소문자를 가리지 않는다. 문자 코드 순이면 "Zoo" 가 "apple" 앞에 온다.
-        Name -> books.sortedWith(compareBy(KOREAN) { it.label })
-        // 최근에 넣은 책이 앞 — 폴더에 막 넣은 책을 찾으려고 고르는 차례다.
-        Added -> books.sortedWith(compareByDescending<LibraryBook> { it.addedAtEpochMs ?: 0L }.thenBy(KOREAN) { it.label })
-        // 큰 책이 앞. 크기를 모르는(제공자가 알려 주지 않은) 책은 맨 뒤.
-        Size -> books.sortedWith(compareByDescending<LibraryBook> { it.sizeBytes ?: -1L }.thenBy(KOREAN) { it.label })
+    fun sort(books: List<LibraryBook>, recent: ((LibraryBook) -> Long?)? = null): List<LibraryBook> =
+        arrange(books, { it.label }, { it.addedAtEpochMs }, { it.sizeBytes }, recent)
+
+    /**
+     * 책 · 만화 작품 어느 쪽이든 같은 규칙으로 늘어놓는다. [recent] 가 없으면(읽을 갈래) "최근 읽은 순" 은 이름순이다.
+     * 값을 모르는 것(null)은 맨 뒤 — 크기를 알려 주지 않는 제공자의 책이 맨 앞에 서지 않게.
+     */
+    fun <T> arrange(items: List<T>, label: (T) -> String, added: (T) -> Long?, size: (T) -> Long?, recent: ((T) -> Long?)? = null): List<T> {
+        val byName = compareBy(KOREAN, label)
+        return when (this) {
+            // 한글은 가나다, 영문은 대소문자를 가리지 않는다. 문자 코드 순이면 "Zoo" 가 "apple" 앞에 온다.
+            Name -> items.sortedWith(byName)
+            Recent -> if (recent == null) items.sortedWith(byName) else items.sortedWith(compareByDescending<T> { recent(it) ?: Long.MIN_VALUE }.then(byName))
+            // 최근에 넣은 책이 앞 — 폴더에 막 넣은 책을 찾으려고 고르는 차례다.
+            Added -> items.sortedWith(compareByDescending<T> { added(it) ?: Long.MIN_VALUE }.then(byName))
+            // 큰 책이 앞.
+            Size -> items.sortedWith(compareByDescending<T> { size(it) ?: Long.MIN_VALUE }.then(byName))
+        }
     }
 
     private companion object {
@@ -38,7 +54,7 @@ enum class LibrarySort(val label: String) {
 class LibraryViewStore(context: Context) {
     private val sp = context.getSharedPreferences("library", Context.MODE_PRIVATE)
     private val _layout = MutableStateFlow(LibraryLayout.entries.firstOrNull { it.name == sp.getString(KEY_LAYOUT, null) } ?: LibraryLayout.Grid)
-    private val _sort = MutableStateFlow(LibrarySort.entries.firstOrNull { it.name == sp.getString(KEY_SORT, null) } ?: LibrarySort.Name)
+    private val _sort = MutableStateFlow(LibrarySort.entries.firstOrNull { it.name == sp.getString(KEY_SORT, null) } ?: LibrarySort.Recent)
 
     val layout: StateFlow<LibraryLayout> = _layout.asStateFlow()
     val sort: StateFlow<LibrarySort> = _sort.asStateFlow()

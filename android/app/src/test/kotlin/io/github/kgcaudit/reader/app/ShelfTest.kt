@@ -86,10 +86,16 @@ class ShelfTest {
     private fun idOf(name: String): BookId = runBlocking { app.container.data.library.books().first().first { it.displayName == name }.id }
 
     @Test
-    fun `every opened book sits on the reading shelf and more than three scroll sideways`() {
+    fun `every opened book sits on the reading shelf and a fourth wraps to the next row`() {
         // 0.22 까지는 최근 세 권만 보였다.
         waitFor(hasText("읽는 중 · 4권"))
-        assertTrue(has(hasText("옆으로 넘겨 보기 ›")))
+        // 0.38.0: 옆으로 넘기지 않는다 — 좌우 밀기는 책 ↔ 만화 탭이다. 넷째 권은 다음 줄에.
+        assertFalse(has(hasText("옆으로 넘겨 보기 ›")))
+        // 읽는 중 네 권의 표지만 잰다(데미안은 읽을 책 격자에 있다).
+        val tops = names.take(4).map { n -> compose.onAllNodes(hasContentDescription("${n.substringAfter('/')} 대신 표지"), useUnmergedTree = true).fetchSemanticsNodes().single().boundsInRoot.top }
+        // 최근 읽은 순(기본): 가장 먼저 연 어린 왕자가 넷째 — 다음 줄로 내려간다.
+        assertEquals(1, tops.drop(1).distinct().size, "나중에 연 세 권이 한 줄이 아니다: $tops")
+        assertTrue(tops[0] > tops[1], "넷째 권이 다음 줄로 내려가지 않았다: $tops")
         // 열지 않은 책(데미안)은 책장에 없고 모든 책 목록에만 있다.
         assertFalse(has(hasContentDescription("데미안.epub 대신 표지").and(hasText("데미안.epub"))))
         shot("96-shelf-reading")

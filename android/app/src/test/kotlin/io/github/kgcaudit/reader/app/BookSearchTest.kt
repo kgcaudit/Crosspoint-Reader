@@ -122,8 +122,9 @@ class BookSearchTest {
             }
             assertTrue(white > all / 4, "펼친 책 그림(채운 두 쪽)이 아니다: 흰 점 ${white * 100 / all}%")
         }
-        // 결과를 누르면 그 책이 열린다.
-        node(hasText("어린 왕자")).performClick()
+        // 결과를 누르면 그 책이 열린다. 찾기 화면 밑의 홈 격자에도 같은 제목의 칸이 있다 — 화면 폭을 다 쓰는 결과 줄을 누른다.
+        val rows = compose.onAllNodes(androidx.compose.ui.test.hasClickAction() and hasText("어린 왕자"))
+        rows[rows.fetchSemanticsNodes().withIndex().maxBy { it.value.boundsInRoot.width }.index].performClick()
         waitFor(hasText("1 / ", substring = true))
     }
 

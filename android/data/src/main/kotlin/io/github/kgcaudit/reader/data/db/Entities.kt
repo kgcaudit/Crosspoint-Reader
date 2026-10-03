@@ -157,7 +157,8 @@ data class ComicUnitEntity(
  *
  * @param kind `WORK_OF`(단위 → 작품 열쇠: 합치기 · 빼기), `TITLE`(작품 열쇠 → 보이는 이름), `PREFERRED`(같은 권 열쇠 → 고른 단위),
  *   `RTL`(작품 열쇠 → 넘기는 방향 "1"/"0", 0.34.0),
- *   `VIEW`(작품 열쇠 → 보는 방식 `PAGE`/`WEBTOON`, 0.35.0).
+ *   `VIEW`(작품 열쇠 → 보는 방식 `PAGE`/`WEBTOON`, 0.35.0),
+ *   `SHELF`(작품 열쇠 → 사람이 옮긴 서재 갈래, `ShelfMark.format`, 0.38.0).
  */
 @Entity(tableName = "comic_overrides", primaryKeys = ["kind", "subject"])
 data class ComicOverrideEntity(

@@ -17,6 +17,7 @@ import io.github.kgcaudit.reader.document.comic.ComicShelf
 import io.github.kgcaudit.reader.document.comic.ComicUnit
 import io.github.kgcaudit.reader.document.comic.ComicUnitKind
 import io.github.kgcaudit.reader.document.comic.ComicView
+import io.github.kgcaudit.reader.document.comic.ShelfMark
 import io.github.kgcaudit.reader.document.comic.Work
 import io.github.kgcaudit.reader.document.comic.WorkEntry
 import kotlinx.coroutines.flow.Flow
@@ -309,6 +310,10 @@ class ComicLibrary(private val db: ReaderDatabase) {
     suspend fun setView(work: Work, view: ComicView?) =
         if (view == null) comics.clearOverride(VIEW, work.key) else comics.setOverride(ComicOverrideEntity(VIEW, work.key, view.name))
 
+    /** 작품을 다른 갈래로 옮긴다(길게 눌러). null 이면 표시를 지워 권 진도의 집계로 돌아간다. */
+    suspend fun setShelf(work: Work, mark: ShelfMark?) =
+        if (mark == null) comics.clearOverride(SHELF, work.key) else comics.setOverride(ComicOverrideEntity(SHELF, work.key, ShelfMark.format(mark)))
+
     // ── 읽기 ────────────────────────────────────────────────
 
     /** 권마다의 읽은 자리. 열쇠는 단위 id. */
@@ -360,6 +365,7 @@ class ComicLibrary(private val db: ReaderDatabase) {
         preferred = rows.filter { it.kind == PREFERRED }.associate { it.subject to it.value },
         // "1"/"0" 밖의 값(손상)은 버린다 — "정하지 않음" 으로 남아 ComicInfo 와 기본값을 따른다(규칙 5 · 6).
         view = rows.filter { it.kind == VIEW }.mapNotNull { r -> ComicView.entries.firstOrNull { it.name == r.value }?.let { r.subject to it } }.toMap(),
+        shelf = rows.filter { it.kind == SHELF }.mapNotNull { r -> ShelfMark.parse(r.value)?.let { r.subject to it } }.toMap(),
         rightToLeft = rows.filter { it.kind == RTL }.mapNotNull { r -> when (r.value) { "1" -> r.subject to true; "0" -> r.subject to false; else -> null } }.toMap(),
     )
 
@@ -379,6 +385,7 @@ class ComicLibrary(private val db: ReaderDatabase) {
                 ComicContents(emptyList(), sections.takeIf { it.size >= 2 }.orEmpty(), null, row.coverEntry)
             } else null,
             pageCount = row.pageCount,
+            addedAtEpochMs = row.addedAtEpochMs,
         )
     }
 
@@ -398,6 +405,7 @@ class ComicLibrary(private val db: ReaderDatabase) {
         const val PREFERRED: String = "PREFERRED"
         const val RTL: String = "RTL"
         const val VIEW: String = "VIEW"
+        const val SHELF: String = "SHELF"
         /** 빼낸 단위의 작품 열쇠 머리. 이름 열쇠(글자 · 숫자뿐)와 겹치지 않게 기호를 넣는다. */
         const val OWN_PREFIX: String = "#own:"
     }
