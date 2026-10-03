@@ -164,7 +164,6 @@ internal fun LazyListScope.comicShelf(
         row = { work -> WorkRow(work, onClick = { onOpen(work) }, onMenu = onMenu) },
         shelf = { work, width -> ShelfWork(work, work.face(), kindLabel(work), width, "${work.title} 작품", { onOpen(work) }, onMenu) },
     )
-    item { Spacer(Modifier.height(24.dp)) }
 }
 
 /**

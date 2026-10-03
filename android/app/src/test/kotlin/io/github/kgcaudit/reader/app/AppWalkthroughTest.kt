@@ -97,7 +97,7 @@ class AppWalkthroughTest {
 
         // 폴더 단추는 하나다(＋ 와 폴더가 같은 일로 가던 중복을 없앴다). 추가는 그 안에 있다.
         assertTrue(compose.onAllNodes(hasContentDescription("폴더 추가"), useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
-        node(hasContentDescription("책 폴더")).performClick()
+        compose.libraryMenu("책 폴더")
         waitFor(hasText("폴더 추가"))
         shot("02b-book-folders")
         // 팝업은 바깥을 눌러 닫는다.

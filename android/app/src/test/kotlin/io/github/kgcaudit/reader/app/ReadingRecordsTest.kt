@@ -83,8 +83,7 @@ class ReadingRecordsTest {
     }
 
     private fun openAbout() {
-        waitFor(hasContentDescription("앱 정보"))
-        node(hasContentDescription("앱 정보")).performClick()
+        compose.libraryMenu("앱 정보")
         waitFor(hasText("책 1권 · 책갈피 1개 · 형광펜 · 메모 0개"))
     }
 

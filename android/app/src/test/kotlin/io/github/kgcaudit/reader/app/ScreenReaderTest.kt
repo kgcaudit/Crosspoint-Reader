@@ -60,8 +60,7 @@ class ScreenReaderTest {
 
     @Test
     fun `a popup's message is read on its own and tapping inside still does not close it`() {
-        compose.waitUntil(30_000) { has(hasContentDescription("책 폴더")) }
-        compose.onAllNodes(hasContentDescription("책 폴더"), useUnmergedTree = true)[0].performClick()
+        compose.libraryMenu("책 폴더")
         compose.waitUntil(10_000) { has(hasText(message)) }
         // 합친 의미 나무(화면 읽기가 보는 것)에서 안내 글이 누를 수 있는 덩어리에 묶이지 않는다.
         compose.onNode(hasText(message), useUnmergedTree = false).assertHasNoClickAction()

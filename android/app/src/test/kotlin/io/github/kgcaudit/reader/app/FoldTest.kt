@@ -162,7 +162,7 @@ class FoldTest {
     @Config(qualifiers = MAIN_LANDSCAPE)
     fun `about and library search keep a readable width on the unfolded landscape screen`() {
         // 969dp 한 줄로 늘면 라이선스 문단 · 기록 행의 이름과 값이 화면 양 끝으로 갈라졌다.
-        node(hasContentDescription("앱 정보")).performClick()
+        compose.libraryMenu("앱 정보")
         waitFor(hasText("OLO eBook"))
         shot("f4-main-landscape-about")
         val gutter = (screenDp - 600f) / 2

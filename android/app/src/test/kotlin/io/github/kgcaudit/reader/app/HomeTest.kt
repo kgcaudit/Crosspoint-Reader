@@ -96,6 +96,9 @@ class HomeTest {
     private fun has(matcher: SemanticsMatcher) = compose.onAllNodes(matcher, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
     private fun waitFor(matcher: SemanticsMatcher) = compose.waitUntil(30_000) { has(matcher) }
     private fun node(matcher: SemanticsMatcher) = compose.onAllNodes(matcher, useUnmergedTree = true)[0]
+    private fun assertEquals(expected: Float, actual: Float, tolerance: Float, message: String) =
+        assertTrue(kotlin.math.abs(expected - actual) <= tolerance, "$message: $expected vs $actual")
+
     private fun top(text: String) = node(hasText(text)).fetchSemanticsNode().boundsInRoot.top
     private fun idOf(name: String): BookId = runBlocking { app.container.data.library.books().first().first { it.displayName == name }.id }
 
@@ -162,6 +165,17 @@ class HomeTest {
         // 판: 표지 바로 아래가 판 색(더 밝은 나무).
         val plank = bitmap.getPixel(cover.center.x.toInt(), (cover.bottom + 5 * density).toInt())
         assertTrue(android.graphics.Color.red(plank) > r, "표지 밑에 판이 없다: #${Integer.toHexString(plank)}")
+        // 칸 이름은 그 칸 책 **위** 칸막이에, 첫 표지와 같은 시작선에(2026-10-03 사용자 정정 · UI 규칙: 좌표로 잰다).
+        val label = node(hasText("읽는 책 · 2권")).fetchSemanticsNode().boundsInRoot
+        val first = compose.onAllNodes(hasContentDescription(" 대신 표지", substring = true), useUnmergedTree = true).fetchSemanticsNodes()
+            .map { it.boundsInRoot }.filter { it.top > label.top }.minBy { it.top * 10_000 + it.left }
+        assertTrue(label.bottom <= first.top, "칸 이름이 책 위가 아니다: 이름 $label, 표지 $first")
+        assertEquals(first.left / density, label.left / density, 1.5f, "칸 이름과 첫 표지의 시작선이 다르다")
+        // 격자 보기의 칸 이름과도 같은 시작선 — 보기를 바꿔도 글자가 옆으로 움직이지 않는다.
+        node(hasContentDescription("격자로 보기")).performClick()
+        compose.waitForIdle()
+        assertEquals(label.left / density, node(hasText("읽는 책 · 2권")).fetchSemanticsNode().boundsInRoot.left / density, 1.5f, "격자와 책장의 이름 시작선이 다르다")
+        node(hasContentDescription("책장으로 보기")).performClick()
         compose.activityRule.scenario.recreate()
         waitFor(hasText("읽을 책 · 3권"))
         assertEquals(LibraryLayout.Shelf, LibraryViewStore(app).layout.value)
@@ -217,7 +231,7 @@ class HomeTest {
     fun `back closes a home popup instead of leaving the app`() {
         // 홈의 책 폴더 · 순서 · 표지 판이 뒤로 가기에 닫히지 않고 앱이 나갔다. 다시 들어오면 판이 그대로 떠 있었다(0.28.3).
         waitFor(hasText("읽는 책 · 2권"))
-        node(hasContentDescription("책 폴더")).performClick()
+        compose.libraryMenu("책 폴더")
         waitFor(hasText("폴더를 빼도", substring = true))
         compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
         compose.waitForIdle()

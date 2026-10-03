@@ -50,6 +50,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -124,6 +125,7 @@ fun LibraryScreen(
     val layout by container.libraryView.layout.collectAsState()
     val sort by container.libraryView.sort.collectAsState()
     var sortMenu by remember { mutableStateOf(false) }
+    var moreMenu by remember { mutableStateOf(false) }
     // 책 찾기(0.26.0). 찾던 말은 화면이 다시 만들어져도(회전) 남는다.
     var searching by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var query by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
@@ -199,39 +201,27 @@ fun LibraryScreen(
     androidx.compose.runtime.CompositionLocalProvider(LocalShelfWidth provides maxWidth) {
     Column(Modifier.fillMaxSize()) {
         val list = books
-        CpHeader(
-            title = "OLO eBook",
-            subtitle = when {
-                folders.isEmpty() -> "책이 있는 폴더를 추가해 주세요"
-                list == null -> null
-                // 만화가 있으면 폴더 수는 뺀다 — 머리 단추 넷 옆에서 393dp 폭에도 "폴더 1…" 로 잘렸다. 폴더는 폴더 단추에 있다.
-                works.isNotEmpty() -> "책 ${list.size}권 · 만화 ${works.size}작품"
-                else -> "책 ${list.size}권 · 폴더 ${folders.size}개"
-            },
-        ) {
-            // 폴더에 관한 일(추가·빼기)은 폴더 단추 하나로 모은다. 예전에는 ＋(추가)와
-            // 폴더(관리 — 그 안에 다시 추가)가 따로 있어 같은 일로 가는 길이 둘이었다.
-            // 폴더가 없을 때는 화면 가운데의 "폴더 추가" 가 그 자리를 대신한다.
-            if (folders.isNotEmpty()) {
-                CpIconButton(CpIcons.Search, "책 찾기", { searching = true })
-                CpIconButton(CpIcons.Refresh, "새로고침", { rescan() })
-                CpIconButton(CpIcons.Folder, "책 폴더", { manageFolders = true })
-            }
-            // 앱 정보는 책이 없어도 닿아야 한다 — 판 번호를 묻는 일은 무언가 안 될 때 생긴다.
-            CpIconButton(CpIcons.Info, "앱 정보", onAbout)
-        }
-        if (scanning) CpProgressBar(0.35f, Modifier.padding(horizontal = CpTheme.metrics.gutter), CpBarWeight.Thin)
         // 위 탭 [책 · 만화](2026-10-02 사용자 결정 1 가안). 찾기 · 폴더 · 새로고침은 두 탭이 함께 쓴다.
         val comics = folders.isNotEmpty() && works.isNotEmpty()
         // 좌우로 밀면 책 ↔ 만화(0.38.0, 2026-10-03 사용자 결정 6). 그래서 탭 안에는 옆으로 밀리는 줄을 두지 않는다 — 탭 밀기와
         // 같은 몸짓이라 어느 쪽이 받을지 사람이 알 수 없다(Material 탭 지침).
         val pager = androidx.compose.foundation.pager.rememberPagerState(initialPage = tab) { 2 }
         LaunchedEffect(pager) { androidx.compose.runtime.snapshotFlow { pager.currentPage }.collect { tab = it } }
-        if (comics) CpTabBar(listOf("책 ${list?.size ?: 0}", "만화 ${works.size}"), pager.currentPage, { scope.launch { pager.animateScrollToPage(it) } })
-        // 보기 도구는 탭 바로 아래 한 줄, 탭 전체(읽는 중 · 읽은 · 읽을)에 함께 적용한다(사용자 결정 3). 읽을 책에만 붙어 있던
-        // 때는 위 두 갈래가 왜 그 차례 · 모양을 따르지 않는지 알 수 없었다.
-        if (folders.isNotEmpty() && (comics || !list.isNullOrEmpty())) {
-            LibraryTools(sort, layout, onSort = { sortMenu = true }, onLayout = container.libraryView::setLayout)
+        if (folders.isEmpty()) {
+            // 처음 켠 사람: 앱 이름과 할 일. 앱 정보는 책이 없어도 닿아야 한다 — 판 번호를 묻는 일은 무언가 안 될 때 생긴다.
+            CpHeader(title = "OLO eBook", subtitle = "책이 있는 폴더를 추가해 주세요") { CpIconButton(CpIcons.Info, "앱 정보", onAbout) }
+        } else {
+            // 머리 줄("OLO eBook · 책 14권 · 만화 5작품")을 없앴다(0.44.0, 2026-10-03 사용자 결정 1) — 앱 이름은 아이콘이
+            // 이미 말하고, 권 수는 탭에 있다. 탭이 맨 위, 그 아래 한 줄에 순서 · 찾기 · 보기 · 더 보기.
+            if (comics) CpTabBar(listOf("책 ${list?.size ?: 0}", "만화 ${works.size}"), pager.currentPage, { scope.launch { pager.animateScrollToPage(it) } }, Modifier.padding(top = 4.dp))
+            LibraryTools(
+                sort, layout,
+                onSort = { sortMenu = true },
+                onLayout = container.libraryView::setLayout,
+                onSearch = { searching = true },
+                onMore = { moreMenu = true },
+            )
+            if (scanning) CpProgressBar(0.35f, Modifier.padding(horizontal = CpTheme.metrics.gutter), CpBarWeight.Thin)
         }
 
         val columns = shelfColumns()
@@ -252,7 +242,7 @@ fun LibraryScreen(
                 val finishedSorted = sort.sort(finished.map { it.book }) { finishedAt[it.id] }
                 // 읽을 책: 한 번도 열지 않은 책. 모든 책 목록(0.24.x)은 책장의 책을 한 번 더 보여 줘 길기만 했다.
                 val toRead = sort.sort(list.orEmpty().filter { it.id !in shelfIds })
-                LazyColumn(Modifier.fillMaxSize().shelfBackground(layout, wood())) {
+                ShelfWall(layout) { LazyColumn(Modifier.fillMaxSize()) {
                     shelfSection(
                         "reading", "읽는 책 · ${reading.size}권", readingSorted, { it.id.value }, layout, columns,
                         grid = { book, width -> ShelfItem(book, width, percents[book.id], onOpen, onLongClick = { coverMenu = it }) },
@@ -272,8 +262,8 @@ fun LibraryScreen(
                         row = { book -> DetailRow(book, notes[book.id], onOpen, onMenu = { coverMenu = it }) },
                         shelf = { book, width -> ShelfCover(book, width, onOpen, onLongClick = { coverMenu = it }) },
                     )
-                    item { Spacer(Modifier.height(24.dp)) }
-                }
+                    shelfEnd(layout)
+                } }
             }
         }
 
@@ -281,14 +271,15 @@ fun LibraryScreen(
             EmptyLibrary { pickFolder.launch(null) }
         } else if (comics) {
             androidx.compose.foundation.pager.HorizontalPager(pager, Modifier.fillMaxSize(), verticalAlignment = Alignment.Top) { page ->
-                if (page == 0) bookPage() else LazyColumn(Modifier.fillMaxSize().shelfBackground(layout, wood())) {
+                if (page == 0) bookPage() else ShelfWall(layout) { LazyColumn(Modifier.fillMaxSize()) {
                     comicShelf(
                         works, comicProgress, sort, layout, columns,
                         onOpen = { openWork = it.key },
                         onResume = { entry -> onOpenComic(entry.unit.id, null) },
                         onMenu = { workMenu = it.key },
                     )
-                }
+                    shelfEnd(layout)
+                } }
             }
         } else {
             bookPage()
@@ -471,6 +462,15 @@ fun LibraryScreen(
         )
     }
 
+    if (moreMenu) {
+        MoreMenu(
+            onRefresh = { rescan() },
+            onFolders = { manageFolders = true },
+            onAbout = onAbout,
+            onDismiss = { moreMenu = false },
+        )
+    }
+
     Box(Modifier.fillMaxSize()) {
         CpToast(toast, { toast = null }, Modifier.align(Alignment.BottomCenter).padding(bottom = 40.dp))
     }
@@ -542,12 +542,35 @@ internal fun <T> LazyListScope.shelfSection(
 ) {
     if (items.isEmpty()) return
     // 책장 보기는 판이 갈래를 가른다 — 선을 더 그으면 나무 위에 회색 줄이 뜬다.
-    if (divider && layout != LibraryLayout.Shelf) item(key = "$key-divider") { Spacer(Modifier.height(14.dp)); CpDivider() }
-    item(key = "$key-label") { if (layout == LibraryLayout.Shelf) ShelfLabel(label, wood().label) else ShelfLabel(label) }
+    if (layout == LibraryLayout.Shelf) {
+        // 책장: 칸마다 위에 판, 첫 판 앞면에 이 칸의 이름(2026-10-03 사용자 정정 — 이름은 책 위 칸막이에). 갈래 사이 회색
+        // 선은 긋지 않는다 — 판이 이미 가른다.
+        items(items.chunked(columns).withIndex().toList(), key = { "$key-s" + id(it.value.first()) }) { (i, cells) ->
+            Column {
+                ShelfBoard(if (i == 0) label else null)
+                WoodRow(cells, shelf)
+            }
+        }
+        return
+    }
+    if (divider) item(key = "$key-divider") { Spacer(Modifier.height(14.dp)); CpDivider() }
+    item(key = "$key-label") { ShelfLabel(label) }
     when (layout) {
         LibraryLayout.Grid -> items(items.chunked(columns), key = { "$key-g" + id(it.first()) }) { cells -> GridRow(cells, grid) }
         LibraryLayout.List -> items(items, key = { "$key-l" + id(it) }) { row(it) }
-        LibraryLayout.Shelf -> items(items.chunked(columns), key = { "$key-s" + id(it.first()) }) { cells -> WoodRow(cells, shelf) }
+        LibraryLayout.Shelf -> Unit
+    }
+}
+
+/**
+ * 갈래들 뒤: 책장이면 판 하나와 빈 칸들을 화면 끝까지, 아니면 바닥 여백. 열쇠를 주지 않는다 — 책 목록이 오기 전에는 이
+ * 줄만 있어 첫 줄이 되는데, 열쇠가 있으면 목록이 그 줄을 붙들고 있어 책이 오자 서재가 맨 아래로 굴러가 있었다.
+ */
+internal fun LazyListScope.shelfEnd(layout: LibraryLayout) {
+    if (layout == LibraryLayout.Shelf) {
+        item { EmptyShelves(androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp) }
+    } else {
+        item { Spacer(Modifier.height(24.dp)) }
     }
 }
 
@@ -720,13 +743,23 @@ private fun Marked(text: String, query: String, style: androidx.compose.ui.text.
     )
 }
 
-/** 탭 아래 보기 도구 한 줄: 차례 ▾ · · · 격자 | 목록 | 책장. 탭 전체에 적용한다(0.38.0). */
+/**
+ * 탭 아래 도구 한 줄(0.44.0): 차례 ▾ · · · 찾기 · 격자 | 목록 | 책장 · 더 보기(새로고침 · 책 폴더 · 앱 정보). 머리 줄을
+ * 없애며 그 단추들을 여기로 모았다 — 자주 쓰는 찾기만 밖에, 가끔 쓰는 셋은 더 보기 안에.
+ */
 @Composable
-private fun LibraryTools(sort: LibrarySort, layout: LibraryLayout, onSort: () -> Unit, onLayout: (LibraryLayout) -> Unit) {
+private fun LibraryTools(
+    sort: LibrarySort,
+    layout: LibraryLayout,
+    onSort: () -> Unit,
+    onLayout: (LibraryLayout) -> Unit,
+    onSearch: () -> Unit,
+    onMore: () -> Unit,
+) {
     val c = CpTheme.colors
     Row(
         // 차례 글자가 갈래 머리와 같은 시작선에 선다 — 누르는 곳의 안쪽 여백(10dp)만큼 덜 들인다.
-        Modifier.fillMaxWidth().padding(start = CpTheme.metrics.gutter - 10.dp, end = 8.dp, top = 4.dp),
+        Modifier.fillMaxWidth().padding(start = CpTheme.metrics.gutter - 10.dp, end = 0.dp, top = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // 누르는 곳 48dp(0.29.0 — 36dp 였다). ▾ 는 글자 대신 아이콘: 삼성 글꼴 스타일에 따라 모양이 바뀌었다.
@@ -739,14 +772,53 @@ private fun LibraryTools(sort: LibrarySort, layout: LibraryLayout, onSort: () ->
             CpIcon(CpIcons.ChevronDown, c.textMuted, size = 18.dp)
         }
         Spacer(Modifier.weight(1f))
+        CpIconButton(CpIcons.Search, "책 찾기", onSearch)
         CpIconToggle(
             listOf(CpIcons.Grid, CpIcons.Rows, CpIcons.Shelf),
             LibraryLayout.entries.map { it.label },
             layout.ordinal,
             { onLayout(LibraryLayout.entries[it]) },
         )
+        CpIconButton(CpIcons.More, "더 보기", onMore)
     }
 }
+
+/**
+ * 더 보기 판: 새로고침 · 책 폴더 · 앱 정보. 오른쪽 위에 떠서 서재를 밀어내지 않는다. 판 밖을 누르거나 뒤로 가기면 닫힌다.
+ * 줄마다 이전 머리 단추와 같은 이름을 읽힌다(화면 읽기 · 시험이 같은 이름으로 찾는다).
+ */
+@Composable
+private fun MoreMenu(onRefresh: () -> Unit, onFolders: () -> Unit, onAbout: () -> Unit, onDismiss: () -> Unit) {
+    val c = CpTheme.colors
+    androidx.activity.compose.BackHandler(onBack = onDismiss)
+    Box(Modifier.fillMaxSize().clickable(indication = null, interactionSource = null, onClick = onDismiss).windowInsetsPadding(WindowInsets.safeDrawing)) {
+        Column(
+            Modifier.align(Alignment.TopEnd).padding(top = MORE_MENU_TOP, end = 8.dp).width(200.dp)
+                .shadow(8.dp, RoundedCornerShape(CpTheme.metrics.cornerSmall + 4.dp))
+                .clip(RoundedCornerShape(CpTheme.metrics.cornerSmall + 4.dp)).background(c.surface)
+                .clickable(indication = null, interactionSource = null) {}
+                .padding(vertical = 6.dp),
+        ) {
+            listOf(Triple(CpIcons.Refresh, "새로고침", onRefresh), Triple(CpIcons.Folder, "책 폴더", onFolders), Triple(CpIcons.Info, "앱 정보", onAbout))
+                .forEach { (icon, label, action) ->
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = CpTheme.metrics.touchTarget)
+                            .clickable(role = Role.Button) { onDismiss(); action() }
+                            .semantics(mergeDescendants = true) { contentDescription = label }
+                            .padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CpIcon(icon, c.text, size = 22.dp)
+                        Spacer(Modifier.width(14.dp))
+                        CpText(label, CpTheme.type.body, c.text)
+                    }
+                }
+        }
+    }
+}
+
+/** 더 보기 판이 뜨는 높이: 탭(48) + 도구 줄 아래. 탭이 없으면 조금 위에 떠도 도구 줄을 가리지 않는다. */
+private val MORE_MENU_TOP = 100.dp
 
 /** 격자 한 줄(세 칸). 칸 폭은 화면에서 나온다 — 표지는 칸 밑면에 서므로 한 줄의 표지 밑면이 맞는다. */
 @Composable

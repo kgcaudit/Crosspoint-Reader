@@ -75,7 +75,7 @@ class AboutTest {
         compose.activityRule.scenario.recreate()
         waitFor(hasText("어린 왕자", substring = true))
         shot("90-library-info-button")
-        tap(hasContentDescription("앱 정보"))
+        compose.libraryMenu("앱 정보")
         // 폰에 깔린 판을 여기서 본다 — 빌드 파일의 판 번호가 그대로 나와야 한다.
         waitFor(hasText("판 ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})", substring = true))
         shot("91-about")
@@ -97,7 +97,7 @@ class AboutTest {
         // 판 번호를 찾는 일은 무언가 안 될 때 생긴다 — 책이 하나도 없는 첫 화면에서도 닿아야 한다.
         FolderProvider.install(File(app.cacheDir, "sdcard").apply { deleteRecursively(); mkdirs() })
         waitFor(hasText("아직 책이 없습니다"))
-        tap(hasContentDescription("앱 정보"))
+        compose.libraryMenu("앱 정보")
         waitFor(hasText("오픈소스 라이선스"))
     }
 

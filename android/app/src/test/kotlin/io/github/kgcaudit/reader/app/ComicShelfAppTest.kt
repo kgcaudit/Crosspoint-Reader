@@ -135,7 +135,10 @@ class ComicShelfAppTest {
 
     @Test
     fun `comics get their own tab, and books stay where they were`() {
-        waitFor(hasText("책 1권 · 만화 4작품"))
+        // 머리 줄("책 1권 · 만화 4작품")은 없앴다(0.44.0) — 권 수는 탭에 있다.
+        waitFor(hasText("만화 4"))
+        assertTrue(has(hasText("책 1")))
+        assertFalse(has(hasText("OLO eBook")), "머리 줄이 남아 있다")
         // 책 탭이 먼저다 — 만화를 넣었다고 책이 밀려나지 않는다.
         assertTrue(has(hasText("어린 왕자.epub")) || has(hasText("어린 왕자")))
         assertFalse(has(hasContentDescription("별을 줍는 아이 작품")), "책 탭에 만화가 섞였다")
@@ -223,6 +226,8 @@ class ComicShelfAppTest {
         // 표지만 선다 — 작품 이름 · "만화 · 5권" 글줄이 없다.
         assertFalse(has(hasText("만화 · 5권")), "책장 보기에 격자 글줄이 남았다")
         assertTrue(has(hasContentDescription("전학생 작품")))
+        compose.mainClock.advanceTimeBy(1_000)
+        compose.waitForIdle()
         shot("comic-tab-shelf")
         click(hasContentDescription("별을 줍는 아이 2권 이어 읽기"))
         waitFor(hasContentDescription("만화 1쪽"))
