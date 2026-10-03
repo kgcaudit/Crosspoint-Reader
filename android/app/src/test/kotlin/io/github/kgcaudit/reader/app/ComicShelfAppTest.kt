@@ -127,7 +127,8 @@ class ComicShelfAppTest {
     private fun openStar() {
         click(hasText("만화 4"))
         click(hasContentDescription("별을 줍는 아이 작품"))
-        waitFor(hasText("권 · 5"))
+        // 작품 화면에만 있는 것을 기다린다. 줄 수 머리 "5권" 은 서재 칸 꼬리표와 같은 글자다.
+        waitFor(hasText("만화 · 5권 · 2곳에서 모음"))
     }
 
     private suspend fun works() = app.container.data.comics.works().first()
@@ -141,8 +142,8 @@ class ComicShelfAppTest {
         click(hasText("만화 4"))
         waitFor(hasContentDescription("전학생 작품"))
         // 아무것도 펼치지 않았으니 모두 읽을 작품(0.38.0 — 책과 같은 세 갈래).
-        assertTrue(has(hasText("읽을 작품 · 4작품")))
-        assertFalse(has(hasText("읽는 중 · ", substring = true)))
+        assertTrue(has(hasText("읽을 책 · 4작품")))
+        assertFalse(has(hasText("읽는 책 · ", substring = true)))
         // 웹툰은 화로 센다. 흩어진 두 폴더의 별을 줍는 아이는 한 작품.
         assertTrue(has(hasText("웹툰 · 2화")))
         assertTrue(has(hasText("만화 · 5권")))
@@ -153,7 +154,7 @@ class ComicShelfAppTest {
     fun `a sideways swipe on the library moves between books and comics`() {
         waitFor(hasText("어린 왕자.epub"))
         compose.onRoot().performTouchInput { swipeLeft() }
-        waitFor(hasText("읽을 작품 · 4작품"))
+        waitFor(hasText("읽을 책 · 4작품"))
         compose.onRoot().performTouchInput { swipeRight() }
         waitFor(hasText("읽을 책 · 1권"))
         // 만화 탭에서 벗어났다 — 화면에 만화 칸이 남아 있지 않다.
@@ -174,41 +175,41 @@ class ComicShelfAppTest {
         read("전학생", "1화", 2, 20)
         read("전학생", "2화", 2, 30)
         click(hasText("만화 4"))
-        waitFor(hasText("읽는 중 · 1작품"))
-        assertTrue(has(hasText("다 읽은 작품 · 1작품")))
-        assertTrue(has(hasText("읽을 작품 · 2작품")))
+        waitFor(hasText("읽는 책 · 1작품"))
+        assertTrue(has(hasText("읽은 책 · 1작품")))
+        assertTrue(has(hasText("읽을 책 · 2작품")))
         // 1권만 펼친 작품은 권이 넷 남았어도 한 작품 — 권마다 세 칸에 흩어지지 않는다.
-        assertTrue(has(hasContentDescription("별을 줍는 아이 1권 이어 보기")))
+        assertTrue(has(hasContentDescription("별을 줍는 아이 1권 이어 읽기")))
         shot("comic-tab-sections")
 
         // 종이책으로 다 읽은 One Piece 를 다 읽은 칸으로.
         node(hasContentDescription("One Piece 작품")).performTouchInput { longClick() }
-        click(hasText("다 읽은 작품으로 옮기기"))
-        waitFor(hasText("다 읽은 작품 · 2작품"))
-        assertTrue(has(hasText("읽을 작품 · 1작품")))
+        click(hasText("읽은 책으로 옮기기"))
+        waitFor(hasText("읽은 책 · 2작품"))
+        assertTrue(has(hasText("읽을 책 · 1작품")))
         // 1권만 들춰 본 작품을 읽을 칸으로 되돌린다.
-        node(hasContentDescription("별을 줍는 아이 1권 이어 보기")).performTouchInput { longClick() }
-        click(hasText("읽을 작품으로 되돌리기"))
-        waitFor(hasText("읽을 작품 · 2작품"))
-        assertFalse(has(hasText("읽는 중 · ", substring = true)), "되돌린 작품이 읽는 중에 남았다")
+        node(hasContentDescription("별을 줍는 아이 1권 이어 읽기")).performTouchInput { longClick() }
+        click(hasText("읽을 책으로 옮기기"))
+        waitFor(hasText("읽을 책 · 2작품"))
+        assertFalse(has(hasText("읽는 책 · ", substring = true)), "되돌린 작품이 읽는 중에 남았다")
         // 다시 펼치면 읽는 중으로 돌아온다 — 펼친 작품을 이어 볼 길이 사라지면 안 된다.
         read("별을 줍는 아이", "1권", 1, System.currentTimeMillis() + 1_000)
-        waitFor(hasContentDescription("별을 줍는 아이 1권 이어 보기"))
-        assertTrue(has(hasText("읽을 작품 · 1작품")))
+        waitFor(hasContentDescription("별을 줍는 아이 1권 이어 읽기"))
+        assertTrue(has(hasText("읽을 책 · 1작품")))
     }
 
     @Test
     fun `the list view applies to every comic section, and the reading row still resumes`() {
         read("별을 줍는 아이", "2권", 0, 10)
         click(hasText("만화 4"))
-        waitFor(hasText("읽는 중 · 1작품"))
+        waitFor(hasText("읽는 책 · 1작품"))
         click(hasContentDescription("목록으로 보기"))
         // 읽는 중 작품도 목록 줄이 된다(⋮ 가 있다) — 보기 도구가 읽을 갈래에만 먹던 0.37 까지와 다르다.
         waitFor(hasContentDescription("별을 줍는 아이 더 보기"))
         assertTrue(has(hasContentDescription("전학생 더 보기")))
         assertTrue(has(hasText("2권 · 1쪽")))
         shot("comic-tab-list")
-        click(hasContentDescription("별을 줍는 아이 2권 이어 보기"))
+        click(hasContentDescription("별을 줍는 아이 2권 이어 읽기"))
         waitFor(hasContentDescription("만화 1쪽"))
     }
 
@@ -216,14 +217,14 @@ class ComicShelfAppTest {
     fun `the bookshelf view stands work covers on planks and the reading cover still resumes`() {
         read("별을 줍는 아이", "2권", 0, 10)
         click(hasText("만화 4"))
-        waitFor(hasText("읽는 중 · 1작품"))
+        waitFor(hasText("읽는 책 · 1작품"))
         click(hasContentDescription("책장으로 보기"))
-        waitFor(hasContentDescription("별을 줍는 아이 2권 이어 보기"))
+        waitFor(hasContentDescription("별을 줍는 아이 2권 이어 읽기"))
         // 표지만 선다 — 작품 이름 · "만화 · 5권" 글줄이 없다.
         assertFalse(has(hasText("만화 · 5권")), "책장 보기에 격자 글줄이 남았다")
         assertTrue(has(hasContentDescription("전학생 작품")))
         shot("comic-tab-shelf")
-        click(hasContentDescription("별을 줍는 아이 2권 이어 보기"))
+        click(hasContentDescription("별을 줍는 아이 2권 이어 읽기"))
         waitFor(hasContentDescription("만화 1쪽"))
     }
 
@@ -282,7 +283,7 @@ class ComicShelfAppTest {
         click(hasText("다른 작품과 합치기"))
         click(hasText("원피스"))
         // 합친 작품 화면에 머문다 — 서재로 튕기면 합친 결과를 다시 찾아야 한다.
-        waitFor(hasText("권 · 2"))
+        waitFor(hasText("만화 · 2권"))
         assertTrue(has(hasText("원피스")))
         runBlocking {
             val all = works()

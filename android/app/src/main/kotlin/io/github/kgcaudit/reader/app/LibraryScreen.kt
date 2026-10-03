@@ -160,7 +160,7 @@ fun LibraryScreen(
         if (incomplete > seenIncomplete) {
             seenIncomplete = incomplete
             notice = "일부 폴더를 읽지 못했습니다" to
-                "그 폴더의 책은 목록에 그대로 둡니다. 저장소가 연결돼 있는지 확인한 뒤 새로고침하세요."
+                "그 폴더의 책은 목록에 그대로 둡니다. 저장소가 연결돼 있는지 확인한 뒤 새로고침해 주세요."
         }
     }
 
@@ -202,7 +202,7 @@ fun LibraryScreen(
         CpHeader(
             title = "OLO eBook",
             subtitle = when {
-                folders.isEmpty() -> "책이 있는 폴더를 추가하세요"
+                folders.isEmpty() -> "책이 있는 폴더를 추가해 주세요"
                 list == null -> null
                 // 만화가 있으면 폴더 수는 뺀다 — 머리 단추 넷 옆에서 393dp 폭에도 "폴더 1…" 로 잘렸다. 폴더는 폴더 단추에 있다.
                 works.isNotEmpty() -> "책 ${list.size}권 · 만화 ${works.size}작품"
@@ -254,7 +254,7 @@ fun LibraryScreen(
                 val toRead = sort.sort(list.orEmpty().filter { it.id !in shelfIds })
                 LazyColumn(Modifier.fillMaxSize().shelfBackground(layout, wood())) {
                     shelfSection(
-                        "reading", "읽는 중 · ${reading.size}권", readingSorted, { it.id.value }, layout, columns,
+                        "reading", "읽는 책 · ${reading.size}권", readingSorted, { it.id.value }, layout, columns,
                         grid = { book, width -> ShelfItem(book, width, percents[book.id], onOpen, onLongClick = { coverMenu = it }) },
                         row = { book -> DetailRow(book, notes[book.id], onOpen, onMenu = { coverMenu = it }) { PercentLine(percents[book.id]) } },
                         shelf = { book, width -> ShelfCover(book, width, onOpen, onLongClick = { coverMenu = it }) },
@@ -383,9 +383,9 @@ fun LibraryScreen(
         WorkMenu(
             w, status.shelf,
             onOpen = { workMenu = null; openWork = w.key },
-            onFinished = { move(io.github.kgcaudit.reader.document.comic.ShelfMark.Finished(System.currentTimeMillis(), w.volumeCount), "다 읽은 작품으로 옮겼습니다") },
-            onReading = { move(io.github.kgcaudit.reader.document.comic.ShelfMark.Reading(System.currentTimeMillis()), "읽는 중으로 되돌렸습니다") },
-            onToRead = { move(io.github.kgcaudit.reader.document.comic.ShelfMark.ToRead(System.currentTimeMillis()), "읽을 작품으로 되돌렸습니다") },
+            onFinished = { move(io.github.kgcaudit.reader.document.comic.ShelfMark.Finished(System.currentTimeMillis(), w.volumeCount), "읽은 책으로 옮겼습니다") },
+            onReading = { move(io.github.kgcaudit.reader.document.comic.ShelfMark.Reading(System.currentTimeMillis()), "읽는 책으로 옮겼습니다") },
+            onToRead = { move(io.github.kgcaudit.reader.document.comic.ShelfMark.ToRead(System.currentTimeMillis()), "읽을 책으로 옮겼습니다") },
             onDismiss = { workMenu = null },
         )
     }
@@ -421,7 +421,7 @@ fun LibraryScreen(
     }
 
     if (sortMenu) {
-        CpPopup(title = "순서", message = "읽는 중 · 읽은 · 읽을 갈래가 모두 이 차례를 따릅니다.", onDismiss = { sortMenu = false }) {
+        CpPopup(title = "순서", message = "읽는 책 · 읽은 책 · 읽을 책이 모두 이 차례를 따릅니다.", onDismiss = { sortMenu = false }) {
             Spacer(Modifier.height(8.dp))
             LibrarySort.entries.forEach { s ->
                 CpRadioRow(s.label, s == sort, { container.libraryView.setSort(s); sortMenu = false }, inset = 0.dp)
@@ -439,7 +439,7 @@ fun LibraryScreen(
                     coverMenu = null
                     scope.launch {
                         withContext(Dispatchers.IO) { data.library.returnToUnread(book.id) }
-                        toast = "‘${book.label}’ — 읽을 책으로 되돌렸습니다"
+                        toast = "‘${book.label}’ — 읽을 책으로 옮겼습니다"
                     }
                 }
             } else {
@@ -452,7 +452,7 @@ fun LibraryScreen(
                     // 여러 줄을 한 번에 고치는(트랜잭션) 일이라 화면 스레드에서 하면 Room 이 막는다.
                     withContext(Dispatchers.IO) { data.library.setFinished(book.id, if (done) null else now, now) }
                     // 책 이름 뒤에 조사를 붙이지 않는다 — 받침에 따라 을/를이 갈려 틀리기 쉽다.
-                    toast = if (done) "‘${book.label}’ — 읽는 중으로 되돌렸습니다" else "‘${book.label}’ — 읽은 책으로 옮겼습니다"
+                    toast = if (done) "‘${book.label}’ — 읽는 책으로 옮겼습니다" else "‘${book.label}’ — 읽은 책으로 옮겼습니다"
                 }
             },
             onPick = {
@@ -512,7 +512,7 @@ private fun BookCover(book: LibraryBook, modifier: Modifier = Modifier, small: B
     )
 }
 
-/** 갈래 머리: "읽는 중 · 5권". 책장 보기에서는 나무 위의 밝은 글자. */
+/** 갈래 머리: "읽는 책 · 5권". 책장 보기에서는 나무 위의 밝은 글자. */
 @Composable
 internal fun ShelfLabel(text: String, color: androidx.compose.ui.graphics.Color = CpTheme.colors.textMuted) {
     CpText(
@@ -856,8 +856,8 @@ private fun CoverMenu(
         Spacer(Modifier.height(8.dp))
         // 판 안의 행은 판 글자 시작선에서(inset 0). 판 여백에 행 여백이 더해져 제목 · 문장보다 16dp 안쪽에서 시작하면
         // 이 행들이 문장에 "속한" 것처럼 보였다(0.29.0).
-        CpListRow(if (finished) "읽는 중으로 되돌리기" else "읽은 책으로 옮기기", onFinished, icon = CpIcons.Bookmark, compact = true, inset = 0.dp)
-        onUnread?.let { CpListRow("읽을 책으로 되돌리기", it, icon = CpIcons.Back, compact = true, inset = 0.dp) }
+        CpListRow(if (finished) "읽는 책으로 옮기기" else "읽은 책으로 옮기기", onFinished, icon = if (finished) CpIcons.Book else CpIcons.Bookmark, compact = true, inset = 0.dp)
+        onUnread?.let { CpListRow("읽을 책으로 옮기기", it, icon = CpIcons.Back, compact = true, inset = 0.dp) }
         CpListRow("사진 · 파일에서 표지 고르기", onPick, icon = CpIcons.Folder, compact = true, inset = 0.dp)
         CpListRow(
             if (cover?.hasOwn == true) "원래 표지로 되돌리기" else "대신 표지로 되돌리기",

@@ -96,7 +96,7 @@ class BookSearchTest {
         shot("102-search-empty")
         node(hasContentDescription("찾을 말")).performTextInput("생텍")
         waitFor(hasText("1권 · 제목 · 저자 · 파일 이름에서"))
-        assertTrue(has(hasText("읽는 중 0%")), "갈래 표시가 없다")
+        assertTrue(has(hasText("읽는 책 0%")), "갈래 표시가 없다")
         assertTrue(has(hasText("어린 왕자")))
         shot("103-search-results")
         // EPUB 의 대신 표지는 계열 EBOOK — 문서 회청 위의 두 톤 펼친 책(0.32.2). 0.32.1 까지의 청록(계열에서는 소스 코드
@@ -144,7 +144,7 @@ class BookSearchTest {
         openSearch()
         compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
         compose.waitUntil(10_000) { !has(hasText("책 3권에서 찾습니다")) }
-        waitFor(hasText("읽는 중 · 1권"))
+        waitFor(hasText("읽는 책 · 1권"))
         assertFalse(compose.activity.isFinishing, "뒤로가 찾기가 아니라 앱을 닫았다")
     }
 }

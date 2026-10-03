@@ -695,7 +695,7 @@ fun PdfScreen(
 
     if (state.ready && state.pageCount <= 0) {
         CpPopup(title = "이 PDF를 열지 못했습니다", message = "쪽이 하나도 없는 파일입니다.", onDismiss = closeBook) {
-            CpPopupButtons { CpButton("홈으로", closeBook) }
+            CpPopupButtons { CpButton("서재로", closeBook) }
         }
     }
 }

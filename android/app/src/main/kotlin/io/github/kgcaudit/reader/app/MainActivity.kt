@@ -162,6 +162,8 @@ private fun OloApp(
     val records = remember { RecordsUi(container.data.records, LastBackupStore(context), recordsScope) }
     var reader by remember { mutableStateOf<OpenedBook?>(null) }
     var failure by remember { mutableStateOf<String?>(null) }
+    // 무엇을 열지 못했나. 만화를 못 열어도 "이 책을" 이라 했다(0.43.0).
+    var failureTitle by remember { mutableStateOf(BOOK_FAILURE) }
     var prefs by remember { mutableStateOf(container.prefs.load()) }
     val charSpeed = remember { container.prefs.loadSpeed("chars") }
     val pageSpeed = remember { container.prefs.loadSpeed("pages") }
@@ -328,7 +330,7 @@ private fun OloApp(
                     onOpen = { next -> comicStart = null; comicId = next },
                     onClose = { comicId = null; comicStart = null; hideSystemBars(false) },
                     onChrome = { showing -> hideSystemBars(!showing) },
-                    onFail = { message -> failure = message; comicId = null; comicStart = null; hideSystemBars(false) },
+                    onFail = { message -> failureTitle = "이 만화를 열지 못했습니다"; failure = message; comicId = null; comicStart = null; hideSystemBars(false) },
                 )
             }
         } else when (val shown = aboutPage) {
@@ -381,8 +383,8 @@ private fun OloApp(
 
     Box(Modifier.fillMaxSize()) { CpToast(notice, { notice = null }, Modifier.align(Alignment.BottomCenter)) }
     failure?.let { message ->
-        CpPopup(title = "이 책을 열지 못했습니다", message = message, onDismiss = { failure = null }) {
-            CpPopupButtons { CpButton("확인", { failure = null }) }
+        CpPopup(title = failureTitle, message = message, onDismiss = { failure = null; failureTitle = BOOK_FAILURE }) {
+            CpPopupButtons { CpButton("확인", { failure = null; failureTitle = BOOK_FAILURE }) }
         }
     }
     if ((openId != null || incomingUri != null) && reader == null && failure == null) {
@@ -407,3 +409,6 @@ private suspend fun openKeepingResult(open: suspend () -> OpenedBook): OpenedBoo
 
 /** [aboutPage] 의 "앱 정보" 표시. 라이선스 번호(0부터)와 겹치지 않는다. */
 private const val ABOUT = -1
+
+/** 열기 실패 판 제목(책). 만화는 "이 만화를 열지 못했습니다". */
+private const val BOOK_FAILURE = "이 책을 열지 못했습니다"

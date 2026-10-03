@@ -88,7 +88,7 @@ class ShelfTest {
     @Test
     fun `every opened book sits on the reading shelf and a fourth wraps to the next row`() {
         // 0.22 까지는 최근 세 권만 보였다.
-        waitFor(hasText("읽는 중 · 4권"))
+        waitFor(hasText("읽는 책 · 4권"))
         // 0.38.0: 옆으로 넘기지 않는다 — 좌우 밀기는 책 ↔ 만화 탭이다. 넷째 권은 다음 줄에.
         assertFalse(has(hasText("옆으로 넘겨 보기 ›")))
         // 읽는 중 네 권의 표지만 잰다(데미안은 읽을 책 격자에 있다).
@@ -103,7 +103,7 @@ class ShelfTest {
 
     @Test
     fun `marking a book finished moves it to its own shelf and back`() {
-        waitFor(hasText("읽는 중 · 4권"))
+        waitFor(hasText("읽는 책 · 4권"))
         // 연 책은 책장에만 있다 — 읽을 책에 한 번 더 보이지 않는다(0.25.0, 모든 책 목록을 없앰).
         // 대신 표지는 제목을 얹어 글자로 세면 둘이다 — 표지로 센다.
         assertEquals(1, compose.onAllNodes(hasContentDescription("옛 일기.txt 대신 표지"), useUnmergedTree = true).fetchSemanticsNodes().size, "연 책이 두 곳에 있다")
@@ -111,15 +111,15 @@ class ShelfTest {
         waitFor(hasText("읽은 책으로 옮기기"))
         compose.onAllNodes(hasText("읽은 책으로 옮기기"), useUnmergedTree = true)[0].performClick()
         waitFor(hasText("읽은 책 · 1권"))
-        waitFor(hasText("읽는 중 · 3권"))
+        waitFor(hasText("읽는 책 · 3권"))
         assertTrue(has(hasText("다 읽음 · ", substring = true)), "끝낸 날이 없다")
         shot("97-shelf-finished")
         assertNotNull(runBlocking { app.container.data.library.shelf().first() }.first { it.book.id == idOf("옛 일기.txt") }.finishedAtEpochMs)
 
         compose.onAllNodes(hasText("옛 일기.txt"), useUnmergedTree = true)[0].performTouchInput { longClick() }
-        waitFor(hasText("읽는 중으로 되돌리기"))
-        compose.onAllNodes(hasText("읽는 중으로 되돌리기"), useUnmergedTree = true)[0].performClick()
-        waitFor(hasText("읽는 중 · 4권"))
+        waitFor(hasText("읽는 책으로 옮기기"))
+        compose.onAllNodes(hasText("읽는 책으로 옮기기"), useUnmergedTree = true)[0].performClick()
+        waitFor(hasText("읽는 책 · 4권"))
         assertFalse(has(hasText("읽은 책 · ", substring = true)))
         assertNull(runBlocking { app.container.data.library.shelf().first() }.first { it.book.id == idOf("옛 일기.txt") }.finishedAtEpochMs)
     }
@@ -132,6 +132,6 @@ class ShelfTest {
         waitFor(hasText("읽은 책으로 옮기기"))
         compose.onAllNodes(hasText("읽은 책으로 옮기기"), useUnmergedTree = true)[0].performClick()
         waitFor(hasText("읽은 책 · 1권"))
-        assertTrue(has(hasText("읽는 중 · 4권")))
+        assertTrue(has(hasText("읽는 책 · 4권")))
     }
 }

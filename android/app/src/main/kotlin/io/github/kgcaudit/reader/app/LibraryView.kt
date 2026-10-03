@@ -83,7 +83,8 @@ internal fun sizeLabel(bytes: Long): String = when {
 }
 
 /** 책이 홈의 어느 갈래에 있는가. 찾기 결과가 이 차례로 선다(이어 읽을 책이 먼저). */
-enum class Shelf(val label: String) { Reading("읽는 중"), Read("읽은 책"), ToRead("읽을 책") }
+/** 서재의 세 칸. 이름은 책 · 만화 모두 같다(0.43.0 — "읽는 중 · 다 읽은 작품" 이 섞여 있었다). */
+enum class Shelf(val label: String) { Reading("읽는 책"), Read("읽은 책"), ToRead("읽을 책") }
 
 /** 찾은 책 한 권과 그 갈래. */
 data class BookHit(val book: LibraryBook, val shelf: Shelf)

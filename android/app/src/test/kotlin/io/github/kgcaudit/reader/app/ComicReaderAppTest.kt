@@ -114,7 +114,8 @@ class ComicReaderAppTest {
     private fun openWork() {
         click(hasText("만화 1"))
         click(hasContentDescription("별 작품"))
-        waitFor(hasText("권 · 3"))
+        // 작품 화면에만 있는 것(작품 정리 단추)을 기다린다. 줄 수 머리 "3권" 은 서재 칸 꼬리표와 같은 글자다.
+        waitFor(hasContentDescription("작품 정리"))
     }
 
     private fun openVolume(label: String) {
@@ -189,7 +190,7 @@ class ComicReaderAppTest {
         assertTrue(has(hasText("다음: 별 2권")))
         shot("comic-volume-end")
         runBlocking { assertTrue(progressOf("별 01권.cbz").finished, "마지막 쪽까지 읽었는데 다 읽음이 아니다") }
-        click(hasText("이어서 보기"))
+        click(hasText("이어서 읽기"))
         waitFor(hasText("1 / 3"))
         waitFor(page(1))
         tapRight()
@@ -206,14 +207,14 @@ class ComicReaderAppTest {
         tapRight(); waitFor(page(2))
         compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
         // 보던 작품 화면으로 돌아온다(서재 맨 앞이 아니라).
-        waitFor(hasText("2권 이어 보기 · 2쪽"))
+        waitFor(hasText("2권 이어 읽기 · 2쪽"))
         assertTrue(has(hasText("2 / 3쪽")))
-        click(hasText("2권 이어 보기 · 2쪽"))
+        click(hasText("2권 이어 읽기 · 2쪽"))
         waitFor(page(2))
         compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
-        waitFor(hasText("2권 이어 보기 · 2쪽"))
+        waitFor(hasText("2권 이어 읽기 · 2쪽"))
         compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
-        waitFor(hasText("읽는 중 · 1작품"))
+        waitFor(hasText("읽는 책 · 1작품"))
         assertTrue(has(hasText("2권 · 2쪽")))
         shot("comic-reading-shelf")
     }

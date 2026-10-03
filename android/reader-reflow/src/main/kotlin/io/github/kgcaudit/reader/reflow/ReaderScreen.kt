@@ -870,7 +870,7 @@ fun ReaderScreen(
         state.error?.let { message ->
             if (state.page == null) {
                 CpPopup(title = "이 책을 열지 못했습니다", message = message, onDismiss = onClose) {
-                    CpPopupButtons { CpButton("홈으로", onClose) }
+                    CpPopupButtons { CpButton("서재로", onClose) }
                 }
             }
         }

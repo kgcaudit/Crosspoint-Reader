@@ -95,6 +95,12 @@ internal fun ComicCover(unit: ComicUnit, title: String, subtitle: String?, modif
     )
 }
 
+/** 한 줄을 세는 말: 만화 "권", 웹툰 "화"(0.43.0 — 웹툰에 "같은 권 2곳" · "마지막 권" 이 나왔다). */
+internal fun unitWord(work: Work?) = if (work?.webtoon == true) "화" else "권"
+
+/** 줄 하나를 세는 말: 화 번호만 있으면 "화". 작품을 모르는 곳(같은 권 고르기 판)에서 쓴다. */
+internal fun unitWord(entry: WorkEntry) = if (entry.name.chapter != null && entry.name.volume == null) "화" else "권"
+
 /** "만화" · "웹툰". */
 private fun kindLabel(work: Work) = if (work.webtoon) "웹툰" else "만화"
 
@@ -131,28 +137,28 @@ internal fun LazyListScope.comicShelf(
     val toRead = arrange(shelf(WorkShelf.TO_READ), null)
 
     shelfSection(
-        "comic-reading", "읽는 중 · ${reading.size}작품", reading, { it.key }, layout, columns,
+        "comic-reading", "읽는 책 · ${reading.size}작품", reading, { it.key }, layout, columns,
         grid = { work, width -> val (e, p) = resumeOf(work, progress); ResumeItem(work, e, p, status.getValue(work.key).newVolumes, width, onResume, onMenu) },
         row = { work ->
             val (e, p) = resumeOf(work, progress)
-            WorkRow(work, onClick = { onResume(e) }, onMenu = onMenu, description = "${work.title} ${e.label} 이어 보기") {
+            WorkRow(work, onClick = { onResume(e) }, onMenu = onMenu, description = "${work.title} ${e.label} 이어 읽기") {
                 ResumeLine(work, e, p, status.getValue(work.key).newVolumes)
             }
         },
         // 읽는 중 칸은 이어 볼 권의 표지를 세운다 — 누르면 그 자리부터(격자 칸과 같다).
         shelf = { work, width ->
             val e = resumeOf(work, progress).first
-            ShelfWork(work, e.unit, e.label, width, "${work.title} ${e.label} 이어 보기", { onResume(e) }, onMenu)
+            ShelfWork(work, e.unit, e.label, width, "${work.title} ${e.label} 이어 읽기", { onResume(e) }, onMenu)
         },
     )
     shelfSection(
-        "comic-finished", "다 읽은 작품 · ${finished.size}작품", finished, { it.key }, layout, columns,
+        "comic-finished", "읽은 책 · ${finished.size}작품", finished, { it.key }, layout, columns,
         grid = { work, width -> WorkItem(work, width, onOpen, onMenu) { DoneLine(status.getValue(work.key).finishedAtEpochMs) } },
         row = { work -> WorkRow(work, onClick = { onOpen(work) }, onMenu = onMenu) { DoneLine(status.getValue(work.key).finishedAtEpochMs) } },
         shelf = { work, width -> ShelfWork(work, work.face(), kindLabel(work), width, "${work.title} 작품", { onOpen(work) }, onMenu) },
     )
     shelfSection(
-        "comic-to-read", "읽을 작품 · ${toRead.size}작품", toRead, { it.key }, layout, columns,
+        "comic-to-read", "읽을 책 · ${toRead.size}작품", toRead, { it.key }, layout, columns,
         divider = reading.isNotEmpty() || finished.isNotEmpty(),
         grid = { work, width -> WorkItem(work, width, onOpen, onMenu) },
         row = { work -> WorkRow(work, onClick = { onOpen(work) }, onMenu = onMenu) },
@@ -176,7 +182,7 @@ private fun ResumeItem(work: Work, entry: WorkEntry, progress: ComicProgress?, n
     val c = CpTheme.colors
     Column(
         Modifier.width(width).combinedClickable(role = Role.Button, onLongClick = { onMenu(work) }) { onResume(entry) }
-            .semantics(mergeDescendants = true) { contentDescription = "${work.title} ${entry.label} 이어 보기" },
+            .semantics(mergeDescendants = true) { contentDescription = "${work.title} ${entry.label} 이어 읽기" },
     ) {
         Box {
             ComicCover(entry.unit, work.title, entry.label, Modifier.fillMaxWidth())
@@ -296,10 +302,10 @@ internal fun WorkMenu(
         // 판 안의 행은 판 글자 시작선에서(inset 0) — 책 표지 판과 같다.
         CpListRow("작품 화면 열기", onOpen, icon = CpIcons.Book, compact = true, inset = 0.dp)
         when (shelf) {
-            WorkShelf.FINISHED -> CpListRow("읽는 중으로 되돌리기", onReading, icon = CpIcons.Bookmark, compact = true, inset = 0.dp)
-            else -> CpListRow("다 읽은 작품으로 옮기기", onFinished, icon = CpIcons.Bookmark, compact = true, inset = 0.dp)
+            WorkShelf.FINISHED -> CpListRow("읽는 책으로 옮기기", onReading, icon = CpIcons.Book, compact = true, inset = 0.dp)
+            else -> CpListRow("읽은 책으로 옮기기", onFinished, icon = CpIcons.Bookmark, compact = true, inset = 0.dp)
         }
-        if (shelf != WorkShelf.TO_READ) CpListRow("읽을 작품으로 되돌리기", onToRead, icon = CpIcons.Back, compact = true, inset = 0.dp)
+        if (shelf != WorkShelf.TO_READ) CpListRow("읽을 책으로 옮기기", onToRead, icon = CpIcons.Back, compact = true, inset = 0.dp)
         CpPopupButtons { CpButton("닫기", onDismiss, primary = false) }
     }
 }
@@ -342,11 +348,11 @@ internal fun WorkScreen(
             ComicReading.resume(work, progress)?.let { (entry, p) ->
                 item(key = "resume") {
                     Row(Modifier.padding(horizontal = CpTheme.metrics.gutter, vertical = 8.dp)) {
-                        CpButton("${entry.label} 이어 보기" + (p?.let { " · ${it.page + 1}쪽" } ?: ""), { onEntry(entry, null) })
+                        CpButton("${entry.label} 이어 읽기" + (p?.let { " · ${it.page + 1}쪽" } ?: ""), { onEntry(entry, null) })
                     }
                 }
             }
-            item { CpSectionLabel("${if (work.webtoon) "화" else "권"} · ${work.volumeCount}") }
+            item { CpSectionLabel("${work.volumeCount}${unitWord(work)}") }
             for (entry in work.entries) {
                 item(key = entry.slot) { EntryRow(entry, work.title, progress[entry.unit.id], { onEntry(it, null) }, onCopies) }
                 val sections = entry.unit.contents?.sections.orEmpty()
@@ -378,7 +384,8 @@ private fun EntryRow(entry: WorkEntry, title: String, progress: ComicProgress?, 
     val label = if (entry.omnibus && entry.name.isRange) "${entry.label} 합본" else entry.label
     val sub = when {
         // 읽은 권은 진도를 먼저(구상안 ②: "180쪽 · 다 읽음" · "45 / 182쪽").
-        progress?.finished == true -> listOfNotNull(pages?.let { "${it}쪽" }, "다 읽음").joinToString(" · ")
+        // 다 읽은 줄은 서재와 같은 꼴 "다 읽음 · …"(0.43.0 — 여기만 "180쪽 · 다 읽음" 으로 거꾸로였다).
+        progress?.finished == true -> listOfNotNull("다 읽음", pages?.let { "${it}쪽" }).joinToString(" · ")
         progress != null && pages != null -> "${progress.page + 1} / ${pages}쪽"
         entry.omnibus && pages != null -> "한 파일 · ${pages}쪽"
         entry.omnibus -> "한 파일"
@@ -390,11 +397,11 @@ private fun EntryRow(entry: WorkEntry, title: String, progress: ComicProgress?, 
             val shape = RoundedCornerShape(CpTheme.metrics.cornerChip)
             Box(
                 Modifier.heightIn(min = CpTheme.metrics.touchTarget).clickable(role = Role.Button) { onCopies(entry) }
-                    .semantics(mergeDescendants = true) { contentDescription = "${entry.label} 같은 권 ${entry.copies.size + 1}곳" },
+                    .semantics(mergeDescendants = true) { contentDescription = "${entry.label} 같은 ${unitWord(entry)} ${entry.copies.size + 1}곳" },
                 contentAlignment = Alignment.Center,
             ) {
                 Box(Modifier.clip(shape).border(1.dp, CpTheme.colors.outline, shape).padding(horizontal = 8.dp, vertical = 2.dp)) {
-                    CpText("같은 권 ${entry.copies.size + 1}곳", CpTheme.type.caption, CpTheme.colors.textMuted)
+                    CpText("같은 ${unitWord(entry)} ${entry.copies.size + 1}곳", CpTheme.type.caption, CpTheme.colors.textMuted)
                 }
             }
         }
@@ -458,7 +465,7 @@ internal fun WorkArrange(
                 enabled = others.isNotEmpty(),
             )
             CpListRow(
-                "이 작품에서 빼기", { splitting = true }, icon = CpIcons.Minus, subtitle = "잘못 묶인 권을 따로",
+                "이 작품에서 빼기", { splitting = true }, icon = CpIcons.Minus, subtitle = "잘못 묶인 ${unitWord(work)}${objectParticle(unitWord(work))} 따로",
                 // 한 줄뿐인 작품에서 빼면 빈 작품과 같은 작품이 하나 더 생길 뿐이다.
                 enabled = work.entries.size > 1,
             )
@@ -466,7 +473,7 @@ internal fun WorkArrange(
             for (entry in work.entries.filter { it.copies.isNotEmpty() }) {
                 val n = entry.copies.size + 1
                 CpListRow(
-                    "같은 권 ${n}곳 — ${entry.label}", { onCopies(entry) }, icon = CpIcons.Bookmark,
+                    "같은 ${unitWord(work)} ${n}곳 — ${entry.label}", { onCopies(entry) }, icon = CpIcons.Bookmark,
                     subtitle = "읽을 파일 고르기 · ${if (n == 2) "다른 하나는" else "나머지는"} 숨김",
                 )
             }
@@ -482,7 +489,7 @@ internal fun WorkArrange(
         }
     }
     if (splitting) {
-        PickPopup("어느 권을 뺄까요?", "뺀 권은 제 이름으로 따로 보입니다.", { splitting = false }) {
+        PickPopup("어느 ${unitWord(work)}${objectParticle(unitWord(work))} 뺄까요?", "뺀 ${unitWord(work)}${if (work.webtoon) "는" else "은"} 제 이름으로 따로 보입니다.", { splitting = false }) {
             for (entry in work.entries) {
                 CpListRow(entry.label, { splitting = false; onSplit(entry) }, subtitle = entry.unit.name, compact = true, inset = 0.dp)
             }
@@ -512,7 +519,7 @@ private fun PlaceRow(place: String, summary: String) {
 internal fun placeSummary(work: Work, place: String): String {
     val chosen = work.entries.filter { it.unit.place == place }
     val copies = work.entries.filter { e -> e.unit.place != place && e.copies.any { it.place == place } }
-    return listOf(ComicShelf.summary(chosen), copies.joinToString(" · ") { "${it.label}(같은 권)" })
+    return listOf(ComicShelf.summary(chosen), copies.joinToString(" · ") { "${it.label}(같은 ${unitWord(work)})" })
         .filter { it.isNotEmpty() }.joinToString(" · ")
 }
 
@@ -520,7 +527,7 @@ internal fun placeSummary(work: Work, place: String): String {
 @Composable
 internal fun CopiesPopup(entry: WorkEntry, onPick: (ComicUnit) -> Unit, onDismiss: () -> Unit) {
     val all = (listOf(entry.unit) + entry.copies).sortedWith { a, b -> NaturalOrder.compare(a.place + "/" + a.name, b.place + "/" + b.name) }
-    PickPopup("같은 권 ${all.size}곳 — ${entry.label}", "고른 파일로 읽습니다. 나머지는 목록에서 숨깁니다(파일은 지우지 않습니다).", onDismiss) {
+    PickPopup("같은 ${unitWord(entry)} ${all.size}곳 — ${entry.label}", "고른 파일로 읽습니다. 나머지는 목록에서 숨깁니다(파일은 지우지 않습니다).", onDismiss) {
         for (unit in all) {
             CpRadioRow(
                 unit.name, unit.id == entry.unit.id, { onPick(unit) },

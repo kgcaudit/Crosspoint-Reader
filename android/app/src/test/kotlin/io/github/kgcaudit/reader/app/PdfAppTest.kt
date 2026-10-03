@@ -165,7 +165,7 @@ class PdfAppTest {
         waitFor(hasText("독서노트 내보내기"))
         waitFor(hasText("# OLO 사용 설명서", substring = true))
         kotlin.test.assertTrue(compose.onAllNodes(hasText("메모만"), useUnmergedTree = true).fetchSemanticsNodes().isEmpty(), "빈 갈래가 보인다")
-        kotlin.test.assertTrue(compose.onAllNodes(hasText("형광펜과 메모"), useUnmergedTree = true).fetchSemanticsNodes().isEmpty(), "빈 갈래가 보인다")
+        kotlin.test.assertTrue(compose.onAllNodes(hasText("형광펜 · 메모"), useUnmergedTree = true).fetchSemanticsNodes().isEmpty(), "빈 갈래가 보인다")
         compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
         waitFor(hasText("4쪽"))
 

@@ -21,7 +21,7 @@ class NotesExportTest {
         assertEquals(NoteExportScope.Memos, NoteExportScope.from(NoteFilter.Memos))
         assertEquals(NoteExportScope.Marked, NoteExportScope.from(NoteFilter.Highlights))
         assertEquals(NoteExportScope.All, NoteExportScope.from(NoteFilter.Bookmarks))
-        // "형광펜과 메모" 는 칠 전부 — 메모 달린 칠이 빠지면 메모를 단 대목이 내보낸 글에서 사라진다.
+        // "형광펜 · 메모" 는 칠 전부 — 메모 달린 칠이 빠지면 메모를 단 대목이 내보낸 글에서 사라진다.
         assertEquals(listOf("a1", "a2", "a3"), items.filter(NoteExportScope.Marked::takes).map { it.key })
         assertEquals(listOf("a2", "a3"), items.filter(NoteExportScope.Memos::takes).map { it.key })
     }

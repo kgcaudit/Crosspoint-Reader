@@ -600,7 +600,7 @@ internal fun BookmarkList(book: ComicBook, pages: List<Int>, onBack: () -> Unit,
         CpHeader("책갈피", subtitle = "${pages.size}개", onBack = onBack)
         if (pages.isEmpty()) {
             CpText(
-                "꽂은 책갈피가 없습니다. 오른쪽 위 모서리를 누르거나 메뉴의 책갈피 단추로 꽂습니다.",
+                "책갈피가 없습니다. 쪽 오른쪽 위를 누르거나 가운데를 누르고 위쪽 책갈피 단추로 꽂을 수 있습니다.",
                 CpTheme.type.subtitle, CpTheme.colors.textMuted,
                 Modifier.padding(horizontal = CpTheme.metrics.gutter, vertical = 24.dp), maxLines = 3,
             )
@@ -627,6 +627,9 @@ private fun VolumeEnd(entryLabel: String, workTitle: String?, next: WorkEntry?, 
     ) { EndCard(entryLabel, workTitle, next, onNext, onLibrary) }
 }
 
+/** 끝 판의 "마지막 권/화입니다": 줄 이름이 "화" 로 끝나면 웹툰의 화다. */
+private fun endUnit(entryLabel: String) = if (entryLabel.trimEnd().endsWith("화")) "화" else "권"
+
 /** 권 · 화 끝 판의 내용. 쪽 넘김은 화면을 덮고, 웹툰은 목록 맨 끝에 이어 붙인다. */
 @Composable
 internal fun EndCard(entryLabel: String, workTitle: String?, next: WorkEntry?, onNext: (WorkEntry) -> Unit, onLibrary: () -> Unit) {
@@ -638,9 +641,9 @@ internal fun EndCard(entryLabel: String, workTitle: String?, next: WorkEntry?, o
             Spacer(Modifier.height(16.dp))
             CpText("다음: ${listOfNotNull(workTitle, next.label).joinToString(" ")}", CpTheme.type.subtitle, COMIC_INK_MUTED)
             Spacer(Modifier.height(20.dp))
-            CpButton("이어서 보기", { onNext(next) })
+            CpButton("이어서 읽기", { onNext(next) })
         } else {
-            CpText("마지막 권입니다", CpTheme.type.subtitle, COMIC_INK_MUTED)
+            CpText("마지막 ${endUnit(entryLabel)}입니다", CpTheme.type.subtitle, COMIC_INK_MUTED)
         }
         Spacer(Modifier.height(12.dp))
         CpTextButton("서재로", onLibrary, Modifier.heightIn(min = CpTheme.metrics.touchTarget), color = COMIC_INK_MUTED)
@@ -694,7 +697,7 @@ fun ComicHost(
             android.util.Log.w("OloComic", "cannot open $unitId", it)
             onFail(
                 if (it is java.io.FileNotFoundException || it is SecurityException) {
-                    "파일을 찾을 수 없습니다. 옮겨졌거나 지워졌을 수 있습니다. 서재에서 새로고침해 보세요."
+                    "파일을 찾을 수 없습니다. 옮겨졌거나 지워졌을 수 있습니다. 서재에서 새로고침해 주세요."
                 } else {
                     "만화 파일이 손상됐거나 그림이 없습니다. 다른 곳에서 다시 받아 보세요."
                 },

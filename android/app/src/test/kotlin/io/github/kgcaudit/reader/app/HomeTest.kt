@@ -110,7 +110,7 @@ class HomeTest {
     @Test
     fun `books never opened are the books to read and an opened book shows only on the shelf`() {
         waitFor(hasText("읽을 책 · 3권"))
-        assertTrue(has(hasText("읽는 중 · 2권")))
+        assertTrue(has(hasText("읽는 책 · 2권")))
         // 모든 책 목록은 없다. 빈 갈래(읽은 책 0권)는 숨긴다.
         assertFalse(has(hasText("모든 책")))
         assertFalse(has(hasText("읽은 책 · ", substring = true)))
@@ -145,7 +145,7 @@ class HomeTest {
         node(hasContentDescription("책장으로 보기")).performClick()
         compose.waitForIdle()
         // 세 갈래 모두 책장 — 읽는 중의 책도 판 위에 선다(보기 도구가 탭 전체에 먹는다).
-        assertTrue(has(hasText("읽는 중 · 2권")))
+        assertTrue(has(hasText("읽는 책 · 2권")))
         assertTrue(has(hasContentDescription("어린 왕자.epub 대신 표지")))
         val shelved = runCatching { compose.waitUntil(10_000) { !has(hasText("0%")) } }.isSuccess
         assertTrue(shelved, "책장 보기에 진도 글자가 남았다 — 격자 칸이 그대로다")
@@ -189,16 +189,16 @@ class HomeTest {
     @Test
     fun `an opened book can go back to the books to read`() {
         // 한 번 열어 보고 만 책이 0% 로 "읽는 중" 에 계속 남지 않게.
-        waitFor(hasText("읽는 중 · 2권"))
+        waitFor(hasText("읽는 책 · 2권"))
         node(hasText("어린 왕자.epub")).performTouchInput { longClick() }
-        waitFor(hasText("읽을 책으로 되돌리기"))
-        node(hasText("읽을 책으로 되돌리기")).performClick()
+        waitFor(hasText("읽을 책으로 옮기기"))
+        node(hasText("읽을 책으로 옮기기")).performClick()
         waitFor(hasText("읽을 책 · 4권"))
-        assertTrue(has(hasText("읽는 중 · 1권")))
+        assertTrue(has(hasText("읽는 책 · 1권")))
         // 한 번도 열지 않은 책의 판에는 없다 — 이미 읽을 책이다.
         node(hasText("데미안.epub")).performTouchInput { longClick() }
         waitFor(hasText("읽은 책으로 옮기기"))
-        assertFalse(has(hasText("읽을 책으로 되돌리기")))
+        assertFalse(has(hasText("읽을 책으로 옮기기")))
     }
 
     @Test
@@ -216,7 +216,7 @@ class HomeTest {
     @Test
     fun `back closes a home popup instead of leaving the app`() {
         // 홈의 책 폴더 · 순서 · 표지 판이 뒤로 가기에 닫히지 않고 앱이 나갔다. 다시 들어오면 판이 그대로 떠 있었다(0.28.3).
-        waitFor(hasText("읽는 중 · 2권"))
+        waitFor(hasText("읽는 책 · 2권"))
         node(hasContentDescription("책 폴더")).performClick()
         waitFor(hasText("폴더를 빼도", substring = true))
         compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
@@ -236,14 +236,14 @@ class HomeTest {
     @Config(qualifiers = "w851dp-h393dp-xhdpi")
     fun `on a landscape phone the cover popup scrolls so its last buttons can still be pressed`() {
         // 가로 휴대폰(높이 393dp)에서 읽는 중인 책의 표지 판이 화면보다 길어 "닫기" 가 높이 0 으로 눌려 사라졌다.
-        waitFor(hasText("읽는 중 · 2권"))
+        waitFor(hasText("읽는 책 · 2권"))
         node(hasText("어린 왕자.epub")).performTouchInput { longClick() }
         waitFor(hasText("닫기"))
         node(hasText("닫기")).performScrollTo()
         val close = node(hasText("닫기")).fetchSemanticsNode().boundsInRoot
         assertTrue(close.height > 20f, "닫기 단추가 눌려 사라졌다: $close")
         node(hasText("닫기")).performClick()
-        compose.waitUntil(5_000) { !has(hasText("읽을 책으로 되돌리기")) }
+        compose.waitUntil(5_000) { !has(hasText("읽을 책으로 옮기기")) }
     }
 
     @Test

@@ -165,7 +165,7 @@ class WebtoonAppTest {
         val before = percent()
         assertTrue(before > 0)
         back()
-        click(hasText("1화 이어 보기 · ${saved.page + 1}쪽"))
+        click(hasText("1화 이어 읽기 · ${saved.page + 1}쪽"))
         waitFor(webtoon)
         compose.mainClock.advanceTimeBy(1_000)
         assertEquals(before, percent(), 2, "다시 연 웹툰이 읽던 자리가 아니다")
@@ -179,7 +179,7 @@ class WebtoonAppTest {
         openChapter("전학생", "1화")
         // 오른쪽을 눌러 한 화면씩 끝까지(사람이 읽는 길). 시험 도구의 "그 칸까지 굴리기" 는 웹툰 목록에서 끝없이 굴러 메모리가 넘쳤다.
         var taps = 0
-        while (!has(hasText("이어서 보기")) && taps < 40) {
+        while (!has(hasText("이어서 읽기")) && taps < 40) {
             compose.onRoot().performTouchInput { click(centerRight.copy(x = width * 0.9f)) }
             compose.mainClock.advanceTimeBy(1_000)
             compose.waitForIdle()
@@ -188,7 +188,7 @@ class WebtoonAppTest {
         compose.mainClock.advanceTimeBy(1_000)
         waitFor(hasText("다음: 전학생 2화"))
         compose.waitUntil(30_000) { runBlocking { progressOrNull("001화")?.finished == true } }
-        click(hasText("이어서 보기"))
+        click(hasText("이어서 읽기"))
         compose.mainClock.advanceTimeBy(1_000)
         waitFor(webtoon)
         compose.waitUntil(30_000) { runBlocking { app.container.data.comics.progress().first().keys.any { it.contains("002") } } }

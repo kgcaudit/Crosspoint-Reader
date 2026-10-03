@@ -59,7 +59,7 @@ internal fun monthDay(epochMs: Long, today: LocalDate = LocalDate.now()): String
 internal fun backupFileName(today: LocalDate = LocalDate.now()): String = "OLO eBook 읽기 기록 $today.json"
 
 internal fun summaryLine(s: RecordsSummary): String =
-    if (s.books == 0) "아직 기록이 없습니다" else "책 ${s.books}권 · 책갈피 ${s.bookmarks}개 · 형광펜과 메모 ${s.annotations}개"
+    if (s.books == 0) "아직 기록이 없습니다" else "책 ${s.books}권 · 책갈피 ${s.bookmarks}개 · 형광펜 · 메모 ${s.annotations}개"
 
 /** 가져오기 · 만들기의 판. 한 번에 하나만 뜬다. */
 internal sealed interface RecordsPopup {
@@ -177,12 +177,12 @@ internal fun ReadingRecordsPopups(ui: RecordsUi) {
         is RecordsPopup.NotBackup -> CpPopup(
             title = "백업 파일이 아닙니다",
             message = "고른 파일(${shown.name})은 OLO eBook 백업 파일이 아니어서 아무것도 바꾸지 않았습니다. " +
-                "이름이 ‘OLO eBook 읽기 기록’으로 시작하는 파일을 고르세요.",
+                "이름이 ‘OLO eBook 읽기 기록’으로 시작하는 파일을 골라 주세요.",
             onDismiss = close,
         ) { OkButton(close) }
         is RecordsPopup.Failed -> CpPopup(
             title = shown.title,
-            message = "파일을 읽거나 쓰지 못했습니다. 다른 곳을 골라 다시 해 보세요.",
+            message = "파일을 읽거나 쓰지 못했습니다. 다른 곳을 골라 다시 해 주세요.",
             onDismiss = close,
         ) { OkButton(close) }
     }
@@ -226,8 +226,8 @@ private fun DonePopup(result: ImportResult, onClose: () -> Unit) {
     val c = CpTheme.colors
     val counts = buildList {
         add("책갈피 ${result.bookmarks}개")
-        add("형광펜과 메모 ${result.annotations}개")
-        if (result.finished > 0) add("다 읽은 책 ${result.finished}권")
+        add("형광펜 · 메모 ${result.annotations}개")
+        if (result.finished > 0) add("읽은 책 ${result.finished}권")
     }.joinToString(" · ")
     val waiting = if (result.missing.isEmpty()) "" else "못 찾은 ${result.missing.size}권의 기록은 기억해 두었다가 책 폴더를 추가하면 이어 붙입니다."
     CpPopup(

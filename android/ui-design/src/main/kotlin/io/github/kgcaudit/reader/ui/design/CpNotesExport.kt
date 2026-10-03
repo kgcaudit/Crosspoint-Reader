@@ -40,7 +40,7 @@ import java.util.Locale
 
 /** 내보낼 것(0.28.0). 거르개 칩과 달리 "형광펜과 메모" 가 칠 전부다 — 내보낼 때는 메모 달린 칠도 칠이다. */
 enum class NoteExportScope(val label: String) {
-    All("전체"), Marked("형광펜과 메모"), Memos("메모만");
+    All("전체"), Marked("형광펜 · 메모"), Memos("메모만");
 
     fun takes(item: NoteItem): Boolean = when (this) {
         All -> true

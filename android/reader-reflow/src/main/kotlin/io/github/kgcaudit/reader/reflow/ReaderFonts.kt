@@ -227,7 +227,7 @@ internal fun describe(reason: ImportResult.Reason): String = when (reason) {
     ImportResult.Reason.WebFont -> "웹 글꼴(WOFF)은 넣을 수 없습니다. 같은 글꼴의 TTF나 OTF 파일을 골라 주세요."
     ImportResult.Reason.Broken -> "글꼴 파일이 손상됐습니다. 내려받기가 덜 끝났을 수 있으니 다시 받아 보세요."
     ImportResult.Reason.TooLarge -> "글꼴 파일이 너무 큽니다. 64MB 이하만 넣을 수 있습니다."
-    ImportResult.Reason.Unreadable -> "파일을 읽지 못했습니다. 저장소가 연결돼 있는지 확인해 보세요."
+    ImportResult.Reason.Unreadable -> "파일을 읽지 못했습니다. 저장소가 연결돼 있는지 확인해 주세요."
 }
 
 private const val TAG = "OloFonts"

@@ -85,7 +85,7 @@ class ReadingRecordsTest {
     private fun openAbout() {
         waitFor(hasContentDescription("앱 정보"))
         node(hasContentDescription("앱 정보")).performClick()
-        waitFor(hasText("책 1권 · 책갈피 1개 · 형광펜과 메모 0개"))
+        waitFor(hasText("책 1권 · 책갈피 1개 · 형광펜 · 메모 0개"))
     }
 
     /** 파일 고르기 · 저장할 곳 고르기 흉내: 앱이 띄운 요청에 책 폴더 안 [path] 로 답한다. */
@@ -131,7 +131,7 @@ class ReadingRecordsTest {
         assertEquals(Locator.Reflow(0, 40), runBlocking { app.container.data.progress.get(prince)?.locator })
         node(hasText("확인")).performClick()
         // 되살린 기록이 묶음의 수에 바로 보인다.
-        waitFor(hasText("책 1권 · 책갈피 1개 · 형광펜과 메모 0개"))
+        waitFor(hasText("책 1권 · 책갈피 1개 · 형광펜 · 메모 0개"))
     }
 
     @Test

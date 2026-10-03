@@ -286,12 +286,12 @@ fun describeOpenFailure(error: Throwable, format: BookFormat?): String = when {
     format == BookFormat.PDF && error is SecurityException && error.message.orEmpty().contains("password", ignoreCase = true) ->
         "암호가 걸린 PDF입니다. 암호를 푼 파일로 다시 열어 주세요."
     error is java.io.FileNotFoundException || error is SecurityException ->
-        "파일을 찾을 수 없습니다. 옮겨졌거나 지워졌을 수 있습니다. 홈에서 새로고침해 보세요."
+        "파일을 찾을 수 없습니다. 옮겨졌거나 지워졌을 수 있습니다. 서재에서 새로고침해 주세요."
     format == BookFormat.EPUB && error is java.io.IOException ->
         "EPUB 파일이 손상됐거나 EPUB 형식이 아닙니다. 다른 곳에서 다시 받아 보세요."
     format == BookFormat.PDF && error is java.io.IOException ->
         "PDF 파일이 손상됐거나 PDF 형식이 아닙니다. 다른 곳에서 다시 받아 보세요."
-    error is java.io.IOException -> "파일을 읽는 중 문제가 생겼습니다. 저장소가 연결돼 있는지 확인해 보세요."
+    error is java.io.IOException -> "파일을 읽는 중 문제가 생겼습니다. 저장소가 연결돼 있는지 확인해 주세요."
     else -> "책을 여는 중 문제가 생겼습니다."
 }
 
