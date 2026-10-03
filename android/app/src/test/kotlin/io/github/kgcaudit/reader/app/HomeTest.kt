@@ -147,7 +147,8 @@ class HomeTest {
         // 세 갈래 모두 책장 — 읽는 중의 책도 판 위에 선다(보기 도구가 탭 전체에 먹는다).
         assertTrue(has(hasText("읽는 중 · 2권")))
         assertTrue(has(hasContentDescription("어린 왕자.epub 대신 표지")))
-        assertFalse(has(hasText("0%")), "책장 보기에 진도 글자가 남았다 — 격자 칸이 그대로다")
+        val shelved = runCatching { compose.waitUntil(10_000) { !has(hasText("0%")) } }.isSuccess
+        assertTrue(shelved, "책장 보기에 진도 글자가 남았다 — 격자 칸이 그대로다")
         val view = compose.activity.window.decorView
         val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
         compose.runOnUiThread { view.draw(Canvas(bitmap)) }

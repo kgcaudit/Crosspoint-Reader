@@ -27,6 +27,7 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import kotlin.math.abs
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
@@ -175,5 +176,85 @@ class ComicSpreadAppTest {
         // 보던 판의 첫 쪽이 한 쪽으로.
         waitFor(page("2"))
         assertEquals(io.github.kgcaudit.reader.ui.design.ComicSpread.Off, app.container.prefs.load().screen.comicSpread)
+    }
+
+    /** 화면 가운데 줄 [fx] 자리가 [page] 쪽 색인가(기다리지 않는다 — 끄는 중의 한 순간을 잰다). */
+    private fun isPageAt(shot: Bitmap, fx: Float, page: Int) = near(shot.getPixel((shot.width * fx).toInt(), shot.height / 2), colors[page])
+
+    @Test
+    @Config(qualifiers = "w393dp-h851dp-xhdpi")
+    fun `while dragging, the next page is attached right beside the current one`() {
+        // 0.40.0 사용자 결정 7: 만화는 두 쪽에 걸친 그림이 있다 — 넘기는 동안 다음 쪽이 바로 옆에 붙어 함께 와야 이어 보인다.
+        openVolume()
+        waitFor(page("1"))
+        waitForPageAt(0.5f, 0, "첫 쪽이 그려지지 않았다")
+        compose.onRoot().performTouchInput { down(center); moveBy(androidx.compose.ui.geometry.Offset(-width * 0.2f, 0f)); moveBy(androidx.compose.ui.geometry.Offset(-width * 0.2f, 0f)) }
+        compose.mainClock.advanceTimeBy(100)
+        val mid = screen()
+        File(shots, "comic-drag.png").outputStream().use { mid.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        // 지금 쪽(검정)은 왼쪽으로 밀려 왼편에, 다음 쪽(빨강)은 그 오른쪽에 붙어 들어온다.
+        assertTrue(isPageAt(mid, 0.3f, 0), "끄는 동안 지금 쪽이 손가락을 따라오지 않았다")
+        assertTrue(isPageAt(mid, 0.8f, 1), "끄는 동안 다음 쪽이 옆에 붙어 있지 않다")
+        compose.onRoot().performTouchInput { up() }
+        compose.mainClock.advanceTimeBy(1_000)
+        waitFor(page("2"))
+        waitForPageAt(0.5f, 1, "놓은 뒤 다음 쪽으로 자리 잡지 않았다")
+    }
+
+    @Test
+    @Config(qualifiers = "w393dp-h851dp-xhdpi")
+    fun `right to left brings the next page in from the left`() {
+        runBlocking { app.container.data.comics.setRightToLeft(app.container.data.comics.works().first().single(), true) }
+        openVolume()
+        waitFor(page("1"))
+        waitForPageAt(0.5f, 0, "첫 쪽이 그려지지 않았다")
+        compose.onRoot().performTouchInput { down(center); moveBy(androidx.compose.ui.geometry.Offset(width * 0.2f, 0f)); moveBy(androidx.compose.ui.geometry.Offset(width * 0.2f, 0f)) }
+        compose.mainClock.advanceTimeBy(100)
+        val mid = screen()
+        assertTrue(isPageAt(mid, 0.7f, 0) && isPageAt(mid, 0.2f, 1), "오→왼인데 다음 쪽이 왼쪽에 붙어 오지 않았다")
+        compose.onRoot().performTouchInput { up() }
+        compose.mainClock.advanceTimeBy(1_000)
+        waitFor(page("2"))
+    }
+
+    @Test
+    @Config(qualifiers = "w393dp-h851dp-xhdpi")
+    fun `a short drag springs back and the first page cannot be pulled away backwards`() {
+        openVolume()
+        waitFor(page("1"))
+        waitForPageAt(0.5f, 0, "첫 쪽이 그려지지 않았다")
+        // 덜 민 끌기: 제자리로.
+        compose.onRoot().performTouchInput { down(center); moveBy(androidx.compose.ui.geometry.Offset(-30f, 0f)); moveBy(androidx.compose.ui.geometry.Offset(-20f, 0f)); up() }
+        compose.mainClock.advanceTimeBy(1_000)
+        assertTrue(has(page("1")))
+        waitForPageAt(0.5f, 0, "덜 민 끌기 뒤 제자리로 돌아오지 않았다")
+        // 첫 쪽에서 앞으로(오른쪽으로) 끌면 덜 따라온다 — 손가락만큼 오면 빈 자리가 화면 절반을 덮는다.
+        compose.onRoot().performTouchInput { down(center); moveBy(androidx.compose.ui.geometry.Offset(width * 0.25f, 0f)); moveBy(androidx.compose.ui.geometry.Offset(width * 0.25f, 0f)) }
+        compose.mainClock.advanceTimeBy(100)
+        val mid = screen()
+        // 첫 쪽(#303030)은 바탕(#141311)과 가까워 느슨한 색 비교로는 가리지 못한다 — 거의 같은 색인지 본다.
+        val p = mid.getPixel((mid.width * 0.4f).toInt(), mid.height / 2)
+        assertTrue(listOf(android.graphics.Color::red, android.graphics.Color::green, android.graphics.Color::blue).all { f -> abs(f(p) - 0x30) <= 6 }, "앞 쪽이 없는데 첫 쪽이 손가락만큼 끌려갔다: #${Integer.toHexString(p)}")
+        compose.onRoot().performTouchInput { up() }
+        compose.mainClock.advanceTimeBy(1_000)
+        assertTrue(has(page("1")))
+    }
+
+    @Test
+    @Config(qualifiers = "w673dp-h841dp-xhdpi")
+    fun `a tablet held upright shows two pages by default`() {
+        // 0.40.0 사용자 결정 8: 기본값 "넓은 화면에서" — 태블릿은 세로로 들어도 두 쪽.
+        assertEquals(io.github.kgcaudit.reader.ui.design.ComicSpread.Wide, app.container.prefs.load().screen.comicSpread)
+        openVolume()
+        waitFor(page("1"))
+        next(); waitFor(page("2–3"))
+    }
+
+    @Test
+    @Config(qualifiers = "w393dp-h851dp-xhdpi")
+    fun `a phone held upright keeps one page by default`() {
+        openVolume()
+        waitFor(page("1"))
+        next(); waitFor(page("2"))
     }
 }

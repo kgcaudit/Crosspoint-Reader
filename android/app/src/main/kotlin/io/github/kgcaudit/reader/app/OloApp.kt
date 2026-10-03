@@ -343,7 +343,7 @@ class PrefsStore(context: Context) {
             // 범위 밖(손상)이면 기본으로 — 0% 기둥이면 웹툰이 보이지 않는다.
             webtoonColumn = sp.getInt(KEY_WEBTOON_COLUMN, ScreenPrefs.DEFAULT_WEBTOON_COLUMN)
                 .takeIf { it in ScreenPrefs.WEBTOON_COLUMN_RANGE } ?: ScreenPrefs.DEFAULT_WEBTOON_COLUMN,
-            comicSpread = enumOf(KEY_COMIC_SPREAD, io.github.kgcaudit.reader.ui.design.ComicSpread.Landscape),
+            comicSpread = enumOf(KEY_COMIC_SPREAD, io.github.kgcaudit.reader.ui.design.ComicSpread.Wide),
         ),
         listen = ListenPrefs(
             // 망가진 값(범위 밖)은 범위 안으로 — 0 배속으로 저장된 값 때문에 듣기가 안 되면 안 된다.
