@@ -166,15 +166,25 @@ class HomeTest {
         val plank = bitmap.getPixel(cover.center.x.toInt(), (cover.bottom + 5 * density).toInt())
         assertTrue(android.graphics.Color.red(plank) > r, "표지 밑에 판이 없다: #${Integer.toHexString(plank)}")
         // 칸 이름은 그 칸 책 **위** 칸막이에, 첫 표지와 같은 시작선에(2026-10-03 사용자 정정 · UI 규칙: 좌표로 잰다).
+        // 그림자 글자까지 읽히면 화면 읽기가 칸 이름을 두 번 말하고, 좌표도 1dp 비킨 그림자를 잰다.
+        assertEquals(1, compose.onAllNodes(hasText("읽는 책 · 2권"), useUnmergedTree = true).fetchSemanticsNodes().size, "칸 이름이 두 번 읽힌다")
         val label = node(hasText("읽는 책 · 2권")).fetchSemanticsNode().boundsInRoot
         val first = compose.onAllNodes(hasContentDescription(" 대신 표지", substring = true), useUnmergedTree = true).fetchSemanticsNodes()
             .map { it.boundsInRoot }.filter { it.top > label.top }.minBy { it.top * 10_000 + it.left }
         assertTrue(label.bottom <= first.top, "칸 이름이 책 위가 아니다: 이름 $label, 표지 $first")
         assertEquals(first.left / density, label.left / density, 1.5f, "칸 이름과 첫 표지의 시작선이 다르다")
-        // 격자 보기의 칸 이름과도 같은 시작선 — 보기를 바꿔도 글자가 옆으로 움직이지 않는다.
+        // 격자 보기의 칸 이름과 같은 자리(가로 · 세로 모두) — 보기를 바꿔도 이름과 첫 표지가 움직이지 않는다(2026-10-04 사용자
+        // 결정: 일체화된 디자인). 0.44.0 은 판 앞면 가운데에 이름을 세워 격자보다 6dp 높았다.
         node(hasContentDescription("격자로 보기")).performClick()
-        compose.waitForIdle()
-        assertEquals(label.left / density, node(hasText("읽는 책 · 2권")).fetchSemanticsNode().boundsInRoot.left / density, 1.5f, "격자와 책장의 이름 시작선이 다르다")
+        // 격자 칸의 진도 글자가 보일 때까지 — 기다리지 않으면 아직 남은 책장을 격자로 알고 잰다(그러면 같은 것을 두 번 재 늘 통과한다).
+        val grid = runCatching { compose.waitUntil(10_000) { has(hasText("0%")) } }.isSuccess
+        assertTrue(grid, "격자 보기로 바뀌지 않았다")
+        val gridLabel = node(hasText("읽는 책 · 2권")).fetchSemanticsNode().boundsInRoot
+        val gridFirst = compose.onAllNodes(hasContentDescription(" 대신 표지", substring = true), useUnmergedTree = true).fetchSemanticsNodes()
+            .map { it.boundsInRoot }.filter { it.top > gridLabel.top }.minBy { it.top * 10_000 + it.left }
+        assertEquals(gridLabel.left / density, label.left / density, 1.5f, "격자와 책장의 이름 시작선이 다르다")
+        assertEquals(gridLabel.top / density, label.top / density, 1.5f, "격자와 책장의 이름 높이가 다르다")
+        assertEquals(gridFirst.top / density, first.top / density, 1.5f, "격자와 책장의 첫 표지 높이가 다르다")
         node(hasContentDescription("책장으로 보기")).performClick()
         compose.activityRule.scenario.recreate()
         waitFor(hasText("읽을 책 · 3권"))

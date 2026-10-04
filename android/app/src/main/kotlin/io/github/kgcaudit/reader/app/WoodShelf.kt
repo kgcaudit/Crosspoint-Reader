@@ -35,15 +35,16 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.kgcaudit.reader.ui.design.COVER_ASPECT
 import io.github.kgcaudit.reader.ui.design.CpText
 import io.github.kgcaudit.reader.ui.design.CpTheme
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.sin
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /*
  * 책장 보기(0.39.0, 다시 그림 0.44.0 — docs/CONSISTENCY_PLAN.md, 사용자 참고 그림의 원목 책장). 뒷벽은 원목 결, 양옆에 기둥,
@@ -80,11 +81,18 @@ private val NIGHT = Wood(
 @Composable
 internal fun wood(): Wood = if (CpTheme.colors.background.luminance() < 0.5f) NIGHT else MAPLE
 
-/** 한 칸의 표지 위 여백 · 판 두께. 빈 판의 높이도 이것으로 셈한다. */
-private val ROW_TOP = 14.dp
+/**
+ * 판 치수는 격자 보기의 칸 이름([ShelfLabel]: 위 18 · 아래 6)과 줄([GridRow]: 위 9)에 맞춘다(0.44.1, 2026-10-04 사용자 결정).
+ * 판 윗면 9 + 빛 1 + 앞면 위 여백 8 = 18 이라 이름 글자가 격자와 같은 높이에서 시작하고, 앞면 아래 6 + 아랫선 1 + [ROW_TOP] 8 =
+ * 6 + 9 라 첫 표지 윗선도 같다. 어긋나면 격자 ↔ 책장을 바꿀 때마다 이름과 표지가 위아래로 튄다(0.44.0 은 이름이 6dp 높았다).
+ */
+private val BOARD_TOP = 9.dp
+private val LABEL_TOP = 8.dp
+private val LABEL_BOTTOM = 6.dp
+private val ROW_TOP = 8.dp
 private val ROW_BOTTOM = 0.dp
-/** 판 높이(윗면 9 + 빛 1 + 앞면 24 + 아랫선 1). */
-private val BOARD = 35.dp
+/** 빈 판 수를 셀 때 쓰는 판 높이(윗면 9 + 빛 1 + 앞면 8 + 이름 줄 20 + 6 + 아랫선 1). 실제 높이는 글자 크기를 따른다. */
+private val BOARD = 45.dp
 
 /**
  * 원목 결 그림(뒷벽). 화면 크기와 상관없이 한 장을 그려 늘려 쓴다 — 결이 세로라 늘려도 티가 나지 않는다. 테마마다 한 번만
@@ -199,14 +207,20 @@ internal fun ShelfBoard(label: String?) {
     val w = wood()
     Column(Modifier.fillMaxWidth()) {
         // 윗면: 벽 쪽이 어둡고 앞이 밝다 — 위에서 비춘 빛.
-        Box(Modifier.fillMaxWidth().height(9.dp).background(Brush.verticalGradient(listOf(w.plankLow.copy(alpha = 0.9f), w.plankTop))))
+        Box(Modifier.fillMaxWidth().height(BOARD_TOP).background(Brush.verticalGradient(listOf(w.plankLow.copy(alpha = 0.9f), w.plankTop))))
         Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0x66FFF0D8)))
-        Box(Modifier.fillMaxWidth().height(24.dp).background(Brush.verticalGradient(listOf(w.plankFront, w.plankLow)))) {
+        // 앞면 높이는 이름 한 줄이 정한다 — 고정 높이에 가운데 맞추면 글자 크기에 따라 이름이 격자와 다른 높이에 선다.
+        // 이름 없는 판도 보이지 않는 한 줄로 같은 두께를 지킨다(판마다 두께가 다르면 책장이 삐뚤어 보인다).
+        Box(
+            Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(w.plankFront, w.plankLow)))
+                .padding(start = CpTheme.metrics.gutter, end = CpTheme.metrics.gutter, top = LABEL_TOP, bottom = LABEL_BOTTOM),
+        ) {
             if (label != null) {
-                Box(Modifier.align(Alignment.CenterStart).padding(start = CpTheme.metrics.gutter)) {
-                    CpText(label, CpTheme.type.label, Color(0x88000000), Modifier.offset(y = 1.dp))
-                    CpText(label, CpTheme.type.label, w.label)
-                }
+                // 그림자 글자는 보이기만 한다 — 의미에 남기면 화면 읽기가 칸 이름을 두 번 읽는다.
+                CpText(label, CpTheme.type.label, Color(0x88000000), Modifier.offset(y = 1.dp).clearAndSetSemantics {})
+                CpText(label, CpTheme.type.label, w.label)
+            } else {
+                CpText(" ", CpTheme.type.label, Color.Transparent)
             }
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0x55000000)))
