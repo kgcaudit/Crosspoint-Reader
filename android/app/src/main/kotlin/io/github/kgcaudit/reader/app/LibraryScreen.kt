@@ -243,6 +243,7 @@ fun LibraryScreen(
                 // 읽을 책: 한 번도 열지 않은 책. 모든 책 목록(0.24.x)은 책장의 책을 한 번 더 보여 줘 길기만 했다.
                 val toRead = sort.sort(list.orEmpty().filter { it.id !in shelfIds })
                 ShelfWall(layout) { LazyColumn(Modifier.fillMaxSize()) {
+                    shelfTop(layout)
                     shelfSection(
                         "reading", "읽는 책 · ${reading.size}권", readingSorted, { it.id.value }, layout, columns,
                         grid = { book, width -> ShelfItem(book, width, percents[book.id], onOpen, onLongClick = { coverMenu = it }) },
@@ -272,6 +273,7 @@ fun LibraryScreen(
         } else if (comics) {
             androidx.compose.foundation.pager.HorizontalPager(pager, Modifier.fillMaxSize(), verticalAlignment = Alignment.Top) { page ->
                 if (page == 0) bookPage() else ShelfWall(layout) { LazyColumn(Modifier.fillMaxSize()) {
+                    shelfTop(layout)
                     comicShelf(
                         works, comicProgress, sort, layout, columns,
                         onOpen = { openWork = it.key },
@@ -560,6 +562,11 @@ internal fun <T> LazyListScope.shelfSection(
         LibraryLayout.List -> items(items, key = { "$key-l" + id(it) }) { row(it) }
         LibraryLayout.Shelf -> Unit
     }
+}
+
+/** 갈래들 앞: 책장이면 맨 위 테두리. 다른 보기는 아무것도 두지 않는다 — 칸 이름의 위 여백이 이미 그 몫이다. */
+internal fun LazyListScope.shelfTop(layout: LibraryLayout) {
+    if (layout == LibraryLayout.Shelf) item(key = "shelf-crown") { ShelfCrown() }
 }
 
 /**

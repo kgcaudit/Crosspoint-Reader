@@ -82,17 +82,16 @@ private val NIGHT = Wood(
 internal fun wood(): Wood = if (CpTheme.colors.background.luminance() < 0.5f) NIGHT else MAPLE
 
 /**
- * 판 치수는 격자 보기의 칸 이름([ShelfLabel]: 위 18 · 아래 6)과 줄([GridRow]: 위 9)에 맞춘다(0.44.1, 2026-10-04 사용자 결정).
- * 판 윗면 9 + 빛 1 + 앞면 위 여백 8 = 18 이라 이름 글자가 격자와 같은 높이에서 시작하고, 앞면 아래 6 + 아랫선 1 + [ROW_TOP] 8 =
- * 6 + 9 라 첫 표지 윗선도 같다. 어긋나면 격자 ↔ 책장을 바꿀 때마다 이름과 표지가 위아래로 튄다(0.44.0 은 이름이 6dp 높았다).
+ * 판은 얇게(윗면 4 + 빛 1 + 이름 한 줄 20 + 아랫선 1 = 26dp, 2026-10-04 사용자 결정 — 45dp 는 투박했다). 칸 이름 글자만 격자
+ * 보기([ShelfLabel] 위 18)와 같은 높이에 둔다: 맨 위 테두리 12 + 그늘선 1 + 윗면 4 + 빛 1 = 18. 테두리가 없으면 얇아진 만큼
+ * 이름이 위로 올라가 격자 ↔ 책장을 바꿀 때 글자가 튄다. 표지 높이는 맞추지 않는다(판이 얇아 격자와 2dp 다르다).
  */
-private val BOARD_TOP = 9.dp
-private val LABEL_TOP = 8.dp
-private val LABEL_BOTTOM = 6.dp
-private val ROW_TOP = 8.dp
+private val CROWN = 12.dp
+private val BOARD_TOP = 4.dp
+private val ROW_TOP = 12.dp
 private val ROW_BOTTOM = 0.dp
-/** 빈 판 수를 셀 때 쓰는 판 높이(윗면 9 + 빛 1 + 앞면 8 + 이름 줄 20 + 6 + 아랫선 1). 실제 높이는 글자 크기를 따른다. */
-private val BOARD = 45.dp
+/** 빈 판 수를 셀 때 쓰는 판 높이(윗면 4 + 빛 1 + 이름 줄 20 + 아랫선 1). 실제 높이는 글자 크기를 따른다. */
+private val BOARD = 26.dp
 
 /**
  * 원목 결 그림(뒷벽). 화면 크기와 상관없이 한 장을 그려 늘려 쓴다 — 결이 세로라 늘려도 티가 나지 않는다. 테마마다 한 번만
@@ -211,10 +210,7 @@ internal fun ShelfBoard(label: String?) {
         Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0x66FFF0D8)))
         // 앞면 높이는 이름 한 줄이 정한다 — 고정 높이에 가운데 맞추면 글자 크기에 따라 이름이 격자와 다른 높이에 선다.
         // 이름 없는 판도 보이지 않는 한 줄로 같은 두께를 지킨다(판마다 두께가 다르면 책장이 삐뚤어 보인다).
-        Box(
-            Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(w.plankFront, w.plankLow)))
-                .padding(start = CpTheme.metrics.gutter, end = CpTheme.metrics.gutter, top = LABEL_TOP, bottom = LABEL_BOTTOM),
-        ) {
+        Box(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(w.plankFront, w.plankLow))).padding(horizontal = CpTheme.metrics.gutter)) {
             if (label != null) {
                 // 그림자 글자는 보이기만 한다 — 의미에 남기면 화면 읽기가 칸 이름을 두 번 읽는다.
                 CpText(label, CpTheme.type.label, Color(0x88000000), Modifier.offset(y = 1.dp).clearAndSetSemantics {})
@@ -223,6 +219,19 @@ internal fun ShelfBoard(label: String?) {
                 CpText(" ", CpTheme.type.label, Color.Transparent)
             }
         }
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0x55000000)))
+    }
+}
+
+/**
+ * 책장 맨 위 테두리: 양옆 기둥과 같은 짙은 나무로 책장 틀을 닫는다(2026-10-04 사용자 결정 나안). 목록 맨 앞에 한 번만 —
+ * 높이는 그 아래 첫 판의 이름이 격자 이름과 같은 높이에 서게 하는 몫이다([CROWN]).
+ */
+@Composable
+internal fun ShelfCrown() {
+    val w = wood()
+    Column(Modifier.fillMaxWidth()) {
+        Box(Modifier.fillMaxWidth().height(CROWN).background(Brush.verticalGradient(listOf(w.post, w.plankLow))))
         Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0x55000000)))
     }
 }
