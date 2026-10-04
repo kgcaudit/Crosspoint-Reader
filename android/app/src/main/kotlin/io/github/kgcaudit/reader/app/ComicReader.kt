@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,6 +29,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -215,6 +219,9 @@ fun ComicReader(
     val feedback = rememberTurnFeedback()
     val hostView = LocalView.current
     val nextSide = if (rtl) -1f else 1f
+    val tablet = io.github.kgcaudit.reader.ui.design.cpTablet()
+    /** 남는 높이를 둘 곳: 휴대폰은 아래(그림을 카메라 구멍 바로 아래에), 태블릿은 위(그림을 아래에). */
+    val bias = if (tablet) 1f else 0f
     val turns = rememberPageTurnState()
 
     /**
@@ -291,20 +298,31 @@ fun ComicReader(
         ),
     ) {
         Column(Modifier.fillMaxSize()) {
-            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().windowInsetsPadding(WindowInsets.displayCutout).onSizeChanged { screen = it }) {
+            // 태블릿(폴더블 안쪽 화면)은 상태 줄 높이만큼 위를 비우고 그림을 아래에 붙인다(0.45.1, 사용자 결정). 안쪽 화면의
+            // 카메라 구멍은 잘림 영역(cutout)으로 알려지지 않는 기기가 있어, 구멍 자리를 비워 두려면 상태 줄 높이를 함께 쓴다.
+            BoxWithConstraints(
+                Modifier.weight(1f).fillMaxWidth()
+                    .windowInsetsPadding(if (tablet) tabletTopInsets() else WindowInsets.displayCutout)
+                    .onSizeChanged { screen = it },
+            ) {
                 val viewW = constraints.maxWidth.toFloat()
                 val viewH = constraints.maxHeight.toFloat()
                 val w = constraints.maxWidth
                 val h = constraints.maxHeight
                 // 지금 판의 확대 · 위치. 판이 바뀌면 다시 전체가 보인다. 두 쪽은 한 그림처럼 함께 맞추고 함께 확대한다.
                 var aspect by remember(shown) { mutableStateOf(spreadAspect(book, sizes, shown)) }
-                var viewport by remember(shown, w, h, aspect) { mutableStateOf(aspect?.let { PageViewport.fit(viewW, viewH, it, alignTop = true) }) }
+                var viewport by remember(shown, w, h, aspect) { mutableStateOf(aspect?.let { PageViewport.fit(viewW, viewH, it, verticalBias = bias) }) }
                 // 끌기 몸짓(판이 바뀌어도 이어지는 쪽)이 읽고 쓰는 최신 값.
                 val viewportNow = rememberUpdatedState(viewport)
                 val setViewport by rememberUpdatedState<(PageViewport?) -> Unit>({ viewport = it })
                 val indexNow by rememberUpdatedState(spreadIndex)
                 val spreadsNow by rememberUpdatedState(spreads)
                 val advanceNow by rememberUpdatedState<(Boolean) -> Unit>({ advance(it) })
+                // 지금 판과 앞뒤 판의 그림은 그림 저장소 한도와 상관없이 붙잡아 둔다(0.45.1). 태블릿 두 쪽에서는 쪽 그림이 커서
+                // 저장소가 넘김 도중 지금 쪽을 내보냈고, 넘김이 끝나 화면을 다시 짜는 한 장면 동안 그 쪽이 검게 비었다(깜박임).
+                androidx.compose.runtime.SideEffect {
+                    book.pin((spreadIndex - 1..spreadIndex + 1).flatMap { spreads.getOrNull(it).orEmpty() }.toSet())
+                }
                 LaunchedEffect(shown, w, h) {
                     for (p in shown) book.page(p, w, h)
                     aspect = spreadAspect(book, sizes, shown)
@@ -326,7 +344,7 @@ fun ComicReader(
                         mirrored = rtl,
                     ) { index ->
                         Box(Modifier.fillMaxSize().background(COMIC_BACKDROP)) {
-                            spreads.getOrNull(index)?.let { ComicPageImage(book, sizes, it, w, h, if (index == spreadIndex) viewport else null, rtl) }
+                            spreads.getOrNull(index)?.let { ComicPageImage(book, sizes, it, w, h, if (index == spreadIndex) viewport else null, rtl, bias) }
                         }
                     }
                 } else if (w > 0 && h > 0 && count > 0) {
@@ -338,7 +356,7 @@ fun ComicReader(
                             val offset = if (k == 0) 0f else k * nextSide * stepTo(spreadIndex + k)
                             key(spreadIndex + k) {
                                 Box(Modifier.fillMaxSize().graphicsLayer { translationX = slide.value + offset; alpha = if (k == 0 || slide.value != 0f) 1f else 0f }) {
-                                    ComicPageImage(book, sizes, spread, w, h, if (k == 0) viewport else null, rtl)
+                                    ComicPageImage(book, sizes, spread, w, h, if (k == 0) viewport else null, rtl, bias)
                                 }
                             }
                         }
@@ -526,7 +544,7 @@ internal fun pageAt(fraction: Float, pageCount: Int): Int =
  * 앞 쪽을 오른쪽에 둔다.
  */
 @Composable
-private fun ComicPageImage(book: ComicBook, sizes: List<ImageSize?>, pages: List<Int>, w: Int, h: Int, viewport: PageViewport?, rtl: Boolean) {
+private fun ComicPageImage(book: ComicBook, sizes: List<ImageSize?>, pages: List<Int>, w: Int, h: Int, viewport: PageViewport?, rtl: Boolean, bias: Float) {
     val bitmaps = remember(pages, w, h) { androidx.compose.runtime.mutableStateListOf(*pages.map { book.cached(it, w, h) }.toTypedArray()) }
     var broken by remember(pages, w, h) { mutableStateOf(pages.any { book.isBroken(it) }) }
     LaunchedEffect(pages, w, h) {
@@ -541,7 +559,7 @@ private fun ComicPageImage(book: ComicBook, sizes: List<ImageSize?>, pages: List
             val aspects = pages.mapIndexed { k, p -> sizes.getOrNull(p)?.let { it.width.toFloat() / it.height } ?: bitmaps[k]?.let { it.width.toFloat() / it.height } }
             if (aspects.any { it == null }) return@Canvas
             val total = aspects.sumOf { it!!.toDouble() }.toFloat()
-            val vp = viewport ?: PageViewport.fit(size.width, size.height, total, alignTop = true)
+            val vp = viewport ?: PageViewport.fit(size.width, size.height, total, verticalBias = bias)
             // 화면에 보이는 차례로 늘어놓는다: 오→왼 책은 앞 쪽이 오른쪽(구상안 ⑥).
             val order = if (rtl) pages.indices.reversed() else pages.indices
             var x = vp.left
@@ -561,6 +579,12 @@ private fun ComicPageImage(book: ComicBook, sizes: List<ImageSize?>, pages: List
         if (broken) CpText("이 쪽을 그리지 못했습니다", CpTheme.type.subtitle, COMIC_INK_MUTED, Modifier.align(Alignment.Center))
     }
 }
+
+/** 태블릿의 그림 자리: 잘림 영역 + 숨긴 상태 줄 높이(위). 둘 중 큰 쪽만큼 위를 비운다. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun tabletTopInsets(): WindowInsets =
+    WindowInsets.displayCutout.union(WindowInsets.statusBarsIgnoringVisibility.only(WindowInsetsSides.Top))
 
 /** "12" · 두 쪽이면 "2–3". */
 internal fun pagesLabel(shown: List<Int>): String =

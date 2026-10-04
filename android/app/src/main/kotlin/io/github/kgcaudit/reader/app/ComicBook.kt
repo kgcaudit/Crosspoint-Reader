@@ -22,18 +22,33 @@ class ComicBook(
     private val pages: ComicPages,
     /** 띠 풀기(BitmapRegionDecoder)를 쓸지. 시험이 끈다 — Robolectric 의 띠 풀기는 빈 그림을 돌려준다. */
     private val regions: Boolean = true,
+    /** 그림 저장소(LRU) 한도(바이트). 시험이 아주 작게 줘서 저장소가 쪽을 내보내는 상황을 만든다. */
+    budget: Int = memoryBudget(),
 ) : AutoCloseable {
     val pageCount: Int get() = pages.count
 
     /** 압축 읽기는 한 번에 하나(같은 파일 위치를 옮겨 다닌다). 풀기도 함께 세워 메모리 꼭대기를 낮춘다. */
     private val lock = Mutex()
-    private val bitmaps = object : LruCache<String, Bitmap>(memoryBudget()) {
+    private val bitmaps = object : LruCache<String, Bitmap>(budget) {
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
     }
     private val aspects = java.util.concurrent.ConcurrentHashMap<Int, Float>()
     private val broken = java.util.concurrent.ConcurrentHashMap.newKeySet<Int>()
 
-    fun cached(index: Int, width: Int, height: Int): Bitmap? = bitmaps.get(key(index, width, height))
+    fun cached(index: Int, width: Int, height: Int): Bitmap? = key(index, width, height).let { k -> bitmaps.get(k) ?: pinned[k] }
+
+    /**
+     * 붙잡아 둘 쪽(지금 판과 앞뒤 판). 저장소(LRU)가 내보내도 이 쪽들의 그림은 놓지 않는다 — 넘김 효과가 끝나 화면을 다시
+     * 짤 때 그 쪽이 저장소에 없으면 다시 풀릴 때까지 한 장면 동안 비어 깜박였다(0.45.1, 태블릿 두 쪽).
+     */
+    fun pin(indices: Set<Int>) {
+        pinnedPages = indices
+        pinned.keys.removeAll { k -> pageOf(k) !in indices }
+        bitmaps.snapshot().forEach { (k, v) -> if (pageOf(k) in indices) pinned[k] = v }
+    }
+
+    @Volatile private var pinnedPages: Set<Int> = emptySet()
+    private val pinned = java.util.concurrent.ConcurrentHashMap<String, Bitmap>()
 
     /** 이미 아는 쪽 가로/세로 비. 모르면 null(아직 열지 않은 쪽). */
     fun knownAspect(index: Int): Float? = aspects[index]
@@ -59,7 +74,10 @@ class ComicBook(
             }
             // 메모리가 모자라 못 푼 것(OutOfMemoryError)도 깨진 쪽처럼 넘긴다 — 쪽 하나 때문에 앱이 닫히면 안 된다.
             val bitmap = bytes?.let { runCatching { decode(it, width, height, index) }.getOrNull() }
-            if (bitmap == null) broken += index else bitmaps.put(key(index, width, height), bitmap)
+            if (bitmap == null) broken += index else {
+                bitmaps.put(key(index, width, height), bitmap)
+                if (index in pinnedPages) pinned[key(index, width, height)] = bitmap
+            }
             bitmap
         }
     }
@@ -155,6 +173,9 @@ class ComicBook(
     }
 
     private fun key(index: Int, width: Int, height: Int) = "$index|$width|$height"
+
+    /** 쪽 그림 열쇠의 쪽 번호. 띠(웹툰) 열쇠는 붙잡지 않는다 — -1. */
+    private fun pageOf(key: String): Int = if (key.startsWith("s")) -1 else key.substringBefore('|').toIntOrNull() ?: -1
 
     private fun stripKey(index: Int, rows: IntRange, width: Int) = "s$index|${rows.first}-${rows.last}|$width"
 

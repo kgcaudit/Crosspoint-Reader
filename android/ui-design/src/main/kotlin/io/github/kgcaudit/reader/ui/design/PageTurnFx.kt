@@ -323,7 +323,7 @@ private fun <K> TurnFrame(t: Turn<K>, effect: PageTurn, spread: Boolean, mirrore
                         b?.let { nc.save(); nc.translate((1f - tt) * size.width, 0f); nc.drawPicture(it); nc.restore() }
                     }
                     PageTurn.Curl -> {
-                        val s = sheets.get(a, b, spread, paper)
+                        val s = sheets.get(a, b, spread, paper, hardware = nc.isHardwareAccelerated)
                         if (s != null) drawCurl(nc, a, b, s, spread, tt, size.width, size.height) else drawCover(nc, a, b, tt, size.width, size.height, density)
                     }
                     else -> drawCover(nc, a, b, tt, size.width, size.height, density)
@@ -351,10 +351,10 @@ private class SheetCache {
     private var count = 0
     private var at = 0L
 
-    fun get(earlier: android.graphics.Picture?, later: android.graphics.Picture?, spread: Boolean, paper: Color): CurlSheets? {
+    fun get(earlier: android.graphics.Picture?, later: android.graphics.Picture?, spread: Boolean, paper: Color, hardware: Boolean): CurlSheets? {
         val now = SystemClock.uptimeMillis()
         if (sheets == null || (count < CAPTURES && now - at >= CAPTURE_GAP_MS)) {
-            runCatching { captureSheets(earlier, later, spread, paper) }.getOrNull()?.let {
+            runCatching { captureSheets(earlier, later, spread, paper, hardware) }.getOrNull()?.let {
                 sheets = it
                 count++
                 at = now
@@ -390,10 +390,24 @@ private const val COVER_SHADOW_DP = 16f
 /** 말림에 쓰는 비트맵: 말리는 종이(앞면), 그 뒷면. 넘어가는 동안만 들고 있다. */
 private class CurlSheets(val front: Bitmap, val back: Bitmap)
 
-private fun pictureBitmap(p: android.graphics.Picture): Bitmap? {
-    if (p.width <= 0 || p.height <= 0) return null
-    val b = Bitmap.createBitmap(p.width, p.height, Bitmap.Config.ARGB_8888)
-    android.graphics.Canvas(b).drawPicture(p)
+/**
+ * 말림 종이 한 장을 그린다. 화면에 그릴 때는 GPU 로 만든 그림(HARDWARE, 안드로이드 9+)으로 — CPU 로 화면 크기 비트맵에
+ * 쪽 그림을 그리면 태블릿 두 쪽(약 16MB)에서 한 번에 수십 ms 가 걸려, 넘김 처음 몇 장면이 빠지고 3장면 만에 건너뛰듯
+ * 끝났다(0.45.1, 사용자 동영상). 화면이 아닌 곳(시험의 소프트웨어 그리기)이나 9 미만이면 예전처럼 CPU 비트맵.
+ */
+private fun renderSheet(w: Int, h: Int, hardware: Boolean, draw: (android.graphics.Canvas) -> Unit): Bitmap? {
+    if (w <= 0 || h <= 0) return null
+    if (hardware && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+        val gpu = runCatching {
+            val p = android.graphics.Picture()
+            draw(p.beginRecording(w, h))
+            p.endRecording()
+            Bitmap.createBitmap(p, w, h, Bitmap.Config.HARDWARE)
+        }.getOrNull()
+        if (gpu != null) return gpu
+    }
+    val b = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+    draw(android.graphics.Canvas(b))
     return b
 }
 
@@ -402,25 +416,30 @@ private fun pictureBitmap(p: android.graphics.Picture): Bitmap? {
  * 두 쪽 보기: 앞면 = 앞 펼침의 오른쪽 쪽, 뒷면 = 뒤 펼침의 왼쪽 쪽을 좌우로 뒤집은 것 — 원통을 넘어간 종이는 좌우가
  * 뒤집혀 놓이므로, 미리 뒤집어 두면 다 넘어갔을 때 뒤 펼침의 왼쪽 쪽이 바로 놓인다.
  */
-private fun captureSheets(earlier: android.graphics.Picture?, later: android.graphics.Picture?, spread: Boolean, paper: Color): CurlSheets? {
-    val a = earlier?.let(::pictureBitmap) ?: return null
+private fun captureSheets(earlier: android.graphics.Picture?, later: android.graphics.Picture?, spread: Boolean, paper: Color, hardware: Boolean): CurlSheets? {
+    val a = earlier?.takeIf { it.width > 0 && it.height > 0 } ?: return null
     if (!spread) {
-        val back = Bitmap.createBitmap(a.width, a.height, Bitmap.Config.ARGB_8888)
-        android.graphics.Canvas(back).apply {
-            drawBitmap(a, 0f, 0f, null)
-            drawColor(paper.copy(alpha = BACK_WASH).toArgb())
-        }
-        return CurlSheets(a, back)
+        val front = renderSheet(a.width, a.height, hardware) { it.drawPicture(a) } ?: return null
+        val back = renderSheet(a.width, a.height, hardware) {
+            it.drawPicture(a)
+            it.drawColor(paper.copy(alpha = BACK_WASH).toArgb())
+        } ?: return null
+        return CurlSheets(front, back)
     }
-    val b = later?.let(::pictureBitmap) ?: return null
+    val b = later?.takeIf { it.width > 0 && it.height > 0 } ?: return null
     val half = a.width / 2
     if (half <= 0 || b.width < 2 * half) return null
-    val front = Bitmap.createBitmap(a, half, 0, a.width - half, a.height)
-    val back = Bitmap.createBitmap(b.width - half, b.height, Bitmap.Config.ARGB_8888)
-    android.graphics.Canvas(back).apply {
-        scale(-1f, 1f, back.width / 2f, 0f)
-        drawBitmap(b, android.graphics.Rect(0, 0, half, b.height), android.graphics.Rect(0, 0, back.width, back.height), null)
-    }
+    val front = renderSheet(a.width - half, a.height, hardware) { c ->
+        c.translate(-half.toFloat(), 0f)
+        c.drawPicture(a)
+    } ?: return null
+    val backWidth = b.width - half
+    val back = renderSheet(backWidth, b.height, hardware) { c ->
+        c.scale(-1f, 1f, backWidth / 2f, 0f)
+        c.scale(backWidth.toFloat() / half, 1f)
+        c.clipRect(0, 0, half, b.height)
+        c.drawPicture(b)
+    } ?: return null
     return CurlSheets(front, back)
 }
 

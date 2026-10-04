@@ -177,17 +177,22 @@ class PageViewportTest {
     }
 
     @Test
-    fun `a comic page aligned to the top keeps the spare height below, even after zooming out`() {
-        // 만화(0.45.0): 카메라 구멍 바로 아래에 붙는다. 가운데에 두면 구멍 아래에 검은 띠가 한 번 더 생긴다.
-        val comic = PageViewport.fit(1080f, 2000f, 0.7071f, alignTop = true)
+    fun `a comic page aligned to the top or bottom keeps the spare height on the other side, even after zooming out`() {
+        // 만화(0.45.0): 휴대폰은 카메라 구멍 바로 아래에 붙는다. 가운데에 두면 구멍 아래에 검은 띠가 한 번 더 생긴다.
+        val comic = PageViewport.fit(1080f, 2000f, 0.7071f, verticalBias = 0f)
         assertEquals(0f, comic.top, 0.5f)
         assertEquals(1080f, comic.width, 0.5f)
         // 두 번 눌러 확대했다가 되돌려도 위에 붙은 채다 — 되돌릴 때 가운데로 내려가면 쪽이 출렁인다.
         val back = comic.toggleZoom(540f, 600f).toggleZoom(540f, 600f)
         assertFalse(back.isZoomed)
         assertEquals(0f, back.top, 0.5f)
+        // 태블릿(0.45.1)은 아래에 붙여 남는 높이를 위로 — 안쪽 화면의 카메라 구멍이 그림 머리를 가리지 않게.
+        val tablet = PageViewport.fit(1080f, 2000f, 0.7071f, verticalBias = 1f)
+        assertEquals(2000f - tablet.height, tablet.top, 0.5f)
+        // 깨진 값(범위 밖)은 끝으로 가둔다 — 쪽이 화면 밖으로 나가면 빈 화면만 남는다.
+        assertEquals(0f, PageViewport.fit(1080f, 2000f, 0.7071f, verticalBias = -3f).top, 0.5f)
         // 높이에 맞는 쪽(가로 화면)은 위아래 남는 곳이 없어 같다. 가로로 남는 곳은 여전히 가운데.
-        val wide = PageViewport.fit(2000f, 1080f, 0.7071f, alignTop = true)
+        val wide = PageViewport.fit(2000f, 1080f, 0.7071f, verticalBias = 0f)
         assertEquals((2000f - wide.width) / 2, wide.left, 0.5f)
     }
 }

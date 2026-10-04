@@ -442,5 +442,20 @@ class ComicSpreadAppTest {
         waitForPageAt(0.5f, 1, "놓은 뒤 다음 쪽으로 자리 잡지 않았다")
     }
 
+    @Test
+    @Config(qualifiers = "w673dp-h841dp-xhdpi")
+    fun `on a tablet the picture sits at the bottom so the camera hole above does not cover it`() {
+        // 0.45.1 사용자 결정: 태블릿(폴더블 안쪽 화면)은 카메라 구멍에 그림 머리가 잘렸다 — 위를 비우고 그림을 아래에 붙인다.
+        openVolume()
+        waitFor(page("1"))
+        next(); waitFor(page("2–3"))
+        waitForPageAt(0.4f, 1, "두 쪽이 그려지지 않았다")
+        val s = screen()
+        // 두 쪽(가로로 긴 판)은 폭에 맞아 위아래가 남는다: 위는 바탕, 아래 끝은 그림(2쪽 빨강).
+        val top = s.getPixel((s.width * 0.4f).toInt(), (s.height * 0.03f).toInt())
+        assertTrue(abs(android.graphics.Color.red(top) - 0x14) <= 6, "태블릿에서 그림이 위에 붙어 카메라 구멍에 가린다: #${Integer.toHexString(top)}")
+        assertTrue(isPageAt2(s, 0.4f, 0.97f, 1), "태블릿에서 그림이 아래에 붙지 않았다")
+    }
+
     private fun isPageAt2(shot: Bitmap, fx: Float, fy: Float, page: Int) = near(shot.getPixel((shot.width * fx).toInt(), (shot.height * fy).toInt()), colors[page])
 }
