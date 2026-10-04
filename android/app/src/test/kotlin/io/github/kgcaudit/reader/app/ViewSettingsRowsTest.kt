@@ -54,9 +54,10 @@ class ViewSettingsRowsTest {
     }
 
     @Test
-    fun `comics show two page rows and the cover row but no page turn effect`() {
+    fun `comics show two page rows, the cover row and the page turn effect but no footer`() {
+        // 넘김 효과는 책과 같은 설정을 따르고(0.45.0), 아래 정보 줄은 없어 그 설정도 없다.
         val shown = rows(CpReaderKind.Comic)
-        assertRows(shown, mapOf("넘김 효과" to false, "PDF" to false, "넘김 소리" to true, "자동 넘김" to true, "왼쪽 끝을 밀어 밝기 조절" to true) + twoPageRows.associateWith { true })
+        assertRows(shown, mapOf("넘김 효과" to true, "하단 정보" to false, "PDF" to false, "넘김 소리" to true, "자동 넘김" to true, "왼쪽 끝을 밀어 밝기 조절" to true) + twoPageRows.associateWith { true })
     }
 
     @Test
@@ -74,7 +75,7 @@ class ViewSettingsRowsTest {
     @Config(qualifiers = "w851dp-h393dp-xhdpi")
     fun `on a landscape phone the comic rows are all there too`() {
         val shown = rows(CpReaderKind.Comic)
-        assertRows(shown, twoPageRows.associateWith { true } + mapOf("넘김 효과" to false))
+        assertRows(shown, twoPageRows.associateWith { true } + mapOf("넘김 효과" to true))
     }
 
     @Test

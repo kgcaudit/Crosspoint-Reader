@@ -131,6 +131,9 @@ private class Turn<K>(val from: K, val to: K, val ahead: Boolean)
  *
  * [spread] 는 두 쪽 보기 — 말림에서 오른쪽 쪽만 말려 넘어가고 그 뒷면이 다음 펼침의 왼쪽 쪽으로 내려앉는다(종이책과 같다).
  * [forward] 는 앞으로 넘겼는지. 휴대폰의 "애니메이션 제거" 가 켜져 있으면 효과 없이 바꾼다(소리 · 진동은 그대로).
+ *
+ * [mirrored] 는 오른쪽부터 읽는 만화(0.45.0): 효과 전체를 좌우로 뒤집는다 — 말림은 왼쪽 아래 모서리에서, 덮기 · 밀기는
+ * 다음 쪽이 왼쪽에서 들어온다. 쪽 그림은 뒤집히지 않게 기록을 미리 한 번 뒤집어 두고 화면 전체를 다시 뒤집는다.
  */
 @Composable
 fun <K> CpPageTurn(
@@ -141,6 +144,7 @@ fun <K> CpPageTurn(
     spread: Boolean = false,
     sound: TurnSound = TurnSound.Off,
     haptic: Boolean = false,
+    mirrored: Boolean = false,
     content: @Composable (K) -> Unit,
 ) {
     val feedback = rememberTurnFeedback()
@@ -236,7 +240,7 @@ fun <K> CpPageTurn(
     if (t == null) {
         content(settled)
     } else {
-        TurnFrame(t, effect, spread, { progress.value }, content)
+        TurnFrame(t, effect, spread, mirrored, { progress.value }, content)
     }
 }
 
@@ -281,7 +285,7 @@ private fun Modifier.recordInto(rec: Recorder): Modifier = drawWithContent {
  * 멈췄다(0.32.0 개발 중). 기록은 그 자리에서 곧바로 비트맵이 된다.
  */
 @Composable
-private fun <K> TurnFrame(t: Turn<K>, effect: PageTurn, spread: Boolean, progress: () -> Float, content: @Composable (K) -> Unit) {
+private fun <K> TurnFrame(t: Turn<K>, effect: PageTurn, spread: Boolean, mirrored: Boolean, progress: () -> Float, content: @Composable (K) -> Unit) {
     val fromRec = remember(t) { Recorder() }
     val toRec = remember(t) { Recorder() }
     // 읽는 순서로 앞 쪽(earlier) · 뒤 쪽(later). 뒤로 넘기면 같은 그림을 거꾸로 돌린다 — 앞 쪽이 다시 펴지며 덮는다.
@@ -297,10 +301,14 @@ private fun <K> TurnFrame(t: Turn<K>, effect: PageTurn, spread: Boolean, progres
         Canvas(Modifier.fillMaxSize()) {
             val p = progress()
             val tt = if (t.ahead) p else 1f - p
-            val a = earlier.picture
-            val b = later.picture
+            val a = if (mirrored) flipped(earlier.picture) else earlier.picture
+            val b = if (mirrored) flipped(later.picture) else later.picture
             drawIntoCanvas { c ->
                 val nc = c.nativeCanvas
+                if (mirrored) {
+                    nc.save()
+                    nc.scale(-1f, 1f, size.width / 2f, 0f)
+                }
                 when (effect) {
                     PageTurn.Fade -> {
                         a?.let { nc.drawPicture(it) }
@@ -315,14 +323,26 @@ private fun <K> TurnFrame(t: Turn<K>, effect: PageTurn, spread: Boolean, progres
                         b?.let { nc.save(); nc.translate((1f - tt) * size.width, 0f); nc.drawPicture(it); nc.restore() }
                     }
                     PageTurn.Curl -> {
-                        val s = sheets.get(earlier.picture, later.picture, spread, paper)
+                        val s = sheets.get(a, b, spread, paper)
                         if (s != null) drawCurl(nc, a, b, s, spread, tt, size.width, size.height) else drawCover(nc, a, b, tt, size.width, size.height, density)
                     }
                     else -> drawCover(nc, a, b, tt, size.width, size.height, density)
                 }
+                if (mirrored) nc.restore()
             }
         }
     }
+}
+
+/** 좌우로 뒤집은 기록. 화면 전체를 한 번 더 뒤집으면 쪽 그림은 바로 서고 효과만 거꾸로 움직인다. */
+private fun flipped(p: android.graphics.Picture?): android.graphics.Picture? {
+    if (p == null || p.width <= 0 || p.height <= 0) return p
+    val out = android.graphics.Picture()
+    val c = out.beginRecording(p.width, p.height)
+    c.scale(-1f, 1f, p.width / 2f, 0f)
+    c.drawPicture(p)
+    out.endRecording()
+    return out
 }
 
 /** 말림 비트맵을 들고, 정해진 간격으로 몇 번까지만 다시 만든다(프레임마다 만들면 화면 크기 비트맵을 초당 60장 만든다). */

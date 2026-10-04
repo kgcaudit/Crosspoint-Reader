@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
@@ -34,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 /**
  * 리더 위에 뜨는 얇은 도구줄: 위(뒤로 · 제목 · 책갈피)와 아래(진행 막대 · 도구 단추).
@@ -76,7 +78,17 @@ fun CpReaderBar(
         val maxPanel = maxHeight * 0.55f
         Column(Modifier.fillMaxSize()) {
             Column(Modifier.fillMaxWidth().background(colors.surface).windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top)))) {
-                CpHeader(title = title, subtitle = subtitle, onBack = onBack) {
+                // 위 줄은 52dp(0.45.0, 2026-10-04 사용자 결정 — 64dp 두 줄 머리가 읽던 쪽을 너무 가렸다). 서재 머리(19sp)보다
+                // 작은 제목 17sp · 부제 12sp 를 한 단에 쌓는다. 제목이 길면 한 줄에서 자른다 — 두 줄로 늘면 판이 다시 두꺼워진다.
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = READER_TOP).padding(horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CpIconButton(CpIcons.Back, "뒤로", onBack)
+                    Column(Modifier.weight(1f)) {
+                        CpText(title, READER_TITLE, colors.text, maxLines = 1)
+                        if (subtitle != null) CpText(subtitle, CpTheme.type.caption, colors.textMuted, maxLines = 1)
+                    }
                     if (onSearch != null) CpIconButton(CpIcons.Search, "책에서 찾기", onClick = onSearch)
                     if (onListen != null) CpIconButton(CpIcons.Headphones, "듣기", onClick = onListen)
                     CpIconButton(
@@ -112,7 +124,8 @@ fun CpReaderBar(
                 val shown = dragging ?: progress
                 val direction = if (progressRightToLeft) androidx.compose.ui.unit.LayoutDirection.Rtl else androidx.compose.ui.platform.LocalLayoutDirection.current
                 androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides direction) {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = CpTheme.metrics.gutter), verticalAlignment = Alignment.CenterVertically) {
+                    // 진행 줄 40dp: 막대(48dp 높이)를 줄여 넣는다. 끄는 손잡이는 18dp 라 40dp 안에서도 잡힌다.
+                    Row(Modifier.fillMaxWidth().height(READER_SLIDER).padding(horizontal = CpTheme.metrics.gutter), verticalAlignment = Alignment.CenterVertically) {
                         CpSlider(
                             value = shown,
                             onChange = { dragging = it },
@@ -128,7 +141,7 @@ fun CpReaderBar(
                     }
                 }
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                    Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     content = tools,
                 )
@@ -136,6 +149,14 @@ fun CpReaderBar(
         }
     }
 }
+
+/** 읽기 메뉴 치수(0.45.0): 위 52 · 아래 진행 40 + 도구 46 = 86. 합 138dp — 0.44 의 176dp 보다 38dp 덜 가린다. */
+private val READER_TOP = 52.dp
+private val READER_SLIDER = 40.dp
+private val READER_TITLE = androidx.compose.ui.text.TextStyle(
+    fontFamily = androidx.compose.ui.text.font.FontFamily.Default, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+    fontSize = 17.sp, lineHeight = 22.sp,
+)
 
 /**
  * 리더 위를 덮는 전체 화면 판(목차·책갈피·글꼴 목록). 시스템 바를 피하고, 뒤의 지면으로 터치가

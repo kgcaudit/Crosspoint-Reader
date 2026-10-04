@@ -107,6 +107,8 @@ import io.github.kgcaudit.reader.ui.design.ScreenPrefs
 import io.github.kgcaudit.reader.ui.design.TapAction
 import io.github.kgcaudit.reader.ui.design.VolumeKeyPaging
 import io.github.kgcaudit.reader.ui.design.actionAt
+import io.github.kgcaudit.reader.ui.design.CpPageTurn
+import io.github.kgcaudit.reader.ui.design.PageTurn
 import io.github.kgcaudit.reader.ui.design.rememberPageTurnState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -213,27 +215,48 @@ fun ComicReader(
     val feedback = rememberTurnFeedback()
     val hostView = LocalView.current
     val nextSide = if (rtl) -1f else 1f
+    val turns = rememberPageTurnState()
 
     /**
      * 읽는 순서로 한 판(한 쪽 또는 두 쪽) 밀어 넘긴다. 끌던 중이면 그 자리에서 이어 민다. 마지막 판에서 앞으로 가면 권 끝 판,
      * 첫 판에서 뒤로 가면 제자리로 돌아온다.
      */
-    fun advance(forward: Boolean) {
+    /**
+     * 판이 화면에 그려지는 폭: 화면에 맞춘 그림의 폭(화면보다 좁을 수 있다). 비를 아직 모르면 화면 폭.
+     * 붙여 넘기기(0.45.0, 사용자 결정 — Explorer 처럼)는 앞뒤 판을 화면 폭이 아니라 이 폭만큼 떨어뜨려 놓는다. 화면 폭으로
+     * 놓으면 그림이 화면보다 좁을 때(가로 화면 · 두 쪽) 넘기는 동안 쪽 사이에 검은 틈이 보였다.
+     */
+    fun spanOf(index: Int): Float {
+        val w = screen.width.toFloat()
+        val h = screen.height.toFloat()
+        val aspect = spreads.getOrNull(index)?.let { spreadAspect(book, sizes, it) }
+        return if (aspect == null || w <= 0f || h <= 0f) w.coerceAtLeast(1f) else minOf(w, h * aspect)
+    }
+    /** 지금 판의 가운데에서 [index] 판의 가운데까지 — 두 그림의 가장자리가 맞닿는 거리. */
+    fun stepTo(index: Int): Float = (spanOf(spreadIndex) + spanOf(index)) / 2f
+
+    fun advance(forward: Boolean, quiet: Boolean = false) {
         val target = spreadIndex + if (forward) 1 else -1
         if (target !in spreads.indices) {
             scope.launch { slide.animateTo(0f, tween(SLIDE_MS)) }
             if (forward) ended = true
             return
         }
+        if (latestPrefs.pageTurn != PageTurn.Slide) {
+            // 말림 · 덮기 · 서서히 · 없음은 책과 같은 넘김 효과(0.45.0)가 그린다. 소리 · 진동도 거기서 — 자동 넘김은 조용히.
+            turns.request(quiet)
+            page = spreads[target].first()
+            return
+        }
         // 넘기는 중에 또 누르면 받지 않는다 — 받으면 아직 바뀌지 않은 판 번호로 셈해 같은 판으로 두 번 간다.
         if (slide.isRunning) return
-        val width = screen.width.toFloat().coerceAtLeast(1f)
+        val step = stepTo(target)
         scope.launch {
-            // 다음 판이 [nextSide] 쪽에서 들어오도록 지금 판을 반대로 민다.
-            slide.animateTo(if (forward) -nextSide * width else nextSide * width, tween(SLIDE_MS))
+            // 다음 판이 [nextSide] 쪽에서 들어오도록 지금 판을 반대로 민다 — 다음 판의 가장자리가 지금 판에 붙은 거리만큼.
+            slide.animateTo(if (forward) -nextSide * step else nextSide * step, tween(SLIDE_MS))
             page = spreads[target].first()
             slide.snapTo(0f)
-            feedback.turned(latestPrefs.turnSound, latestPrefs.turnHaptic, hostView)
+            if (!quiet) feedback.turned(latestPrefs.turnSound, latestPrefs.turnHaptic, hostView)
         }
     }
     fun toggleBookmark() {
@@ -275,20 +298,46 @@ fun ComicReader(
                 val h = constraints.maxHeight
                 // 지금 판의 확대 · 위치. 판이 바뀌면 다시 전체가 보인다. 두 쪽은 한 그림처럼 함께 맞추고 함께 확대한다.
                 var aspect by remember(shown) { mutableStateOf(spreadAspect(book, sizes, shown)) }
-                var viewport by remember(shown, w, h, aspect) { mutableStateOf(aspect?.let { PageViewport.fit(viewW, viewH, it) }) }
+                var viewport by remember(shown, w, h, aspect) { mutableStateOf(aspect?.let { PageViewport.fit(viewW, viewH, it, alignTop = true) }) }
+                // 끌기 몸짓(판이 바뀌어도 이어지는 쪽)이 읽고 쓰는 최신 값.
+                val viewportNow = rememberUpdatedState(viewport)
+                val setViewport by rememberUpdatedState<(PageViewport?) -> Unit>({ viewport = it })
+                val indexNow by rememberUpdatedState(spreadIndex)
+                val spreadsNow by rememberUpdatedState(spreads)
+                val advanceNow by rememberUpdatedState<(Boolean) -> Unit>({ advance(it) })
                 LaunchedEffect(shown, w, h) {
                     for (p in shown) book.page(p, w, h)
                     aspect = spreadAspect(book, sizes, shown)
                     // 앞뒤 판을 미리 풀어 둔다 — 넘길 때 빈 화면이 번쩍이지 않게.
                     for (near in listOf(spreadIndex + 1, spreadIndex - 1)) spreads.getOrNull(near)?.forEach { book.page(it, w, h) }
                 }
-                if (w > 0 && h > 0 && count > 0) {
-                    // 앞 판 · 지금 판 · 다음 판을 나란히 붙여 둔다. 옮기는 것은 그리기 단계의 이동뿐이라 끄는 동안 다시 짜지 않는다.
+                if (w > 0 && h > 0 && count > 0 && prefs.pageTurn != PageTurn.Slide) {
+                    // 책과 같은 넘김 효과(0.45.0, 2026-10-04 사용자 결정). 오→왼 만화는 효과를 좌우로 뒤집는다 — 말림이 왼쪽 아래
+                    // 모서리에서 시작해야 손가락이 미는 쪽과 맞는다. 쪽 밖 바탕까지 함께 그려 둔다: 넘어가는 종이의 빈 곳이 비치면
+                    // 아래 쪽 그림이 말린 종이 위로 새어 보인다.
+                    CpPageTurn(
+                        spreadIndex,
+                        prefs.pageTurn,
+                        forward = { from, to -> to > from },
+                        turns = turns,
+                        spread = two,
+                        sound = prefs.turnSound,
+                        haptic = prefs.turnHaptic,
+                        mirrored = rtl,
+                    ) { index ->
+                        Box(Modifier.fillMaxSize().background(COMIC_BACKDROP)) {
+                            spreads.getOrNull(index)?.let { ComicPageImage(book, sizes, it, w, h, if (index == spreadIndex) viewport else null, rtl) }
+                        }
+                    }
+                } else if (w > 0 && h > 0 && count > 0) {
+                    // 밀기: 앞 판 · 지금 판 · 다음 판을 그림 가장자리끼리 붙여 둔다. 옮기는 것은 그리기 단계의 이동뿐이라 끄는 동안 다시
+                    // 짜지 않는다. 쉬는 동안(밀지 않을 때) 이웃 판은 숨긴다 — 그림이 화면보다 좁으면 옆 여백에 이웃 판 끝이 비친다.
                     Box(Modifier.fillMaxSize().clipToBounds()) {
                         for (k in -1..1) {
                             val spread = spreads.getOrNull(spreadIndex + k) ?: continue
+                            val offset = if (k == 0) 0f else k * nextSide * stepTo(spreadIndex + k)
                             key(spreadIndex + k) {
-                                Box(Modifier.fillMaxSize().graphicsLayer { translationX = slide.value + k * nextSide * w }) {
+                                Box(Modifier.fillMaxSize().graphicsLayer { translationX = slide.value + offset; alpha = if (k == 0 || slide.value != 0f) 1f else 0f }) {
                                     ComicPageImage(book, sizes, spread, w, h, if (k == 0) viewport else null, rtl)
                                 }
                             }
@@ -313,14 +362,23 @@ fun ComicReader(
                                 },
                             )
                         }
-                        .pointerInput(shown, w, h, rtl) {
+                        // 끌기는 판이 바뀌어도 이어진다(말림 · 덮기는 끌기 시작에 판을 넘긴다) — 열쇠에 지금 판을 넣으면 넘기는 순간
+                        // 몸짓이 끊겨 종이가 손가락을 놓친다. 그래서 지금 판 · 확대 상태는 최신 값을 읽는다.
+                        .pointerInput(book.unit.id, w, h, rtl) {
                             val threshold = 48.dp.toPx()
+                            val start = 12.dp.toPx()
                             awaitEachGesture {
                                 awaitFirstDown(requireUnconsumed = false)
                                 var moving = false
                                 var pinched = false
                                 var travel = Offset.Zero
                                 var swipe = 0f
+                                val origin = indexNow
+                                val fx = latestPrefs.pageTurn
+                                val follows = fx == PageTurn.Curl || fx == PageTurn.Cover
+                                // 말림 · 덮기에서 끌기가 정한 방향(앞으로면 true). 정해지면 곧바로 넘긴다 — 손가락을 따라 말리려면 아래에
+                                // 다음 판이 그려져 있어야 한다. 덜 끌고 놓으면 앞 판으로 되돌린다.
+                                var committed: Boolean? = null
                                 do {
                                     val event = awaitPointerEvent()
                                     val zoom = event.calculateZoom()
@@ -332,28 +390,46 @@ fun ComicReader(
                                     }
                                     if (moving) {
                                         if (fingers > 1) pinched = true
-                                        val vp = viewport
-                                        if (vp != null && zoom != 1f) {
+                                        val vp = viewportNow.value
+                                        if (vp != null && zoom != 1f && committed == null) {
                                             val c = event.calculateCentroid()
-                                            viewport = vp.zoom(zoom, c.x, c.y)
+                                            setViewport(vp.zoom(zoom, c.x, c.y))
                                         }
                                         // 확대한 동안 끌기는 쪽 안을 움직인다. 넘김으로 읽으면 확대한 곳을 보려고 끌 때마다 넘어간다.
-                                        if (viewport?.isZoomed == true) {
-                                            viewport = viewport?.pan(pan.x, pan.y)
-                                        } else if (!pinched && !slide.isRunning) {
+                                        if (committed == null && viewportNow.value?.isZoomed == true) {
+                                            setViewport(viewportNow.value?.pan(pan.x, pan.y))
+                                        } else if (!pinched && fx == PageTurn.Slide && !slide.isRunning) {
                                             swipe += pan.x
                                             // 그쪽에 판이 없으면(첫 판에서 앞으로 · 마지막 판에서 뒤로) 덜 따라온다 — 끝에 닿았다는 느낌.
                                             val towardNext = (swipe < 0) != rtl
-                                            val open = if (towardNext) spreadIndex < spreads.size - 1 else spreadIndex > 0
+                                            val open = if (towardNext) origin < spreadsNow.size - 1 else origin > 0
                                             val follow = if (open) swipe else swipe * EDGE_RESIST
                                             scope.launch { slide.snapTo(follow) }
+                                        } else if (!pinched && fx != PageTurn.Slide) {
+                                            swipe += pan.x
+                                            if (follows && committed == null && abs(swipe) > start) {
+                                                val forward = ComicReading.forward(screenNext = swipe < 0, rightToLeft = rtl)
+                                                val target = origin + if (forward) 1 else -1
+                                                // 그쪽에 판이 없으면(권 끝) 넘기지 않는다 — 놓을 때 아래에서 권 끝 판을 띄운다.
+                                                if (target in spreadsNow.indices) {
+                                                    committed = forward
+                                                    turns.dragStart()
+                                                    page = spreadsNow[target].first()
+                                                }
+                                            }
+                                            if (committed != null) turns.drag(abs(swipe) / size.width)
                                         }
                                         event.changes.forEach { it.consume() }
                                     }
                                 } while (event.changes.any { it.pressed })
-                                if (moving && !pinched && viewport?.isZoomed != true && abs(swipe) > threshold) {
+                                val way = committed
+                                if (way != null) {
+                                    // 화면 폭의 4분의 1 또는 48dp 넘게 끌었으면 넘기고, 아니면 제자리로 말려 돌아간다(책과 같다).
+                                    val far = abs(swipe) > maxOf(threshold, size.width * 0.25f)
+                                    turns.dragEnd(far) { page = spreadsNow[origin].first() }
+                                } else if (moving && !pinched && viewportNow.value?.isZoomed != true && abs(swipe) > threshold) {
                                     // 왼쪽으로 밀면 화면의 "다음"(왼→오 책). 오→왼이면 오른쪽으로 밀어야 다음.
-                                    advance(ComicReading.forward(screenNext = swipe < 0, rightToLeft = rtl))
+                                    advanceNow(ComicReading.forward(screenNext = swipe < 0, rightToLeft = rtl))
                                 } else if (slide.value != 0f && !slide.isRunning) {
                                     // 덜 밀었다 — 제자리로.
                                     scope.launch { slide.animateTo(0f, tween(SLIDE_MS)) }
@@ -362,15 +438,11 @@ fun ComicReader(
                         },
                 )
             }
-            ComicFooter(
-                title, work?.let { ComicReading.entryOf(it, book.unit.id)?.label }, shown, count, rtl, prefs.footer,
-                Modifier.windowInsetsPadding(WindowInsets.displayCutout),
-            )
         }
         if (bookmarked) CpRibbon(Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.displayCutout).padding(end = 20.dp))
         // 자동 넘김(0.42.0 — 책 · PDF 와 같다). 메뉴가 열렸거나 권 끝 판이 떠 있으면 쉰다.
         val autoSuspended = panel != ComicPanel.None || ended
-        val autoTurn = rememberAutoTurn(prefs.autoTurn, page, autoSuspended) { advance(true) }
+        val autoTurn = rememberAutoTurn(prefs.autoTurn, page, autoSuspended) { advance(true, quiet = true) }
         if (autoTurn.visible(prefs.autoTurn, autoSuspended)) {
             CpAutoTurnPill(autoTurn, Modifier.align(Alignment.BottomCenter).padding(bottom = 60.dp))
         }
@@ -382,7 +454,8 @@ fun ComicReader(
         ComicPanel.None -> Unit
         ComicPanel.Bar, ComicPanel.View -> CpReaderBar(
             title = title,
-            subtitle = "${pagesLabel(shown)} / ${count}쪽",
+            // 오→왼이면 방향을 붙인다 — 0.44 까지는 아래 정보 줄이 "← 오→왼" 을 늘 보였는데, 줄을 없애면서(0.45.0) 여기로 옮겼다.
+            subtitle = "${pagesLabel(shown)} / ${count}쪽" + if (rtl) " · 오→왼" else "",
             bookmarked = bookmarked,
             onBookmark = ::toggleBookmark,
             onBack = onClose,
@@ -468,7 +541,7 @@ private fun ComicPageImage(book: ComicBook, sizes: List<ImageSize?>, pages: List
             val aspects = pages.mapIndexed { k, p -> sizes.getOrNull(p)?.let { it.width.toFloat() / it.height } ?: bitmaps[k]?.let { it.width.toFloat() / it.height } }
             if (aspects.any { it == null }) return@Canvas
             val total = aspects.sumOf { it!!.toDouble() }.toFloat()
-            val vp = viewport ?: PageViewport.fit(size.width, size.height, total)
+            val vp = viewport ?: PageViewport.fit(size.width, size.height, total, alignTop = true)
             // 화면에 보이는 차례로 늘어놓는다: 오→왼 책은 앞 쪽이 오른쪽(구상안 ⑥).
             val order = if (rtl) pages.indices.reversed() else pages.indices
             var x = vp.left
@@ -488,17 +561,6 @@ private fun ComicPageImage(book: ComicBook, sizes: List<ImageSize?>, pages: List
         if (broken) CpText("이 쪽을 그리지 못했습니다", CpTheme.type.subtitle, COMIC_INK_MUTED, Modifier.align(Alignment.Center))
     }
 }
-
-/**
- * 아래 줄: 진행 막대 + 하단 정보 세 자리(책과 같은 설정, 0.42.0). 오→왼 책은 막대가 오른쪽에서 차오른다(네이버 시리즈 —
- * 진행도 읽는 방향을 따른다). 쪽 자리에 방향 표시를 붙인다: "12 / 180  ← 오→왼".
- */
-@Composable
-private fun ComicFooter(title: String, entry: String?, shown: List<Int>, count: Int, rtl: Boolean, footer: io.github.kgcaudit.reader.ui.design.Footer, modifier: Modifier) =
-    ComicFooterLine(
-        title, entry, "${pagesLabel(shown)} / $count" + if (rtl) "  ← 오→왼" else "",
-        if (count > 1) shown.last() / (count - 1f) else 1f, rtl, footer, modifier,
-    )
 
 /** "12" · 두 쪽이면 "2–3". */
 internal fun pagesLabel(shown: List<Int>): String =

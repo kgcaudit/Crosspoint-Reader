@@ -129,10 +129,8 @@ class ComicSpreadAppTest {
     fun `landscape opens the cover alone, then pages face each other left to right`() {
         openVolume()
         waitFor(page("1"))
-        assertTrue(has(hasText("1 / 7")))
         next()
         waitFor(page("2–3"))
-        assertTrue(has(hasText("2–3 / 7")))
         // 왼→오: 앞 쪽(2쪽 · 빨강)이 왼쪽, 3쪽(파랑)이 오른쪽.
         waitForPageAt(0.4f, 1, "2쪽이 왼쪽에 없다")
         waitForPageAt(0.6f, 2, "3쪽이 오른쪽에 없다")
@@ -148,7 +146,6 @@ class ComicSpreadAppTest {
         waitFor(page("1"))
         next(rtl = true)
         waitFor(page("2–3"))
-        assertTrue(has(hasText("2–3 / 7  ← 오→왼")))
         waitForPageAt(0.6f, 1, "오→왼인데 앞 쪽(2쪽)이 오른쪽에 없다")
         waitForPageAt(0.4f, 2, "오→왼인데 3쪽이 왼쪽에 없다")
         File(shots, "comic-spread-rtl.png").outputStream().use { screen().compress(Bitmap.CompressFormat.PNG, 100, it) }
@@ -160,7 +157,6 @@ class ComicSpreadAppTest {
         waitFor(page("1"))
         next(); waitFor(page("2–3"))
         next(); waitFor(page("4"))
-        assertTrue(has(hasText("4 / 7")))
         waitForPageAt(0.5f, 3, "펼침면 그림이 가운데에 없다")
         next(); waitFor(page("5–6"))
         next(); waitFor(page("7"))
@@ -194,8 +190,9 @@ class ComicSpreadAppTest {
         click(hasText("보기"))
         click(hasText("모든 보기 설정"))
         waitFor(hasText("세로에서 두 쪽 보기"))
-        // 만화가 따르지 않는 넘김 효과 줄은 없다(줄 구성은 ViewSettingsRowsTest 가 따로 잰다).
-        assertFalse(has(hasText("넘김 효과")), "만화는 붙은 밀기로 넘기는데 넘김 효과 줄이 보인다")
+        // 만화도 책과 같은 넘김 효과를 따른다(0.45.0). 아래 정보 줄은 없어 그 설정도 없다(줄 구성은 ViewSettingsRowsTest 가 따로 잰다).
+        assertTrue(has(hasText("넘김 효과")), "만화의 보기 설정에 넘김 효과 줄이 없다")
+        assertFalse(has(hasText("하단 정보")), "만화에 없는 아래 정보 줄의 설정이 보인다")
         val y = node(hasText("세로에서 두 쪽 보기")).fetchSemanticsNode().boundsInRoot.center.y
         compose.onAllNodes(hasText("끔"), useUnmergedTree = true).let { nodes ->
             val i = nodes.fetchSemanticsNodes().indexOfFirst { kotlin.math.abs(it.boundsInRoot.center.y - y) < 40f }
@@ -218,7 +215,7 @@ class ComicSpreadAppTest {
     }
 
     @Test
-    fun `the footer follows the reading footer setting and auto turn works in comics`() {
+    fun `a comic page has no footer whatever the footer setting, and auto turn works`() {
         runBlocking {
             val p = app.container.prefs.load()
             app.container.prefs.save(
@@ -237,14 +234,22 @@ class ComicSpreadAppTest {
         compose.activityRule.scenario.recreate()
         openVolume()
         waitFor(page("1"))
-        // 장 이름 자리에 권 이름, 오른쪽에 %. 0.41 까지는 "제목 · 쪽" 으로 박혀 있었다.
-        waitFor(hasText("1권"))
-        assertTrue(has(hasText("0%")))
-        assertFalse(has(hasText("1 / 7")), "꺼 둔 쪽 자리가 보인다")
+        // 쪽 만화는 그림이 화면 끝까지 찬다(0.45.0, 사용자 결정) — 책의 하단 정보 설정을 켜 두어도 만화에는 줄이 없다.
+        compose.mainClock.advanceTimeBy(500)
+        assertFalse(has(hasText("1권")) || has(hasText("0%")) || has(hasText("1 / 7")), "만화 아래에 정보 줄이 남았다")
         // 자동 넘김: 손대지 않아도 다음 판으로.
         val seconds = io.github.kgcaudit.reader.ui.design.AutoTurn.entries.first { it.seconds != null }.seconds!!
         compose.mainClock.advanceTimeBy((seconds + 2) * 1_000L)
         waitFor(page("2–3"))
+    }
+
+    /** 넘김 효과를 고른다. 붙은 밀기를 재는 시험은 "밀기" 로 — 기본(말림)은 책과 같은 종이 넘김이다(0.45.0). */
+    private fun useTurn(effect: io.github.kgcaudit.reader.ui.design.PageTurn) {
+        runBlocking {
+            val p = app.container.prefs.load()
+            app.container.prefs.save(p.copy(screen = p.screen.copy(pageTurn = effect)))
+        }
+        compose.activityRule.scenario.recreate()
     }
 
     /** 화면 가운데 줄 [fx] 자리가 [page] 쪽 색인가(기다리지 않는다 — 끄는 중의 한 순간을 잰다). */
@@ -254,6 +259,7 @@ class ComicSpreadAppTest {
     @Config(qualifiers = "w393dp-h851dp-xhdpi")
     fun `while dragging, the next page is attached right beside the current one`() {
         // 0.40.0 사용자 결정 7: 만화는 두 쪽에 걸친 그림이 있다 — 넘기는 동안 다음 쪽이 바로 옆에 붙어 함께 와야 이어 보인다.
+        useTurn(io.github.kgcaudit.reader.ui.design.PageTurn.Slide)
         openVolume()
         waitFor(page("1"))
         waitForPageAt(0.5f, 0, "첫 쪽이 그려지지 않았다")
@@ -273,6 +279,7 @@ class ComicSpreadAppTest {
     @Test
     @Config(qualifiers = "w393dp-h851dp-xhdpi")
     fun `right to left brings the next page in from the left`() {
+        useTurn(io.github.kgcaudit.reader.ui.design.PageTurn.Slide)
         runBlocking { app.container.data.comics.setRightToLeft(app.container.data.comics.works().first().single(), true) }
         openVolume()
         waitFor(page("1"))
@@ -289,6 +296,7 @@ class ComicSpreadAppTest {
     @Test
     @Config(qualifiers = "w393dp-h851dp-xhdpi")
     fun `a short drag springs back and the first page cannot be pulled away backwards`() {
+        useTurn(io.github.kgcaudit.reader.ui.design.PageTurn.Slide)
         openVolume()
         waitFor(page("1"))
         waitForPageAt(0.5f, 0, "첫 쪽이 그려지지 않았다")
@@ -329,14 +337,13 @@ class ComicSpreadAppTest {
 
     @Test
     @Config(qualifiers = "w393dp-h851dp-xhdpi")
-    fun `right to left fills the top slider from the right like the bottom bar, and a tap on its left goes toward the end`() {
-        // 0.41.0 사용자 결정 9: 오→왼이면 위 막대 · 아래 줄 모두 오른쪽에서 차오른다.
+    fun `right to left fills the top slider from the right, and a tap on its left goes toward the end`() {
+        // 0.41.0 사용자 결정 9: 오→왼이면 막대가 오른쪽에서 차오른다(0.45.0 부터 아래 줄은 없다).
         runBlocking { app.container.data.comics.setRightToLeft(app.container.data.comics.works().first().single(), true) }
         openVolume()
         waitFor(page("1"))
         next(rtl = true); waitFor(page("2"))
         next(rtl = true); waitFor(page("3"))
-        assertTrue(has(hasContentDescription("진행 오른쪽부터")), "아래 줄이 오른쪽부터가 아니다")
         compose.onRoot().performTouchInput { click(center) }
         waitFor(hasContentDescription("지금 위치"))
         compose.mainClock.advanceTimeBy(1_000)
@@ -354,4 +361,86 @@ class ComicSpreadAppTest {
         compose.mainClock.advanceTimeBy(1_000)
         waitFor(page("7"))
     }
+
+    @Test
+    @Config(qualifiers = "w393dp-h851dp-xhdpi")
+    fun `with the default curl the page peels from the right corner and right to left peels from the left`() {
+        // 0.45.0 사용자 결정: 만화도 책의 넘김 효과(기본 말림)를 따른다. 오→왼 만화는 왼쪽 아래 모서리에서 말려야 미는 손과 맞는다.
+        assertEquals(io.github.kgcaudit.reader.ui.design.PageTurn.Curl, app.container.prefs.load().screen.pageTurn)
+        openVolume()
+        waitFor(page("1"))
+        waitForPageAt(0.5f, 0, "첫 쪽이 그려지지 않았다")
+        compose.onRoot().performTouchInput { down(center); moveBy(androidx.compose.ui.geometry.Offset(-width * 0.2f, 0f)); moveBy(androidx.compose.ui.geometry.Offset(-width * 0.2f, 0f)) }
+        compose.mainClock.advanceTimeBy(100)
+        val ltr = screen()
+        File(shots, "comic-curl.png").outputStream().use { ltr.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        // 오른쪽 아래가 걷혀 다음 쪽(빨강)이 보이고, 왼쪽 위는 아직 지금 쪽이다.
+        assertTrue(isPageAt2(ltr, 0.97f, 0.6f, 1), "말린 오른쪽 아래로 다음 쪽이 보이지 않는다")
+        assertTrue(isPageAt2(ltr, 0.15f, 0.3f, 0), "말리는 동안 왼쪽 위의 지금 쪽이 사라졌다")
+        compose.onRoot().performTouchInput { up() }
+        compose.mainClock.advanceTimeBy(1_000)
+        waitFor(page("2"))
+
+        // 오→왼: 오른쪽으로 밀고, 왼쪽 아래가 걷힌다.
+        runBlocking { app.container.data.comics.setRightToLeft(app.container.data.comics.works().first().single(), true) }
+        compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        click(hasText("2권"))
+        waitFor(page("1"))
+        waitForPageAt(0.5f, 0, "오→왼 첫 쪽이 그려지지 않았다")
+        compose.mainClock.advanceTimeBy(1_000)
+        compose.onRoot().performTouchInput { down(center); moveBy(androidx.compose.ui.geometry.Offset(width * 0.2f, 0f)); moveBy(androidx.compose.ui.geometry.Offset(width * 0.2f, 0f)) }
+        compose.mainClock.advanceTimeBy(100)
+        val rtl = screen()
+        File(shots, "comic-curl-rtl.png").outputStream().use { rtl.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        assertTrue(isPageAt2(rtl, 0.03f, 0.6f, 1), "오→왼인데 왼쪽 아래가 말리지 않았다")
+        assertTrue(isPageAt2(rtl, 0.85f, 0.3f, 0), "오→왼 말림에서 오른쪽 위의 지금 쪽이 사라졌다")
+        compose.onRoot().performTouchInput { up() }
+        compose.mainClock.advanceTimeBy(1_000)
+        waitFor(page("2"))
+    }
+
+    @Test
+    @Config(qualifiers = "w393dp-h851dp-xhdpi")
+    fun `a comic page starts right at the top and the spare height goes below`() {
+        // 0.45.0 사용자 결정(Explorer 처럼): 카메라 구멍 아래에 붙인다. 가운데에 두면 위에 검은 띠가 한 번 더 생겨 쪽이 떠 보였다.
+        openVolume()
+        waitFor(page("1"))
+        waitForPageAt(0.5f, 0, "첫 쪽이 그려지지 않았다")
+        val s = screen()
+        // 첫 쪽(#303030)은 바탕(#141311)과 가까워 느슨한 색 비교로는 가리지 못한다 — 빨강 값을 ±6 으로 잰다.
+        val top = s.getPixel(s.width / 2, (s.height * 0.02f).toInt())
+        assertTrue(abs(android.graphics.Color.red(top) - 0x30) <= 6, "쪽이 화면 위에 붙지 않았다: #${Integer.toHexString(top)}")
+        val bottom = s.getPixel(s.width / 2, (s.height * 0.97f).toInt())
+        assertTrue(abs(android.graphics.Color.red(bottom) - 0x14) <= 6, "남는 높이가 아래로 가지 않았다: #${Integer.toHexString(bottom)}")
+    }
+
+    @Test
+    @Config(qualifiers = "w851dp-h393dp-xhdpi")
+    fun `a page narrower than the screen slides with the next page touching its edge`() {
+        // 0.45.0 사용자 결정(Explorer 처럼): 그림이 화면보다 좁아도(가로 화면 한 쪽) 넘기는 동안 쪽 사이에 검은 틈이 없다.
+        // 쉬는 동안에는 옆 여백에 이웃 쪽이 비치지 않는다.
+        runBlocking {
+            val p = app.container.prefs.load()
+            app.container.prefs.save(p.copy(screen = p.screen.copy(pageTurn = io.github.kgcaudit.reader.ui.design.PageTurn.Slide, twoPagesLandscape = false)))
+        }
+        compose.activityRule.scenario.recreate()
+        openVolume()
+        waitFor(page("1"))
+        waitForPageAt(0.5f, 0, "첫 쪽이 그려지지 않았다")
+        val rest = screen()
+        val margin = rest.getPixel((rest.width * 0.85f).toInt(), rest.height / 2)
+        assertTrue(abs(android.graphics.Color.red(margin) - 0x14) <= 6, "쉬는 동안 옆 여백에 이웃 쪽이 비친다: #${Integer.toHexString(margin)}")
+        // 쪽 폭은 화면 높이 × 2/3 ≈ 화면 폭의 31%. 화면 폭의 20% 를 밀면 지금 쪽 오른쪽 끝이 약 45% 자리 — 그 바로 오른쪽이 다음 쪽이어야 한다.
+        compose.onRoot().performTouchInput { down(center); moveBy(androidx.compose.ui.geometry.Offset(-width * 0.1f, 0f)); moveBy(androidx.compose.ui.geometry.Offset(-width * 0.1f, 0f)) }
+        compose.mainClock.advanceTimeBy(100)
+        val mid = screen()
+        File(shots, "comic-slide-narrow.png").outputStream().use { mid.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        assertTrue(isPageAt(mid, 0.48f, 1), "넘기는 동안 다음 쪽이 지금 쪽 가장자리에 붙어 있지 않다(검은 틈)")
+        compose.onRoot().performTouchInput { up() }
+        compose.mainClock.advanceTimeBy(1_000)
+        waitFor(page("2"))
+        waitForPageAt(0.5f, 1, "놓은 뒤 다음 쪽으로 자리 잡지 않았다")
+    }
+
+    private fun isPageAt2(shot: Bitmap, fx: Float, fy: Float, page: Int) = near(shot.getPixel((shot.width * fx).toInt(), (shot.height * fy).toInt()), colors[page])
 }

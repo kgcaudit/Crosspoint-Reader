@@ -40,6 +40,11 @@ class PageViewport private constructor(
     val top: Float,
     /** 쉬는 크기. 쪽 전체면 1, 폭 맞춤이면 화면 폭 ÷ 쪽 전체의 폭. */
     val base: Float = 1f,
+    /**
+     * 화면보다 낮은 쪽을 가운데 대신 위에 붙인다(만화, 0.45.0). 남는 높이가 위아래로 나뉘면 카메라 구멍 아래에 검은 띠가
+     * 한 번 더 생겨 쪽이 떠 보였다 — Explorer 처럼 위에 붙이고 남는 것은 아래로 보낸다.
+     */
+    val alignTop: Boolean = false,
 ) {
     private val fitWidth: Float = if (viewWidth / viewHeight > pageAspect) viewHeight * pageAspect else viewWidth
     private val fitHeight: Float = fitWidth / pageAspect
@@ -123,15 +128,15 @@ class PageViewport private constructor(
         val w = fitWidth * scale
         val h = fitHeight * scale
         val l = if (w <= viewWidth) (viewWidth - w) / 2 else left.coerceIn(viewWidth - w, 0f)
-        val t = if (h <= viewHeight) (viewHeight - h) / 2 else top.coerceIn(viewHeight - h, 0f)
-        return PageViewport(viewWidth, viewHeight, pageAspect, scale, l, t, base)
+        val t = if (h <= viewHeight) (if (alignTop) 0f else (viewHeight - h) / 2) else top.coerceIn(viewHeight - h, 0f)
+        return PageViewport(viewWidth, viewHeight, pageAspect, scale, l, t, base, alignTop)
     }
 
     override fun equals(other: Any?): Boolean = other is PageViewport &&
         viewWidth == other.viewWidth && viewHeight == other.viewHeight && pageAspect == other.pageAspect &&
-        scale == other.scale && left == other.left && top == other.top && base == other.base
+        scale == other.scale && left == other.left && top == other.top && base == other.base && alignTop == other.alignTop
 
-    override fun hashCode(): Int = listOf(viewWidth, viewHeight, pageAspect, scale, left, top, base).hashCode()
+    override fun hashCode(): Int = listOf(viewWidth, viewHeight, pageAspect, scale, left, top, base, alignTop).hashCode()
 
     override fun toString(): String =
         "PageViewport(scale=$scale/base=$base, left=$left, top=$top, ${width}x$height in ${viewWidth}x$viewHeight)"
@@ -144,10 +149,10 @@ class PageViewport private constructor(
         /** 한 화면씩 내릴 때 겹치는 몫. 앞 화면의 마지막 한두 줄이 새 화면 머리에 다시 보여 이어 읽힌다. */
         const val OVERLAP = 0.1f
 
-        fun fit(viewWidth: Float, viewHeight: Float, pageAspect: Float): PageViewport {
+        fun fit(viewWidth: Float, viewHeight: Float, pageAspect: Float, alignTop: Boolean = false): PageViewport {
             require(viewWidth > 0f && viewHeight > 0f) { "viewport must be positive" }
             val aspect = if (pageAspect.isFinite() && pageAspect > 0f) pageAspect else DEFAULT_ASPECT
-            return PageViewport(viewWidth, viewHeight, aspect, 1f, 0f, 0f).clamped(1f, 0f, 0f)
+            return PageViewport(viewWidth, viewHeight, aspect, 1f, 0f, 0f, alignTop = alignTop).clamped(1f, 0f, 0f)
         }
 
         /**

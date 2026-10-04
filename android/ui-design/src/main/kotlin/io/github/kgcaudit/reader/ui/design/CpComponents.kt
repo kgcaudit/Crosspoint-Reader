@@ -49,6 +49,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 // ── 기본 ────────────────────────────────────────────────────────────
 
@@ -564,6 +565,8 @@ fun CpRadioRow(
 
 // ── 도구줄 ──────────────────────────────────────────────────────────
 
+private val TOOL_LABEL = androidx.compose.ui.text.TextStyle(fontFamily = androidx.compose.ui.text.font.FontFamily.Default, fontSize = 11.sp, lineHeight = 14.sp)
+
 /** 아이콘 아래 이름을 단 단추. 리더 도구줄의 "목차 · 책갈피 · 보기". */
 @Composable
 fun CpToolButton(
@@ -575,18 +578,20 @@ fun CpToolButton(
 ) {
     val c = CpTheme.colors
     val tint = if (selected) c.accent else c.text
+    // 46dp(0.45.0): 그림 22 + 이름 11sp. 0.44 의 56dp + 위아래 여백은 읽기 메뉴 아래 판을 112dp 로 키웠다. 누르는 칸은 폭이
+    // 넉넉해(세 단추가 줄을 나눠 가진다) 높이를 줄여도 손가락이 빗나가지 않는다.
     Column(
         modifier
-            .heightIn(min = 56.dp)
+            .heightIn(min = 46.dp)
             .clip(RoundedCornerShape(CpTheme.metrics.cornerMedium))
             .clickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+            .padding(horizontal = 12.dp, vertical = 3.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        CpIcon(icon, tint)
+        CpIcon(icon, tint, size = 22.dp)
         // 그림은 accent(3:1 이면 된다), 글자는 accentText — 고른 "보기" 이름이 밝은 판에서 대비 4.1 이었다(0.29.0).
-        CpText(label, CpTheme.type.caption, if (selected) c.accentText else c.text, Modifier.padding(top = 2.dp))
+        CpText(label, TOOL_LABEL, if (selected) c.accentText else c.text, Modifier.padding(top = 1.dp))
     }
 }
 

@@ -124,6 +124,16 @@ class ComicReaderAppTest {
     }
 
     private fun page(n: Int) = hasContentDescription("만화 ${n}쪽")
+
+    /** 메뉴를 열어 부제(쪽 · 방향)를 기다렸다가 닫는다. 쪽 만화에는 아래 정보 줄이 없어(0.45.0) 메뉴가 유일한 표시다. */
+    private fun waitMenuSubtitle(text: String) {
+        compose.mainClock.advanceTimeBy(1_000)
+        compose.onRoot().performTouchInput { click(center) }
+        waitFor(hasText(text))
+        compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        compose.waitForIdle()
+        compose.mainClock.advanceTimeBy(1_000)
+    }
     private fun tapRight() = compose.onRoot().performTouchInput { click(centerRight.copy(x = width * 0.9f)) }
     private fun tapLeft() = compose.onRoot().performTouchInput { click(centerLeft.copy(x = width * 0.1f)) }
     private suspend fun progressOf(name: String) = app.container.data.comics.progress().first()
@@ -140,7 +150,8 @@ class ComicReaderAppTest {
     fun `a volume opens from the work page and turns forward and back`() {
         openVolume("1권")
         waitFor(page(1))
-        assertTrue(has(hasText("1 / 3")))
+        // 그림이 화면 끝까지 찬다 — 아래 정보 줄(쪽 · %)이 없다(0.45.0).
+        assertTrue(!has(hasText("1 / 3")) && !has(hasText("33%")), "만화 아래에 정보 줄이 남았다")
         tapRight()
         waitFor(page(2))
         compose.onRoot().performTouchInput { swipeLeft() }
@@ -161,7 +172,7 @@ class ComicReaderAppTest {
         runBlocking { app.container.data.comics.setRightToLeft(app.container.data.comics.works().first().single(), true) }
         click(hasText("1권"))
         waitFor(page(1))
-        waitFor(hasText("1 / 3  ← 오→왼"))
+        waitMenuSubtitle("1 / 3쪽 · 오→왼")
         tapRight()
         // 한 번 누르기는 두 번 누르기를 기다린 뒤에 온다 — 시계를 넉넉히 흘린 뒤 본다(흘리지 않으면 누름이 아직 오지 않아
         // 어느 쪽으로 가든 통과했다).
@@ -176,7 +187,6 @@ class ComicReaderAppTest {
         waitFor(page(3))
         val s = screen()
         assertTrue(redAt(s, 0.25f) && !redAt(s, 0.75f), "오→왼에서 쪽 그림까지 거울처럼 뒤집혔다")
-        assertTrue(has(hasContentDescription("진행 오른쪽부터")))
     }
 
     @Test
@@ -191,7 +201,6 @@ class ComicReaderAppTest {
         shot("comic-volume-end")
         runBlocking { assertTrue(progressOf("별 01권.cbz").finished, "마지막 쪽까지 읽었는데 다 읽음이 아니다") }
         click(hasText("이어서 읽기"))
-        waitFor(hasText("1 / 3"))
         waitFor(page(1))
         tapRight()
         waitFor(page(2))
@@ -240,7 +249,7 @@ class ComicReaderAppTest {
         // 합본 줄 아래 들여쓴 "4권" — 합본 파일의 셋째 쪽부터.
         click(hasText("4권"))
         waitFor(page(3))
-        assertTrue(has(hasText("3 / 4")))
+        waitMenuSubtitle("3 / 4쪽")
     }
 
     @Test
@@ -255,7 +264,8 @@ class ComicReaderAppTest {
         compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
         compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
         click(hasText("2권"))
-        waitFor(hasText("1 / 3  ← 오→왼"))
+        waitFor(page(1))
+        waitMenuSubtitle("1 / 3쪽 · 오→왼")
     }
 
     @Test

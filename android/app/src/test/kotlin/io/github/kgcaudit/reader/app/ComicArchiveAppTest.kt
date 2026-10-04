@@ -122,8 +122,9 @@ class ComicArchiveAppTest {
     @Test
     fun `a cb7 opens with the direction its comic info gives`() {
         openVolume("칠지", "2권")
-        // ComicInfo 의 Manga=YesAndRightToLeft — 아래 줄에 오→왼.
-        waitFor(hasText("1 / 3  ← 오→왼"))
+        // ComicInfo 의 Manga=YesAndRightToLeft — 메뉴 부제에 오→왼(0.45.0 부터 아래 정보 줄이 없어 메뉴가 보인다).
         waitForColor(0xFFD03030.toInt(), "cb7 1쪽(빨강)이 그려지지 않았다")
+        compose.onRoot().performTouchInput { click(center) }
+        waitFor(hasText("1 / 3쪽 · 오→왼"))
     }
 }

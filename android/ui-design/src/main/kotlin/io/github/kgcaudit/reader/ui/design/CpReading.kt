@@ -481,8 +481,9 @@ fun CpViewSettingsScreen(
                 CpChoice("음량 단추로 넘기기", listOf("켬", "끔"), if (prefs.volumeKeys) 0 else 1, {
                     onChange(prefs.copy(volumeKeys = it == 0))
                 }, child)
-                // 만화는 앞뒤 쪽이 붙어 미끄러지는 넘김으로 정했다(2026-10-03 결정 7). 웹툰은 넘기지 않고 내린다.
-                if (reader == CpReaderKind.Book || reader == CpReaderKind.Pdf) {
+                // 만화도 책과 같은 넘김 효과를 따른다(0.45.0, 2026-10-04 사용자 결정 — 0.40 의 "만화는 밀기만" 을 바꿈). "밀기" 는
+                // 만화에서 앞뒤 쪽이 붙어 미끄러지는 넘김이다. 웹툰은 넘기지 않고 내린다.
+                if (reader != CpReaderKind.Webtoon) {
                     val turns = PageTurn.entries
                     CpChoice("넘김 효과", turns.map { it.label }, turns.indexOf(prefs.pageTurn), {
                         onChange(prefs.copy(pageTurn = turns[it]))
@@ -546,7 +547,8 @@ fun CpViewSettingsScreen(
                 CpChoice("화면 켜짐 유지", keep.map { it.label }, keep.indexOf(prefs.keepScreenOn), {
                     onChange(prefs.copy(keepScreenOn = keep[it]))
                 }, child)
-                CpLinkRow("하단 정보", prefs.footer.summary, { sub = SettingsPage.Footer }, child)
+                // 쪽 만화는 아래 정보 줄 없이 그림이 화면 끝까지 찬다(0.45.0, 사용자 결정) — 바꿔도 보이지 않는 줄은 숨긴다.
+                if (reader != CpReaderKind.Comic) CpLinkRow("하단 정보", prefs.footer.summary, { sub = SettingsPage.Footer }, child)
                 // 웹툰은 세로로 밀어 내린다 — 왼쪽 끝의 위아래 밀기와 같은 몸짓이다.
                 if (reader != CpReaderKind.Webtoon) {
                     CpChoice("왼쪽 끝을 밀어 밝기 조절", listOf("켬", "끔"), if (prefs.brightnessGesture) 0 else 1, {
