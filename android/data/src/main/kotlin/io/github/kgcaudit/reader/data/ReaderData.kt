@@ -111,6 +111,16 @@ class ReaderData(
      * @return 살핀 수.
      */
     suspend fun probeComics(): Int = withContext(io) {
+        // 살피기 규칙이 바뀌면(0.48.0: 압축 속 권) 옛 규칙이 "만화 아님" 이라 적은 압축을 한 번 다시 본다. 파일이 그대로면
+        // 다시 살피지 않아서, 0.48.0 으로 올린 휴대폰에서 "[작가] 작품 (1-3, 완결).zip" 이 계속 빠져 있었다(사용자 보고 —
+        // 새로 깐 시험 환경에서는 처음부터 살피니 드러나지 않았다). 표시는 백업에서 빠지는 곳에 둔다: 기록을 새 휴대폰으로
+        // 옮기면 그쪽에서도 한 번 다시 본다.
+        val mark = File(context.noBackupFilesDir, PROBE_MARK)
+        val seen = runCatching { mark.readText().trim().toInt() }.getOrDefault(0)
+        if (seen < PROBE_GENERATION) {
+            comics.reprobeRejected()
+            runCatching { mark.writeText(PROBE_GENERATION.toString()) }
+        }
         var probed = 0
         // 압축 속 권(0.48.0)은 바깥 압축을 살피면서 생긴다 — 같은 부름에서 그 권들까지 살펴야 서재에 바로 보인다. 한 겹만
         // 펼치므로 두 바퀴면 끝나지만, 바퀴 수를 묶어 두어 무엇이 꼬여도 끝없이 돌지 않게 한다.
@@ -303,6 +313,11 @@ class ReaderData(
          * 하나 더 두어 막 넘어온 화까지.
          */
         const val KEEP_UNPACKED = 4
+        /**
+         * 살피기 규칙의 세대. 규칙이 바뀌어 옛 "만화 아님" 판정이 틀릴 수 있으면 올린다. 1 = 0.33.0 ~ 0.47.1, 2 = 0.48.0 압축 속 권.
+         */
+        const val PROBE_GENERATION = 2
+        const val PROBE_MARK = "comic-probe-generation"
         /** 다 풀었다는 표시 파일. 풀다가 앱이 닫히면 없으니, 다음에 다시 푼다. */
         const val DONE = ".olo-unpacked"
         /** 압축 속 권(0.48.0)을 꺼내 둔 사본의 이름 앞부분(뒤에 확장자)과, 다 꺼냈다는 표시. */

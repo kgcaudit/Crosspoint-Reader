@@ -295,6 +295,9 @@ class ComicLibrary(private val db: ReaderDatabase) {
     /** 단위 하나(뷰어가 열 때). 숨긴 것도 준다 — 읽던 권을 되살릴 때 서재 훑기 사이에 잠깐 숨어 있을 수 있다. */
     suspend fun unit(id: String): ComicUnit? = comics.get(id)?.let(::toUnit)
 
+    /** 옛 규칙으로 "만화 아님" 이라 적힌 압축을 다시 살필 차례로. */
+    suspend fun reprobeRejected(): Int = comics.reprobeRejected()
+
     /** 살필 차례인 압축(zip · cbz). */
     suspend fun needingProbe(): List<ComicUnitEntity> = comics.needingProbe()
 

@@ -202,6 +202,22 @@ class NestedComicAppTest {
     }
 
     @Test
+    fun `an archive an older version called not a comic is looked at again after the update`() {
+        // 0.47 까지의 휴대폰 상태: 바깥 zip 은 "만화 아님" 으로 살펴져 있고 안의 권은 없다. 파일은 그대로라 크기 · 수정 시각으로는
+        // 다시 살필 까닭이 없다 — 0.48.0 을 깔고도 서재에 나오지 않았다(사용자 보고).
+        android.database.sqlite.SQLiteDatabase.openDatabase(app.getDatabasePath("reader.db").path, null, android.database.sqlite.SQLiteDatabase.OPEN_READWRITE).use { db ->
+            db.execSQL("DELETE FROM comic_units WHERE kind = 'NESTED'")
+            db.execSQL("UPDATE comic_units SET notComic = 1 WHERE name = ?", arrayOf<Any>("$insta.zip"))
+        }
+        File(app.noBackupFilesDir, "comic-probe-generation").delete()
+        assertEquals(emptyList(), runBlocking { app.container.data.comics.works().first().filter { it.title == "인스타 걸" } })
+        scan()
+        assertEquals(listOf("1권", "2권", "3권"), labels("인스타 걸"))
+        // 한 번만: 표시를 남겨, 정말 만화가 아닌 zip 을 열 때마다 다시 살피지 않는다.
+        assertEquals("2", File(app.noBackupFilesDir, "comic-probe-generation").readText())
+    }
+
+    @Test
     fun `a volume taken out of the archive leaves the shelf`() {
         File(root, "Comic/별 묶음.zip").writeBytes(zip(listOf("별 1권.cbz" to zip(pages(red), stored = true)), stored = true))
         scan()

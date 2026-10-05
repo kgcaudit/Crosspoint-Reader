@@ -202,6 +202,10 @@ interface ComicDao {
     @Query("UPDATE comic_units SET missing = 1 WHERE id IN (:ids)")
     suspend fun markMissing(ids: List<String>)
 
+    /** "만화 아님" 으로 적힌 압축을 모두 살필 차례로 되돌린다(살피기 규칙이 바뀌었을 때). */
+    @Query("UPDATE comic_units SET probed = 0 WHERE notComic = 1")
+    suspend fun reprobeRejected(): Int
+
     @Query("UPDATE comic_units SET missing = 1 WHERE folderUri = :folderUri")
     suspend fun hideFolder(folderUri: String)
 
