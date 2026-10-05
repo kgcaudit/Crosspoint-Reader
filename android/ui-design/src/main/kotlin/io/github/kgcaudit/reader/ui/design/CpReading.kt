@@ -136,12 +136,14 @@ fun CpReadingFooter(
     val needsClock = FooterItem.Clock in footer.slots || FooterItem.Battery in footer.slots
     val now = if (needsClock) rememberMinuteTick() else 0L
     val context = LocalContext.current
+    // 배터리는 시계와 같이 분마다 한 번 읽는다 — 그릴 때마다 읽으면 쪽을 넘길 때마다 시스템을 부른다.
+    val battery = remember(now) { if (FooterItem.Battery in footer.slots) batteryPercent(context) else null }
     fun text(item: FooterItem): String = when (item) {
         FooterItem.None -> ""
         FooterItem.BookTitle -> info.bookTitle
         FooterItem.ChapterTitle -> info.chapterTitle.orEmpty()
         FooterItem.Clock -> clockText(context, now)
-        FooterItem.Battery -> batteryPercent(context)?.let { "배터리 $it%" }.orEmpty()
+        FooterItem.Battery -> battery?.let { "배터리 $it%" }.orEmpty()
         FooterItem.Page -> info.page
         FooterItem.Percent -> "${kotlin.math.round(info.percent).toInt()}%"
         FooterItem.ChapterLeft -> when (val left = info.chapterPagesLeft) {

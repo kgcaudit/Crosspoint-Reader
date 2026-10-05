@@ -94,7 +94,8 @@ class SearchSession {
                     searched = i + 1
                 }
             } finally {
-                running = false
+                // 새 찾기가 이 일을 취소하고 시작했으면 "찾는 중" 은 그쪽 것이다 — 옛 일이 끄면 새 찾기가 도는데 막대가 사라졌다.
+                if (job === coroutineContext[kotlinx.coroutines.Job]) running = false
             }
         }
     }

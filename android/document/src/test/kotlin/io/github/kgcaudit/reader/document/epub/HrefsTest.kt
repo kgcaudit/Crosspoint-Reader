@@ -59,6 +59,14 @@ class HrefsTest {
     }
 
     @Test
+    fun `a sign after a percent is not taken as an escape`() {
+        // toIntOrNull(16) 은 "+5" · "-1" 을 받아 0x05 · 음수 바이트를 써서 파일 이름이 바뀌었다 — 그 그림을 못 찾는다.
+        assertEquals("a%+5b", Hrefs.decode("a%+5b"))
+        assertEquals("a%-1b", Hrefs.decode("a%-1b"))
+        assertEquals("a b", Hrefs.decode("a%20b"))
+    }
+
+    @Test
     fun `fragments are split off the path`() {
         assertEquals("ch1.xhtml", Hrefs.withoutFragment("ch1.xhtml#note3"))
         assertEquals("note3", Hrefs.fragment("ch1.xhtml#note3"))

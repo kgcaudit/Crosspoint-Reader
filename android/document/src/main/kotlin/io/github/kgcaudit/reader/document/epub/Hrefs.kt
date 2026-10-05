@@ -91,8 +91,11 @@ internal object Hrefs {
         while (i < text.length) {
             val c = text[i]
             if (c == '%' && i + 2 < text.length) {
-                val hex = text.substring(i + 1, i + 3).toIntOrNull(16)
-                if (hex != null) {
+                // toIntOrNull(16) 은 "%+5" 같은 부호도 받아 들여 음수 바이트를 썼다 — 두 글자 모두 16진 숫자일 때만.
+                val high = Character.digit(text[i + 1], 16)
+                val low = Character.digit(text[i + 2], 16)
+                if (high >= 0 && low >= 0) {
+                    val hex = high * 16 + low
                     bytes.write(hex)
                     i += 3
                     continue

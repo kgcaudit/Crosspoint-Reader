@@ -196,8 +196,17 @@ object PageCodec {
      * 책갈피와 이어읽기는 "이 글자가 몇 번째 페이지인가" 만 알면 되고, 그건 색인
      * 파일만 읽어 이분 탐색으로 끝난다. 이것 없이 위치를 찾으려면 페이지를 하나씩
      * 복원해야 하고, 그러면 책을 열 때마다 챕터 전체를 되돌리는 값을 치른다.
+     *
+     * 망가진 캐시(저장 중 꺼짐 · 디스크 오류)는 어떤 값이 와도 예외 대신 null 이다 — null 이면 그 장을 다시 조판한다. 예외로
+     * 두면 쪽을 넘기는 손에 앱이 닫혔다.
      */
-    fun decodeStarts(index: ByteArray): IntArray? {
+    fun decodeStarts(index: ByteArray): IntArray? = try {
+        decodeStartsOrThrow(index)
+    } catch (e: RuntimeException) {
+        null
+    }
+
+    private fun decodeStartsOrThrow(index: ByteArray): IntArray? {
         val header = decodeIndex(index) ?: return null
         val starts = IntArray(header.pageCount)
         for (page in 0 until header.pageCount) {
@@ -215,7 +224,13 @@ object PageCodec {
      * [objects] 는 챕터 전체의 그림·구분선이 순서대로 들어 있는 덩이다. 페이지마다
      * 몇 개뿐이라 처음부터 훑어도 싸고, 이 덕분에 런 배열은 고정 길이를 유지한다.
      */
-    fun decodePage(encoded: EncodedChapter, pageIndex: Int): Page? {
+    fun decodePage(encoded: EncodedChapter, pageIndex: Int): Page? = try {
+        decodePageOrThrow(encoded, pageIndex)
+    } catch (e: RuntimeException) {
+        null
+    }
+
+    private fun decodePageOrThrow(encoded: EncodedChapter, pageIndex: Int): Page? {
         val header = decodeIndex(encoded.index) ?: return null
         if (pageIndex !in 0 until header.pageCount) return null
 
@@ -229,8 +244,9 @@ object PageCodec {
         val startChar = entry.u32().toInt()
         val endChar = entry.u32().toInt()
 
-        val runsEnd = (runStart + runCount) * RUN_SIZE
-        if (runsEnd > encoded.runs.size) return null
+        // Long 으로 셈한다 — Int 로 곱하면 넘쳐 음수가 되어 검사를 지나쳤다.
+        val runsEnd = (runStart.toLong() + runCount) * RUN_SIZE
+        if (runStart < 0 || runsEnd > encoded.runs.size) return null
 
         val runs = ArrayList<PlacedRun>(runCount)
         val runReader = ByteReader(encoded.runs, runStart * RUN_SIZE)
@@ -399,7 +415,7 @@ private class ByteReader(private val buffer: ByteArray, private var position: In
     fun string(): String? {
         val length = u32().toInt()
         if (length < 0) return null
-        if (position + length > buffer.size) return null
+        if (length > buffer.size - position) return null
         val text = String(buffer, position, length, Charsets.UTF_8)
         position += length
         return text

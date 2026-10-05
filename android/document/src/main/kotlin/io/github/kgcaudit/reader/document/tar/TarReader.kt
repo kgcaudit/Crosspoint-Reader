@@ -45,8 +45,10 @@ class TarReader private constructor(
                     break
                 }
                 val size = sizeOf(header)
-                if (size < 0) break
                 val dataStart = at + BLOCK
+                // 파일 끝을 넘는 크기는 잘린 파일이거나 깨진 머리다. 그대로 두면 base-256 의 큰 값에서 다음 머리 자리를 셈하다
+                // 넘쳐 음수가 되어 앞으로 되돌아가며 끝없이 돌았다 — 여기서 멈추고 읽은 항목만 둔다.
+                if (size < 0 || size > source.size - dataStart) break
                 val type = header[156].toInt().toChar()
                 when (type) {
                     // GNU 긴 이름: 내용이 다음 항목의 이름이다.

@@ -166,8 +166,9 @@ class EpubDocument private constructor(
          * 보다 낫다.
          */
         private fun findOpfPath(zip: ZipReader): String? {
-            zip.readBytes(ContainerParser.PATH)
-                ?.let { ContainerParser.parse(it.inputStream().asXhtmlReader()) }
+            // container.xml 이 깨져 파서가 던지면 관례 위치를 보지도 못하고 책 전체가 열리지 않았다 — 실패는 "못 찾음" 으로.
+            runCatching { zip.readBytes(ContainerParser.PATH) }.getOrNull()
+                ?.let { bytes -> runCatching { ContainerParser.parse(bytes.inputStream().asXhtmlReader()) }.getOrNull() }
                 ?.takeIf { it in zip }
                 ?.let { return it }
 

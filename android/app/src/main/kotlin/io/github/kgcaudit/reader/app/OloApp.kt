@@ -240,7 +240,8 @@ class AppContainer(private val app: Application) {
             val source = data.sources.seekableSource(uri)
             reflow(EpubDocument.open(id, name, source), source.size)
         }
-        BookFormat.TXT -> reflow(TxtDocument.open(id, name, data.sources.byteSource(uri)), sizeBytes)
+        // TXT 도 지금 파일의 크기로 판을 가른다(목록의 크기는 훑기 전이면 옛 값이다). 제공자가 크기를 모를 때만 목록의 값.
+        BookFormat.TXT -> reflow(TxtDocument.open(id, name, data.sources.byteSource(uri)), data.sources.size(uri) ?: sizeBytes)
         BookFormat.PDF -> {
             val book = PdfBook.open(id, name, data.sources.seekableDescriptor(uri), pdfEngine)
             closingOnFailure(book) {
@@ -305,7 +306,18 @@ fun describeOpenFailure(error: Throwable, format: BookFormat?): String = when {
 class PrefsStore(context: Context) {
     private val sp = context.getSharedPreferences("reader", Context.MODE_PRIVATE)
 
-    fun load(): ReaderPrefs = ReaderPrefs(
+    /**
+     * 저장한 설정. 값의 꼴이 어긋나 읽다 무너지면(ClassCastException — 손으로 고친 백업 · 옛 판의 다른 꼴) 기본값으로 연다 —
+     * 설정 하나 때문에 켤 때마다 앱이 닫히면 되돌릴 길이 없다.
+     */
+    fun load(): ReaderPrefs = try {
+        loadOrThrow()
+    } catch (e: RuntimeException) {
+        android.util.Log.w("OloPrefs", "saved settings unreadable, using defaults", e)
+        ReaderPrefs()
+    }
+
+    private fun loadOrThrow(): ReaderPrefs = ReaderPrefs(
         fontSizeSp = sp.getInt(KEY_SIZE, ReaderPrefs.DEFAULT_SIZE_SP)
             .coerceIn(ReaderPrefs.MIN_SIZE_SP, ReaderPrefs.MAX_SIZE_SP),
         font = migrateFont(sp.getString(KEY_FONT, null)),
@@ -420,8 +432,10 @@ class PrefsStore(context: Context) {
      * 책을 닫아도 남아야 다음 책에서 처음부터 다시 재지 않는다.
      */
     fun loadSpeed(kind: String): ReadingSpeed {
-        val value = sp.getFloat("speed.$kind", -1f)
-        return ReadingSpeed(value.takeIf { it > 0f }?.toDouble(), sp.getInt("speed.$kind.samples", 0))
+        val value = runCatching { sp.getFloat("speed.$kind", -1f) }.getOrDefault(-1f)
+        val samples = runCatching { sp.getInt("speed.$kind.samples", 0) }.getOrDefault(0)
+        // 무한대 · 음수 표본은 망가진 값이다 — 남은 시간이 "0분" · 엉뚱한 값으로 나온다.
+        return ReadingSpeed(value.takeIf { it.isFinite() && it > 0f }?.toDouble(), samples.coerceAtLeast(0))
     }
 
     fun saveSpeed(kind: String, speed: ReadingSpeed) {

@@ -212,12 +212,14 @@ class ComicBook(
      */
     fun trim() {
         bitmaps.evictAll()
+        // 붙잡아 둔 쪽(쪽 넘김에서 앞뒤 판)도 놓는다 — 웹툰으로 바꾼 뒤에는 다시 붙잡을 일이 없어 두 쪽 판 몇 장이 남았다.
+        pinnedPages = emptySet()
+        pinned.clear()
         lastSource = null
     }
 
     override fun close() {
-        bitmaps.evictAll()
-        lastSource = null
+        trim()
         pages.close()
     }
 

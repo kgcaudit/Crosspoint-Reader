@@ -192,6 +192,8 @@ fun VoiceScreen(
     var preview by remember { mutableStateOf<Pair<String, Speaker>?>(null) }
     DisposableEffect(Unit) { onDispose { preview?.second?.shutdown() } }
     fun listen(v: VoiceChoice) = scope.launch {
+        // 책을 듣는 중이면 먼저 멈춘다 — 그대로 두면 두 목소리가 겹쳐 무엇을 들어 보는지 알 수 없었다. 이어 듣기는 사람이 ▶ 로.
+        ListenHub.current.value?.takeIf { it.state.value.playing }?.pause()
         val speaker = preview?.takeIf { it.first == v.engine }?.second ?: run {
             preview?.second?.shutdown()
             kit.speaker(v.engine).also { preview = v.engine to it }

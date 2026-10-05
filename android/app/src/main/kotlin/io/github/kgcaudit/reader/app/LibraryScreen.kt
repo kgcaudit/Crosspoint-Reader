@@ -271,7 +271,7 @@ fun LibraryScreen(
         }
 
         if (folders.isEmpty()) {
-            EmptyLibrary { pickFolder.launch(null) }
+            EmptyLibrary { pickFolder.launchOr(null) { notice = NO_PICKER to "휴대폰의 ‘파일’ 앱이 꺼져 있으면 켜 주세요." } }
         } else if (comics) {
             androidx.compose.foundation.pager.HorizontalPager(pager, Modifier.fillMaxSize(), verticalAlignment = Alignment.Top) { page ->
                 if (page == 0) bookPage() else ShelfWall(layout) { LazyColumn(Modifier.fillMaxSize()) {
@@ -390,7 +390,7 @@ fun LibraryScreen(
             onPhoto = {
                 workMenu = null
                 coverForId = CoverStore.workId(w.key).value
-                pickCover.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                pickCover.launchOr(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) { notice = NO_PICKER to "휴대폰의 ‘파일’ 앱이 꺼져 있으면 켜 주세요." }
             },
             onRevert = {
                 workMenu = null
@@ -411,7 +411,7 @@ fun LibraryScreen(
                 title = "폴더 추가",
                 icon = CpIcons.Plus,
                 tile = colors.accent,
-                onClick = { manageFolders = false; pickFolder.launch(null) },
+                onClick = { manageFolders = false; pickFolder.launchOr(null) { notice = NO_PICKER to "휴대폰의 ‘파일’ 앱이 꺼져 있으면 켜 주세요." } },
                 compact = true,
                 inset = 0.dp,
             )
@@ -422,9 +422,16 @@ fun LibraryScreen(
                     CpText(folderName(uri), CpTheme.type.body, colors.text, Modifier.weight(1f))
                     CpIconButton(CpIcons.Close, "${folderName(uri)} 빼기", {
                         scope.launch {
-                            data.removeFolder(uri)
-                            folders = data.folders.folders()
-                            if (folders.isEmpty()) manageFolders = false
+                            // DB 가 가득 · 깨짐이면 예외 — 잡지 않으면 판에서 ✕ 를 누른 손에 앱이 닫혔다.
+                            try {
+                                data.removeFolder(uri)
+                                folders = data.folders.folders()
+                                if (folders.isEmpty()) manageFolders = false
+                            } catch (e: kotlinx.coroutines.CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                notice = "이 폴더를 빼지 못했습니다" to e.message
+                            }
                         }
                     }, tint = colors.textMuted)
                 }
@@ -470,7 +477,7 @@ fun LibraryScreen(
             onPick = {
                 coverMenu = null
                 coverForId = book.id.value
-                pickCover.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                pickCover.launchOr(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) { notice = NO_PICKER to "휴대폰의 ‘파일’ 앱이 꺼져 있으면 켜 주세요." }
             },
             onRevert = {
                 coverMenu = null
@@ -674,6 +681,21 @@ private fun DoneItem(
 }
 
 /** "9월 21일". 해가 바뀌어도 책장에서는 날짜만으로 충분하다 — 해까지 적으면 칸 폭을 넘는다. */
+/**
+ * 시스템 고르기 창(파일 · 폴더 · 사진)을 연다. 그 창이 없는 기기(일부 Go · TV · 관리 프로필)에서는 열기 자체가 예외라 앱이
+ * 닫혔다 — 빈 서재에서 "폴더 추가" 를 누르면 끝이었다. 없으면 [onMissing] 으로 알린다.
+ */
+internal fun <I> androidx.activity.result.ActivityResultLauncher<I>.launchOr(input: I, onMissing: () -> Unit) {
+    try {
+        launch(input)
+    } catch (e: android.content.ActivityNotFoundException) {
+        onMissing()
+    }
+}
+
+/** 고르기 창이 없을 때 알림. */
+internal const val NO_PICKER = "이 휴대폰에서 고르기 창을 열 수 없습니다"
+
 internal fun monthDay(epochMs: Long): String {
     val date = java.time.Instant.ofEpochMilli(epochMs).atZone(java.time.ZoneId.systemDefault()).toLocalDate()
     return "${date.monthValue}월 ${date.dayOfMonth}일"

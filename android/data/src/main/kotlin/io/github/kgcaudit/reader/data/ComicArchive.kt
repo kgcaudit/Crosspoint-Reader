@@ -39,7 +39,8 @@ internal sealed class ComicArchive : Closeable {
         private val local: UriSources.LocalPath,
         private val scratch: File,
     ) : ComicArchive() {
-        override val names: List<String> = NativeArchives.list(kind, local.path).filter { !it.isDirectory && !it.encrypted }.map { it.path }
+        override val names: List<String> = NativeArchives.list(kind, local.path)
+            .filter { !it.isDirectory && !it.encrypted && safeEntryName(it.path) }.map { it.path }
 
         override fun entry(name: String): InputStream? {
             val dir = File(scratch, "one-" + System.nanoTime())
@@ -59,6 +60,13 @@ internal sealed class ComicArchive : Closeable {
     }
 
     companion object {
+        /**
+         * 풀어도 되는 항목 이름인가: 절대 경로나 ".." 마디가 있으면 풀 곳 밖에 쓰인다 — 일부러 만든 압축이 앱의 DB · 설정을
+         * 덮어쓸 수 있다("zip slip"). 7z 풀기(C++)도 같은 이름을 거르고, 여기서 한 번 더 걸러 쪽 목록에도 넣지 않는다.
+         */
+        fun safeEntryName(name: String): Boolean =
+            name.isNotEmpty() && !name.startsWith("/") && !name.startsWith("\\") && name.replace('\\', '/').split('/').none { it == ".." }
+
         /** [uri] 의 압축을 연다. 아는 형식이 아니면 [IOException]. */
         fun open(sources: UriSources, uri: android.net.Uri, scratch: File): ComicArchive {
             val source = sources.seekableSource(uri)
@@ -76,7 +84,13 @@ internal sealed class ComicArchive : Closeable {
                         throw e
                     }
                 }
-                n >= 512 && head[0] != 'P'.code.toByte() && TarReader.looksLikeTar(head) -> Tar(TarReader.open(source))
+                n >= 512 && head[0] != 'P'.code.toByte() && TarReader.looksLikeTar(head) -> try {
+                    Tar(TarReader.open(source))
+                } catch (e: Throwable) {
+                    // 깨진 cbt: 닫지 않으면 파일 손잡이와 받아 둔 임시 사본(spool)이 남는다.
+                    source.close()
+                    throw e
+                }
                 else -> try {
                     Zip(ZipReader.open(source))
                 } catch (e: Throwable) {

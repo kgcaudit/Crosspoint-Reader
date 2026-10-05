@@ -34,10 +34,19 @@ object CoverCrop {
      * 위에서부터 줄을 보며 바탕이 아닌 것이 처음 나온 줄. 바탕은 첫 줄 첫 점의 색이다 — 웹툰 바탕은 대개 흰색이지만
      * 검은 바탕 작품도 있다. 칸 테두리처럼 한 색으로 꽉 찬 줄도 바탕색이 아니면 내용이다. 끝까지 바탕뿐이면 0.
      */
-    fun firstContentRow(rows: List<IntArray>): Int {
-        val background = rows.firstOrNull()?.firstOrNull() ?: return 0
-        val found = rows.indexOfFirst { row -> row.any { !near(it, background) } }
-        return if (found < 0) 0 else found
+    fun firstContentRow(rows: List<IntArray>): Int = firstContentRow(rows.size) { rows[it] }
+
+    /**
+     * [firstContentRow] 를 줄마다 꺼내 가며: [row] 는 y 번째 줄의 화소. 첫 내용 줄에서 멈춘다 — 긴 띠의 모든 줄을 한꺼번에
+     * 들고 있으면 1440×100000 그림 하나에 수십 MB 가 들었다.
+     */
+    fun firstContentRow(count: Int, row: (Int) -> IntArray): Int {
+        if (count <= 0) return 0
+        val background = row(0).firstOrNull() ?: return 0
+        for (y in 0 until count) {
+            if (row(y).any { !near(it, background) }) return y
+        }
+        return 0
     }
 
     /**

@@ -8,9 +8,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -24,7 +22,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -261,6 +258,10 @@ private fun OloApp(
                 reader?.close()
                 reader = null
                 openId = null
+                // 만화를 보던 중이었으면 그것도 닫는다 — 두면 받은 파일을 닫은 뒤 서재가 아니라 그 만화가 처음부터 다시 열렸다.
+                comicId = null
+                comicStart = null
+                comicPickCover = false
                 failure = null
                 fromOutside = true
                 incomingFormat = request.file.format.name

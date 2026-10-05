@@ -6,13 +6,9 @@ import android.provider.OpenableColumns
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -50,7 +46,9 @@ internal class LastBackupStore(context: Context) {
 }
 
 /** "9월 30일", 올해가 아니면 "2025년 9월 30일". */
-internal fun monthDay(epochMs: Long, today: LocalDate = LocalDate.now()): String {
+// 이름이 서재의 monthDay(연도 없음)와 같던 때(0.47.0 까지)는 인자 하나로 부르면 그쪽이 골라져, 지난해 백업에도 연도가 안
+// 붙었다. 이름을 달리해 섞이지 않게 한다.
+internal fun backupDate(epochMs: Long, today: LocalDate = LocalDate.now()): String {
     val d = Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault()).toLocalDate()
     return if (d.year == today.year) "${d.monthValue}월 ${d.dayOfMonth}일" else "${d.year}년 ${d.monthValue}월 ${d.dayOfMonth}일"
 }
@@ -137,15 +135,15 @@ internal fun ReadingRecordsRows(ui: RecordsUi) {
     val s = ui.summary
     CpListRow(
         "백업 파일 만들기",
-        { create.launch(backupFileName()) },
+        { create.launchOr(backupFileName()) { ui.popup = RecordsPopup.Failed(NO_PICKER) } },
         subtitle = s?.let(::summaryLine) ?: " ",
         // 담을 것이 없으면 빈 파일을 만들게 두지 않는다.
         enabled = s != null && s.books > 0,
     )
     CpListRow(
         "백업 파일에서 가져오기",
-        { open.launch(arrayOf("*/*")) },
-        subtitle = ui.last?.let { "마지막 백업 ${monthDay(it)}" } ?: "다른 휴대폰에서 만든 백업 파일을 고릅니다",
+        { open.launchOr(arrayOf("*/*")) { ui.popup = RecordsPopup.Failed(NO_PICKER) } },
+        subtitle = ui.last?.let { "마지막 백업 ${backupDate(it)}" } ?: "다른 휴대폰에서 만든 백업 파일을 고릅니다",
     )
 }
 
@@ -201,7 +199,7 @@ private fun PreviewPopup(plan: ImportPlan, onCancel: () -> Unit, onImport: () ->
         CpPopup(title = "백업 파일에 기록이 없습니다", message = "가져올 읽기 기록이 없어 아무것도 바꾸지 않았습니다.", onDismiss = onCancel) { OkButton(onCancel) }
         return
     }
-    val made = if (file.createdAtEpochMs > 0) "${monthDay(file.createdAtEpochMs)}에 만든 백업 · " else ""
+    val made = if (file.createdAtEpochMs > 0) "${backupDate(file.createdAtEpochMs)}에 만든 백업 · " else ""
     CpPopup(
         title = "백업 파일에서 가져오기",
         message = "${made}책 ${file.books.size}권의 기록입니다. 이 휴대폰의 기록과 합칩니다. 읽은 자리는 더 많이 읽은 쪽을 따르고, 책갈피 · 형광펜 · 메모는 양쪽 것을 모두 남깁니다.",

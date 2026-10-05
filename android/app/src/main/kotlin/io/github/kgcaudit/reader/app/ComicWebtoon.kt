@@ -273,7 +273,15 @@ fun WebtoonReader(
             snapshotFlow { abs + viewH * PRELOAD_SCREENS >= latestChainTotal }.distinctUntilChanged().collect { near ->
                 if (!near || loading != null || failedNext != null || episodes.any { it.unitId == next.unit.id }) return@collect
                 loading = next.unit.id
-                val opened = runCatching { openEpisode(next) }.getOrNull()
+                // 취소(회전 · 그림 폭 바꾸기로 이 효과가 다시 시작)는 실패가 아니다 — 실패로 적으면 경계 띠 대신 끝 판이 나왔다.
+                val opened = try {
+                    openEpisode(next)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    loading = null
+                    throw e
+                } catch (e: Exception) {
+                    null
+                }
                 loading = null
                 if (opened == null) failedNext = next.unit.id else episodes.add(opened)
             }
@@ -281,6 +289,7 @@ fun WebtoonReader(
 
         // 자리 적기: 손을 멈춘 뒤에(끄는 동안 매번 적으면 DB 쓰기가 쌓인다). 지나온 화는 다 읽은 것으로.
         val finishedSaved = remember { mutableSetOf<String>() }
+        val onPositionNow by rememberUpdatedState(onPosition)
         LaunchedEffect(list) {
             snapshotFlow { abs }.collectLatest { y ->
                 delay(SAVE_DELAY_MS)
@@ -288,10 +297,10 @@ fun WebtoonReader(
                 val (ek, i, f) = c.at(y)
                 val e = episodes.getOrNull(ek) ?: return@collectLatest
                 anchor = Triple(e.unitId, i, f)
-                onPosition(e, i, f, c.reachedEnd(ek, y, viewH.toFloat()))
+                onPositionNow(e, i, f, c.reachedEnd(ek, y, viewH.toFloat()))
                 for (j in 0 until ek) {
                     val before = episodes[j]
-                    if (finishedSaved.add(before.unitId)) onPosition(before, (before.sizes.size - 1).coerceAtLeast(0), 1f, true)
+                    if (finishedSaved.add(before.unitId)) onPositionNow(before, (before.sizes.size - 1).coerceAtLeast(0), 1f, true)
                 }
                 // 둘 앞의 화는 내려놓는다. 목록은 칸 열쇠로 첫 칸을 붙잡으므로 위의 칸이 빠져도 화면이 튀지 않는다.
                 while (episodes.indexOf(e) >= 2) release(episodes.removeAt(0))
@@ -315,11 +324,19 @@ fun WebtoonReader(
         var frameX by remember { mutableFloatStateOf(0f) }
         var frameY by remember { mutableFloatStateOf(0f) }
         var saving by remember { mutableStateOf(false) }
-        LaunchedEffect(pickCover, viewH) {
-            if (!pickCover || frameW > 0f) return@LaunchedEffect
-            frameW = minOf(colW * 0.8f, viewH * 0.7f / CoverCrop.ASPECT)
-            frameX = viewW / 2
-            frameY = viewH * 0.45f
+        // 화면이 바뀌면(회전 · 그림 폭) 틀을 새 화면 안으로 다시 넣는다. 처음 크기 그대로 두었더니 가로로 돌린 뒤 틀이 화면보다
+        // 커져, 끌면 범위 셈(min > max)이 무너져 앱이 닫혔다.
+        LaunchedEffect(pickCover, viewH, colW) {
+            if (!pickCover) return@LaunchedEffect
+            val most = minOf(colW.toFloat(), viewH / CoverCrop.ASPECT)
+            if (frameW <= 0f) {
+                frameW = minOf(colW * 0.8f, viewH * 0.7f / CoverCrop.ASPECT)
+                frameX = viewW / 2
+                frameY = viewH * 0.45f
+            }
+            frameW = frameW.coerceAtMost(most)
+            frameX = frameX.within(frameW / 2, viewW - frameW / 2)
+            frameY = frameY.within(frameW * CoverCrop.ASPECT / 2, viewH - frameW * CoverCrop.ASPECT / 2)
         }
         fun frameRect(): androidx.compose.ui.geometry.Rect =
             androidx.compose.ui.geometry.Rect(
@@ -375,6 +392,12 @@ fun WebtoonReader(
             say(if (bookmarked) "책갈피를 뺐습니다" else "책갈피를 꽂았습니다")
             onBookmark(here.unitId, current)
         }
+        // 손짓 처리기는 한 번 만들어 계속 쓴다 — 그 안에서 지금 값(목록 · 지금 그림 · 기둥 폭)을 바로 읽으면 처음 값에 묶인다.
+        // 그림 폭을 바꾼 뒤 누름 넘김이 버려진 옛 목록을 굴려 아무 일도 없었고, 책갈피 구석은 처음 본 그림에 꽂혔다.
+        val scrollNow by rememberUpdatedState<(Boolean) -> Unit> { forward -> scrollScreen(forward) }
+        val toggleNow by rememberUpdatedState<() -> Unit> { toggleBookmark() }
+        val listNow by rememberUpdatedState(list)
+        val colNow by rememberUpdatedState(colW)
         fun goTo(episode: Int, index: Int) {
             val (item, o) = itemAt(chain.offsetOf(episode, index, 0f))
             scope.launch { list.scrollToItem(item, o) }
@@ -408,14 +431,14 @@ fun WebtoonReader(
                                 val event = awaitPointerEvent(PointerEventPass.Initial)
                                 if (pickCover && event.changes.count { it.pressed } >= 2) {
                                     // 표지를 고르는 동안 두 손가락은 틀 크기다(그림 확대가 아니다).
-                                    frameW = (frameW * event.calculateZoom()).coerceIn(colW * 0.25f, minOf(colW.toFloat(), size.height / CoverCrop.ASPECT))
+                                    frameW = (frameW * event.calculateZoom()).within(colNow * 0.25f, minOf(colNow.toFloat(), size.height / CoverCrop.ASPECT))
                                     event.changes.forEach { it.consume() }
                                 } else if (onFrame) {
                                     event.changes.firstOrNull()?.let { c ->
                                         val d = c.position - c.previousPosition
                                         val half = frameW * CoverCrop.ASPECT / 2
-                                        frameX = (frameX + d.x).coerceIn(frameW / 2, size.width - frameW / 2)
-                                        frameY = (frameY + d.y).coerceIn(half, size.height - half)
+                                        frameX = (frameX + d.x).within(frameW / 2, size.width - frameW / 2)
+                                        frameY = (frameY + d.y).within(half, size.height - half)
                                         c.consume()
                                     }
                                 } else if (event.changes.count { it.pressed } >= 2) {
@@ -424,7 +447,7 @@ fun WebtoonReader(
                                     val focus = event.calculateCentroid()
                                     val pan = event.calculatePan()
                                     // 손가락 사이의 칸이 손가락 아래에 머물게: 세로는 목록을 그만큼 굴리고, 가로는 옮김값을 고친다.
-                                    list.dispatchRawDelta(focus.y / before - focus.y / after - pan.y / after)
+                                    listNow.dispatchRawDelta(focus.y / before - focus.y / after - pan.y / after)
                                     panX = (focus.x - (focus.x - panX) / before * after + pan.x).coerceIn(size.width * (1 - after), 0f)
                                     zoom = after
                                     zoomTick++
@@ -444,10 +467,10 @@ fun WebtoonReader(
                             if (panel != WebtoonPanel.None) { panel = WebtoonPanel.None; return@detectTapGestures }
                             if (stoppedByTouch) { stoppedByTouch = false; return@detectTapGestures }
                             when (latestPrefs.touch.actionAt(at.x, at.y, viewW, 56.dp.toPx())) {
-                                TapAction.Next -> scrollScreen(true)
-                                TapAction.Previous -> scrollScreen(false)
+                                TapAction.Next -> scrollNow(true)
+                                TapAction.Previous -> scrollNow(false)
                                 TapAction.Menu -> panel = WebtoonPanel.Bar
-                                TapAction.Bookmark -> toggleBookmark()
+                                TapAction.Bookmark -> toggleNow()
                             }
                         })
                     },
@@ -605,6 +628,9 @@ fun WebtoonReader(
         }
     }
 }
+
+/** [min]~[max] 안으로. 범위가 뒤집히면(틀이 화면보다 큼) 가운데 — coerceIn 은 이때 예외를 던져 앱이 닫힌다. */
+private fun Float.within(min: Float, max: Float): Float = if (max < min) (min + max) / 2 else coerceIn(min, max)
 
 /** 자리를 적기 전에 기다리는 시간. 밀어 내리는 동안은 적지 않는다. */
 private const val SAVE_DELAY_MS = 300L

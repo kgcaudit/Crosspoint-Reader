@@ -49,7 +49,8 @@ object Webtoon {
         // 화면에 그려지는 높이도 한도 안으로: 좁은 그림을 넓은 화면에 늘리면(60px → 786px) 원본 400줄 띠 하나가 화면에서
         // 5240px 이 되어, 그리기 층 한도를 넘은 띠가 검게 나왔다(웹툰 시험에서 찾음).
         val rowsPerStrip = if (scale > 1f) (maxStrip / scale).toInt().coerceIn(1, maxStrip) else maxStrip
-        val count = (size.height + rowsPerStrip - 1) / rowsPerStrip
+        // height + rows - 1 은 깨진 머리(높이 21억)에서 넘쳐 음수 → 띠가 하나도 없었다.
+        val count = (size.height - 1) / rowsPerStrip + 1
         return (0 until count).map { i ->
             val top = (size.height.toLong() * i / count).toInt()
             val bottom = (size.height.toLong() * (i + 1) / count).toInt()

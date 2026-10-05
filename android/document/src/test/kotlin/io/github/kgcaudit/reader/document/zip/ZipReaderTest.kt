@@ -227,6 +227,21 @@ class ZipReaderTest {
     }
 
     @Test
+    fun `an entry pointing outside the file is dropped and the rest still read`() {
+        val bytes = zipOf(listOf(text("a.txt", "앞"), text("b.txt", "뒤")))
+        // 둘째 중앙 목록 항목의 로컬 머리 자리(+42)를 파일 밖으로. 두면 그 항목을 읽을 때 엉뚱한 예외로 책 전체가 닫혔다.
+        val central = (0 until bytes.size - 4).filter {
+            bytes[it] == 0x50.toByte() && bytes[it + 1] == 0x4B.toByte() && bytes[it + 2] == 1.toByte() && bytes[it + 3] == 2.toByte()
+        }
+        val at = central[1] + 42
+        val far = bytes.size + 1000
+        for (i in 0 until 4) bytes[at + i] = (far shr (8 * i)).toByte()
+        val zip = reader(bytes)
+        assertEquals(listOf("a.txt"), zip.entries.keys.toList())
+        assertEquals("앞", zip.readBytes("a.txt")!!.decodeToString())
+    }
+
+    @Test
     fun `a realistic epub layout is navigable`() {
         val bytes = zipOf(
             listOf(

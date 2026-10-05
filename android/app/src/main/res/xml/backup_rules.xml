@@ -5,4 +5,7 @@
 <full-backup-content>
     <exclude domain="file" path="pages/" />
     <exclude domain="file" path="fonts/" />
+    <!-- 책에서 꺼낸 표지(covers/auto)는 다시 꺼내면 된다. 책 · 웹툰 화가 수백이면 이것만으로 한도를 넘는다(0.47.1).
+         사람이 고른 표지(covers/custom)는 남긴다. -->
+    <exclude domain="file" path="covers/auto/" />
 </full-backup-content>

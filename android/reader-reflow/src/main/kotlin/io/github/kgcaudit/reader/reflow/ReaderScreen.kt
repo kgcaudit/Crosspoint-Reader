@@ -461,16 +461,19 @@ fun ReaderScreen(
         // 제스처는 조판이 바뀌어도 다시 달지 않는다 — 그리기 측정기는 늘 최신 것을 읽는다(옛 글자 크기로 재면
         // 글자를 크게 한 뒤 누른 자리와 고른 글자가 어긋난다).
         val latestPainter by androidx.compose.runtime.rememberUpdatedState(painter)
+        // 화면 폭도 최신 값으로 — 돌려도 화면은 다시 만들지 않아(설정) 처음 폭에 묶이면, 가로 두 쪽에서 왼쪽 쪽을 길게 눌러
+        // 오른쪽 쪽 글자가 골라지고 오른쪽 형광펜을 눌러도 맞지 않았다.
+        val latestWidth by androidx.compose.runtime.rememberUpdatedState(widthPx)
         fun boxesOf(start: Int, end: Int): List<androidx.compose.ui.geometry.Rect> {
             val current = reader.state.value
             val paint = latestPainter ?: return emptyList()
-            return screenBoxes(current.page, current.rightPage, current.text, paint, start, end, if (current.spread) widthPx / 2f else Float.MAX_VALUE)
+            return screenBoxes(current.page, current.rightPage, current.text, paint, start, end, if (current.spread) latestWidth / 2f else Float.MAX_VALUE)
         }
         fun charAtScreen(x: Float, y: Float, after: Boolean): Int? {
             val current = reader.state.value
             val paint = latestPainter ?: return null
             val right = if (current.spread) current.rightPage else null
-            return screenCharAt(current.page, right, current.text, paint, x, y, widthPx / 2f, after)
+            return screenCharAt(current.page, right, current.text, paint, x, y, latestWidth / 2f, after)
         }
         Box(
             Modifier

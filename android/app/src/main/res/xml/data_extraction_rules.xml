@@ -4,6 +4,7 @@
     <cloud-backup>
         <exclude domain="file" path="pages/" />
         <exclude domain="file" path="fonts/" />
+        <exclude domain="file" path="covers/auto/" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="file" path="pages/" />

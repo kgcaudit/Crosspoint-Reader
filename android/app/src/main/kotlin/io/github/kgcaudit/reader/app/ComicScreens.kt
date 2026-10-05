@@ -481,7 +481,7 @@ private fun WorkWide(
     val c = CpTheme.colors
 
     @Composable
-    fun Info(coverWidth: Dp, fill: Boolean) {
+    fun Info(fill: Boolean) {
         CpText(work.title, CpTheme.type.title, c.text, maxLines = 2)
         status?.let { CpText(it, CpTheme.type.caption, c.textMuted) }
         resume?.let { (entry, p) ->
@@ -507,7 +507,7 @@ private fun WorkWide(
             ) {
                 ComicCover(work.entries.first().unit, work.title, null, Modifier.width(200.dp), work = work)
                 Spacer(Modifier.height(16.dp))
-                Info(200.dp, fill = true)
+                Info(fill = true)
             }
             Box(Modifier.width(1.dp).fillMaxHeight().background(c.outline))
             androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
@@ -531,7 +531,7 @@ private fun WorkWide(
                 Row(Modifier.padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.Bottom) {
                     ComicCover(work.entries.first().unit, work.title, null, Modifier.width(110.dp), work = work)
                     Spacer(Modifier.width(20.dp))
-                    Column(Modifier.weight(1f)) { Info(110.dp, fill = false) }
+                    Column(Modifier.weight(1f)) { Info(fill = false) }
                 }
             }
             grid()

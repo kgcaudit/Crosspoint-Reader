@@ -216,6 +216,8 @@ class ListenService : Service() {
             .setSubText(if (state.playing) "듣는 중$timer" else "멈춰 있음$timer")
             .setContentIntent(open)
             .setOngoing(state.playing)
+            // 멈춘 카드는 밀어 지울 수 있다. 지우면 듣기도 끝낸다 — 두면 카드 없이 서비스만 남아 멈출 곳이 사라졌다.
+            .setDeleteIntent(servicePending(ACTION_CLOSE))
             .setVisibility(Notification.VISIBILITY_PUBLIC)
             .addAction(action(android.R.drawable.ic_media_previous, "앞 문장", ACTION_PREVIOUS))
             .addAction(
@@ -229,10 +231,13 @@ class ListenService : Service() {
     }
 
     private fun action(icon: Int, title: String, what: String): Notification.Action {
-        val intent = Intent(this, ListenService::class.java).setAction(what)
-        val pending = PendingIntent.getService(this, what.hashCode(), intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         @Suppress("DEPRECATION")
-        return Notification.Action.Builder(icon, title, pending).build()
+        return Notification.Action.Builder(icon, title, servicePending(what)).build()
+    }
+
+    private fun servicePending(what: String): PendingIntent {
+        val intent = Intent(this, ListenService::class.java).setAction(what)
+        return PendingIntent.getService(this, what.hashCode(), intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     }
 
     private fun channel() {

@@ -623,7 +623,9 @@ internal val HEADPHONE_TYPES: Set<Int> = buildSet {
  * 모드에서 휴대폰이 통째로 막아, 이어폰을 끼고도 들리지 않았다. 미디어 통로는 이어폰이 있으면 이어폰으로만 나간다.
  * 소리 세 개를 통로마다 앱 전체에서 한 번만 싣는다.
  */
-private class SystemTurnFeedback private constructor(private val context: Context) : TurnFeedback {
+private class SystemTurnFeedback private constructor(context: Context) : TurnFeedback {
+    // 앱 전체에 하나뿐인 객체라 화면(Activity)을 쥐면 안 된다 — 앱 Context 만 둔다.
+    private val context: Context = context.applicationContext
     private val audio = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
     private val ui = Channel(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
     private val media = Channel(AudioAttributes.USAGE_MEDIA)

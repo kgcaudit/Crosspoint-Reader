@@ -420,8 +420,18 @@ class BookReader(
     /** 이 자리가 책의 몇 %(독서노트의 "3%"). */
     suspend fun percentOf(locator: Locator.Reflow): Float = run { requireLayout().percentAt(locator.spine, locator.charOffset) }
 
-    private suspend fun loadNotes(): List<Annotation> =
-        notes ?: runCatching { annotationRepository.forBook(requireLayout().bookId) }.getOrDefault(emptyList()).also { notes = it }
+    private suspend fun loadNotes(): List<Annotation> {
+        notes?.let { return it }
+        // 읽어 온 것만 담아 둔다. 취소(글자 크기를 빨리 바꿔 조판이 다시 시작)나 일시적인 오류의 빈 목록을 담으면, 새로 칠하기
+        // 전까지 이 책의 형광펜이 모두 사라져 보였다.
+        return try {
+            annotationRepository.forBook(requireLayout().bookId).also { notes = it }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
 
     private suspend fun refreshNotes() {
         val spine = _state.value.position?.spineIndex ?: return

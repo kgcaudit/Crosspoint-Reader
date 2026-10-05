@@ -50,6 +50,24 @@ class TarReaderTest {
         assertEquals(false, TarReader.looksLikeTar("PK\u0003\u0004".toByteArray() + ByteArray(600)))
     }
 
+    @Test
+    fun `a size past the end of the file stops reading instead of looping`() {
+        val whole = StoredArchives.tar(pages)
+        // 둘째 머리(1536)의 크기를 base-256 의 아주 큰 값으로: 다음 머리 자리를 셈하다 넘쳐 앞으로 되돌아가 끝없이 돌았다.
+        val huge = whole.copyOf().also { b ->
+            b[1536 + 124] = 0x80.toByte()
+            for (i in 1536 + 125 until 1536 + 136) b[i] = 0x7F
+            fixChecksum(b, 1536)
+        }
+        assertEquals(listOf("001.png"), TarReader.open(SeekableSource.of(huge)).entries.keys.toList())
+        // 파일보다 조금 긴 크기(잘린 내용)도 그 항목을 버린다 — 두면 쪽을 열 때 끝 밖을 읽는다.
+        val past = whole.copyOf().also { b ->
+            "%011o\u0000".format(whole.size.toLong()).toByteArray().copyInto(b, 1536 + 124)
+            fixChecksum(b, 1536)
+        }
+        assertEquals(listOf("001.png"), TarReader.open(SeekableSource.of(past)).entries.keys.toList())
+    }
+
     private fun fixChecksum(b: ByteArray, at: Int) {
         for (i in at + 148 until at + 156) b[i] = ' '.code.toByte()
         var sum = 0

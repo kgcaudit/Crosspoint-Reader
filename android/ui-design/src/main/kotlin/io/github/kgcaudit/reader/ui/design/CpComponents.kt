@@ -3,6 +3,7 @@ package io.github.kgcaudit.reader.ui.design
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
@@ -452,7 +453,9 @@ fun CpChoice(label: String, options: List<String>, selected: Int, onSelect: (Int
         contents = listOf(
             { CpText(label, CpTheme.type.body, c.text, maxLines = 3) },
             {
-                Row {
+                // 선택지가 화면보다 넓으면(큰 글자 · 좁은 폰에 다섯 개) 옆으로 밀어 본다 — 그냥 두면 끝 선택지가 화면 밖에
+                // 잘려 누를 수 없었다.
+                Row(Modifier.horizontalScroll(rememberScrollState())) {
                     options.forEachIndexed { i, option ->
                         val on = i == selected
                         Box(
@@ -476,9 +479,10 @@ fun CpChoice(label: String, options: List<String>, selected: Int, onSelect: (Int
     ) { (labelM, optionsM), constraints ->
         val width = constraints.maxWidth
         val gap = 12.dp.roundToPx()
-        val chips = optionsM.first().measure(androidx.compose.ui.unit.Constraints())
+        val chipsWant = optionsM.first().maxIntrinsicWidth(androidx.compose.ui.unit.Constraints.Infinity)
+        val chips = optionsM.first().measure(androidx.compose.ui.unit.Constraints(maxWidth = width))
         val labelWant = labelM.first().maxIntrinsicWidth(chips.height)
-        if (labelWant + gap + chips.width <= width) {
+        if (labelWant + gap + chipsWant <= width) {
             val text = labelM.first().measure(androidx.compose.ui.unit.Constraints(maxWidth = width - gap - chips.width))
             val h = maxOf(text.height, chips.height)
             layout(width, h) {

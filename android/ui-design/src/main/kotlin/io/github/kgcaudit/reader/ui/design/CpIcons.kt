@@ -31,8 +31,6 @@ object CpIcons {
     val Toc = line("M8.5 7 H19 M8.5 12 H19 M8.5 17 H19 M5 7 H5.1 M5 12 H5.1 M5 17 H5.1")
     val Minus = line("M5 12 H19")
     val Close = line("M6 6 L18 18 M18 6 L6 18")
-    /** 화면 회전: 비스듬히 누운 휴대폰과 둥근 화살표. */
-    val Rotate = line("M5 8 H12.5 A1 1 0 0 1 13.5 9 V20 A1 1 0 0 1 12.5 21 H5 A1 1 0 0 1 4 20 V9 A1 1 0 0 1 5 8 Z M14 3.5 A6.5 6.5 0 0 1 20.5 10 M20.5 10 L22.5 8 M20.5 10 L18.5 8")
     // 찾기 · 새로고침 · 격자 · 목록은 계열(OLO-Design `icons/control_symbols.py`, 0.32.3 까지는 menu_symbols.py) 메뉴
     // 그림이다(0.32.3 사용자 결정: 가안, 0.32.4 계열 개정 7c5cfd7 을 그대로 받음).
     // OLO 앱마다 이 넷이 같은 모양이어야 한 식구로 읽힌다. 그림 파일(res/drawable/ic_menu_*)은 생성물을 그대로 넣고

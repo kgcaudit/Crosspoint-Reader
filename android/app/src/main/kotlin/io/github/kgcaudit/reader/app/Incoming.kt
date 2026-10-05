@@ -37,6 +37,9 @@ sealed interface Incoming {
         fun from(intent: Intent?, resolver: ContentResolver): Incoming? {
             if (intent?.action != Intent.ACTION_VIEW) return null
             val uri = intent.data ?: return null
+            // content:// 만 받는다. 이 화면은 밖에 열려 있어(exported) 아무 앱이나 file:// 주소를 보낼 수 있는데, 받으면 앱이
+            // 제 권한으로 자기 안쪽 파일(설정 · DB)을 열어 보여 주게 된다.
+            if (uri.scheme != ContentResolver.SCHEME_CONTENT) return Refused("다른 앱이 보낸 이 주소는 열 수 없습니다. 파일 앱에서 다시 열어 주세요.")
             val (name, size) = describe(uri, resolver)
             val format = BookFormat.fromFileName(name) ?: formatOf(intent.type ?: runCatching { resolver.getType(uri) }.getOrNull())
             return when (format) {

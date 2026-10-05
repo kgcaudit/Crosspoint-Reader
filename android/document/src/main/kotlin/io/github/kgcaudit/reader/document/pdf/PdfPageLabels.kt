@@ -46,12 +46,17 @@ class PdfPageLabels internal constructor(private val ranges: List<Range>) {
 
     /** A–Z, 그다음 AA–ZZ, AAA… (명세: 같은 글자를 되풀이). */
     private fun letters(value: Int): String {
-        if (value < 1) return value.toString()
+        // 같은 글자를 되풀이하므로 쪽 번호 n 이면 글자가 n/26 개다. 깨진 /St(시작 번호 20억)를 받으면 한 쪽 이름에
+        // 수억 글자를 만들다 메모리가 바닥났다 — 이만큼 커지면 숫자로 보인다.
+        if (value < 1 || value > LETTERS_MAX) return value.toString()
         val letter = 'A' + (value - 1) % 26
         return letter.toString().repeat((value - 1) / 26 + 1)
     }
 
     internal companion object {
+        /** 글자 번호를 쓰는 끝(ZZ…Z 가 100글자). 실제 책의 부록 번호는 많아야 수십이다. */
+        const val LETTERS_MAX = 26 * 100
+
         /** 번호 나무(`/Nums` · `/Kids`)를 펼쳐 구간 목록으로. 깨진 구간은 버린다. 하나도 없으면 null. */
         fun read(file: PdfFile, tree: PdfObject?, decode: (PdfString) -> String): PdfPageLabels? {
             val ranges = ArrayList<Range>()

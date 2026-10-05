@@ -79,9 +79,11 @@ class ChapterLoader(
         val directory = document.spine().getOrNull(index)?.href?.substringBeforeLast('/', "").orEmpty()
         val blocks = chapter.blocks.map { block ->
             if (block !is Block.Image || block.hasIntrinsicSize) return@map block
-            val size = imageSizeCache.getOrPut("$directory|${block.href}") {
+            // getOrPut 은 null(없는 그림 · 깨진 머리)을 담아 두지 못해 장을 열 때마다 다시 열어 봤다 — 실패도 기억한다.
+            val key = "$directory|${block.href}"
+            val size = if (key in imageSizeCache) imageSizeCache[key] else
                 runCatching { document.openChapterResource(index, block.href)?.use(ImageHeader::read) }.getOrNull()
-            }
+                    .also { imageSizeCache[key] = it }
             if (size == null) block else block.copy(intrinsicWidth = size.width, intrinsicHeight = size.height)
         }
         return chapter.copy(blocks = blocks)

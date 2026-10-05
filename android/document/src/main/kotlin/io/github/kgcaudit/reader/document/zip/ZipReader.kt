@@ -190,14 +190,20 @@ class ZipReader private constructor(
                 if (uncompressed == 0xFFFFFFFFL || compressed == 0xFFFFFFFFL || localOffset == 0xFFFFFFFFL) {
                     val zip64 = findZip64Extra(variable, nameLength, extraLength)
                     if (zip64 != null) {
-                        var cursor = zip64
-                        if (uncompressed == 0xFFFFFFFFL) { uncompressed = variable.u64(cursor); cursor += 8 }
-                        if (compressed == 0xFFFFFFFFL) { compressed = variable.u64(cursor); cursor += 8 }
-                        if (localOffset == 0xFFFFFFFFL) { localOffset = variable.u64(cursor) }
+                        // 블록이 말하는 길이 안에서만 읽는다 — 짧은 블록이면 뒤의 주석 · 끝 밖을 값으로 읽었다.
+                        var cursor = zip64.first
+                        val blockEnd = zip64.first + zip64.second
+                        fun next(): Long? = if (cursor + 8 <= blockEnd) variable.u64(cursor).also { cursor += 8 } else null
+                        if (uncompressed == 0xFFFFFFFFL) uncompressed = next() ?: uncompressed
+                        if (compressed == 0xFFFFFFFFL) compressed = next() ?: compressed
+                        if (localOffset == 0xFFFFFFFFL) localOffset = next() ?: localOffset
                     }
                 }
 
-                if (name.isNotEmpty()) {
+                // 음수(u64 의 위쪽 비트) · 파일 밖의 자리는 깨진 항목이다 — 그 항목만 버린다. 두면 읽을 때 음수 위치로 내려가
+                // IOException 이 아닌 예외가 나 책 전체가 안 열렸다.
+                val sane = uncompressed >= 0 && compressed >= 0 && localOffset in 0 until source.size
+                if (name.isNotEmpty() && sane) {
                     entries[name] = ZipEntry(
                         name = name,
                         method = header.u16(10),
@@ -288,14 +294,14 @@ class ZipReader private constructor(
             return record.u64(32) to record.u64(48)
         }
 
-        /** extra 필드에서 ZIP64 블록(id 0x0001)의 데이터 시작 위치를 찾는다. */
-        private fun findZip64Extra(buffer: ByteArray, extraStart: Int, extraLength: Int): Int? {
+        /** extra 필드에서 ZIP64 블록(id 0x0001)의 (데이터 시작 위치, 길이)를 찾는다. 길이는 extra 필드 끝을 넘지 않게 자른다. */
+        private fun findZip64Extra(buffer: ByteArray, extraStart: Int, extraLength: Int): Pair<Int, Int>? {
             var cursor = extraStart
-            val end = extraStart + extraLength
+            val end = minOf(extraStart + extraLength, buffer.size)
             while (cursor + 4 <= end) {
                 val id = buffer.u16(cursor)
                 val size = buffer.u16(cursor + 2)
-                if (id == 0x0001) return cursor + 4
+                if (id == 0x0001) return (cursor + 4) to minOf(size, end - cursor - 4)
                 cursor += 4 + size
             }
             return null

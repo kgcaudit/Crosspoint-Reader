@@ -279,4 +279,26 @@ class PageCodecTest {
         )
         assertEquals(page, roundTrip(listOf(page)).single())
     }
+
+    @Test
+    fun `a corrupted cache gives null instead of crashing the page turn`() {
+        // 저장 중 꺼진 캐시 · 디스크 오류: 어떤 바이트가 와도 예외 대신 null 이어야 그 장을 다시 조판한다. 예외로 두면
+        // 쪽을 넘기는 손에 앱이 닫혔다.
+        val pages = (0 until 4).map { i ->
+            Page(index = i, startChar = i * 10, endCharExclusive = i * 10 + 10, runs = listOf(run(i * 10, i * 10 + 10, 5f, 9f)))
+        }
+        val encoded = PageCodec.encode(pages, 40)
+        val random = kotlin.random.Random(7)
+        repeat(2000) {
+            val index = encoded.index.copyOf()
+            val runs = encoded.runs.copyOf()
+            repeat(1 + random.nextInt(4)) {
+                val target = if (random.nextBoolean()) index else runs
+                if (target.isNotEmpty()) target[random.nextInt(target.size)] = random.nextInt(256).toByte()
+            }
+            val broken = encoded.copy(index = index, runs = runs, objects = encoded.objects)
+            PageCodec.decodeStarts(index)
+            for (page in 0 until 4) PageCodec.decodePage(broken, page)
+        }
+    }
 }

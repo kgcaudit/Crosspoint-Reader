@@ -276,8 +276,11 @@ internal class PdfFile private constructor(private val source: SeekableSource) {
         }
     }
 
-    private fun objectStream(num: Int): ObjectStream? = objectStreams.getOrPut(num) {
-        runCatching {
+    private fun objectStream(num: Int): ObjectStream? {
+        // getOrPut 은 null 을 "없음" 으로 봐서 깨진 객체 스트림을 그 안의 객체를 찾을 때마다 다시 풀었다 — 수천 객체가 든
+        // 스트림 하나가 깨지면 문서 열기가 몇 초씩 걸렸다. 실패도 기억한다.
+        if (num in objectStreams) return objectStreams[num]
+        val made = runCatching {
             val stream = resolve(PdfRef(num, 0)) as? PdfStream ?: return@runCatching null
             val data = decode(stream) ?: return@runCatching null
             val n = (resolve(stream.dict["N"]) as? PdfNumber)?.int ?: return@runCatching null
@@ -292,6 +295,8 @@ internal class PdfFile private constructor(private val source: SeekableSource) {
             }
             ObjectStream(data, numbers, offsets, first)
         }.getOrNull()
+        objectStreams[num] = made
+        return made
     }
 
     private fun rawStreamData(stream: PdfStream): ByteArray? {
@@ -472,8 +477,11 @@ internal class PdfFile private constructor(private val source: SeekableSource) {
         val bits = (resolve(params["BitsPerComponent"]) as? PdfNumber)?.int ?: 8
         val columns = (resolve(params["Columns"]) as? PdfNumber)?.int ?: 1
         val bpp = maxOf(1, (colors * bits + 7) / 8)
-        val rowLen = (colors * bits * columns + 7) / 8
-        if (rowLen <= 0) return null
+        // 곱셈은 Long 으로, 그리고 한 줄도 안 되는 길이면 할당 전에 null: /Columns 가 깨진 파일이 Int 를 넘겨 음수가 되거나
+        // 수 GB 짜리 빈 줄을 먼저 만들다 메모리가 바닥났다.
+        val rowBits = colors.toLong() * bits * columns
+        if (colors <= 0 || bits <= 0 || columns <= 0 || rowBits + 7 > (data.size.toLong() - 1) * 8) return null
+        val rowLen = ((rowBits + 7) / 8).toInt()
         val out = ByteArrayOutputStream(data.size)
         var prev = ByteArray(rowLen)
         var at = 0

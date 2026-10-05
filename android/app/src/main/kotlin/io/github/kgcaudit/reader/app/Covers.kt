@@ -145,7 +145,11 @@ class CoverStore(
         // 파일 크기를 열쇠에 넣는다 — 같은 이름으로 개정판을 덮어쓰면 옛 판의 표지가 계속 보였다.
         val key = key(id, sizeBytes)
         val file = File(dir, "auto/$key.jpg")
-        if (file.isFile) return Own(decodeFile(file), settled = true)
+        if (file.isFile) {
+            // 읽히지 않는 표지 파일(쓰다 공간이 모자라 반쪽만 남은 것)은 지우고 다시 꺼낸다 — 두면 대신 표지에 영영 갇힌다.
+            decodeFile(file)?.let { return Own(it, settled = true) }
+            file.delete()
+        }
         val none = File(dir, "auto/$key.none")
         if (none.exists()) return Own(null, settled = true)
         val bitmap = try {
@@ -175,7 +179,13 @@ class CoverStore(
         val tmp = File(file.path + ".tmp")
         return try {
             file.parentFile?.mkdirs()
-            tmp.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, it) }
+            // compress 는 쓰기에 실패해도(저장 공간 부족) 예외 없이 false 만 돌려준다 — 보지 않으면 빈 파일을 표지로 바꿔 끼우고
+            // "표지를 바꿨습니다" 라고 했다.
+            val written = tmp.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, it) }
+            if (!written) {
+                tmp.delete()
+                return false
+            }
             // 다 쓴 뒤 바꿔 끼운다 — 쓰다 멈추면(앱이 닫힘) 반쪽 그림이 표지로 남는다.
             tmp.renameTo(file)
         } catch (e: java.io.IOException) {
@@ -218,6 +228,8 @@ class CoverStore(
             if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
             var sample = 1
             while (bounds.outHeight / (sample * 2) >= COVER_HEIGHT) sample *= 2
+            // 가로로 아주 긴 그림(파노라마)은 높이만 보면 통째로 풀린다(20000×500 → 40MB) — 폭으로도 솎는다.
+            while (bounds.outWidth / (sample * 2) >= MAX_COVER_WIDTH) sample *= 2
             val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
                 ?: return null
             return scaleToHeight(bitmap)
@@ -238,11 +250,15 @@ class CoverStore(
             if (!CoverCrop.isTall(size)) return decodeScaled(bytes)
             var probeSample = 1
             while (size.width / (probeSample * 2) >= PROBE_WIDTH) probeSample *= 2
+            // 아주 긴 띠는 폭만 보고 솎으면 화소 수가 크다(360×25000 = 36MB) — 화소 수로도 묶는다.
+            while (size.width.toLong() / probeSample * (size.height / probeSample) > PROBE_PIXELS) probeSample *= 2
             val probe = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = probeSample })
                 ?: return null
             val scale = size.height.toFloat() / probe.height
-            val rows = (0 until probe.height).map { y -> IntArray(probe.width).also { probe.getPixels(it, 0, probe.width, 0, y, probe.width, 1) } }
-            val window = CoverCrop.window(size, (CoverCrop.firstContentRow(rows) * scale).toInt())
+            // 한 줄짜리 그릇 하나를 돌려 쓴다 — 바탕을 지나 첫 칸이 나오면 멈춘다.
+            val line = IntArray(probe.width)
+            val first = CoverCrop.firstContentRow(probe.height) { y -> line.also { probe.getPixels(it, 0, probe.width, 0, y, probe.width, 1) } }
+            val window = CoverCrop.window(size, (first * scale).toInt())
             var sample = 1
             while ((window.last - window.first + 1) / (sample * 2) >= COVER_HEIGHT) sample *= 2
             val region = if (!regions) null else runCatching {
@@ -264,10 +280,19 @@ class CoverStore(
         /** 긴 그림에서 바탕을 찾을 때 솎아 푸는 폭. 칸 테두리(2~3px)가 솎아도 남을 만큼. */
         private const val PROBE_WIDTH = 200
 
+        /** 바탕을 찾을 때 솎아 푼 그림의 최대 화소 수(4MB). */
+        private const val PROBE_PIXELS = 1_000_000L
+
         private fun scaleToHeight(bitmap: Bitmap): Bitmap {
-            if (bitmap.height <= COVER_HEIGHT) return bitmap
-            val width = (bitmap.width.toLong() * COVER_HEIGHT / bitmap.height).toInt().coerceAtLeast(1)
-            return Bitmap.createScaledBitmap(bitmap, width, COVER_HEIGHT, true)
+            // 높이 [COVER_HEIGHT], 폭은 [MAX_COVER_WIDTH] 를 넘지 않게. 표지 칸은 세로로 길어 그보다 넓으면 어차피 줄여 그린다.
+            val scale = minOf(COVER_HEIGHT.toFloat() / bitmap.height, MAX_COVER_WIDTH.toFloat() / bitmap.width, 1f)
+            if (scale >= 1f) return bitmap
+            val width = (bitmap.width * scale).toInt().coerceAtLeast(1)
+            val height = (bitmap.height * scale).toInt().coerceAtLeast(1)
+            return Bitmap.createScaledBitmap(bitmap, width, height, true)
         }
+
+        /** 표지를 둘 최대 폭. 표지 칸 비율(1:1.45)보다 두 배쯤 넓은 그림까지 흐리지 않게. */
+        private const val MAX_COVER_WIDTH = COVER_HEIGHT * 2
     }
 }

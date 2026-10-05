@@ -35,6 +35,14 @@ class UriSources(
     }
 
     /**
+     * 지금 파일의 크기(바이트). 제공자가 모르면(파이프) null. 열 때 재야 하는 까닭: 서재 목록의 크기는 마지막 훑기 때의 값이라,
+     * 그사이 늘어난 TXT 를 그 크기로 조판 캐시에서 찾으면 옛 글의 쪽이 나왔다.
+     */
+    fun size(uri: Uri): Long? = runCatching {
+        resolver.openAssetFileDescriptor(uri, "r")?.use { it.length.takeIf { n -> n >= 0 } }
+    }.getOrNull()
+
+    /**
      * EPUB 처럼 임의 위치를 읽어야 하는 책.
      *
      * 대부분의 제공자(기기 저장소, SD 카드)는 진짜 파일 디스크립터를 준다. 그러면 복사 없이

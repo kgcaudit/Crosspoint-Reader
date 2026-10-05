@@ -95,6 +95,12 @@ class ChapterParser(
         /** `display:none` 이나 `<script>` 안. 0 보다 크면 내용을 통째로 버린다. */
         private var skipDepth = 0
 
+        /**
+         * 버리는 요소의 이름. 깊이는 **같은 이름의** 태그만 센다 — 아무 태그나 세면 숨긴 `<div>` 안의 닫히지 않은 `<p>` 하나에
+         * 깊이가 끝내 0 으로 돌아오지 않아 장의 나머지가 통째로 사라졌다.
+         */
+        private var skipTag = ""
+
         /** `<style>` 안. 본문이 아니라 CSS 로 모은다. */
         private var styleDepth = 0
         private val css = StringBuilder()
@@ -109,10 +115,10 @@ class ChapterParser(
         private var pendingPageBreak = false
 
         fun run(reader: Reader): Chapter {
-            for (event in XmlScanner(reader).events()) {
+            for (event in XmlScanner(reader, rawText = RAW_TEXT_TAGS).events()) {
                 when (event) {
                     is XmlEvent.StartElement -> startElement(event)
-                    is XmlEvent.EndElement -> if (event.name.local.lowercase() !in TagDefaults.VOID_TAGS) endElement()
+                    is XmlEvent.EndElement -> event.name.local.lowercase().let { if (it !in TagDefaults.VOID_TAGS) endElement(it) }
                     is XmlEvent.Text -> text(event.value)
                 }
             }
@@ -127,13 +133,14 @@ class ChapterParser(
             val void = tag in TagDefaults.VOID_TAGS
             // 빈 요소는 깊이를 세지 않는다 — 닫힘 사건이 오지 않을 수 있다(위 VOID_TAGS).
             if (skipDepth > 0) {
-                if (!void) skipDepth++
+                if (tag == skipTag) skipDepth++
                 return
             }
             if (styleDepth > 0) {
-                if (!void) styleDepth++
+                if (tag == "style") styleDepth++
                 return
             }
+            closeImplied(tag)
 
             if (tag in TagDefaults.SKIPPED_TAGS) {
                 // 닫힐 때 프레임과 스택을 하나씩 뺀다(endElement). 여기서 넣지 않으면 **부모의 것**이
@@ -142,6 +149,7 @@ class ChapterParser(
                 elements.add(ElementInfo.of(tag, event.attribute("class"), event.attribute("id")))
                 frames.add(Frame(tag, current(), isBlock = false, restoreStyle = blockStyle))
                 skipDepth = 1
+                skipTag = tag
                 return
             }
             if (tag == "style") {
@@ -164,6 +172,7 @@ class ChapterParser(
                 // 프레임도 넣어 두고, 내용만 버린다.
                 frames.add(Frame(tag, current(), isBlock = false, restoreStyle = blockStyle))
                 skipDepth = 1
+                skipTag = tag
                 return
             }
 
@@ -202,8 +211,9 @@ class ChapterParser(
             }
         }
 
-        private fun endElement() {
+        private fun endElement(tag: String) {
             if (skipDepth > 0) {
+                if (tag != skipTag) return
                 skipDepth--
                 // 스킵이 끝나면 그 요소의 프레임과 스택도 함께 닫는다.
                 if (skipDepth == 0 && frames.isNotEmpty() && elements.isNotEmpty()) {
@@ -217,12 +227,44 @@ class ChapterParser(
                 return
             }
             if (styleDepth > 0) {
+                if (tag != "style") return
                 styleDepth--
                 if (styleDepth == 0) adoptEmbeddedCss()
                 return
             }
-            if (frames.isEmpty()) return
+            // 이 이름의 열린 요소까지 닫는다. 그 사이 닫히지 않은 요소도 함께 — 짝 없는 닫힘(열린 적 없는 `</div>`)은 버린다.
+            // 이름을 보지 않고 맨 위를 닫던 때는 `</li>` 를 빠뜨린 목록 하나로 그 뒤 모든 문단이 목록 들여쓰기에 갇혔다.
+            val at = frames.indexOfLast { it.tag == tag }
+            if (at < 0) return
+            while (frames.size > at) closeTop()
+        }
 
+        /**
+         * 짝이 생략된 요소를 닫는다(HTML 이 허락한다): 새 `<li>` 는 같은 목록의 열린 `<li>` 를, 새 `<dt>`/`<dd>` 는 열린
+         * `<dt>`/`<dd>` 를, 새 블록은 바로 위의 열린 `<p>` 를 닫는다. 잘 짜인 XHTML 에서는 일어나지 않는다.
+         */
+        private fun closeImplied(tag: String) {
+            when (tag) {
+                "li" -> closeOpen(setOf("li"), stopAt = setOf("ul", "ol"))
+                "dt", "dd" -> closeOpen(setOf("dt", "dd"), stopAt = setOf("dl"))
+            }
+            if (tag in TagDefaults.BLOCK_TAGS && frames.lastOrNull()?.tag == "p") closeTop()
+        }
+
+        /** [stopAt] 요소를 넘지 않고 가장 가까운 [names] 요소가 열려 있으면 거기까지 닫는다. */
+        private fun closeOpen(names: Set<String>, stopAt: Set<String>) {
+            for (i in frames.indices.reversed()) {
+                val t = frames[i].tag
+                if (t in stopAt) return
+                if (t in names) {
+                    while (frames.size > i) closeTop()
+                    return
+                }
+            }
+        }
+
+        private fun closeTop() {
+            if (frames.isEmpty()) return
             val frame = frames.removeAt(frames.size - 1)
             if (elements.isNotEmpty()) elements.removeAt(elements.size - 1)
             frame.link?.let { closeLink(it) }
@@ -442,6 +484,9 @@ class ChapterParser(
             return value
         }
     }
+
+    /** 내용을 태그로 읽지 않는 요소. 스크립트 안의 `a<b` 를 태그로 읽으면 닫힘 태그까지 삼킨다. */
+    private val RAW_TEXT_TAGS = setOf("script")
 
     private class Frame(
         val tag: String,

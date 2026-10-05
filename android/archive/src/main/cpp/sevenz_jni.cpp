@@ -175,6 +175,27 @@ void makeDirs(const std::string& path) {
     }
 }
 
+// An entry name is written under the destination folder as given. A name
+// that starts with "/" or has a ".." segment would land outside it -- a
+// crafted .cb7 could overwrite the app's own database or settings ("zip
+// slip"). Such entries are skipped and counted as bad.
+bool safeName(const std::string& name) {
+    if (name.empty() || name[0] == '/') return false;
+    size_t start = 0;
+    while (start <= name.size()) {
+        size_t end = name.find('/', start);
+        if (end == std::string::npos) end = name.size();
+        if (name.compare(start, end - start, "..") == 0 && end - start == 2) return false;
+        start = end + 1;
+    }
+    return true;
+}
+
+// The largest solid folder decoded into memory at once. 7z decodes a whole
+// folder into one buffer; a multi-GB solid block would get the app killed
+// by the low-memory killer mid-way instead of failing cleanly.
+const UInt64 kMaxFolderBytes = 768ull * 1024 * 1024;
+
 bool wantsEntry(const std::string& name, const std::vector<std::string>& picks) {
     if (picks.empty()) return true;
     for (const auto& p : picks) {
@@ -514,6 +535,7 @@ Java_io_github_kgcaudit_reader_archive_SevenZipNative_nativeExtract(
         if (env->CallBooleanMethod(sink, isCancelled)) { outcome = 1; break; }
 
         std::string name = nameOf(db, i, scratch);
+        if (!safeName(name)) { outcome = -(jint)SZ_ERROR_DATA; continue; }
         std::string full = dest + "/" + name;
         if (SzArEx_IsDir(&db, i)) {
             makeDirs(full + "/");
@@ -525,6 +547,12 @@ Java_io_github_kgcaudit_reader_archive_SevenZipNative_nativeExtract(
             if (stat(full.c_str(), &sb) == 0) continue;
         }
         makeDirs(full);
+
+        UInt32 folder = db.FileToFolder[i];
+        if (folder != (UInt32)-1 && SzAr_GetFolderUnpackSize(&db.db, folder) > kMaxFolderBytes) {
+            outcome = -(jint)SZ_ERROR_MEM;
+            continue;
+        }
 
         // What the progress line names while this file's folder decodes.
         cs.name = &name;

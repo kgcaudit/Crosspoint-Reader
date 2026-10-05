@@ -202,21 +202,21 @@ class PdfReader(
             Annotation.NO_ID, book.meta.id, Locator.Reflow(page, start), Locator.Reflow(page, endExclusive), color, null,
             snippet = layer.quote(start, endExclusive), createdAtEpochMs = clock(),
         ).withNote(note)
-        return runCatching { annotationRepository.add(a) }.getOrNull().also { refreshNotes() }
+        return runCatching { annotationRepository.add(a) }.rethrowCancel().getOrNull().also { refreshNotes() }
     }
 
     suspend fun update(annotation: Annotation) {
-        runCatching { annotationRepository.update(annotation) }
+        runCatching { annotationRepository.update(annotation) }.rethrowCancel()
         refreshNotes()
     }
 
     suspend fun remove(annotation: Annotation) {
-        runCatching { annotationRepository.remove(annotation.id) }
+        runCatching { annotationRepository.remove(annotation.id) }.rethrowCancel()
         refreshNotes()
     }
 
     suspend fun annotations(): List<Annotation> =
-        runCatching { annotationRepository.forBook(book.meta.id) }.getOrDefault(emptyList())
+        runCatching { annotationRepository.forBook(book.meta.id) }.rethrowCancel().getOrDefault(emptyList())
 
     /** 칠한 곳으로 간다(독서노트에서 누름). */
     suspend fun goTo(annotation: Annotation) = show(annotation.start.spine)
@@ -372,9 +372,13 @@ class PdfReader(
         val marked = runCatching { bookmarks().any { (it.locator as? Locator.FixedPage)?.page in shown } }
             .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
             .getOrDefault(false)
-        _state.value = _state.value.copy(bookmarked = marked)
+        // 묻는 사이 쪽이 넘어갔으면 버린다 — 빨리 두 번 넘기면 앞 쪽의 답이 뒤 쪽의 책갈피 띠로 그려졌다.
+        if (shownPages() == shown) _state.value = _state.value.copy(bookmarked = marked)
     }
 }
+
+/** 취소는 실패가 아니다 — 삼키면 닫힌 화면에 빈 독서노트가 적힌다. */
+private fun <T> Result<T>.rethrowCancel(): Result<T> = onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
 
 /** 쪽 그림 캐시의 크기. 예전 "화면 크기 여섯 장"(1080×2400 × 6 ≈ 60MB)과 같은 몫. */
 private const val CACHE_BYTES = 64 * 1024 * 1024

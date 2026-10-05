@@ -761,7 +761,9 @@ private fun PageView(
     // 바탕 그림은 쉬는 크기 그대로 그린다. 폭 맞춤을 쪽 전체 크기로 그려 늘리면 쉬는 동안 내내 글자가 흐리다.
     val (fitW, fitH) = baseSize(rest(pageAspect))
     if (scroller != null && fitWidth) {
-        DisposableEffect(scroller, page) {
+        // 확대 상태의 열쇠(화면 크기 · 쪽 비율)도 넣는다 — 돌려서 새 상태가 생겨도 옛 것을 굴려, 볼륨 키 · 누름이 보이지 않는
+        // 화면을 내리다 아래쪽을 건너뛰고 다음 쪽으로 넘어갔다.
+        DisposableEffect(scroller, page, viewW, viewH, pageAspect, fitWidth) {
             val mine: (Boolean) -> Boolean = { forward -> viewport.scroll(forward)?.also { viewport = it } != null }
             scroller.scroll = mine
             onDispose { if (scroller.scroll === mine) scroller.scroll = null }

@@ -80,8 +80,13 @@ class ReaderData(
             true
         }
         if (!applied) return@withContext ScanResult(emptyList(), complete = true)
-        // 백업에서 가져왔지만 책을 못 찾아 기다리던 기록 — 방금 훑은 폴더에 그 책이 있으면 이제 붙는다.
-        records.resumePending()
+        // 백업에서 가져왔지만 책을 못 찾아 기다리던 기록 — 방금 훑은 폴더에 그 책이 있으면 이제 붙는다. 저장 공간이 모자라
+        // 기다림 파일을 못 쓰더라도 훑기는 이미 끝났다 — 그 실패로 훑기 결과까지 버리지 않는다(다음 훑기에 다시 붙인다).
+        try {
+            records.resumePending()
+        } catch (e: java.io.IOException) {
+            android.util.Log.w("OloData", "pending records not resumed", e)
+        }
         result
     }
 
@@ -119,8 +124,14 @@ class ReaderData(
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
+            } catch (e: SecurityException) {
+                // 읽기 허락이 잠시 풀렸다 · 제공자(클라우드 · SD 카드)가 빠졌다: 압축이 깨진 것이 아니다. 적지 않고 다음 훑기에
+                // 다시 살핀다 — "만화 아님" 으로 적으면 파일이 바뀌기 전까지 그 만화가 서재에서 사라진다.
+                continue
+            } catch (e: java.io.FileNotFoundException) {
+                continue
             } catch (e: Exception) {
-                // 열 수 없는 압축(깨짐 · 암호 · 제공자 오류). cbz 는 그대로 보이고 zip 은 만화가 아닌 것으로 둔다.
+                // 열 수 없는 압축(깨짐 · 암호). cbz 는 그대로 보이고 zip 은 만화가 아닌 것으로 둔다.
                 contents = null
             }
             comics.saveProbe(unit, contents, info)
@@ -161,8 +172,9 @@ class ReaderData(
                         val dir = unpackedDir(unit)
                         if (!File(dir, DONE).isFile) {
                             dir.deleteRecursively()
-                            archive.unpackAll(dir)
-                            File(dir, DONE).writeText(unit.sizeBytes.toString())
+                            // 다 풀었을 때만 표시를 남긴다 — 저장 공간이 모자라 반쯤 풀렸는데 표시가 남으면 다시 풀지 않아 그 쪽들이
+                            // 영영 빈 쪽이 된다. 표시가 없으면 다음에 열 때 처음부터 다시 푼다.
+                            if (archive.unpackAll(dir)) File(dir, DONE).writeText(unit.sizeBytes.toString())
                         }
                         archive.close()
                         ComicPages(contents.pages, { name -> File(dir, name).takeIf { it.isFile }?.inputStream() }, null)
@@ -225,8 +237,12 @@ class ReaderData(
     private val removals = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
     private companion object {
-        /** 풀어 둔 RAR · 7z 권을 몇 권까지 남길지. 지금 권과 바로 앞 권(다음 권으로 넘어갔다 돌아올 때). */
-        const val KEEP_UNPACKED = 2
+        /**
+         * 풀어 둔 RAR · 7z 권을 몇 권까지 남길지. 웹툰 이어 보기(0.47.0)는 앞 화 · 지금 화 · 미리 연 다음 화를 함께 쥔다 —
+         * 2 였을 때는 다음 화를 미리 열면서 아직 화면에 있는 앞 화의 풀린 파일을 지워, 위로 올리면 그 화가 빈 쪽이 됐다.
+         * 하나 더 두어 막 넘어온 화까지.
+         */
+        const val KEEP_UNPACKED = 4
         /** 다 풀었다는 표시 파일. 풀다가 앱이 닫히면 없으니, 다음에 다시 푼다. */
         const val DONE = ".olo-unpacked"
     }

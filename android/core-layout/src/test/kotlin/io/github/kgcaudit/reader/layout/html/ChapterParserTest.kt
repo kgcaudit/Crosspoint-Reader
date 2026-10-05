@@ -443,4 +443,42 @@ class ChapterParserTest {
         )
         assertEquals(listOf(2f, 2f), chapter.paragraphs().map { it.style.indentStartEm })
     }
+
+    // ── 깨진 마크업(0.47.1 검토) ─────────────────────────────────────
+
+    @Test
+    fun `a list with omitted end tags does not trap the following paragraphs in its indent`() {
+        // HTML 은 </li> 를 생략해도 된다. 이름을 보지 않고 맨 위를 닫던 때는 항목마다 들여쓰기가 쌓이고(1.5 · 3 · 4.5em …)
+        // 목록 뒤 모든 문단이 4.5em 안쪽에 갇혔다.
+        val chapter = parse("<html><body><ul><li>a<li>b<li>c<li>d</ul><p>after</p><p>second</p></body></html>")
+        val p = chapter.paragraphs()
+        val items = p.take(4).map { it.style.indentStartEm }.toSet()
+        assertEquals(1, items.size, "항목마다 들여쓰기가 달라졌다: $items")
+        assertEquals(0f, p[4].style.indentStartEm, "목록 뒤 문단이 들여쓰기에 갇혔다")
+        assertEquals(0f, p[5].style.indentStartEm)
+    }
+
+    @Test
+    fun `an unclosed paragraph inside a hidden block does not swallow the rest of the chapter`() {
+        val chapter = parse("<html><body><div style=\"display:none\"><p>hidden</div><p>visible</p><p>more</p></body></html>")
+        assertTrue("visible" in chapter.text && "more" in chapter.text, "숨긴 블록 뒤가 사라졌다: '${chapter.text}'")
+        assertFalse("hidden" in chapter.text)
+    }
+
+    @Test
+    fun `a less-than sign inside a script does not hide the chapter`() {
+        // 스크립트 안의 a<b 를 태그로 읽으면 </script> 까지 삼켜 장 전체가 스크립트 안으로 들어갔다.
+        val chapter = parse("<html><body><script>if (a<b) x();</script><p>visible</p></body></html>")
+        assertEquals("visible", chapter.text.trim())
+    }
+
+    @Test
+    fun `a stray end tag is ignored instead of closing the paragraph around it`() {
+        val chapter = parse("<html><body><blockquote><p>one</div>two</p></blockquote><p>three</p></body></html>",
+            css = "blockquote { margin-left: 2em }")
+        val p = chapter.paragraphs()
+        assertTrue(p.first().let { chapter.text.substring(it.charStart, it.charEndExclusive) }.contains("onetwo"), "짝 없는 </div> 가 문단을 끊었다")
+        assertEquals(0f, p.last().style.indentStartEm, "인용 뒤 문단이 들여쓰기를 물려받았다")
+    }
 }
+

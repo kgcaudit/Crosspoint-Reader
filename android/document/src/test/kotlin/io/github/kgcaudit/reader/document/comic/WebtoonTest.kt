@@ -53,6 +53,14 @@ class WebtoonTest {
     }
 
     @Test
+    fun `a broken picture height gives sane strips instead of none`() {
+        // 깨진 머리가 말하는 높이 21억: height + rows - 1 이 넘쳐 음수가 되어 띠가 하나도 없었다 — 빈 그림이 된다.
+        val strips = Webtoon.strips(ImageSize(800, Int.MAX_VALUE), maxStrip = 1 shl 20)
+        assertTrue(strips.isNotEmpty())
+        assertEquals(Int.MAX_VALUE - 1, strips.last().last)
+    }
+
+    @Test
     fun `a position survives a width change because it is kept per picture`() {
         val sizes = listOf(ImageSize(800, 8000), null, ImageSize(400, 800))
         val narrow = WebtoonColumn(sizes, 400f)

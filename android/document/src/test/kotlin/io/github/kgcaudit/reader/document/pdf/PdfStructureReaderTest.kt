@@ -254,6 +254,15 @@ class PdfStructureReaderTest {
     }
 
     @Test
+    fun `a huge letter page number falls back to digits instead of exhausting memory`() {
+        // 깨진 /St(20억)를 받은 A 양식: 글자를 되풀이하면 한 쪽 이름이 수천만 글자가 되어 메모리가 바닥났다.
+        val labels = PdfPageLabels(listOf(PdfPageLabels.Range(0, 'A', "", 2_000_000_000), PdfPageLabels.Range(1, 'a', "", 27)))
+        assertEquals("2000000000", labels.label(0))
+        // 보통 크기는 그대로 글자다.
+        assertEquals("aa", labels.label(1))
+    }
+
+    @Test
     fun `a looping outline is read once instead of forever`() {
         val pdf = book({ p ->
             obj(2, "<< /Type /Outlines /First 50 0 R >>")

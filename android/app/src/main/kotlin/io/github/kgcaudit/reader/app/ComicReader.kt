@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
@@ -59,12 +58,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.key
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalView
 import io.github.kgcaudit.reader.ui.design.rememberTurnFeedback
 import kotlinx.coroutines.launch
@@ -118,7 +115,6 @@ import io.github.kgcaudit.reader.ui.design.CpPageTurn
 import io.github.kgcaudit.reader.ui.design.PageTurn
 import io.github.kgcaudit.reader.ui.design.rememberPageTurnState
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -294,6 +290,8 @@ fun ComicReader(
         // 두 쪽 중 이미 꽂힌 쪽이 있으면 그것을 뺀다. 없으면 판의 첫 쪽에 꽂는다.
         onBookmark(shown.firstOrNull { it in bookmarks } ?: shown.first())
     }
+    // 구석 누름의 처리기는 판이 바뀔 때만 새로 만든다 — 같은 판에서 책갈피를 꽂았다 빼면 처음 값에 묶여 "꽂았습니다" 라고 했다.
+    val toggleBookmarkNow by rememberUpdatedState<() -> Unit> { toggleBookmark() }
     VolumeKeyPaging(enabled = prefs.volumeKeys && panel == ComicPanel.None && !ended) { forward -> advance(forward) }
 
     BackHandler {
@@ -392,7 +390,9 @@ fun ComicReader(
                         .semantics { contentDescription = "만화 ${pagesLabel(shown)}쪽" }
                         .pointerInput(shown, w, h, rtl) {
                             detectTapGestures(
-                                onDoubleTap = { at -> viewport = viewport?.toggleZoom(at.x, at.y) },
+                                // 지금 값을 거쳐 읽고 쓴다 — 쪽 비율을 나중에 알게 되면 확대 상태가 새로 만들어지는데, 이 처리기는 그대로라
+                                // 버려진 옛 상태를 바꿔 두 번 눌러도 커지지 않았다.
+                                onDoubleTap = { at -> setViewport(viewportNow.value?.toggleZoom(at.x, at.y)) },
                                 onTap = { at ->
                                     if (panel != ComicPanel.None) { panel = ComicPanel.None; return@detectTapGestures }
                                     when (latestPrefs.touch.actionAt(at.x, at.y, viewW, 56.dp.toPx())) {
@@ -400,7 +400,7 @@ fun ComicReader(
                                         TapAction.Next -> advance(ComicReading.forward(screenNext = true, rightToLeft = rtl))
                                         TapAction.Previous -> advance(ComicReading.forward(screenNext = false, rightToLeft = rtl))
                                         TapAction.Menu -> panel = ComicPanel.Bar
-                                        TapAction.Bookmark -> toggleBookmark()
+                                        TapAction.Bookmark -> toggleBookmarkNow()
                                     }
                                 },
                             )
@@ -790,21 +790,25 @@ fun ComicHost(
     var chain by remember { mutableStateOf(emptySet<String>()) }
     var loadKey by remember { mutableStateOf(unitId) }
     val key = if (unitId in chain) loadKey else unitId
-    var book by remember(key) { mutableStateOf<ComicBook?>(null) }
-    var sizes by remember(key) { mutableStateOf<List<io.github.kgcaudit.reader.document.image.ImageSize?>>(emptyList()) }
+    // 사슬 밖으로 건너뛸 때 늘린다. 내려놓은 첫 화로 돌아가면 열쇠(처음 연 화)가 그대로라 아무 일도 없었다 — 이것으로 새로 연다.
+    var reload by remember { mutableIntStateOf(0) }
+    var book by remember(key, reload) { mutableStateOf<ComicBook?>(null) }
+    var sizes by remember(key, reload) { mutableStateOf<List<io.github.kgcaudit.reader.document.image.ImageSize?>>(emptyList()) }
     // 지금 자리(그림 번호 · 그 안의 비율). 보는 방식을 바꿔도 같은 그림에서 이어진다.
-    var position by remember(key) { mutableStateOf(0 to 0f) }
-    LaunchedEffect(key) {
+    var position by remember(key, reload) { mutableStateOf(0 to 0f) }
+    LaunchedEffect(key, reload) {
         if (key != loadKey || chain.isEmpty()) {
             loadKey = key
             chain = setOf(key)
         }
+        // 연 책. 크기를 읽다 실패하거나 여는 사이 화면을 떠나 취소되면 여기서 닫는다 — 두면 압축 · 파일이 열린 채 남았다.
+        var made: ComicBook? = null
         val opened = runCatching {
             withContext(Dispatchers.IO) {
                 val unit = data.comics.unit(unitId) ?: throw java.io.FileNotFoundException(unitId)
                 val p = data.comics.progressOf(unitId)
                 val pages = data.openComic(unit)
-                val comic = ComicBook(unit, pages, regions = container.comicRegions)
+                val comic = ComicBook(unit, pages, regions = container.comicRegions).also { made = it }
                 // 크기는 머리만 읽는다 — 웹툰 판별 · 기둥 배치에 쓴다.
                 sizes = comic.sizes()
                 position = when {
@@ -818,6 +822,7 @@ fun ComicHost(
             }
         }
         opened.onSuccess { book = it }.onFailure {
+            made?.close()
             if (it is kotlinx.coroutines.CancellationException) throw it
             android.util.Log.w("OloComic", "cannot open $unitId", it)
             onFail(
@@ -829,7 +834,7 @@ fun ComicHost(
             )
         }
     }
-    androidx.compose.runtime.DisposableEffect(key) { onDispose { book?.close() } }
+    androidx.compose.runtime.DisposableEffect(key, reload) { onDispose { book?.close() } }
     val works by remember { data.comics.works() }.collectAsState(initial = null)
     val progress by remember { data.comics.progress() }.collectAsState(initial = emptyMap())
     val bookmarks by remember(unitId) { data.comics.bookmarks(unitId) }.collectAsState(initial = emptyList())
@@ -919,6 +924,7 @@ fun ComicHost(
             onBookmark = { id, p -> scope.launch(Dispatchers.IO) { data.comics.toggleBookmark(id, p, now()) } },
             onJump = { n ->
                 chain = emptySet()
+                reload++
                 onOpen(n.unit.id)
             },
             onClose = onClose,

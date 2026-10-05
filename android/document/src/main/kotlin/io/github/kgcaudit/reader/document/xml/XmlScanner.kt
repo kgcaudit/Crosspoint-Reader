@@ -27,7 +27,14 @@ import java.io.Reader
  * 되므로, 복구 가능한 문제는 최대한 이어서 읽는다. 다만 조용히 글자를 버리지는
  * 않는다 — 해석 못 한 엔티티는 원문 그대로 흘려보낸다.
  */
-class XmlScanner(reader: Reader) {
+class XmlScanner(
+    reader: Reader,
+    /**
+     * 내용을 태그로 읽지 않고 제 닫힘 태그까지 글자 그대로 넘길 요소(소문자 이름). XHTML 의 `<script>` 안 `if (a<b)` 를 태그로
+     * 읽으면 `</script>` 까지 속성으로 삼켜, 그 뒤 장 전체가 스크립트 안으로 들어가 사라졌다. OPF · NCX 같은 다른 XML 은 비워 둔다.
+     */
+    private val rawText: Set<String> = emptySet(),
+) {
 
     private val scanner = CharScanner(reader)
 
@@ -88,7 +95,13 @@ class XmlScanner(reader: Reader) {
                         val selfClosing = scanner.consumeIfMatches("/")
                         skipUntil('>')
                         yield(XmlEvent.StartElement(name, attributes))
-                        if (selfClosing) yield(XmlEvent.EndElement(name))
+                        if (selfClosing) {
+                            yield(XmlEvent.EndElement(name))
+                        } else if (name.local.lowercase() in rawText) {
+                            val raw = readRawUntilEnd(name.local)
+                            if (raw.isNotEmpty()) yield(XmlEvent.Text(raw))
+                            yield(XmlEvent.EndElement(name))
+                        }
                     }
                 }
             }
@@ -226,6 +239,32 @@ class XmlScanner(reader: Reader) {
                 '>'.code -> if (bracketDepth == 0) return
             }
         }
+    }
+
+    /**
+     * `</[local]` (대소문자 무관) 이 나올 때까지 글자 그대로 모으고 그 닫힘 태그까지 소비한다. 닫힘이 없으면 문서 끝까지.
+     */
+    private fun readRawUntilEnd(local: String): String {
+        val out = StringBuilder()
+        while (true) {
+            val c = scanner.read()
+            if (c < 0) return out.toString()
+            if (c == '<'.code && scanner.peek() == '/'.code && closes(local)) {
+                skipUntil('>')
+                return out.toString()
+            }
+            out.append(c.toChar())
+        }
+    }
+
+    /** 지금 자리(`/` 앞)에 `/[local]` 과 이름이 끝나는 글자가 오는가. */
+    private fun closes(local: String): Boolean {
+        for (i in local.indices) {
+            val c = scanner.peekAt(1 + i)
+            if (c < 0 || c.toChar().lowercaseChar() != local[i].lowercaseChar()) return false
+        }
+        val after = scanner.peekAt(1 + local.length)
+        return after < 0 || after == '>'.code || after.toChar().isWhitespace()
     }
 
     private fun skipUntil(target: Char) {
