@@ -384,6 +384,17 @@ class WebtoonAppTest {
     }
 
     @Test
+    fun `a webtoon has no footer line and the picture runs to the bottom edge`() {
+        // 책의 아래 정보 줄을 웹툰에도 썼더니 쪽 자리에 % 가 들어가 "2% 2%" 로 두 번 보이고, 줄과 여백이 그림 자리를 먹었다.
+        openChapter("전학생", "1화")
+        compose.mainClock.advanceTimeBy(1_000)
+        waitForColor(0.5f, 0.5f, pink, "그림이 없다")
+        assertTrue(!has(hasContentDescription("진행 왼쪽부터")), "웹툰 아래에 정보 줄이 있다")
+        val s = screen()
+        assertTrue(near(s.getPixel(s.width / 2, s.height - 3), pink), "그림이 화면 아래 끝까지 오지 않는다")
+    }
+
+    @Test
     fun `changing the picture width never leaves the picture blank for a moment`() {
         // 폭을 바꾸면 띠가 새 폭으로 다시 풀리는 동안(수십 ms) 칸이 비어 화면이 깜박였다(사용자 보고, 녹화의 4.9초).
         openChapter("전학생", "1화")

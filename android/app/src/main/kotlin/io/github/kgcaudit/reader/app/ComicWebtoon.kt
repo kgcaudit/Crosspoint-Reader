@@ -545,10 +545,9 @@ fun WebtoonReader(
                     )
                 }
             }
-            ComicFooterLine(
-                title, hereLabel, "${(percent * 100).roundToInt()}%", percent,
-                rtl = false, footer = prefs.footer, modifier = Modifier.windowInsetsPadding(WindowInsets.displayCutout),
-            )
+            // 아래 정보 줄(제목 · 쪽 · %)은 두지 않는다(2026-10-05 사용자 결정). 웹툰은 쪽이 없어 쪽 자리에도 % 가 들어가
+            // "2% 2%" 로 두 번 보였고, 그 줄과 여백이 그림 자리를 먹었다. 진행은 화면을 누르면 메뉴에 나온다. 위는 카메라
+            // 구멍 자리만 비운다(displayCutout).
         }
         if (pickCover) {
             // 틀 밖은 어둡게. 머리와 단추는 화면 위아래에 — 아래 줄 · 책갈피 띠는 가린다(고르는 중에 쓸 일이 없다).
