@@ -3,6 +3,7 @@ package io.github.kgcaudit.reader.pdf
 import android.graphics.Bitmap
 import android.util.Log
 import androidx.activity.compose.BackHandler
+import io.github.kgcaudit.reader.document.SpreadSlot
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -995,9 +996,21 @@ private fun SpreadView(
             reader.page(p, w, (w / a).roundToInt())
         }
     }
-    // 쪽마다 놓인 자리. 그리기(아래 Canvas)와 같은 셈이다 — 두 쪽이면 책등이 가운데, 한 쪽이면 그 쪽이 가운데.
+    // 혼자인 쪽의 자리(0.46.0, 종이책 규칙): 표지는 오른쪽 반, 혼자 남은 마지막 쪽은 왼쪽 반, 가로로 긴 쪽은 가운데.
+    // 0.45 까지는 모두 가운데라 표지에서 다음 펼침으로 넘길 때 쪽이 반 칸 옆으로 튀었다. 표지를 혼자 두지 않는 설정에서
+    // 첫 쪽이 혼자인 것은 한 쪽짜리 문서뿐이다.
+    val slot = SpreadSlot.of(
+        pages, first = pages.firstOrNull() == 0, wide = (aspects?.singleOrNull() ?: 0f) > 1f, coverAlone = reader.book.pageCount > 1,
+    )
+    fun startX(f: List<Pair<Int, Int>>): Float = when {
+        f.size == 2 -> half - f[0].first
+        slot == SpreadSlot.Earlier -> half - f[0].first
+        slot == SpreadSlot.Later -> half
+        else -> (viewW - f.sumOf { it.first }) / 2f
+    }
+    // 쪽마다 놓인 자리. 그리기(아래 Canvas)와 같은 셈이다.
     val placed = fits?.let { f ->
-        var x = if (f.size == 2) half - f[0].first else (viewW - f.sumOf { it.first }) / 2f
+        var x = startX(f)
         f.mapIndexed { i, (w, h) ->
             val top = (viewH - h) / 2f
             Placed(pages[i], Rect(x, top, x + w, top + h)).also { x += w }
@@ -1024,9 +1037,8 @@ private fun SpreadView(
         Canvas(Modifier.fillMaxSize()) {
             val f = fits ?: return@Canvas
             val shown = bitmaps ?: return@Canvas
-            val total = f.sumOf { it.first }
-            // 두 쪽이면 책등이 화면 가운데, 한 쪽이면 그 쪽이 가운데.
-            var x = if (f.size == 2) half - f[0].first else (viewW - total) / 2f
+            // 두 쪽이면 책등이 화면 가운데, 혼자인 쪽은 제 자리(위 [startX]).
+            var x = startX(f)
             f.forEachIndexed { i, (w, h) ->
                 val top = (viewH - h) / 2f
                 shown.getOrNull(i)?.let { bitmap ->

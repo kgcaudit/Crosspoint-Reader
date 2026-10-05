@@ -111,6 +111,7 @@ import io.github.kgcaudit.reader.ui.design.ScreenPrefs
 import io.github.kgcaudit.reader.ui.design.TapAction
 import io.github.kgcaudit.reader.ui.design.VolumeKeyPaging
 import io.github.kgcaudit.reader.ui.design.actionAt
+import io.github.kgcaudit.reader.document.SpreadSlot
 import io.github.kgcaudit.reader.ui.design.CpPageTurn
 import io.github.kgcaudit.reader.ui.design.PageTurn
 import io.github.kgcaudit.reader.ui.design.rememberPageTurnState
@@ -229,6 +230,26 @@ fun ComicReader(
      * 첫 판에서 뒤로 가면 제자리로 돌아온다.
      */
     /**
+     * 판의 자리(0.46.0, 종이책 규칙): 두 쪽 보기에서 혼자인 표지는 뒤 쪽 자리, 혼자 남은 쪽은 앞 쪽 자리, 펼침면 그림은
+     * 가운데. 한 쪽 보기는 늘 가운데.
+     */
+    fun slotOf(index: Int): SpreadSlot {
+        val s = spreads.getOrNull(index) ?: return SpreadSlot.Center
+        if (!two) return SpreadSlot.Center
+        val single = s.singleOrNull()?.let { pageAspect(book, sizes, it) }
+        return SpreadSlot.of(s, first = s.firstOrNull() == 0, wide = single != null && single > 1f, coverAlone = prefs.pdfCoverAlone)
+    }
+
+    /**
+     * 판이 차지하는 비. 한쪽 자리에 선 혼자인 쪽은 빈 짝까지 두 쪽 폭으로 친다 — 그래야 확대 · 위치 · 붙여 넘기기가 두 쪽
+     * 판과 같은 틀에서 셈하고, 표지에서 다음 펼침으로 넘어갈 때 쪽이 옆으로 튀지 않는다.
+     */
+    fun aspectOf(index: Int): Float? {
+        val a = spreads.getOrNull(index)?.let { spreadAspect(book, sizes, it) } ?: return null
+        return if (slotOf(index).let { it == SpreadSlot.Earlier || it == SpreadSlot.Later }) a * 2 else a
+    }
+
+    /**
      * 판이 화면에 그려지는 폭: 화면에 맞춘 그림의 폭(화면보다 좁을 수 있다). 비를 아직 모르면 화면 폭.
      * 붙여 넘기기(0.45.0, 사용자 결정 — Explorer 처럼)는 앞뒤 판을 화면 폭이 아니라 이 폭만큼 떨어뜨려 놓는다. 화면 폭으로
      * 놓으면 그림이 화면보다 좁을 때(가로 화면 · 두 쪽) 넘기는 동안 쪽 사이에 검은 틈이 보였다.
@@ -236,7 +257,7 @@ fun ComicReader(
     fun spanOf(index: Int): Float {
         val w = screen.width.toFloat()
         val h = screen.height.toFloat()
-        val aspect = spreads.getOrNull(index)?.let { spreadAspect(book, sizes, it) }
+        val aspect = aspectOf(index)
         return if (aspect == null || w <= 0f || h <= 0f) w.coerceAtLeast(1f) else minOf(w, h * aspect)
     }
     /** 지금 판의 가운데에서 [index] 판의 가운데까지 — 두 그림의 가장자리가 맞닿는 거리. */
@@ -310,7 +331,9 @@ fun ComicReader(
                 val w = constraints.maxWidth
                 val h = constraints.maxHeight
                 // 지금 판의 확대 · 위치. 판이 바뀌면 다시 전체가 보인다. 두 쪽은 한 그림처럼 함께 맞추고 함께 확대한다.
-                var aspect by remember(shown) { mutableStateOf(spreadAspect(book, sizes, shown)) }
+                // 두 쪽 여부 · 표지 설정도 열쇠다 — 혼자인 쪽의 비(빈 짝 포함)가 그것으로 바뀐다. 빠뜨리면 화면 크기를 알기 전
+                // (한 쪽으로 판정된 때)의 비로 굳어 표지가 절반 폭으로 그려졌다(0.46.0 개발 중 시험이 찾음).
+                var aspect by remember(shown, two, prefs.pdfCoverAlone) { mutableStateOf(aspectOf(spreadIndex)) }
                 var viewport by remember(shown, w, h, aspect) { mutableStateOf(aspect?.let { PageViewport.fit(viewW, viewH, it, verticalBias = bias) }) }
                 // 끌기 몸짓(판이 바뀌어도 이어지는 쪽)이 읽고 쓰는 최신 값.
                 val viewportNow = rememberUpdatedState(viewport)
@@ -323,9 +346,9 @@ fun ComicReader(
                 androidx.compose.runtime.SideEffect {
                     book.pin((spreadIndex - 1..spreadIndex + 1).flatMap { spreads.getOrNull(it).orEmpty() }.toSet())
                 }
-                LaunchedEffect(shown, w, h) {
+                LaunchedEffect(shown, w, h, two, prefs.pdfCoverAlone) {
                     for (p in shown) book.page(p, w, h)
-                    aspect = spreadAspect(book, sizes, shown)
+                    aspect = aspectOf(spreadIndex)
                     // 앞뒤 판을 미리 풀어 둔다 — 넘길 때 빈 화면이 번쩍이지 않게.
                     for (near in listOf(spreadIndex + 1, spreadIndex - 1)) spreads.getOrNull(near)?.forEach { book.page(it, w, h) }
                 }
@@ -344,7 +367,7 @@ fun ComicReader(
                         mirrored = rtl,
                     ) { index ->
                         Box(Modifier.fillMaxSize().background(COMIC_BACKDROP)) {
-                            spreads.getOrNull(index)?.let { ComicPageImage(book, sizes, it, w, h, if (index == spreadIndex) viewport else null, rtl, bias) }
+                            spreads.getOrNull(index)?.let { ComicPageImage(book, sizes, it, w, h, if (index == spreadIndex) viewport else null, rtl, bias, slotOf(index)) }
                         }
                     }
                 } else if (w > 0 && h > 0 && count > 0) {
@@ -356,7 +379,7 @@ fun ComicReader(
                             val offset = if (k == 0) 0f else k * nextSide * stepTo(spreadIndex + k)
                             key(spreadIndex + k) {
                                 Box(Modifier.fillMaxSize().graphicsLayer { translationX = slide.value + offset; alpha = if (k == 0 || slide.value != 0f) 1f else 0f }) {
-                                    ComicPageImage(book, sizes, spread, w, h, if (k == 0) viewport else null, rtl, bias)
+                                    ComicPageImage(book, sizes, spread, w, h, if (k == 0) viewport else null, rtl, bias, slotOf(spreadIndex + k))
                                 }
                             }
                         }
@@ -544,7 +567,7 @@ internal fun pageAt(fraction: Float, pageCount: Int): Int =
  * 앞 쪽을 오른쪽에 둔다.
  */
 @Composable
-private fun ComicPageImage(book: ComicBook, sizes: List<ImageSize?>, pages: List<Int>, w: Int, h: Int, viewport: PageViewport?, rtl: Boolean, bias: Float) {
+private fun ComicPageImage(book: ComicBook, sizes: List<ImageSize?>, pages: List<Int>, w: Int, h: Int, viewport: PageViewport?, rtl: Boolean, bias: Float, slot: SpreadSlot = SpreadSlot.Center) {
     val bitmaps = remember(pages, w, h) { androidx.compose.runtime.mutableStateListOf(*pages.map { book.cached(it, w, h) }.toTypedArray()) }
     var broken by remember(pages, w, h) { mutableStateOf(pages.any { book.isBroken(it) }) }
     LaunchedEffect(pages, w, h) {
@@ -558,11 +581,13 @@ private fun ComicPageImage(book: ComicBook, sizes: List<ImageSize?>, pages: List
             // 각 쪽의 비. 아직 모르면 푼 그림에서, 그것도 없으면 그리지 않는다(흔들리지 않게).
             val aspects = pages.mapIndexed { k, p -> sizes.getOrNull(p)?.let { it.width.toFloat() / it.height } ?: bitmaps[k]?.let { it.width.toFloat() / it.height } }
             if (aspects.any { it == null }) return@Canvas
-            val total = aspects.sumOf { it!!.toDouble() }.toFloat()
+            // 한쪽 자리에 선 혼자인 쪽은 빈 짝까지 두 쪽 폭으로 맞추고 제 반에 그린다(0.46.0).
+            val side = slot == SpreadSlot.Earlier || slot == SpreadSlot.Later
+            val total = aspects.sumOf { it!!.toDouble() }.toFloat() * if (side) 2 else 1
             val vp = viewport ?: PageViewport.fit(size.width, size.height, total, verticalBias = bias)
             // 화면에 보이는 차례로 늘어놓는다: 오→왼 책은 앞 쪽이 오른쪽(구상안 ⑥).
             val order = if (rtl) pages.indices.reversed() else pages.indices
-            var x = vp.left
+            var x = vp.left + if (side && !slot.onLeft(rtl)) vp.width / 2 else 0f
             for (k in order) {
                 val pw = vp.width * aspects[k]!! / total
                 bitmaps[k]?.let { b ->

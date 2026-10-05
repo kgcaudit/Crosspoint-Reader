@@ -457,5 +457,43 @@ class ComicSpreadAppTest {
         assertTrue(isPageAt2(s, 0.4f, 0.97f, 1), "태블릿에서 그림이 아래에 붙지 않았다")
     }
 
+    /** 화면 가로 [fx] · 세로 가운데가 첫 쪽(#303030)인가 — 바탕과 가까워 ±6 으로 엄격히. */
+    private fun coverAt(shot: Bitmap, fx: Float): Boolean {
+        val p = shot.getPixel((shot.width * fx).toInt(), shot.height / 2)
+        return listOf(android.graphics.Color::red, android.graphics.Color::green, android.graphics.Color::blue).all { f -> abs(f(p) - 0x30) <= 6 }
+    }
+
+    /** 화면 가로 [fx] · 세로 가운데가 바탕색(#141311)에 가까운가 — 혼자인 쪽의 빈 반. */
+    private fun backdropAt(shot: Bitmap, fx: Float): Boolean {
+        val p = shot.getPixel((shot.width * fx).toInt(), shot.height / 2)
+        return listOf(android.graphics.Color::red, android.graphics.Color::green, android.graphics.Color::blue).all { f -> abs(f(p) - f(0xFF141311.toInt())) <= 8 }
+    }
+
+    @Test
+    fun `in two pages the cover sits on the later side and the last lonely page on the earlier side, mirrored right to left`() {
+        // 0.46.0 사용자 결정(종이책 규칙): 왼→오 책의 표지는 오른쪽 반, 혼자 남은 마지막 쪽은 왼쪽 반. 오→왼은 반대.
+        // 0.45 까지는 혼자인 쪽이 모두 가운데라, 표지에서 다음 펼침으로 넘길 때 쪽이 옆으로 튀었다.
+        openVolume()
+        waitFor(page("1"))
+        // 첫 쪽(#303030)은 바탕(#141311)과 가까워 느슨한 비교로는 가리지 못한다 — 빨강 값 ±6 으로 잰다.
+        compose.waitUntil(30_000) { coverAt(screen(), 0.75f) }
+        assertTrue(backdropAt(screen(), 0.25f), "왼→오 표지의 왼쪽 반이 비지 않았다")
+        next(); waitFor(page("2–3"))
+        next(); waitFor(page("4"))
+        // 펼침면 그림(가로로 긴 쪽)은 그 자체가 두 쪽 — 가운데.
+        waitForPageAt(0.5f, 3, "펼침면 그림이 가운데에 없다")
+        next(); waitFor(page("5–6"))
+        next(); waitFor(page("7"))
+        waitForPageAt(0.25f, 6, "왼→오 마지막 쪽이 왼쪽 반에 없다")
+        assertTrue(backdropAt(screen(), 0.75f), "왼→오 마지막 쪽의 오른쪽 반이 비지 않았다")
+
+        runBlocking { app.container.data.comics.setRightToLeft(app.container.data.comics.works().first().single(), true) }
+        compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        click(hasText("2권"))
+        waitFor(page("1"))
+        compose.waitUntil(30_000) { coverAt(screen(), 0.25f) }
+        assertTrue(backdropAt(screen(), 0.75f), "오→왼 표지의 오른쪽 반이 비지 않았다")
+    }
+
     private fun isPageAt2(shot: Bitmap, fx: Float, fy: Float, page: Int) = near(shot.getPixel((shot.width * fx).toInt(), (shot.height * fy).toInt()), colors[page])
 }

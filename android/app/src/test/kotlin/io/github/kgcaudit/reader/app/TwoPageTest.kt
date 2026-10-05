@@ -174,6 +174,9 @@ class TwoPageTest {
         compose.mainClock.advanceTimeBy(1_000)
         // 표지 혼자 → 2–3 → 4–5 → 6(T4).
         waitFor(hasText("1 / 6"))
+        // 표지는 오른쪽 반에(0.46.0, 종이책 규칙) — 가운데면 다음 펼침으로 넘길 때 쪽이 반 칸 옆으로 튄다.
+        compose.waitUntil(10_000) { ink(page(), 0.55f, 0.95f) }
+        assertFalse(ink(page(), 0.05f, 0.45f), "표지가 오른쪽 반이 아니다(왼쪽 반에 글자가 있다)")
         shot("51-pdf-cover-alone")
         for (expected in listOf("2–3 / 6", "4–5 / 6", "6 / 6")) {
             compose.onRoot().performTouchInput { click(centerRight.copy(x = width * 0.9f)) }
@@ -181,6 +184,9 @@ class TwoPageTest {
             waitFor(hasText(expected))
             if (expected == "2–3 / 6") shot("52-pdf-spread")
         }
+        // 혼자 남은 마지막 쪽은 왼쪽 반에.
+        compose.waitUntil(10_000) { ink(page(), 0.05f, 0.45f) }
+        assertFalse(ink(page(), 0.55f, 0.95f), "혼자 남은 마지막 쪽이 왼쪽 반이 아니다")
         // "함께" 로 바꾸면 5–6 펼침(6쪽이 든 펼침)으로. 설정은 화면에 다 들어오는 세로에서 바꾼다.
         turn("+port")
         waitFor(hasText("6 / 6"))
