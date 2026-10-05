@@ -88,7 +88,8 @@ class NestedComicAppTest {
             zip(
                 listOf(
                     "$insta/인스타 걸 1권.zip" to zip(pages(red), stored = false),
-                    "$insta/인스타 걸 2권.zip" to zip(pages(blue), stored = false),
+                    // 리디에서 받은 권처럼 끝에 0바이트 표시 파일 · 안내 글이 섞였다 — 그래도 권이다.
+                    "$insta/인스타 걸 2권.zip" to zip(pages(blue) + listOf("zzzzzzzzzz" to ByteArray(0), "안내.html" to "<p/>".toByteArray()), stored = false),
                     "$insta/인스타 걸 3권 (완결).zip" to zip(pages(green), stored = false),
                 ),
                 stored = false,
@@ -214,7 +215,7 @@ class NestedComicAppTest {
         scan()
         assertEquals(listOf("1권", "2권", "3권"), labels("인스타 걸"))
         // 한 번만: 표시를 남겨, 정말 만화가 아닌 zip 을 열 때마다 다시 살피지 않는다.
-        assertEquals("2", File(app.noBackupFilesDir, "comic-probe-generation").readText())
+        assertEquals("3", File(app.noBackupFilesDir, "comic-probe-generation").readText())
     }
 
     @Test

@@ -45,7 +45,9 @@ data class ComicContents(
             val others = files.filter { !isImageName(it) && !NestedArchives.isVolumeName(it) }
             if (!trustExtension) {
                 if (pages.size < 2) return null
-                if (others.any { it.substringAfterLast('.', "").lowercase() !in HARMLESS }) return null
+                // 확장자가 없는 파일은 문서가 아니다 — 리디에서 받은 권에는 끝에 0바이트 "zzzzzzzzzz" 표시 파일이 붙는데, 이것을
+                // 정체 모를 파일로 쳐서 그 권들이 통째로 "만화 아님" 이 됐다(사용자 보고, 0.48.3). 글 · 실행 파일은 확장자로 걸린다.
+                if (others.any { it.substringAfterLast('/').substringAfterLast('.', "").lowercase().let { ext -> ext.isNotEmpty() && ext !in HARMLESS } }) return null
             }
             val info = files.firstOrNull { it.substringAfterLast('/').equals("ComicInfo.xml", ignoreCase = true) }
             return of(pages, info)

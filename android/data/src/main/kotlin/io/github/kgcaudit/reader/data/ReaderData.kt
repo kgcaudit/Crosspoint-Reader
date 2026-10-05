@@ -141,7 +141,9 @@ class ReaderData(
             var volumes: List<Pair<String, Long?>>? = null
             try {
                 openArchive(unit.id, keep = null).use { archive ->
-                    contents = ComicContents.ofArchive(archive.names, trustExtension = unit.extension != "zip")
+                    // 압축 속 권은 만화 묶음에서 꺼낸 것이라 cbz 처럼 믿는다 — 그림이 하나라도 있으면 만화다. 안내 글 하나 섞였다고
+                    // 묶음의 권 하나가 사라지면 그 권만 빠진 채 이어 보기가 끊긴다.
+                    contents = ComicContents.ofArchive(archive.names, trustExtension = unit.extension != "zip" || unit.kind == ComicUnitKind.NESTED.name)
                     contents?.comicInfo?.let { name ->
                         info = runCatching { archive.entry(name)?.reader(Charsets.UTF_8)?.use { ComicInfo.parse(it) } }.getOrNull()
                     }
@@ -314,9 +316,10 @@ class ReaderData(
          */
         const val KEEP_UNPACKED = 4
         /**
-         * 살피기 규칙의 세대. 규칙이 바뀌어 옛 "만화 아님" 판정이 틀릴 수 있으면 올린다. 1 = 0.33.0 ~ 0.47.1, 2 = 0.48.0 압축 속 권.
+         * 살피기 규칙의 세대. 규칙이 바뀌어 옛 "만화 아님" 판정이 틀릴 수 있으면 올린다. 1 = 0.33.0 ~ 0.47.1, 2 = 0.48.0 압축 속 권,
+         * 3 = 0.48.3 확장자 없는 표시 파일("zzzzzzzzzz")을 문서로 치지 않음 · 압축 속 권은 믿음.
          */
-        const val PROBE_GENERATION = 2
+        const val PROBE_GENERATION = 3
         const val PROBE_MARK = "comic-probe-generation"
         /** 다 풀었다는 표시 파일. 풀다가 앱이 닫히면 없으니, 다음에 다시 푼다. */
         const val DONE = ".olo-unpacked"
