@@ -1,6 +1,7 @@
 package io.github.kgcaudit.reader.document.zip
 
 import io.github.kgcaudit.reader.document.SeekableSource
+import io.github.kgcaudit.reader.document.slice
 import io.github.kgcaudit.reader.document.readFully
 import io.github.kgcaudit.reader.document.readUpTo
 import java.io.Closeable
@@ -85,6 +86,18 @@ class ZipReader private constructor(
             }
             else -> throw IOException("unsupported compression method ${entry.method} for $name")
         }
+    }
+
+    /**
+     * 압축하지 않고 담은 항목을 그 자리에서 읽는 원천(0.48.0). 압축했거나 암호가 걸렸거나 없으면 null. zip 속 zip 을 꺼내지
+     * 않고 바로 연다. 이 리더를 닫으면 함께 못 쓰게 된다 — 원천을 쥔 쪽이 이 리더보다 먼저 닫는다.
+     */
+    @Throws(IOException::class)
+    fun storedSource(name: String): SeekableSource? {
+        val entry = entries[name] ?: return null
+        if (entry.encrypted || entry.method != ZipEntry.METHOD_STORED || entry.compressedSize != entry.size) return null
+        val start = dataOffsetOf(entry)
+        return if (start + entry.size <= source.size) source.slice(start, entry.size) else null
     }
 
     /** 엔트리 전체를 바이트로 읽는다. 없으면 null. 작은 파일(OPF·NCX·CSS)에 쓴다. */

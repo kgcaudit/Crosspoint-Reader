@@ -18,6 +18,7 @@ import io.github.kgcaudit.reader.document.comic.ComicContents
 import io.github.kgcaudit.reader.document.comic.ComicInfo
 import io.github.kgcaudit.reader.document.comic.ComicUnit
 import io.github.kgcaudit.reader.document.comic.ComicUnitKind
+import io.github.kgcaudit.reader.document.comic.NestedArchives
 import io.github.kgcaudit.reader.document.comic.NaturalOrder
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -110,16 +111,33 @@ class ReaderData(
      * @return 살핀 수.
      */
     suspend fun probeComics(): Int = withContext(io) {
-        val todo = comics.needingProbe()
+        var probed = 0
+        // 압축 속 권(0.48.0)은 바깥 압축을 살피면서 생긴다 — 같은 부름에서 그 권들까지 살펴야 서재에 바로 보인다. 한 겹만
+        // 펼치므로 두 바퀴면 끝나지만, 바퀴 수를 묶어 두어 무엇이 꼬여도 끝없이 돌지 않게 한다.
+        repeat(3) {
+            val todo = comics.needingProbe()
+            if (todo.isEmpty()) return@withContext probed
+            probeOnce(todo)
+            probed += todo.size
+        }
+        probed
+    }
+
+    private suspend fun probeOnce(todo: List<io.github.kgcaudit.reader.data.db.ComicUnitEntity>) {
         for (unit in todo) {
             currentCoroutineContext().ensureActive()
             var contents: ComicContents? = null
             var info: ComicInfo? = null
+            var volumes: List<Pair<String, Long?>>? = null
             try {
-                ComicArchive.open(sources, Uri.parse(unit.id), scratch).use { archive ->
+                openArchive(unit.id, keep = null).use { archive ->
                     contents = ComicContents.ofArchive(archive.names, trustExtension = unit.extension != "zip")
                     contents?.comicInfo?.let { name ->
                         info = runCatching { archive.entry(name)?.reader(Charsets.UTF_8)?.use { ComicInfo.parse(it) } }.getOrNull()
+                    }
+                    // 한 겹만 펼친다(사용자 결정 ②) — 안에서 꺼낸 권 속의 압축은 보지 않는다.
+                    if (unit.kind == ComicUnitKind.ARCHIVE.name) {
+                        volumes = NestedArchives.volumes(archive.names).map { it to archive.sizeOf(it) }
                     }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -134,9 +152,50 @@ class ReaderData(
                 // 열 수 없는 압축(깨짐 · 암호). cbz 는 그대로 보이고 zip 은 만화가 아닌 것으로 둔다.
                 contents = null
             }
-            comics.saveProbe(unit, contents, info)
+            // 바깥을 열지 못했으면(volumes == null) 전에 꺼낸 권들은 그대로 둔다 — 잠깐 못 읽은 것으로 권이 사라지지 않게.
+            volumes?.let { comics.saveVolumes(unit, it, System.currentTimeMillis()) }
+            comics.saveProbe(unit, contents, info, holdsVolumes = !volumes.isNullOrEmpty())
         }
-        todo.size
+    }
+
+    /**
+     * 단위의 압축을 연다. 압축 속 권(0.48.0)이면 바깥 압축에서 꺼낸다: 압축 없이 담긴 zip 이면 바깥 파일의 그 구간을 그대로
+     * 읽고(복사 없음), 아니면 [keep] 폴더에 한 번 꺼내 둔 사본에서 연다. [keep] 이 null 이면(살피기 · 표지) 임시 사본을 쓰고
+     * 닫을 때 지운다 — 살피기가 풀어 둔 권 폴더를 늘리면 읽던 권의 폴더가 밀려 지워진다.
+     */
+    private fun openArchive(id: String, keep: File?): ComicArchive {
+        val (outerId, inner) = NestedArchives.split(id) ?: return ComicArchive.open(sources, Uri.parse(id), scratch)
+        val outer = ComicArchive.open(sources, Uri.parse(outerId), scratch)
+        try {
+            if (inner !in outer.names) throw java.io.FileNotFoundException("$inner is no longer in $outerId")
+            (outer as? ComicArchive.Zip)?.openStored(inner)?.let { return it }
+            val ext = inner.substringAfterLast('.').lowercase()
+            if (keep != null) {
+                val file = File(keep, VOLUME_FILE + ext)
+                val done = File(keep, VOLUME_DONE)
+                if (!done.isFile || !file.isFile) {
+                    keep.mkdirs()
+                    done.delete()
+                    // 다 꺼냈을 때만 표시를 남긴다 — 반쯤 꺼낸 사본을 다음에 그대로 열면 뒤쪽 쪽들이 사라진다.
+                    val tmp = File(keep, "$VOLUME_FILE$ext.part")
+                    if (!outer.copyEntry(inner, tmp) || !tmp.renameTo(file)) throw java.io.IOException("cannot copy out $inner")
+                    done.writeText(id)
+                }
+                outer.close()
+                return ComicArchive.openFile(file, scratch)
+            }
+            scratch.mkdirs()
+            val tmp = File.createTempFile("volume", ".$ext", scratch)
+            if (!outer.copyEntry(inner, tmp)) {
+                tmp.delete()
+                throw java.io.IOException("cannot copy out $inner")
+            }
+            outer.close()
+            return ComicArchive.openFile(tmp, scratch) { tmp.delete() }
+        } catch (e: Throwable) {
+            outer.close()
+            throw e
+        }
     }
 
     /**
@@ -147,10 +206,9 @@ class ReaderData(
      */
     fun comicCover(unit: ComicUnit): ByteArray? {
         val entry = unit.contents?.cover ?: return null
-        val uri = Uri.parse(unit.id)
         return when (unit.kind) {
-            ComicUnitKind.ARCHIVE -> ComicArchive.open(sources, uri, scratch).use { it.entry(entry)?.use { s -> s.readBytes() } }
-            ComicUnitKind.IMAGE_FOLDER -> folderFiles(uri)[entry]?.let { doc -> resolver.openInputStream(doc)?.use { it.readBytes() } }
+            ComicUnitKind.ARCHIVE, ComicUnitKind.NESTED -> openArchive(unit.id, keep = null).use { it.entry(entry)?.use { s -> s.readBytes() } }
+            ComicUnitKind.IMAGE_FOLDER -> folderFiles(Uri.parse(unit.id))[entry]?.let { doc -> resolver.openInputStream(doc)?.use { it.readBytes() } }
         }
     }
 
@@ -159,17 +217,19 @@ class ReaderData(
      * 하나씩 꺼낸다(1GB 압축을 통째로 복사하면 느리고 공간을 먹는다). 그림이 하나도 없으면 [java.io.IOException].
      */
     fun openComic(unit: ComicUnit): ComicPages {
-        val uri = Uri.parse(unit.id)
         return when (unit.kind) {
-            ComicUnitKind.ARCHIVE -> {
-                val archive = ComicArchive.open(sources, uri, scratch)
+            ComicUnitKind.ARCHIVE, ComicUnitKind.NESTED -> {
+                // 압축 속 권은 꺼낸 사본과 풀린 쪽을 같은 폴더에 둔다 — 최근 권만 남기는 규칙([KEEP_UNPACKED])을 함께 따른다.
+                val keep = if (unit.kind == ComicUnitKind.NESTED) unpackedDir(unit) else null
+                val archive = openArchive(unit.id, keep)
                 try {
                     // 이름이 만화라고 말하지 않아도(zip) 여기까지 왔으면 서재가 만화로 본 것이다 — 그림 하나라도 있으면 연다.
                     val contents = ComicContents.ofArchive(archive.names, trustExtension = true)
                         ?: throw java.io.IOException("no pictures in ${unit.name}")
                     if (archive is ComicArchive.Native) {
-                        // RAR · 7z: 한 번에 다 풀어 두고 쪽은 풀린 파일에서 읽는다(쪽마다 풀면 통짜 RAR 은 n²).
-                        val dir = unpackedDir(unit)
+                        // RAR · 7z: 한 번에 다 풀어 두고 쪽은 풀린 파일에서 읽는다(쪽마다 풀면 통짜 RAR 은 n²). 압축 속 권은
+                        // 꺼낸 사본 곁의 하위 폴더에 — 같은 폴더를 비우고 풀면 지금 읽고 있는 사본까지 지운다.
+                        val dir = keep?.let { File(it, "pages") } ?: unpackedDir(unit)
                         if (!File(dir, DONE).isFile) {
                             dir.deleteRecursively()
                             // 다 풀었을 때만 표시를 남긴다 — 저장 공간이 모자라 반쯤 풀렸는데 표시가 남으면 다시 풀지 않아 그 쪽들이
@@ -187,7 +247,7 @@ class ReaderData(
                 }
             }
             ComicUnitKind.IMAGE_FOLDER -> {
-                val files = folderFiles(uri)
+                val files = folderFiles(Uri.parse(unit.id))
                 val pages = files.keys.filter(ComicContents::isImageName).sortedWith(NaturalOrder)
                 if (pages.isEmpty()) throw java.io.IOException("no pictures in ${unit.name}")
                 ComicPages(pages, { name -> files[name]?.let { doc -> resolver.openInputStream(doc) } }, null)
@@ -245,5 +305,8 @@ class ReaderData(
         const val KEEP_UNPACKED = 4
         /** 다 풀었다는 표시 파일. 풀다가 앱이 닫히면 없으니, 다음에 다시 푼다. */
         const val DONE = ".olo-unpacked"
+        /** 압축 속 권(0.48.0)을 꺼내 둔 사본의 이름 앞부분(뒤에 확장자)과, 다 꺼냈다는 표시. */
+        const val VOLUME_FILE = ".olo-volume."
+        const val VOLUME_DONE = ".olo-volume-done"
     }
 }

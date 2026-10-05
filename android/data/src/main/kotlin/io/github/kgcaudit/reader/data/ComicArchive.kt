@@ -3,6 +3,7 @@ package io.github.kgcaudit.reader.data
 import io.github.kgcaudit.reader.archive.NativeArchives
 import io.github.kgcaudit.reader.archive.NativeKind
 import io.github.kgcaudit.reader.data.saf.UriSources
+import io.github.kgcaudit.reader.document.SeekableSource
 import io.github.kgcaudit.reader.document.tar.TarReader
 import io.github.kgcaudit.reader.document.zip.ZipReader
 import java.io.Closeable
@@ -22,16 +23,56 @@ internal sealed class ComicArchive : Closeable {
     abstract val names: List<String>
     abstract fun entry(name: String): InputStream?
 
-    class Zip(private val zip: ZipReader) : ComicArchive() {
-        override val names get() = zip.entries.keys.toList()
-        override fun entry(name: String) = zip.openStream(name)
-        override fun close() = zip.close()
+    /** 항목을 풀었을 때 크기. 모르면 null. 압축 속 권(0.48.0)이 바뀌었는지 가리는 데 쓴다. */
+    abstract fun sizeOf(name: String): Long?
+
+    /**
+     * 항목 하나를 [dest] 파일로 꺼낸다(0.48.0, 압축 속 권). 기본은 흘려 옮긴다 — 수십 MB 권을 메모리에 통째로 담지 않는다.
+     * 다 옮기지 못했으면 false 이고 [dest] 는 남기지 않는다.
+     */
+    open fun copyEntry(name: String, dest: File): Boolean {
+        val input = entry(name) ?: return false
+        try {
+            input.use { src -> dest.outputStream().use { src.copyTo(it) } }
+            return true
+        } catch (e: Throwable) {
+            dest.delete()
+            throw e
+        }
     }
 
-    class Tar(private val tar: TarReader) : ComicArchive() {
+    /** @param owner 함께 닫을 것 — 압축 속 권을 바깥 압축의 구간에서 읽으면 바깥 압축이다. */
+    class Zip(private val zip: ZipReader, private val owner: Closeable? = null) : ComicArchive() {
+        override val names get() = zip.entries.keys.toList()
+        override fun entry(name: String) = zip.openStream(name)
+        override fun sizeOf(name: String) = zip.entries[name]?.size?.takeIf { it >= 0 }
+
+        /**
+         * 압축 없이 담은 zip 속 zip 을 그 자리에서 연다(0.48.0) — 복사가 없어 바로 열린다. 압축해 담았거나 안쪽이 zip 이 아니면
+         * null(부르는 쪽이 꺼내서 연다). 돌려준 것을 닫으면 이 바깥 압축도 닫힌다.
+         */
+        fun openStored(name: String): Zip? {
+            val slice = zip.storedSource(name) ?: return null
+            val inner = try {
+                ZipReader.open(slice)
+            } catch (e: IOException) {
+                return null
+            }
+            return Zip(inner, owner = this)
+        }
+
+        override fun close() {
+            try { zip.close() } finally { owner?.close() }
+        }
+    }
+
+    class Tar(private val tar: TarReader, private val owner: Closeable? = null) : ComicArchive() {
         override val names get() = tar.entries.keys.toList()
         override fun entry(name: String) = tar.openStream(name)
-        override fun close() = tar.close()
+        override fun sizeOf(name: String) = tar.entries[name]?.second
+        override fun close() {
+            try { tar.close() } finally { owner?.close() }
+        }
     }
 
     class Native(
@@ -39,8 +80,21 @@ internal sealed class ComicArchive : Closeable {
         private val local: UriSources.LocalPath,
         private val scratch: File,
     ) : ComicArchive() {
-        override val names: List<String> = NativeArchives.list(kind, local.path)
-            .filter { !it.isDirectory && !it.encrypted && safeEntryName(it.path) }.map { it.path }
+        private val listed = NativeArchives.list(kind, local.path).filter { !it.isDirectory && !it.encrypted && safeEntryName(it.path) }
+        override val names: List<String> = listed.map { it.path }
+        override fun sizeOf(name: String) = listed.firstOrNull { it.path == name }?.size?.takeIf { it >= 0 }
+
+        /** 해제기가 파일로 풀게 하고 옮긴다 — [entry] 처럼 바이트로 읽으면 90MB 권이 메모리에 통째로 올라온다. */
+        override fun copyEntry(name: String, dest: File): Boolean {
+            val dir = File(scratch, "one-" + System.nanoTime())
+            try {
+                if (!NativeArchives.extract(kind, local.path, dir, setOf(name))) return false
+                val file = File(dir, name).takeIf { it.isFile } ?: return false
+                return file.renameTo(dest) || run { file.copyTo(dest, overwrite = true); true }
+            } finally {
+                dir.deleteRecursively()
+            }
+        }
 
         override fun entry(name: String): InputStream? {
             val dir = File(scratch, "one-" + System.nanoTime())
@@ -66,6 +120,31 @@ internal sealed class ComicArchive : Closeable {
          */
         fun safeEntryName(name: String): Boolean =
             name.isNotEmpty() && !name.startsWith("/") && !name.startsWith("\\") && name.replace('\\', '/').split('/').none { it == ".." }
+
+        /**
+         * 꺼내 둔 파일 하나를 압축으로 연다(0.48.0, 압축 속 권). 닫으면 [onClose] 를 부른다 — 살피기용 임시 사본을 지운다.
+         * 종류는 [open] 과 같이 머리로 가린다.
+         */
+        fun openFile(file: File, scratch: File, onClose: () -> Unit = {}): ComicArchive {
+            val release = Closeable { onClose() }
+            try {
+                val head = ByteArray(512)
+                val n = java.io.RandomAccessFile(file, "r").use { it.read(head) }
+                val kind = if (n >= 6) NativeArchives.kindOf(head) else null
+                if (kind != null) return Native(kind, UriSources.LocalPath(file.path, onClose), scratch)
+                val source = FileSource(file)
+                try {
+                    return if (n >= 512 && head[0] != 'P'.code.toByte() && TarReader.looksLikeTar(head)) Tar(TarReader.open(source), release)
+                    else Zip(ZipReader.open(source), release)
+                } catch (e: Throwable) {
+                    source.close()
+                    throw e
+                }
+            } catch (e: Throwable) {
+                onClose()
+                throw e
+            }
+        }
 
         /** [uri] 의 압축을 연다. 아는 형식이 아니면 [IOException]. */
         fun open(sources: UriSources, uri: android.net.Uri, scratch: File): ComicArchive {
@@ -101,4 +180,18 @@ internal sealed class ComicArchive : Closeable {
         }
 
     }
+}
+
+/** 앱 캐시의 파일. 압축 속 권을 꺼내 둔 사본을 읽는다. */
+private class FileSource(file: File) : SeekableSource {
+    private val raf = java.io.RandomAccessFile(file, "r")
+    override val size: Long = raf.length()
+
+    override fun readAt(offset: Long, dest: ByteArray, destOffset: Int, length: Int): Int {
+        if (offset >= size) return -1
+        if (length == 0) return 0
+        return raf.channel.read(java.nio.ByteBuffer.wrap(dest, destOffset, length), offset)
+    }
+
+    override fun close() = raf.close()
 }

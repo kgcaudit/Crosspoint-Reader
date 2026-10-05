@@ -24,7 +24,7 @@ data class ComicContents(
         fun isImageName(name: String): Boolean =
             name.substringAfterLast('/').substringAfterLast('.', "").lowercase() in IMAGE
 
-        private fun isJunk(path: String): Boolean {
+        internal fun isJunk(path: String): Boolean {
             val base = path.substringAfterLast('/')
             return path.startsWith("__MACOSX/") || path.contains("/__MACOSX/") || base.startsWith(".") ||
                 base.equals("Thumbs.db", ignoreCase = true) || base.equals("desktop.ini", ignoreCase = true)
@@ -41,7 +41,8 @@ data class ComicContents(
             val files = entryNames.filter { !it.endsWith("/") && !isJunk(it) }
             val pages = files.filter(::isImageName).sortedWith(NaturalOrder)
             if (pages.isEmpty()) return null
-            val others = files.filter { !isImageName(it) }
+            // 안에 든 권 압축은 따로 펼친다(NestedArchives) — 여기서 "다른 파일" 로 치면 그림과 권이 함께 든 zip 이 통째로 빠진다.
+            val others = files.filter { !isImageName(it) && !NestedArchives.isVolumeName(it) }
             if (!trustExtension) {
                 if (pages.size < 2) return null
                 if (others.any { it.substringAfterLast('.', "").lowercase() !in HARMLESS }) return null

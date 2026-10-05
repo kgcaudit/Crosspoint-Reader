@@ -16,6 +16,7 @@ import io.github.kgcaudit.reader.document.comic.ComicProgress
 import io.github.kgcaudit.reader.document.comic.ComicShelf
 import io.github.kgcaudit.reader.document.comic.ComicUnit
 import io.github.kgcaudit.reader.document.comic.ComicUnitKind
+import io.github.kgcaudit.reader.document.comic.NestedArchives
 import io.github.kgcaudit.reader.document.comic.ComicView
 import io.github.kgcaudit.reader.document.comic.ShelfMark
 import io.github.kgcaudit.reader.document.comic.Work
@@ -223,7 +224,8 @@ class ComicLibrary(private val db: ReaderDatabase) {
                     lastModifiedEpochMs = found.lastModifiedEpochMs,
                     addedAtEpochMs = old?.addedAtEpochMs ?: nowEpochMs,
                     missing = false,
-                    probed = old?.probed ?: false,
+                    // 숨었다 돌아온 압축은 다시 살핀다 — 안에서 꺼낸 권(0.48.0)이 숨은 채 남지 않게, 살피면서 다시 꺼낸다.
+                    probed = if (old?.missing == true) false else old?.probed ?: false,
                     probedSize = old?.probedSize,
                     probedModified = old?.probedModified,
                     notComic = old?.notComic ?: false,
@@ -240,8 +242,51 @@ class ComicLibrary(private val db: ReaderDatabase) {
         )
         if (result.complete) {
             val seen = result.comics.mapTo(HashSet()) { it.uri }
-            existing.values.filter { !it.missing && it.id !in seen }.map { it.id }.chunked(500).forEach { comics.markMissing(it) }
+            // 압축 속 권은 훑기가 보지 못한다(파일이 아니다) — 바깥 압축이 보이는 동안은 그대로 두고, 바깥이 사라지면 함께 숨긴다.
+            // 권 자체를 "안 보임" 으로 치면 새로고침할 때마다 서재에서 사라졌다.
+            existing.values.filter { !it.missing && (NestedArchives.split(it.id)?.first ?: it.id) !in seen }
+                .map { it.id }.chunked(500).forEach { comics.markMissing(it) }
         }
+    }
+
+    /**
+     * 살핀 바깥 압축 [outer] 안의 권들을 단위로 적는다(0.48.0). [volumes] 는 (안쪽 경로, 크기). 목록에서 빠진 권은 숨긴다 — 진도 ·
+     * 책갈피는 남아서, 같은 권이 다시 들어오면 이어진다.
+     */
+    suspend fun saveVolumes(outer: ComicUnitEntity, volumes: List<Pair<String, Long?>>, nowEpochMs: Long) = db.withTransaction {
+        val existing = comics.nestedIn(outer.id + NestedArchives.SEPARATOR).associateBy { it.id }
+        val outerFolders = outer.folders.split(ComicUnitEntity.FOLDER_SEPARATOR).filter { it.isNotEmpty() }
+        val rows = volumes.map { (inner, size) ->
+            val id = NestedArchives.id(outer.id, inner)
+            val old = existing[id]
+            ComicUnitEntity(
+                id = id,
+                folderUri = outer.folderUri,
+                name = inner.substringAfterLast('/'),
+                kind = ComicUnitKind.NESTED.name,
+                extension = inner.substringAfterLast('.').lowercase(),
+                folders = NestedArchives.folders(outerFolders, outer.name, inner).joinToString(ComicUnitEntity.FOLDER_SEPARATOR),
+                sizeBytes = size,
+                // 바깥 압축이 바뀌면 안의 권도 다시 살핀다.
+                lastModifiedEpochMs = outer.lastModifiedEpochMs,
+                addedAtEpochMs = old?.addedAtEpochMs ?: nowEpochMs,
+                missing = false,
+                probed = old?.probed ?: false,
+                probedSize = old?.probedSize,
+                probedModified = old?.probedModified,
+                notComic = old?.notComic ?: false,
+                pageCount = old?.pageCount,
+                coverEntry = old?.coverEntry,
+                sections = old?.sections,
+                infoSeries = old?.infoSeries,
+                infoNumber = old?.infoNumber,
+                infoFormat = old?.infoFormat,
+                infoRightToLeft = old?.infoRightToLeft,
+            )
+        }
+        comics.upsert(rows)
+        val kept = rows.mapTo(HashSet()) { it.id }
+        existing.keys.filter { it !in kept }.chunked(500).forEach { comics.markMissing(it) }
     }
 
     /** 등록을 푼 폴더의 만화를 숨긴다. 손 고침은 남긴다 — 다시 등록하면 같은 URI 라 그대로 이어진다. */
@@ -257,8 +302,9 @@ class ComicLibrary(private val db: ReaderDatabase) {
      * 살핀 결과를 적는다. [contents] 가 null 이면 만화가 아니다(그냥 zip) — 단, cbz 처럼 이름이 만화라고 말하는 것은 열지
      * 못했어도 숨기지 않는다: 깨진 압축 하나가 서재에서 사라지면 무엇이 깨졌는지조차 알 수 없다(규칙 6).
      */
-    suspend fun saveProbe(unit: ComicUnitEntity, contents: ComicContents?, info: ComicInfo?) {
-        val trusted = unit.extension in LibraryScanner.COMIC_ARCHIVES
+    suspend fun saveProbe(unit: ComicUnitEntity, contents: ComicContents?, info: ComicInfo?, holdsVolumes: Boolean = false) {
+        // 권 압축만 든 cbz(0.48.0)는 그 자체로는 빈 권이다 — 안의 권들이 대신 보인다.
+        val trusted = unit.extension in LibraryScanner.COMIC_ARCHIVES && !holdsVolumes
         comics.saveProbe(
             id = unit.id,
             size = unit.sizeBytes,

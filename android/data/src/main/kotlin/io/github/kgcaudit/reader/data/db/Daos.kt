@@ -179,15 +179,25 @@ interface ComicDao {
     @Query("SELECT * FROM comic_units WHERE id = :id")
     suspend fun get(id: String): ComicUnitEntity?
 
-    /** 아직 살피지 않았거나, 살핀 뒤 파일이 바뀐 압축(zip · cbz · cbt · cbr · cb7 — 0.37.0 부터 뒤의 셋도). */
+    /**
+     * 아직 살피지 않았거나, 살핀 뒤 파일이 바뀐 압축(zip · cbz · cbt · cbr · cb7 — 0.37.0 부터 뒤의 셋도). 압축 속 권(`NESTED`,
+     * 0.48.0)도 같다 — 크기는 안쪽 권의 크기, 수정 시각은 바깥 압축의 것이다.
+     */
     @Query(
-        "SELECT * FROM comic_units WHERE missing = 0 AND kind = 'ARCHIVE' AND extension IN ('zip', 'cbz', 'cbt', 'cbr', 'cb7') " +
+        "SELECT * FROM comic_units WHERE missing = 0 AND kind IN ('ARCHIVE', 'NESTED') AND extension IN ('zip', 'cbz', 'cbt', 'cbr', 'cb7') " +
             "AND (probed = 0 OR probedSize IS NOT sizeBytes OR probedModified IS NOT lastModifiedEpochMs)",
     )
     suspend fun needingProbe(): List<ComicUnitEntity>
 
     @Upsert
     suspend fun upsert(units: List<ComicUnitEntity>)
+
+    /**
+     * 바깥 압축 [outerId] 안에서 꺼낸 권들(0.48.0). id 앞부분을 글자 그대로 비교한다 — LIKE 는 문서 URI 의 `%` · `_` 를 무늬로 읽어
+     * 다른 압축의 권까지 걸렸다.
+     */
+    @Query("SELECT * FROM comic_units WHERE kind = 'NESTED' AND substr(id, 1, length(:prefix)) = :prefix")
+    suspend fun nestedIn(prefix: String): List<ComicUnitEntity>
 
     @Query("UPDATE comic_units SET missing = 1 WHERE id IN (:ids)")
     suspend fun markMissing(ids: List<String>)

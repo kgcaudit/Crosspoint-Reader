@@ -33,6 +33,26 @@ interface SeekableSource : Closeable {
 }
 
 /**
+ * 이 원천의 [start] 부터 [size] 바이트를 따로 떼어 낸 원천(0.48.0). 압축 없이 담긴 zip 속 zip 을 복사하지 않고 그 자리에서
+ * 읽으려고 둔다. 닫아도 바탕은 닫지 않는다 — 바탕은 바깥 압축을 연 쪽이 닫는다.
+ */
+fun SeekableSource.slice(start: Long, size: Long): SeekableSource {
+    require(start >= 0 && size >= 0 && start <= this.size - size) { "slice $start+$size outside ${this.size}" }
+    val base = this
+    return object : SeekableSource {
+        override val size: Long = size
+
+        override fun readAt(offset: Long, dest: ByteArray, destOffset: Int, length: Int): Int {
+            if (offset >= size) return -1
+            // 구간 끝에서 자른다 — 넘겨 읽으면 바깥 압축의 다음 항목이 안쪽 압축의 꼬리로 섞인다.
+            return base.readAt(start + offset, dest, destOffset, minOf(length.toLong(), size - offset).toInt())
+        }
+
+        override fun close() = Unit
+    }
+}
+
+/**
  * 정확히 [length] 바이트를 읽는다. 모자라면 [EOFException].
  *
  * zip 구조를 읽을 때는 짧은 읽기를 조용히 넘기면 안 된다 — 필드가 어긋난 채로 파싱이

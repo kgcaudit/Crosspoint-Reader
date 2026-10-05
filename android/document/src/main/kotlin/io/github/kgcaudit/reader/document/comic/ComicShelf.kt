@@ -1,7 +1,7 @@
 package io.github.kgcaudit.reader.document.comic
 
-/** 만화 단위의 종류. */
-enum class ComicUnitKind { ARCHIVE, IMAGE_FOLDER }
+/** 만화 단위의 종류. [NESTED] 는 압축 안에 든 권 압축(0.48.0) — id 가 [NestedArchives.id] 꼴이다. */
+enum class ComicUnitKind { ARCHIVE, IMAGE_FOLDER, NESTED }
 
 /**
  * 훑기가 찾은 만화 단위 하나(압축 파일 하나 · 그림 폴더 하나). 묶기의 입력이다.
@@ -120,7 +120,7 @@ object ComicShelf {
 
     /** 단위 하나의 작품 이름과 번호를 정한다. */
     private fun place(unit: ComicUnit): Placed {
-        var name = ComicName.parse(unit.name, hasExtension = unit.kind == ComicUnitKind.ARCHIVE)
+        var name = ComicName.parse(unit.name, hasExtension = unit.kind != ComicUnitKind.IMAGE_FOLDER)
         // 숫자뿐인 그림 폴더("001")는 웹툰의 화다 — 권으로 읽으면 화 마흔여덟 개가 1~48권이 된다.
         if (unit.kind == ComicUnitKind.IMAGE_FOLDER && name.bareNumber && name.chapter == null) {
             name = name.copy(chapter = name.volume, volume = null, bareNumber = false)
@@ -144,7 +144,8 @@ object ComicShelf {
      */
     private fun fromFolders(folders: List<String>): String? {
         for (i in folders.indices.reversed()) {
-            val series = ComicName.parse(folders[i], hasExtension = false).series
+            // 압축 속 권(0.48.0)의 폴더 줄에는 바깥 압축 이름("인스타 걸 (1-3).zip")이 든다 — 확장자를 이름으로 읽지 않는다.
+            val series = ComicName.parse(folders[i], hasExtension = NestedArchives.isVolumeName(folders[i])).series
             if (ComicName.key(series).isNotEmpty()) return series
         }
         return null

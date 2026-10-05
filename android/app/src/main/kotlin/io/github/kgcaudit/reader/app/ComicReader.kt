@@ -130,6 +130,22 @@ import kotlin.math.roundToInt
 
 /** 쪽 밖 바탕. 거의 검정 — 순검정이면 OLED 에서 쪽 가장자리가 번져 보인다. */
 internal val COMIC_BACKDROP = Color(0xFF141311)
+
+/** 여는 중 안내를 띄우기까지 기다리는 시간. 보통 권은 이보다 빨리 열려 안내가 보이지 않는다. */
+internal const val OPENING_NOTICE_DELAY_MS = 400L
+
+/** "1권을 여는 중…" · "3화를 여는 중…". 권 이름을 모르면(서재 밖에서 연 권) "여는 중…". */
+internal fun openingNotice(label: String?): String {
+    if (label.isNullOrBlank()) return "여는 중…"
+    val last = label.last()
+    // 받침이 있으면 "을". 숫자로 끝나면 읽는 소리로(일 · 삼 · 육 · 칠 · 팔 · 십(0)은 받침이 있다).
+    val batchim = when {
+        last in '\uAC00'..'\uD7A3' -> (last.code - 0xAC00) % 28 != 0
+        last.isDigit() -> last in "013678"
+        else -> true
+    }
+    return label + (if (batchim) "을" else "를") + " 여는 중…"
+}
 internal val COMIC_INK_MUTED = Color(0xFFB9B2A8)
 
 /** 판 하나를 밀어 넘기는 시간. 책 넘김(말림)보다 짧게 — 판이 손가락을 따라오므로 놓은 뒤에는 남은 거리만 간다. */
@@ -841,7 +857,19 @@ fun ComicHost(
     val opened = book
     val all = works
     if (opened == null || all == null) {
-        Box(Modifier.fillMaxSize().background(COMIC_BACKDROP))
+        // 처음 여는 압축 속 권(0.48.0, 결정 ④)은 바깥 압축에서 꺼내느라 1~2초 걸린다 — 빈 화면이면 멈춘 것처럼 보였다. 금방 열리는
+        // 권에서 글자가 번쩍이지 않게 잠깐 기다렸다가 보인다.
+        var slow by remember(key, reload) { mutableStateOf(false) }
+        LaunchedEffect(key, reload) {
+            kotlinx.coroutines.delay(OPENING_NOTICE_DELAY_MS)
+            slow = true
+        }
+        Box(Modifier.fillMaxSize().background(COMIC_BACKDROP), contentAlignment = Alignment.Center) {
+            if (slow) {
+                val label = all?.firstNotNullOfOrNull { w -> ComicReading.entryOf(w, unitId) }?.label
+                CpText(openingNotice(label), CpTheme.type.body, Color.White.copy(alpha = 0.72f))
+            }
+        }
         return
     }
     val work = all.firstOrNull { w -> ComicReading.entryOf(w, unitId) != null }
