@@ -133,6 +133,34 @@ class WebtoonChain(val columns: List<WebtoonColumn>, val seam: Float) {
         return ((y - starts[k]) / readable(k, viewHeight)).coerceIn(0f, 1f)
     }
 
+    /**
+     * 화 [k] 에서 [top] ~ [bottom] 높이에 걸친 그림 조각들(표지 고르기, 0.48.4). 틀이 그림 두 장에 걸치면 두 장을 이어 붙여야
+     * 한다 — 틀 위쪽의 그림 한 장만 자르던 때는 틀 위가 앞 그림 끝에 몇 픽셀 걸치면 그 끝의 얇은 띠가 표지가 됐다(사용자 보고).
+     * 화 [k] 밖(경계 띠 · 다음 화)은 버린다. 반 픽셀보다 얇은 조각도 버린다.
+     */
+    fun pieces(k: Int, top: Float, bottom: Float): List<WebtoonPiece> {
+        val column = columns.getOrNull(k) ?: return emptyList()
+        val from = top - starts[k]
+        val to = minOf(bottom - starts[k], column.total)
+        val out = ArrayList<WebtoonPiece>()
+        var a = 0f
+        for ((i, h) in column.heights.withIndex()) {
+            val b = a + h
+            val s = maxOf(a, from)
+            val e = minOf(b, to)
+            if (e - s >= 0.5f && h > 0f) out += WebtoonPiece(i, (s - a) / h, (e - a) / h, s - from, e - from)
+            if (b >= to) break
+            a = b
+        }
+        return out
+    }
+
     /** 화면 아래가 화 [k] 의 끝에 닿았는가(다 읽음). 1px 덜 닿아도 끝으로 본다 — 반올림으로 끝까지 안 내려가는 일이 있다. */
     fun reachedEnd(k: Int, y: Float, viewHeight: Float): Boolean = y + viewHeight >= endOf(k) - 1f
 }
+
+/**
+ * 틀에 걸친 그림 한 장의 조각: 그림 [index] 의 [from] ~ [to](그림 높이에 대한 비율)가 틀 안 [top] ~ [bottom](틀 맨 위에서 잰
+ * 기둥 픽셀)에 놓인다.
+ */
+data class WebtoonPiece(val index: Int, val from: Float, val to: Float, val top: Float, val bottom: Float)

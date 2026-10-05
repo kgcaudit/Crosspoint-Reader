@@ -826,7 +826,7 @@ fun ComicHost(
                 val unit = data.comics.unit(unitId) ?: throw java.io.FileNotFoundException(unitId)
                 val p = data.comics.progressOf(unitId)
                 val pages = data.openComic(unit)
-                val comic = ComicBook(unit, pages, regions = container.comicRegions).also { made = it }
+                val comic = ComicBook(unit, pages, regions = container.comicRegions, stripDelayMs = { container.comicStripDelayMs }).also { made = it }
                 // 크기는 머리만 읽는다 — 웹툰 판별 · 기둥 배치에 쓴다.
                 sizes = comic.sizes()
                 position = when {
@@ -935,7 +935,7 @@ fun ComicHost(
                     withContext(Dispatchers.IO) {
                         val unit = data.comics.unit(entry.unit.id) ?: return@withContext null
                         // 이어 붙이는 화는 몫을 반으로 — 처음 연 화와 함께 메모리에 있다.
-                        val comic = ComicBook(unit, data.openComic(unit), budget = ComicBook.memoryBudget() / 2, regions = container.comicRegions)
+                        val comic = ComicBook(unit, data.openComic(unit), budget = ComicBook.memoryBudget() / 2, regions = container.comicRegions, stripDelayMs = { container.comicStripDelayMs })
                         WebtoonEpisode(entry, comic, comic.sizes())
                     }
                 }.onFailure {

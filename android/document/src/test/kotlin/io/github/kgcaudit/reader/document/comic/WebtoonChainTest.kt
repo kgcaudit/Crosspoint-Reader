@@ -55,4 +55,20 @@ class WebtoonChainTest {
         assertEquals(Triple(0, 0, 0f), empty.at(100f))
         assertEquals(0f, empty.fraction(10f, 10f))
     }
+
+    @Test
+    fun `a frame over two pictures takes both, not just a sliver of the first`() {
+        // 기둥 폭 100: 그림 두 장(높이 300 · 500). 틀이 앞 그림 끝 2px 에 걸치고 뒤 그림으로 내려간다.
+        val chain = WebtoonChain(listOf(WebtoonColumn(listOf(ImageSize(100, 300), ImageSize(100, 500)), 100f)), seam = 40f)
+        val pieces = chain.pieces(0, 298f, 443f)
+        assertEquals(listOf(0, 1), pieces.map { it.index })
+        assertEquals(298f / 300f, pieces[0].from, 1e-4f)
+        assertEquals(0f, pieces[1].from)
+        assertEquals(143f / 500f, pieces[1].to, 1e-4f)
+        // 틀 안 자리: 앞 그림 2px 다음에 뒤 그림 143px — 빈틈도 겹침도 없다.
+        assertEquals(listOf(0f, 2f, 2f, 145f), listOf(pieces[0].top, pieces[0].bottom, pieces[1].top, pieces[1].bottom))
+        // 화 끝을 넘는 틀은 화 안까지만.
+        assertEquals(1f, chain.pieces(0, 700f, 900f).last().to)
+        assertEquals(emptyList(), chain.pieces(3, 0f, 10f))
+    }
 }

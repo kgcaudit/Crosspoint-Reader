@@ -384,6 +384,32 @@ class WebtoonAppTest {
     }
 
     @Test
+    fun `changing the picture width never leaves the picture blank for a moment`() {
+        // 폭을 바꾸면 띠가 새 폭으로 다시 풀리는 동안(수십 ms) 칸이 비어 화면이 깜박였다(사용자 보고, 녹화의 4.9초).
+        openChapter("전학생", "1화")
+        compose.mainClock.advanceTimeBy(1_000)
+        waitForColor(0.5f, 0.3f, pink, "처음 그림이 없다")
+        compose.onRoot().performTouchInput { click(center) }
+        click(hasText("보기"))
+        waitFor(hasContentDescription("그림 폭"))
+        // 휴대폰처럼 새 폭의 띠가 풀리는 데 시간이 걸리게 한다(2초). 그 사이의 화면을 본다.
+        app.container.comicStripDelayMs = 2_000
+        try {
+            compose.onAllNodes(hasContentDescription("그림 폭"), useUnmergedTree = true)[0].performTouchInput { click(Offset(width * 0.25f, centerY)) }
+            compose.mainClock.advanceTimeBy(100)
+            compose.waitForIdle()
+            val view = compose.activity.window.decorView
+            val b = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+            compose.runOnUiThread { view.draw(Canvas(b)) }
+            // 폭은 이미 줄었다(양옆이 비었다) — 그런데 새 폭의 그림은 아직 풀리는 중이다.
+            assertTrue(!near(b.getPixel((b.width * 0.04f).toInt(), (b.height * 0.3f).toInt()), pink), "폭이 바뀌지 않았다 — 시험이 깜박일 자리를 보지 못한다")
+            assertTrue(near(b.getPixel(b.width / 2, (b.height * 0.3f).toInt()), pink), "새 폭의 그림이 풀리는 동안 그림 칸이 비었다")
+        } finally {
+            app.container.comicStripDelayMs = 0
+        }
+    }
+
+    @Test
     @Config(qualifiers = "w851dp-h393dp-xhdpi")
     fun `a wide screen shows the webtoon as a centred column`() {
         openChapter("전학생", "1화")

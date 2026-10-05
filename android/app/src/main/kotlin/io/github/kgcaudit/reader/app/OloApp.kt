@@ -126,6 +126,12 @@ class AppContainer(private val app: Application) {
     /** 웹툰 띠 풀기(BitmapRegionDecoder). 테스트가 끈다 — Robolectric 의 띠 풀기는 빈(투명) 그림을 돌려줘, 대신 길(전체를 줄여 풀고 자르기)로 시험한다. */
     internal var comicRegions: Boolean = true
 
+    /**
+     * 웹툰 띠 하나를 풀기 전에 기다리는 시간(ms). 늘 0 — 시험이 늘려, 휴대폰처럼 "새 폭의 그림이 풀리는 동안" 을 만든다.
+     * Robolectric 에서는 작은 시험 그림이 화면을 그리기 전에 다 풀려, 그 사이 칸이 비는 깜박임이 드러나지 않았다.
+     */
+    internal var comicStripDelayMs: Long = 0
+
     /** 듣기 엔진(4단계). 테스트가 가짜로 바꾼다 — Robolectric 에는 음성 엔진이 없다. */
     internal var listenKit: ListenKit = ListenKit.android(app)
 

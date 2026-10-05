@@ -182,4 +182,43 @@ class WebtoonCoverAppTest {
         waitFor(hasText("이 부분을 표지로 쓸 수 없습니다"))
         assertTrue(has(hasText("표지로 쓸 부분")), "저장하지 못했는데 고르기 화면이 닫혔다")
     }
+
+    @Test
+    fun `a frame whose top just touches the picture above takes both pictures, not a sliver`() {
+        // 사용자 보고: 틀 위가 앞 그림 끝에 조금 걸치자 그 끝의 얇은 띠만 표지가 되어 서재 칸에 가는 줄로 보였다.
+        openMenu()
+        click(hasText("보던 장면에서 표지 고르기"))
+        waitFor(hasText("표지로 쓸 부분"))
+        // 틀 밖에서 분홍(1번 그림 끝) → 청록(2번 그림) 경계가 화면 가운데쯤 오도록 내린다. 틀 밖은 어둡게 덮여 있다.
+        fun boundary(b: Bitmap): Int? {
+            val x = (b.width * 0.03f).toInt()
+            fun tealish(px: Int) = android.graphics.Color.green(px) > android.graphics.Color.red(px) + 10
+            return (b.height / 5 until b.height * 4 / 5).firstOrNull { y -> tealish(b.getPixel(x, y)) && !tealish(b.getPixel(x, y - 1)) }
+        }
+        var tries = 0
+        while (boundary(screen()) == null && tries < 30) {
+            compose.onRoot().performTouchInput { swipe(Offset(width * 0.03f, height * 0.7f), Offset(width * 0.03f, height * 0.3f), 300) }
+            compose.mainClock.advanceTimeBy(500)
+            tries++
+        }
+        val edge = boundary(screen()) ?: error("경계를 화면에 세우지 못했다(시험 준비)")
+        // 틀을 끌어 위쪽이 경계 조금 위(틀 높이의 1/10쯤 분홍)에 오게 한다. 끌기는 몇 번에 나눠 맞춘다.
+        fun frameTop(b: Bitmap) = (b.height / 10 until b.height).first { y -> b.getPixel(b.width / 2, y).let { android.graphics.Color.red(it) > 240 && android.graphics.Color.green(it) > 240 && android.graphics.Color.blue(it) > 240 } }
+        repeat(4) {
+            val b = screen()
+            val top = frameTop(b)
+            val want = edge - (b.height * 0.04f).toInt()
+            val dy = (want - top).toFloat()
+            if (kotlin.math.abs(dy) > 6f) {
+                compose.onRoot().performTouchInput { swipe(Offset(width * 0.5f, top + height * 0.15f), Offset(width * 0.5f, top + height * 0.15f + dy), 400) }
+                compose.mainClock.advanceTimeBy(500)
+            }
+        }
+        val b = screen()
+        assertTrue(frameTop(b) < edge && frameTop(b) > edge - b.height * 0.1f, "틀 위를 경계 바로 위에 세우지 못했다(시험 준비): 틀 ${frameTop(b)}, 경계 $edge")
+        click(hasText("이 부분을 표지로"))
+        compose.waitUntil(30_000) { !has(hasText("표지로 쓸 부분")) }
+        // 표지 한가운데는 청록(2번 그림) — 앞 그림 끝만 잘랐다면 가는 분홍 줄이라 가운데에 그림이 없다.
+        compose.waitUntil(30_000) { near(coverColor(), teal) }
+    }
 }

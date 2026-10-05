@@ -24,6 +24,8 @@ class ComicBook(
     private val regions: Boolean = true,
     /** 그림 저장소(LRU) 한도(바이트). 시험이 아주 작게 줘서 저장소가 쪽을 내보내는 상황을 만든다. */
     budget: Int = memoryBudget(),
+    /** 띠를 풀기 전에 기다리는 시간(ms). 시험만 쓴다(`AppContainer.comicStripDelayMs`). */
+    private val stripDelayMs: () -> Long = { 0L },
 ) : AutoCloseable {
     val pageCount: Int get() = pages.count
 
@@ -114,6 +116,7 @@ class ComicBook(
         if (index !in 0 until pageCount || width <= 0 || rows.isEmpty()) return@withContext null
         cachedStrip(index, rows, width)?.let { return@withContext it }
         if (index in broken) return@withContext null
+        stripDelayMs().takeIf { it > 0 }?.let { kotlinx.coroutines.delay(it) }
         lock.withLock {
             cachedStrip(index, rows, width)?.let { return@withLock it }
             val bytes = sourceOf(index) ?: run { broken += index; return@withLock null }

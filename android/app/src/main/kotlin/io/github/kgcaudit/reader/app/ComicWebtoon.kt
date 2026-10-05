@@ -54,6 +54,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -225,7 +226,10 @@ fun WebtoonReader(
                     if (size == null) {
                         add(Strip(e, i, null, column.heights[i]))
                     } else {
-                        Webtoon.strips(size, scale = colW.toFloat() / size.width).forEach { rows ->
+                        // 띠 경계는 그림 폭(%)이 아니라 화면 폭으로 정한다 — 폭에 따라 경계가 바뀌면 띠가 모두 새 칸이 되어, 폭을 바꿀
+                        // 때마다 그림이 통째로 비었다가 다시 그려졌다(사용자 보고: 깜박임). 화면 폭은 그림 폭보다 늘 넓으니 띠 높이
+                        // 한도는 그대로 지켜진다.
+                        Webtoon.strips(size, scale = viewW / size.width).forEach { rows ->
                             add(Strip(e, i, rows, column.heights[i] * (rows.last - rows.first + 1) / size.height))
                         }
                     }
@@ -344,22 +348,48 @@ fun WebtoonReader(
                 androidx.compose.ui.geometry.Size(frameW, frameW * CoverCrop.ASPECT),
             )
 
-        /** 틀 안의 그림을 원본에서 잘라 표지로. 틀 위쪽이 걸친 그림 하나 안에서 자른다 — 두 그림에 걸치면 아래 그림은 버린다. */
+        /**
+         * 틀 안의 그림을 원본에서 잘라 표지로. 틀에 걸친 그림을 모두 잘라 이어 붙인다 — 웹툰 한 화는 그림 여러 장이 이어진
+         * 것이라, 틀 위쪽의 그림 한 장만 자르던 때는 틀 위가 앞 그림 끝에 조금 걸치면 그 끝의 얇은 띠가 표지가 됐다(사용자
+         * 보고). 경계 띠 너머 다음 화는 넣지 않는다.
+         */
         suspend fun saveFrame(): Boolean {
             val r = frameRect()
             val top = abs + r.top / zoom
-            val (ek, i, f) = chain.at(top)
+            val frameH = r.height / zoom
+            val (ek, _, _) = chain.at(top)
             val e = episodes.getOrNull(ek) ?: return false
-            val size = e.sizes.getOrNull(i) ?: return false
+            val pieces = chain.pieces(ek, top, top + frameH)
+            if (pieces.isEmpty()) return false
             val colLeft = (viewW - colW) / 2f
-            val h = columns[ek].heights[i]
-            val scale = size.width / colW.toFloat()
-            val x0 = (((r.left - panX) / zoom - colLeft) * scale).toInt().coerceIn(0, size.width - 1)
-            val x1 = (((r.right - panX) / zoom - colLeft) * scale).toInt().coerceIn(x0 + 1, size.width)
-            val y0 = (f * size.height).toInt().coerceIn(0, size.height - 1)
-            val y1 = (y0 + r.height / zoom / h * size.height).toInt().coerceIn(y0 + 1, size.height)
-            val bitmap = e.book.crop(i, android.graphics.Rect(x0, y0, x1, y1), CoverStore.COVER_HEIGHT) ?: return false
-            return onCover(bitmap)
+            // 틀의 가로를 기둥 안 좌표로. 기둥보다 넓게 걸친 쪽은 바탕으로 남긴다 — 늘려 채우면 그림이 옆으로 퍼진다.
+            val left = (r.left - panX) / zoom - colLeft
+            val right = (r.right - panX) / zoom - colLeft
+            val inLeft = left.coerceIn(0f, colW.toFloat())
+            val inRight = right.coerceIn(inLeft, colW.toFloat())
+            if (inRight - inLeft < 1f) return false
+            val outH = CoverStore.COVER_HEIGHT
+            val outW = (outH / CoverCrop.ASPECT).roundToInt().coerceAtLeast(1)
+            val out = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
+            val canvas = android.graphics.Canvas(out)
+            canvas.drawColor(COMIC_BACKDROP.toArgb())
+            val paint = android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG)
+            val dstL = (inLeft - left) / (right - left) * outW
+            val dstR = (inRight - left) / (right - left) * outW
+            for (p in pieces) {
+                // 틀 안의 그림 하나라도 풀지 못하면(깨진 그림) 거절한다 — 그 자리만 비운 표지를 저장하면 구멍 난 표지가 된다.
+                val size = e.sizes.getOrNull(p.index) ?: return false
+                val scale = size.width / colW.toFloat()
+                val x0 = (inLeft * scale).toInt().coerceIn(0, size.width - 1)
+                val x1 = (inRight * scale).toInt().coerceIn(x0 + 1, size.width)
+                val y0 = (p.from * size.height).toInt().coerceIn(0, size.height - 1)
+                val y1 = (p.to * size.height).roundToInt().coerceIn(y0 + 1, size.height)
+                val dstT = p.top / frameH * outH
+                val dstB = p.bottom / frameH * outH
+                val piece = e.book.crop(p.index, android.graphics.Rect(x0, y0, x1, y1), (dstB - dstT).roundToInt().coerceAtLeast(1)) ?: return false
+                canvas.drawBitmap(piece, null, android.graphics.RectF(dstL, dstT, dstR, dstB), paint)
+            }
+            return onCover(out)
         }
 
         // 자동 스크롤(④): 켜고 끄기는 그때그때, 빠르기는 설정에 둔다. 손을 대면 멈춘다 — 다시 이어 가는 것은 ▶.
@@ -697,17 +727,27 @@ private fun EpisodeThumb(entry: WorkEntry) {
 @Composable
 private fun StripView(book: ComicBook, strip: Strip, width: Int, modifier: Modifier) {
     val rows = strip.rows
-    var bitmap by remember(strip.key, width) { mutableStateOf<Bitmap?>(rows?.let { book.cachedStrip(strip.index, it, width) }) }
-    var broken by remember(strip.key, width) { mutableStateOf(rows == null || book.isBroken(strip.index)) }
+    // 그림은 띠마다 하나만 쥐고, 폭이 바뀌면 새 폭의 그림이 풀릴 때까지 옛 그림을 새 칸 크기로 늘려 그린다. 폭마다 비우면
+    // 그림 폭을 바꿀 때 풀리는 동안(수십 ms) 칸이 비어 화면이 깜박였다.
+    var bitmap by remember(strip.key) { mutableStateOf<Bitmap?>(null) }
+    var bitmapWidth by remember(strip.key) { mutableIntStateOf(0) }
+    var broken by remember(strip.key) { mutableStateOf(rows == null || book.isBroken(strip.index)) }
+    // 새 폭의 그림이 이미 풀려 있으면(되돌아온 폭) 기다리지 않고 바로 쓴다.
+    val ready = if (rows != null && bitmapWidth != width) book.cachedStrip(strip.index, rows, width) else null
     LaunchedEffect(strip.key, width) {
-        if (rows != null && bitmap == null && !broken) {
-            bitmap = book.strip(strip.index, rows, width)
-            broken = bitmap == null
+        if (rows != null && bitmapWidth != width && !broken) {
+            val made = book.strip(strip.index, rows, width)
+            if (made != null) {
+                bitmap = made
+                bitmapWidth = width
+            } else if (bitmap == null) {
+                broken = true
+            }
         }
     }
     Box(modifier) {
         Canvas(Modifier.fillMaxSize()) {
-            val b = bitmap ?: return@Canvas
+            val b = ready ?: bitmap ?: return@Canvas
             drawImage(
                 b.asImageBitmap(),
                 dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()),
