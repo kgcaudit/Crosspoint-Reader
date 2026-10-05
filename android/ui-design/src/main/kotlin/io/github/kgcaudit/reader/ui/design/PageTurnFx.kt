@@ -596,70 +596,116 @@ fun rememberTurnFeedback(): TurnFeedback {
 }
 
 /**
- * 소리를 낼지(순수 — 시험이 표로 잰다). 휴대폰이 무음 · 진동이면 내지 않는다(도서관 · 지하철). 다른 앱이 소리를 내는
- * 중(음악 · 영상)에도 내지 않는다 — 음악 위로 바스락거리면 거슬린다.
+ * 소리를 낼지(순수 — 시험이 표로 잰다). 휴대폰이 무음 · 진동이면 스피커로는 내지 않는다(도서관 · 지하철). 다만 이어폰이
+ * 꽂혀 있으면 낸다(0.45.2, 사용자 결정) — 소리가 귀에만 가니 주위를 방해하지 않는데, 0.45.1 까지는 진동 모드에서 이어폰을
+ * 끼고도 넘김 소리를 들을 수 없었다. 다른 앱이 소리를 내는 중(음악 · 영상)에는 이어폰이어도 내지 않는다 — 음악 위로
+ * 바스락거리면 거슬린다.
  */
-internal fun turnSoundAllowed(sound: TurnSound, ringerNormal: Boolean, otherAudio: Boolean): Boolean =
-    sound != TurnSound.Off && ringerNormal && !otherAudio
+internal fun turnSoundAllowed(sound: TurnSound, ringerNormal: Boolean, otherAudio: Boolean, headphones: Boolean = false): Boolean =
+    sound != TurnSound.Off && (ringerNormal || headphones) && !otherAudio
 
 /**
- * 안드로이드 "UI 효과음" 통로(USAGE_ASSISTANCE_SONIFICATION)로 짧은 소리를 낸다 — 키보드 소리와 같은 통로라 휴대폰의
- * 시스템 음량을 따른다. 소리 세 개를 앱 전체에서 한 번만 싣는다.
+ * 이어폰으로 칠 출력 장치: 유선 · 블루투스(A2DP · LE 오디오) · USB · 보청기. 블루투스 스피커(LE 스피커)는 뺀다 — 주위에
+ * 들린다. A2DP 는 이어폰과 스피커를 가리지 못해 이어폰으로 친다(대부분이 이어폰이다).
+ */
+internal val HEADPHONE_TYPES: Set<Int> = buildSet {
+    add(android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET)
+    add(android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES)
+    add(android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP)
+    add(android.media.AudioDeviceInfo.TYPE_USB_HEADSET)
+    if (android.os.Build.VERSION.SDK_INT >= 28) add(android.media.AudioDeviceInfo.TYPE_HEARING_AID)
+    if (android.os.Build.VERSION.SDK_INT >= 31) add(android.media.AudioDeviceInfo.TYPE_BLE_HEADSET)
+}
+
+/**
+ * 짧은 소리를 낸다. 평소에는 안드로이드 "UI 효과음" 통로(USAGE_ASSISTANCE_SONIFICATION) — 키보드 소리와 같은 통로라 휴대폰의
+ * 시스템 음량을 따른다. 휴대폰이 무음 · 진동인데 이어폰이 꽂혀 있으면 미디어 통로(USAGE_MEDIA)로 — 효과음 통로는 진동
+ * 모드에서 휴대폰이 통째로 막아, 이어폰을 끼고도 들리지 않았다. 미디어 통로는 이어폰이 있으면 이어폰으로만 나간다.
+ * 소리 세 개를 통로마다 앱 전체에서 한 번만 싣는다.
  */
 private class SystemTurnFeedback private constructor(private val context: Context) : TurnFeedback {
     private val audio = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-    private val pool: SoundPool = SoundPool.Builder()
-        .setMaxStreams(2)
-        .setAudioAttributes(
-            AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .build(),
-        )
-        .build()
-    private val ids = HashMap<TurnSound, Int>()
-    private val loaded = HashSet<Int>()
-    /** 싣기가 끝나기 전에 부른 소리 — 설정에서 처음 고른 소리가 안 들리면 고장 난 줄 안다. */
-    private var waiting: Int? = null
+    private val ui = Channel(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+    private val media = Channel(AudioAttributes.USAGE_MEDIA)
+    /** 우리 소리가 미디어 통로로 난 때 — 그 사이 "다른 앱 소리" 를 물으면 우리 소리가 걸려 빨리 넘길 때 소리가 끊긴다. */
+    private var mediaPlayedAt = 0L
 
-    init {
-        pool.setOnLoadCompleteListener { p, id, status ->
-            if (status != 0) return@setOnLoadCompleteListener
-            loaded += id
-            if (waiting == id) {
-                waiting = null
-                p.play(id, VOLUME, VOLUME, 1, 0, 1f)
+    private inner class Channel(usage: Int) {
+        private val pool: SoundPool = SoundPool.Builder()
+            .setMaxStreams(2)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(usage)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build(),
+            )
+            .build()
+        private val ids = HashMap<TurnSound, Int>()
+        private val loaded = HashSet<Int>()
+        /** 싣기가 끝나기 전에 부른 소리 — 설정에서 처음 고른 소리가 안 들리면 고장 난 줄 안다. */
+        private var waiting: Int? = null
+
+        init {
+            pool.setOnLoadCompleteListener { p, id, status ->
+                if (status != 0) return@setOnLoadCompleteListener
+                loaded += id
+                if (waiting == id) {
+                    waiting = null
+                    p.play(id, VOLUME, VOLUME, 1, 0, 1f)
+                }
             }
         }
-    }
 
-    private fun idOf(sound: TurnSound): Int? {
-        val res = when (sound) {
-            TurnSound.Off -> return null
-            TurnSound.Rustle -> R.raw.turn_rustle
-            TurnSound.Swish -> R.raw.turn_swish
-            TurnSound.Tap -> R.raw.turn_tap
+        private fun idOf(sound: TurnSound): Int? {
+            val res = when (sound) {
+                TurnSound.Off -> return null
+                TurnSound.Rustle -> R.raw.turn_rustle
+                TurnSound.Swish -> R.raw.turn_swish
+                TurnSound.Tap -> R.raw.turn_tap
+            }
+            return ids.getOrPut(sound) { pool.load(context, res, 1) }
         }
-        return ids.getOrPut(sound) { pool.load(context, res, 1) }
+
+        fun play(sound: TurnSound) {
+            val id = idOf(sound) ?: return
+            if (id in loaded) pool.play(id, VOLUME, VOLUME, 1, 0, 1f) else waiting = id
+        }
     }
 
-    private fun play(sound: TurnSound) {
-        val id = idOf(sound) ?: return
-        if (id in loaded) pool.play(id, VOLUME, VOLUME, 1, 0, 1f) else waiting = id
+    private fun headphones(): Boolean =
+        audio?.getDevices(AudioManager.GET_DEVICES_OUTPUTS)?.any { it.type in HEADPHONE_TYPES } == true
+
+    private fun ringerNormal(): Boolean = audio?.ringerMode?.let { it == AudioManager.RINGER_MODE_NORMAL } ?: true
+
+    /** 진동 · 무음이면서 이어폰이면 미디어 통로, 아니면 효과음 통로. */
+    private fun play(sound: TurnSound, normal: Boolean, phones: Boolean) {
+        if (!normal && phones) {
+            mediaPlayedAt = SystemClock.uptimeMillis()
+            media.play(sound)
+        } else {
+            ui.play(sound)
+        }
     }
 
     override fun turned(sound: TurnSound, haptic: Boolean, view: View) {
-        val normal = audio?.ringerMode?.let { it == AudioManager.RINGER_MODE_NORMAL } ?: true
-        if (turnSoundAllowed(sound, normal, audio?.isMusicActive == true)) play(sound)
+        val normal = ringerNormal()
+        val phones = !normal && headphones()
+        val ours = SystemClock.uptimeMillis() - mediaPlayedAt < OWN_SOUND_MS
+        if (turnSoundAllowed(sound, normal, audio?.isMusicActive == true && !ours, phones)) play(sound, normal, phones)
         // 진동은 안드로이드 기본 "가벼운 톡" — 휴대폰의 터치 진동 설정을 따른다.
         if (haptic) view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
     }
 
-    override fun preview(sound: TurnSound) = play(sound)
+    override fun preview(sound: TurnSound) {
+        val normal = ringerNormal()
+        play(sound, normal, !normal && headphones())
+    }
 
     companion object {
         /** 시스템 음량 그대로는 크다 — 넘길 때마다 듣는 소리라 한발 물러선다. */
         private const val VOLUME = 0.6f
+        /** 가장 긴 넘김 소리(휙 0.42초)보다 조금 길게. */
+        private const val OWN_SOUND_MS = 600L
         @Volatile private var shared: SystemTurnFeedback? = null
         fun of(context: Context): SystemTurnFeedback =
             shared ?: synchronized(this) { shared ?: SystemTurnFeedback(context).also { shared = it } }

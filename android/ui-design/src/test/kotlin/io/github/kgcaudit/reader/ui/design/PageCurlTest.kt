@@ -89,12 +89,25 @@ class PageCurlTest {
     }
 
     @Test
-    fun `turn sounds stay silent when the phone is silenced or other audio is playing`() {
+    fun `turn sounds stay silent on a silenced phone unless earphones are in, and over other audio`() {
         // 도서관 · 지하철(무음 · 진동)과 음악 위에서는 바스락거리지 않는다. 끔이면 언제나 조용하다.
         assertTrue(turnSoundAllowed(TurnSound.Rustle, ringerNormal = true, otherAudio = false))
         assertFalse(turnSoundAllowed(TurnSound.Rustle, ringerNormal = false, otherAudio = false))
         assertFalse(turnSoundAllowed(TurnSound.Rustle, ringerNormal = true, otherAudio = true))
         assertFalse(turnSoundAllowed(TurnSound.Off, ringerNormal = true, otherAudio = false))
+        // 진동 · 무음이어도 이어폰이면 들린다(0.45.2) — 귀에만 가니 주위를 방해하지 않는다. 음악 중이거나 끔이면 여전히 조용.
+        assertTrue(turnSoundAllowed(TurnSound.Rustle, ringerNormal = false, otherAudio = false, headphones = true))
+        assertFalse(turnSoundAllowed(TurnSound.Rustle, ringerNormal = false, otherAudio = true, headphones = true))
+        assertFalse(turnSoundAllowed(TurnSound.Off, ringerNormal = false, otherAudio = false, headphones = true))
+    }
+
+    @Test
+    fun `earphones count, speakers do not`() {
+        // 유선 · 블루투스 이어폰은 귀에만 간다. 휴대폰 스피커 · 블루투스 LE 스피커는 주위에 들려 진동 모드에서 내면 안 된다.
+        assertTrue(android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES in HEADPHONE_TYPES)
+        assertTrue(android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP in HEADPHONE_TYPES)
+        assertFalse(android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER in HEADPHONE_TYPES)
+        assertFalse(android.media.AudioDeviceInfo.TYPE_BLE_SPEAKER in HEADPHONE_TYPES)
     }
 
     @Test

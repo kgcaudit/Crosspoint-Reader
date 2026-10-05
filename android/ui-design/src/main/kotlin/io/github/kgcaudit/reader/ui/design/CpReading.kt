@@ -504,7 +504,7 @@ fun CpViewSettingsScreen(
                         if (it == 0) view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
                     }, child)
                     CpText(
-                        "소리를 고르면 한 번 들려 줍니다. 휴대폰이 무음 · 진동일 때와 듣기 · 자동 넘김 중에는 소리가 나지 않습니다. " +
+                        "소리를 고르면 한 번 들려 줍니다. 휴대폰이 무음 · 진동이면 이어폰이 연결됐을 때만 소리가 납니다. 듣기 · 자동 넘김 중에는 소리가 나지 않습니다. " +
                             "휴대폰의 \"애니메이션 제거\" 가 켜져 있으면 효과 없이 넘깁니다.",
                         CpTheme.type.caption, CpTheme.colors.textMuted,
                         Modifier.padding(start = CpTheme.metrics.gutter + CpTheme.metrics.levelIndent, end = CpTheme.metrics.gutter, top = 4.dp, bottom = 4.dp),
