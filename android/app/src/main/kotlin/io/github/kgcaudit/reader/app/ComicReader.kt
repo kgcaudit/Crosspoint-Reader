@@ -64,6 +64,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.runtime.key
 import androidx.compose.ui.platform.LocalView
 import io.github.kgcaudit.reader.ui.design.rememberTurnFeedback
+import io.github.kgcaudit.reader.ui.design.turnSide
 import kotlinx.coroutines.launch
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -298,7 +299,8 @@ fun ComicReader(
             slide.animateTo(if (forward) -nextSide * step else nextSide * step, tween(SLIDE_MS))
             page = spreads[target].first()
             slide.snapTo(0f)
-            if (!quiet) feedback.turned(latestPrefs.turnSound, latestPrefs.turnHaptic, hostView)
+            // 밀기도 넘어가는 판의 쪽에서 소리를 낸다(0.48.0) — 오→왼 만화는 판이 왼쪽에서 넘어간다.
+            if (!quiet) feedback.turned(latestPrefs.turnSound, latestPrefs.turnHaptic, hostView, turnSide(forward, rtl))
         }
     }
     fun toggleBookmark() {

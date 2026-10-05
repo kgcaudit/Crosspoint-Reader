@@ -8,6 +8,7 @@ import android.graphics.Shader
 import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.SoundPool
+import java.io.File
 import android.os.SystemClock
 import android.provider.Settings
 import android.view.HapticFeedbackConstants
@@ -155,6 +156,7 @@ fun <K> CpPageTurn(
     var turn by remember { mutableStateOf<Turn<K>?>(null) }
     val progress = remember { Animatable(0f) }
     val latestForward by rememberUpdatedState(forward)
+    val latestMirrored by rememberUpdatedState(mirrored)
     val latest by rememberUpdatedState(Triple(effect, sound, haptic))
 
     LaunchedEffect(key) {
@@ -175,7 +177,9 @@ fun <K> CpPageTurn(
             settled = key
             return@LaunchedEffect
         }
-        fun cue() { if (!quiet) feedback.turned(snd, buzz, view) }
+        // 소리 방향(0.48.0)은 효과와 같은 "앞으로" · "뒤집힘" 으로 — 말림이 넘어가는 쪽에서 소리도 난다.
+        val side = turnSide(latestForward(from, key), latestMirrored)
+        fun cue() { if (!quiet) feedback.turned(snd, buzz, view, side) }
         // 화면이 보이지 않으면(꺼짐 · 다른 앱) 프레임이 오지 않는다. 그때 효과를 시작하면 다음 프레임을 영원히 기다려,
         // 돌아왔을 때 넘김이 덜 끝난 쪽이 남거나 화면이 "바쁨" 에서 풀리지 않았다(듣기 시험에서 찾음 — 화면을 끈 채 자동
         // 넘김). 보이지 않는 넘김은 효과 없이.
@@ -576,10 +580,20 @@ private fun rememberAnimationsOff(): Boolean {
 
 // ── 소리 · 진동 ──────────────────────────────────────────────────────
 
+/**
+ * 넘어가는 종이가 처음 있던 쪽(0.48.0, 사용자 결정). 종이책은 넘기는 종이 쪽에서 소리가 난다 — 왼→오 책의 다음 쪽은 오른쪽
+ * 종이를 들어 왼쪽으로 넘기고, 이전 쪽은 그 반대다. 누른 자리가 아니라 종이를 따른다: 오→왼 만화는 왼쪽을 눌러 다음 쪽으로
+ * 가도 종이는 왼쪽에서 넘어간다(말림 효과가 이미 그렇게 움직인다).
+ */
+enum class TurnSide { Left, Right }
+
+/** 앞으로 넘겼는지 · 오→왼 책인지로 넘어가는 종이의 쪽을 정한다. */
+fun turnSide(forward: Boolean, mirrored: Boolean): TurnSide = if (forward != mirrored) TurnSide.Right else TurnSide.Left
+
 /** 넘김 소리 · 진동을 내는 곳. 시험은 [LocalTurnFeedback] 으로 가짜를 넣는다. */
 interface TurnFeedback {
-    /** 사람이 넘겼다. 낼지 말지(무음 · 다른 앱 소리)는 구현이 정한다. */
-    fun turned(sound: TurnSound, haptic: Boolean, view: View)
+    /** 사람이 넘겼다. 낼지 말지(무음 · 다른 앱 소리) · 방향을 넣을지는 구현이 정한다. [side] 가 null 이면 가운데. */
+    fun turned(sound: TurnSound, haptic: Boolean, view: View, side: TurnSide? = null)
 
     /** 설정에서 소리를 골랐다 — 한 번 들려 준다. */
     fun preview(sound: TurnSound)
@@ -603,6 +617,84 @@ fun rememberTurnFeedback(): TurnFeedback {
  */
 internal fun turnSoundAllowed(sound: TurnSound, ringerNormal: Boolean, otherAudio: Boolean, headphones: Boolean = false): Boolean =
     sound != TurnSound.Off && (ringerNormal || headphones) && !otherAudio
+
+/**
+ * 소리에 방향을 넣어도 되는 출력인가(0.48.0, 결정 ②). 세로로 든 휴대폰의 스피커는 위(통화 스피커) · 아래에 있어 좌우로 나눈
+ * 소리가 위아래로 갈라져 어색하다 — 이어폰 · 가로 화면 · 펼친 폴더블(폭 600dp 이상)에서만 넣는다.
+ */
+internal fun spatialTurnSound(headphones: Boolean, landscape: Boolean, widthDp: Int): Boolean =
+    headphones || landscape || widthDp >= SPATIAL_WIDTH_DP
+
+internal const val SPATIAL_WIDTH_DP = 600
+
+/**
+ * 소리가 어디서 어디로 쓸려 가는지(-1 왼쪽 · +1 오른쪽, 결정 ① 쓸림). 넘어가는 종이 쪽에서 시작해 가운데를 조금 지나 끝난다 —
+ * 끝까지 한쪽 귀에만 몰면 넘길 때마다 한쪽 귀가 피곤하다. 방향을 넣지 않으면 null(가운데, 예전 소리 그대로).
+ */
+internal fun turnSweep(side: TurnSide?, spatial: Boolean): Pair<Float, Float>? = when {
+    side == null || !spatial -> null
+    side == TurnSide.Right -> SWEEP_START to -SWEEP_END
+    else -> -SWEEP_START to SWEEP_END
+}
+
+internal const val SWEEP_START = 0.7f
+internal const val SWEEP_END = 0.3f
+
+/**
+ * 모노 소리를 [from] 에서 [to] 로 쓸려 가는 스테레오(왼 · 오 번갈아)로. 같은 세기 법칙에 √2 를 곱해 가운데가 원래 크기와 같고,
+ * 큰 쪽은 1 에서 멈춰 소리가 깨지지(잘리지) 않는다.
+ */
+internal fun sweepStereo(mono: ShortArray, from: Float, to: Float): ShortArray {
+    val out = ShortArray(mono.size * 2)
+    val last = (mono.size - 1).coerceAtLeast(1)
+    for (i in mono.indices) {
+        val pan = from + (to - from) * i / last
+        val angle = (pan.coerceIn(-1f, 1f) + 1f) * Math.PI / 4
+        val left = minOf(1.0, Math.cos(angle) * Math.sqrt(2.0))
+        val right = minOf(1.0, Math.sin(angle) * Math.sqrt(2.0))
+        out[2 * i] = (mono[i] * left).toInt().toShort()
+        out[2 * i + 1] = (mono[i] * right).toInt().toShort()
+    }
+    return out
+}
+
+/** 16비트 PCM WAV 의 (채널 수, 표본 빈도, 표본). 다른 꼴이면 null — 그때는 가운데 소리만 낸다. */
+internal fun readPcm16(wav: ByteArray): Triple<Int, Int, ShortArray>? {
+    val b = java.nio.ByteBuffer.wrap(wav).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+    if (wav.size < 12 || String(wav, 0, 4, Charsets.US_ASCII) != "RIFF" || String(wav, 8, 4, Charsets.US_ASCII) != "WAVE") return null
+    var at = 12
+    var channels = 0
+    var rate = 0
+    var bits = 0
+    while (at + 8 <= wav.size) {
+        val id = String(wav, at, 4, Charsets.US_ASCII)
+        val size = b.getInt(at + 4)
+        if (size < 0 || at + 8 + size > wav.size) return null
+        if (id == "fmt " && size >= 16) {
+            if (b.getShort(at + 8).toInt() != 1) return null
+            channels = b.getShort(at + 10).toInt()
+            rate = b.getInt(at + 12)
+            bits = b.getShort(at + 22).toInt()
+        } else if (id == "data") {
+            if (bits != 16 || channels <= 0) return null
+            val samples = ShortArray(size / 2) { b.getShort(at + 8 + it * 2) }
+            return Triple(channels, rate, samples)
+        }
+        at += 8 + size + (size and 1)
+    }
+    return null
+}
+
+/** 스테레오 16비트 PCM WAV. */
+internal fun writeStereoPcm16(samples: ShortArray, rate: Int): ByteArray {
+    val data = samples.size * 2
+    val b = java.nio.ByteBuffer.allocate(44 + data).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+    b.put("RIFF".toByteArray()).putInt(36 + data).put("WAVE".toByteArray())
+    b.put("fmt ".toByteArray()).putInt(16).putShort(1).putShort(2).putInt(rate).putInt(rate * 4).putShort(4).putShort(16)
+    b.put("data".toByteArray()).putInt(data)
+    for (s in samples) b.putShort(s)
+    return b.array()
+}
 
 /**
  * 이어폰으로 칠 출력 장치: 유선 · 블루투스(A2DP · LE 오디오) · USB · 보청기. 블루투스 스피커(LE 스피커)는 뺀다 — 주위에
@@ -642,7 +734,7 @@ private class SystemTurnFeedback private constructor(context: Context) : TurnFee
                     .build(),
             )
             .build()
-        private val ids = HashMap<TurnSound, Int>()
+        private val ids = HashMap<Pair<TurnSound, TurnSide?>, Int>()
         private val loaded = HashSet<Int>()
         /** 싣기가 끝나기 전에 부른 소리 — 설정에서 처음 고른 소리가 안 들리면 고장 난 줄 안다. */
         private var waiting: Int? = null
@@ -658,18 +750,38 @@ private class SystemTurnFeedback private constructor(context: Context) : TurnFee
             }
         }
 
-        private fun idOf(sound: TurnSound): Int? {
+        private fun idOf(sound: TurnSound, side: TurnSide?): Int? {
             val res = when (sound) {
                 TurnSound.Off -> return null
                 TurnSound.Rustle -> R.raw.turn_rustle
                 TurnSound.Swish -> R.raw.turn_swish
                 TurnSound.Tap -> R.raw.turn_tap
             }
-            return ids.getOrPut(sound) { pool.load(context, res, 1) }
+            ids[sound to side]?.let { return it }
+            // 쓸려 가는 소리는 처음 쓸 때 원래 소리에서 한 번 만들어 캐시에 둔다 — 소리마다 두 벌을 앱에 넣으면 APK 가 커지고,
+            // 원래 소리를 바꿀 때 함께 고쳐야 할 파일이 늘어난다. 만들지 못하면 가운데 소리로.
+            val id = if (side == null) pool.load(context, res, 1) else swept(sound, res, side)?.let { pool.load(it.path, 1) } ?: return idOf(sound, null)
+            ids[sound to side] = id
+            return id
         }
 
-        fun play(sound: TurnSound) {
-            val id = idOf(sound) ?: return
+        private fun swept(sound: TurnSound, res: Int, side: TurnSide): File? = runCatching {
+            val file = File(context.cacheDir, "turn-sounds/${sound.name}-${side.name}-v$SWEEP_VERSION.wav")
+            if (!file.isFile) {
+                val (channels, rate, mono) = readPcm16(context.resources.openRawResource(res).use { it.readBytes() })
+                    ?: return@runCatching null
+                if (channels != 1) return@runCatching null
+                val (from, to) = turnSweep(side, spatial = true) ?: return@runCatching null
+                file.parentFile?.mkdirs()
+                val tmp = File(file.path + ".part")
+                tmp.writeBytes(writeStereoPcm16(sweepStereo(mono, from, to), rate))
+                if (!tmp.renameTo(file)) return@runCatching null
+            }
+            file
+        }.getOrNull()
+
+        fun play(sound: TurnSound, side: TurnSide? = null) {
+            val id = idOf(sound, side) ?: return
             if (id in loaded) pool.play(id, VOLUME, VOLUME, 1, 0, 1f) else waiting = id
         }
     }
@@ -680,20 +792,24 @@ private class SystemTurnFeedback private constructor(context: Context) : TurnFee
     private fun ringerNormal(): Boolean = audio?.ringerMode?.let { it == AudioManager.RINGER_MODE_NORMAL } ?: true
 
     /** 진동 · 무음이면서 이어폰이면 미디어 통로, 아니면 효과음 통로. */
-    private fun play(sound: TurnSound, normal: Boolean, phones: Boolean) {
+    private fun play(sound: TurnSound, normal: Boolean, phones: Boolean, side: TurnSide? = null) {
         if (!normal && phones) {
             mediaPlayedAt = SystemClock.uptimeMillis()
-            media.play(sound)
+            media.play(sound, side)
         } else {
-            ui.play(sound)
+            ui.play(sound, side)
         }
     }
 
-    override fun turned(sound: TurnSound, haptic: Boolean, view: View) {
+    override fun turned(sound: TurnSound, haptic: Boolean, view: View, side: TurnSide?) {
         val normal = ringerNormal()
-        val phones = !normal && headphones()
+        val phones = headphones()
         val ours = SystemClock.uptimeMillis() - mediaPlayedAt < OWN_SOUND_MS
-        if (turnSoundAllowed(sound, normal, audio?.isMusicActive == true && !ours, phones)) play(sound, normal, phones)
+        val config = view.resources.configuration
+        val spatial = spatialTurnSound(phones, config.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE, config.screenWidthDp)
+        if (turnSoundAllowed(sound, normal, audio?.isMusicActive == true && !ours, phones)) {
+            play(sound, normal, phones, side.takeIf { turnSweep(it, spatial) != null })
+        }
         // 진동은 안드로이드 기본 "가벼운 톡" — 휴대폰의 터치 진동 설정을 따른다.
         if (haptic) view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
     }
@@ -706,6 +822,8 @@ private class SystemTurnFeedback private constructor(context: Context) : TurnFee
     companion object {
         /** 시스템 음량 그대로는 크다 — 넘길 때마다 듣는 소리라 한발 물러선다. */
         private const val VOLUME = 0.6f
+        /** 쓸려 가는 소리를 만드는 법이 바뀌면 올린다 — 캐시에 남은 옛 소리를 다시 쓰지 않게. */
+        private const val SWEEP_VERSION = 1
         /** 가장 긴 넘김 소리(휙 0.42초)보다 조금 길게. */
         private const val OWN_SOUND_MS = 600L
         @Volatile private var shared: SystemTurnFeedback? = null

@@ -21,6 +21,7 @@ import io.github.kgcaudit.reader.ui.design.LocalTurnFeedback
 import io.github.kgcaudit.reader.ui.design.PageTurn
 import io.github.kgcaudit.reader.ui.design.PageTurnState
 import io.github.kgcaudit.reader.ui.design.TurnFeedback
+import io.github.kgcaudit.reader.ui.design.TurnSide
 import io.github.kgcaudit.reader.ui.design.TurnSound
 import org.junit.Rule
 import org.junit.Test
@@ -61,7 +62,8 @@ class PageTurnTest {
     private class Counting : TurnFeedback {
         var turned = 0
         var previewed = 0
-        override fun turned(sound: TurnSound, haptic: Boolean, view: View) { turned++ }
+        val sides = ArrayList<TurnSide?>()
+        override fun turned(sound: TurnSound, haptic: Boolean, view: View, side: TurnSide?) { turned++; sides += side }
         override fun preview(sound: TurnSound) { previewed++ }
     }
 
@@ -72,12 +74,13 @@ class PageTurnTest {
     private var effect by mutableStateOf(PageTurn.Curl)
     private val turns = PageTurnState()
     private val feedback = Counting()
+    private var mirrored = false
 
     private fun show() {
         compose.setContent {
             CompositionLocalProvider(LocalTurnFeedback provides feedback) {
                 CpTheme(dark = false) {
-                    CpPageTurn(page, effect, forward = { from, to -> to > from }, turns = turns, sound = TurnSound.Rustle) { p ->
+                    CpPageTurn(page, effect, forward = { from, to -> to > from }, turns = turns, sound = TurnSound.Rustle, mirrored = mirrored) { p ->
                         Box(Modifier.fillMaxSize().background(if (p % 2 == 0) red else blue))
                     }
                 }
@@ -165,6 +168,23 @@ class PageTurnTest {
         // 자동 넘김(조용한 요청): 효과는 있어도 소리는 없다.
         act { turns.request(quiet = true); page = 3 }
         assertEquals(1, feedback.turned, "자동 넘김에서 소리가 났다")
+    }
+
+    @Test
+    fun `the turn sound is told which side the paper turns from`() {
+        show()
+        // 다음 쪽은 오른쪽 종이, 이전 쪽은 왼쪽 종이 — 소리가 그 쪽에서 난다(0.48.0).
+        act { turns.request(); page = 1 }
+        act { turns.request(); page = 0 }
+        assertEquals(listOf<TurnSide?>(TurnSide.Right, TurnSide.Left), feedback.sides)
+    }
+
+    @Test
+    fun `a right to left comic turns its paper from the left`() {
+        mirrored = true
+        show()
+        act { turns.request(); page = 1 }
+        assertEquals(listOf<TurnSide?>(TurnSide.Left), feedback.sides)
     }
 
     @Test
