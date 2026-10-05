@@ -106,7 +106,7 @@ class AppContainer(private val app: Application) {
     /** 책장 표지. 앱 파일 영역 — 캐시 영역이면 사람이 고른 표지까지 시스템이 지운다. */
     val covers = CoverStore(
         File(app.filesDir, "covers"),
-        extractComic = { unit -> data.comicCover(unit)?.let(CoverStore::decodeScaled) },
+        extractComic = { unit -> data.comicCover(unit)?.let { CoverStore.decodeComicCover(it, comicRegions) } },
         extract = ::extractCover,
     )
 
@@ -343,6 +343,8 @@ class PrefsStore(context: Context) {
             // 범위 밖(손상)이면 기본으로 — 0% 기둥이면 웹툰이 보이지 않는다.
             webtoonColumn = sp.getInt(KEY_WEBTOON_COLUMN, ScreenPrefs.DEFAULT_WEBTOON_COLUMN)
                 .takeIf { it in ScreenPrefs.WEBTOON_COLUMN_RANGE } ?: ScreenPrefs.DEFAULT_WEBTOON_COLUMN,
+            webtoonColumnNarrow = sp.getInt(KEY_WEBTOON_COLUMN_NARROW, ScreenPrefs.DEFAULT_WEBTOON_COLUMN_NARROW)
+                .takeIf { it in ScreenPrefs.WEBTOON_COLUMN_RANGE } ?: ScreenPrefs.DEFAULT_WEBTOON_COLUMN_NARROW,
         ),
         listen = ListenPrefs(
             // 망가진 값(범위 밖)은 범위 안으로 — 0 배속으로 저장된 값 때문에 듣기가 안 되면 안 된다.
@@ -399,6 +401,7 @@ class PrefsStore(context: Context) {
             .putString(KEY_PDF_FIT, prefs.screen.pdfFit.name)
             .putString(KEY_IMAGE_BLEND, prefs.screen.imageBlend.name)
             .putInt(KEY_WEBTOON_COLUMN, prefs.screen.webtoonColumn)
+            .putInt(KEY_WEBTOON_COLUMN_NARROW, prefs.screen.webtoonColumnNarrow)
             // 0.36~0.41 의 만화 전용 두 쪽 설정은 쓰지 않는다(0.42.0 — 책과 같은 두 줄을 따른다). 남겨 두면 다음 판이
             // 이 이름을 다른 뜻으로 쓸 때 옛 값이 끼어든다.
             .remove(KEY_COMIC_SPREAD)
@@ -469,6 +472,7 @@ class PrefsStore(context: Context) {
         private const val KEY_PDF_FIT = "pdfFit"
         private const val KEY_IMAGE_BLEND = "imageBlend"
         private const val KEY_WEBTOON_COLUMN = "webtoonColumn"
+        private const val KEY_WEBTOON_COLUMN_NARROW = "webtoonColumnNarrow"
         /** 0.41 까지의 만화 두 쪽 설정. 읽지 않고 저장할 때 지운다. */
         private const val KEY_COMIC_SPREAD = "comicSpread"
         private const val KEY_LISTEN_JOIN = "listenJoin"

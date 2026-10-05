@@ -55,6 +55,11 @@ data class ScreenPrefs(
      * 한 화면에 말풍선 하나만 보인다. 휴대폰 세로에서는 늘 꽉 채운다.
      */
     val webtoonColumn: Int = DEFAULT_WEBTOON_COLUMN,
+    /**
+     * 웹툰 그림 폭(좁은 화면 — 휴대폰 세로의 %, 0.47.0 사용자 결정 ⑧). 기기에 따라 꽉 채우면 컷이 커져 웹툰의 느낌이
+     * 옅어진다. 넓은 화면 값([webtoonColumn])과 따로 기억한다 — 하나로 묶으면 태블릿에서 맞춘 55% 가 휴대폰에서 너무 좁다.
+     */
+    val webtoonColumnNarrow: Int = DEFAULT_WEBTOON_COLUMN_NARROW,
 ) {
     /**
      * 지금 화면에서 두 쪽을 펼칠지. 세로 두쪽은 기기의 가장 짧은 폭이 [WIDE_SCREEN_DP] 이상일 때만 — 휴대폰
@@ -69,18 +74,28 @@ data class ScreenPrefs(
 
         /** 웹툰 기둥 폭 기본 · 범위(%). 70% 면 폴더블 본 화면에서 휴대폰 한 대 폭쯤이다. */
         const val DEFAULT_WEBTOON_COLUMN = 70
+        /** 휴대폰 세로는 기본으로 꽉 채운다 — 0.46 까지와 같은 화면에서 시작한다. */
+        const val DEFAULT_WEBTOON_COLUMN_NARROW = 100
         val WEBTOON_COLUMN_RANGE = 40..100
+        /** 그림 폭 밀대의 한 칸(%). 끄는 동안 칸마다 띠를 다시 풀므로 잘게 나누지 않는다. */
+        const val WEBTOON_COLUMN_STEP = 5
+
+        /** 웹툰에서 "넓은 화면" 인가: 가로이거나 태블릿 · 펼친 폴더블. 그림 폭을 이 둘로 갈라 기억한다. */
+        fun webtoonWide(viewWidth: Float, viewHeight: Float, smallestWidthDp: Int): Boolean =
+            viewWidth > viewHeight || smallestWidthDp >= WIDE_SCREEN_DP
     }
 
-    /**
-     * 웹툰을 그릴 기둥 폭(px). 휴대폰 세로는 꽉 채우고, 가로 · 넓은 화면은 [webtoonColumn]% (사용자 결정 7).
-     */
+    /** 지금 화면 등급의 웹툰 그림 폭(%). 범위 밖(손상)은 범위 안으로. */
+    fun webtoonPercent(wide: Boolean): Int = (if (wide) webtoonColumn else webtoonColumnNarrow).coerceIn(WEBTOON_COLUMN_RANGE)
+
+    /** [wide] 쪽 값만 바꾼다 — 다른 등급의 값은 그대로 둔다. */
+    fun withWebtoonPercent(wide: Boolean, percent: Int): ScreenPrefs = percent.coerceIn(WEBTOON_COLUMN_RANGE).let {
+        if (wide) copy(webtoonColumn = it) else copy(webtoonColumnNarrow = it)
+    }
+
+    /** 웹툰을 그릴 기둥 폭(px): 화면 등급에 맞는 % (사용자 결정 7 · ⑧). */
     fun webtoonWidth(viewWidth: Float, viewHeight: Float, smallestWidthDp: Int): Float =
-        if (viewWidth > viewHeight || smallestWidthDp >= WIDE_SCREEN_DP) {
-            viewWidth * webtoonColumn.coerceIn(WEBTOON_COLUMN_RANGE) / 100f
-        } else {
-            viewWidth
-        }
+        viewWidth * webtoonPercent(webtoonWide(viewWidth, viewHeight, smallestWidthDp)) / 100f
 }
 
 /**

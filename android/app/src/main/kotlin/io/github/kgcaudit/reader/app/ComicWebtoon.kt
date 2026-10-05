@@ -56,12 +56,12 @@ import io.github.kgcaudit.reader.ui.design.CpIcons
 import io.github.kgcaudit.reader.ui.design.CpLinkRow
 import io.github.kgcaudit.reader.ui.design.CpReaderBar
 import io.github.kgcaudit.reader.ui.design.CpRibbon
-import io.github.kgcaudit.reader.ui.design.CpStepper
 import io.github.kgcaudit.reader.ui.design.CpText
 import io.github.kgcaudit.reader.ui.design.CpTheme
 import io.github.kgcaudit.reader.ui.design.CpToast
 import io.github.kgcaudit.reader.ui.design.CpToolButton
 import io.github.kgcaudit.reader.ui.design.CpViewSettingsScreen
+import io.github.kgcaudit.reader.ui.design.CpWebtoonWidthRow
 import io.github.kgcaudit.reader.ui.design.ReadingWindow
 import io.github.kgcaudit.reader.ui.design.ScreenPrefs
 import io.github.kgcaudit.reader.ui.design.TapAction
@@ -124,7 +124,11 @@ fun WebtoonReader(
         val viewW = constraints.maxWidth.toFloat()
         val fullH = constraints.maxHeight.toFloat()
         val smallest = LocalConfiguration.current.smallestScreenWidthDp
-        val colW = prefs.webtoonWidth(viewW, fullH, smallest).roundToInt().coerceAtLeast(1)
+        val wide = ScreenPrefs.webtoonWide(viewW, fullH, smallest)
+        // 그림 폭 막대를 끄는 동안의 값. 저장은 손을 뗄 때 한 번 — 끄는 내내 저장하면 설정 쓰기가 쌓인다.
+        var previewPercent by remember { mutableStateOf<Int?>(null) }
+        val percentNow = previewPercent ?: prefs.webtoonPercent(wide)
+        val colW = (viewW * percentNow / 100f).roundToInt().coerceAtLeast(1)
         val column = remember(sizes, colW) { WebtoonColumn(sizes, colW.toFloat()) }
         val strips = remember(column) {
             sizes.flatMapIndexed { i, size ->
@@ -252,15 +256,16 @@ fun WebtoonReader(
                     if (panel == WebtoonPanel.View) {
                         Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
                             ViewChoice(view, onView)
-                            // 기둥 폭은 넓은 화면에서만 뜻이 있다 — 휴대폰 세로는 늘 꽉 채운다(결정 7).
-                            if (colW < viewW.roundToInt()) {
-                                val step = 10
-                                CpStepper(
-                                    "기둥 폭", "${prefs.webtoonColumn}%",
-                                    onMinus = { onPrefsChange(prefs.copy(webtoonColumn = (prefs.webtoonColumn - step).coerceIn(ScreenPrefs.WEBTOON_COLUMN_RANGE))) },
-                                    onPlus = { onPrefsChange(prefs.copy(webtoonColumn = (prefs.webtoonColumn + step).coerceIn(ScreenPrefs.WEBTOON_COLUMN_RANGE))) },
-                                )
-                            }
+                            // 그림 폭은 모든 화면에서 바꾼다(0.47.0, 사용자 결정 ⑧) — 휴대폰에서도 꽉 채우면 컷이 커져 웹툰의
+                            // 느낌이 옅어지는 기기가 있다. 값은 화면 등급(좁음 · 넓음)마다 따로 둔다.
+                            CpWebtoonWidthRow(
+                                percentNow,
+                                onPreview = { previewPercent = it },
+                                onCommit = {
+                                    previewPercent = null
+                                    onPrefsChange(prefs.withWebtoonPercent(wide, it))
+                                },
+                            )
                             CpBrightnessRow(prefs.brightness, { onPrefsChange(prefs.copy(brightness = it)) })
                             CpLinkRow("모든 보기 설정", "", { panel = WebtoonPanel.Settings })
                         }

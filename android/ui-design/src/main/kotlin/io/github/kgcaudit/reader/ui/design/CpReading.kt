@@ -312,6 +312,36 @@ fun CpBrightnessRow(value: Float?, onChange: (Float?) -> Unit, modifier: Modifie
     }
 }
 
+/**
+ * 웹툰 그림 폭: 막대 + "85%"(0.47.0, 사용자 결정 ⑧). 끄는 동안 [onPreview] 로 위의 그림을 바로 좁히고, 손을 떼면
+ * [onCommit] 으로 저장한다 — 판을 연 채 맞춰 보며 정한다. 값은 [ScreenPrefs.WEBTOON_COLUMN_STEP] 칸으로 끊는다.
+ */
+@Composable
+fun CpWebtoonWidthRow(percent: Int, onPreview: (Int) -> Unit, onCommit: (Int) -> Unit, modifier: Modifier = Modifier) {
+    val c = CpTheme.colors
+    val range = ScreenPrefs.WEBTOON_COLUMN_RANGE
+    fun snap(f: Float): Int {
+        val raw = range.first + f * (range.last - range.first)
+        val step = ScreenPrefs.WEBTOON_COLUMN_STEP
+        return (kotlin.math.round(raw / step) * step).toInt().coerceIn(range)
+    }
+    Row(
+        modifier.fillMaxWidth().padding(horizontal = CpTheme.metrics.gutter, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CpText("그림 폭", CpTheme.type.body, c.text, Modifier.width(72.dp))
+        CpSlider(
+            (percent - range.first).toFloat() / (range.last - range.first),
+            onChange = { onPreview(snap(it)) },
+            onCommit = { onCommit(snap(it)) },
+            Modifier.weight(1f),
+            description = "그림 폭",
+        )
+        // 폭이 바뀌어도 막대 길이가 출렁이지 않게 숫자 칸을 고정한다("100%" 가 가장 길다).
+        CpText("$percent%", CpTheme.type.label, c.text, Modifier.padding(start = 12.dp).width(44.dp))
+    }
+}
+
 // ── 창에 거는 것: 밝기 · 화면 켜짐 ─────────────────────────────────
 
 /**

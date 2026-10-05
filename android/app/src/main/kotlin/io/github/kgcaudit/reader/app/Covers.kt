@@ -8,6 +8,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import io.github.kgcaudit.reader.data.library.LibraryBook
 import io.github.kgcaudit.reader.document.BookId
 import io.github.kgcaudit.reader.document.comic.ComicUnit
+import io.github.kgcaudit.reader.document.comic.CoverCrop
+import io.github.kgcaudit.reader.document.image.ImageSize
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -79,8 +81,9 @@ class CoverStore(
         memory.get(key)?.let { return@withContext it.image }
         extracting.withLock {
             memory.get(key)?.let { return@withLock it.image }
-            // 표지 항목을 열쇠에 넣는다 — 살피기 전(표지 모름)에 "없음" 으로 굳힌 표시가 살핀 뒤에도 남지 않게.
-            val own = ownCover("comic|${unit.id}|${unit.contents?.cover}", unit.sizeBytes, unit.name) { extractComic(unit) }
+            // 표지 항목을 열쇠에 넣는다 — 살피기 전(표지 모름)에 "없음" 으로 굳힌 표시가 살핀 뒤에도 남지 않게. "comic2" 는
+            // 긴 그림 자르기(0.47.0) 뒤의 표지다 — 앞의 열쇠면 저장해 둔 가는 막대 표지가 그대로 나왔다.
+            val own = ownCover("comic2|${unit.id}|${unit.contents?.cover}", unit.sizeBytes, unit.name) { extractComic(unit) }
             if (own.settled) memory.put(key, Cover(own.image, custom = false, hasOwn = own.image != null))
             own.image
         }
@@ -188,6 +191,47 @@ class CoverStore(
                 ?: return null
             return scaleToHeight(bitmap)
         }
+
+        /**
+         * 만화 표지를 읽는다(0.47.0, 사용자 결정 ⑩). 표지 칸보다 훨씬 긴 그림(웹툰 1화 첫 그림)은 위쪽 빈 바탕을 건너뛰고 첫
+         * 칸부터 표지 비율로 잘라 쓴다 — 통째로 넣으면 칸 높이에 맞춰 줄어 가는 막대로 섰다. 보통 그림은 [decodeScaled].
+         *
+         * 긴 그림을 통째로 풀지 않는다(800×30000 = 96MB). 바탕을 찾을 때는 폭 [PROBE_WIDTH] 로 크게 솎아 풀고, 자른 부분만
+         * 띠 풀기로 다시 푼다. [regions] 가 false 거나 띠 풀기가 안 되면 전체를 줄여 풀어 자른다.
+         */
+        fun decodeComicCover(bytes: ByteArray, regions: Boolean = true): Bitmap? {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+            val size = ImageSize(bounds.outWidth, bounds.outHeight)
+            if (!CoverCrop.isTall(size)) return decodeScaled(bytes)
+            var probeSample = 1
+            while (size.width / (probeSample * 2) >= PROBE_WIDTH) probeSample *= 2
+            val probe = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = probeSample })
+                ?: return null
+            val scale = size.height.toFloat() / probe.height
+            val rows = (0 until probe.height).map { y -> IntArray(probe.width).also { probe.getPixels(it, 0, probe.width, 0, y, probe.width, 1) } }
+            val window = CoverCrop.window(size, (CoverCrop.firstContentRow(rows) * scale).toInt())
+            var sample = 1
+            while ((window.last - window.first + 1) / (sample * 2) >= COVER_HEIGHT) sample *= 2
+            val region = if (!regions) null else runCatching {
+                @Suppress("DEPRECATION")
+                val decoder = android.graphics.BitmapRegionDecoder.newInstance(bytes, 0, bytes.size, false)
+                try {
+                    decoder?.decodeRegion(android.graphics.Rect(0, window.first, size.width, window.last + 1), BitmapFactory.Options().apply { inSampleSize = sample })
+                } finally {
+                    decoder?.recycle()
+                }
+            }.getOrNull()
+            if (region != null) return scaleToHeight(region)
+            // 띠 풀기가 안 되는 그림: 솎아 푼 것에서 자른다. 폭이 좁아 조금 흐리지만 표지 칸은 작다.
+            val y0 = (window.first / scale).toInt().coerceIn(0, probe.height - 1)
+            val y1 = ((window.last + 1) / scale).toInt().coerceIn(y0 + 1, probe.height)
+            return Bitmap.createBitmap(probe, 0, y0, probe.width, y1 - y0)
+        }
+
+        /** 긴 그림에서 바탕을 찾을 때 솎아 푸는 폭. 칸 테두리(2~3px)가 솎아도 남을 만큼. */
+        private const val PROBE_WIDTH = 200
 
         private fun scaleToHeight(bitmap: Bitmap): Bitmap {
             if (bitmap.height <= COVER_HEIGHT) return bitmap

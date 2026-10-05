@@ -14,6 +14,8 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
+import androidx.compose.ui.geometry.Offset
+import io.github.kgcaudit.reader.ui.design.ScreenPrefs
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -236,6 +238,31 @@ class WebtoonAppTest {
             assertTrue(!has(hasText(row)), "웹툰 설정에 따르지 않는 줄이 있다: $row")
         }
         assertTrue(has(hasText("화면 켜짐 유지")))
+    }
+
+    @Test
+    fun `the picture width can be narrowed on a phone and is kept apart from the wide screen value`() {
+        // 0.46 까지 휴대폰 세로는 늘 꽉 채웠다 — 기기에 따라 컷이 커져 웹툰 느낌이 옅어졌다(사용자 결정 ⑧).
+        openChapter("전학생", "1화")
+        compose.mainClock.advanceTimeBy(1_000)
+        waitForColor(0.04f, 0.5f, pink, "처음에는 꽉 채운다")
+        compose.onRoot().performTouchInput { click(center) }
+        click(hasText("보기"))
+        waitFor(hasContentDescription("그림 폭"))
+        // 막대 1/4 자리를 누르면 55%. 가운데(70%)는 넓은 화면 기본값과 같아, 넓은 값을 덮어써도 시험이 알아채지 못했다.
+        compose.onAllNodes(hasContentDescription("그림 폭"), useUnmergedTree = true)[0].performTouchInput { click(Offset(width * 0.25f, centerY)) }
+        compose.mainClock.advanceTimeBy(1_000)
+        compose.waitUntil(5_000) { app.container.prefs.load().screen.webtoonColumnNarrow < 100 }
+        val saved = app.container.prefs.load().screen
+        assertTrue(saved.webtoonColumnNarrow in 50..60, "누른 자리만큼 줄지 않았다: ${saved.webtoonColumnNarrow}")
+        assertEquals(ScreenPrefs.DEFAULT_WEBTOON_COLUMN, saved.webtoonColumn, "휴대폰에서 바꿨는데 넓은 화면 값이 바뀌었다")
+        // 판을 닫으면 양옆이 비어 있다 — 그림이 정말 좁아졌다.
+        compose.onRoot().performTouchInput { click(Offset(width * 0.5f, height * 0.2f)) }
+        compose.mainClock.advanceTimeBy(1_000)
+        waitForColor(0.5f, 0.3f, pink, "좁힌 그림이 가운데에 없다")
+        val s = screen()
+        assertTrue(!near(s.getPixel((s.width * 0.04f).toInt(), (s.height * 0.3f).toInt()), pink), "그림 폭을 줄였는데 꽉 채웠다")
+        File(shots, "webtoon-narrow.png").outputStream().use { s.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 
     @Test
