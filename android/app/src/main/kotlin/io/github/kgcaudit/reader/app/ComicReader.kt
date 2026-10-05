@@ -780,11 +780,21 @@ fun ComicHost(
     val container = LocalContext.current.container
     val data = container.data
     val scope = rememberCoroutineScope()
-    var book by remember(unitId) { mutableStateOf<ComicBook?>(null) }
-    var sizes by remember(unitId) { mutableStateOf<List<io.github.kgcaudit.reader.document.image.ImageSize?>>(emptyList()) }
+    // 웹툰 이어 보기(0.47.0): 화면이 이어 붙인 다음 화로 넘어가면 그 화가 [unitId] 가 된다(아래 줄 · 책갈피 · 서재의 이어
+    // 보기가 따른다). 그때 처음 연 화를 다시 열면 이어 붙인 사슬이 끊기고 화면이 깜박인다 — 사슬 안의 화로 바뀐 것이면
+    // 처음 연 화([loadKey])를 그대로 둔다.
+    var chain by remember { mutableStateOf(emptySet<String>()) }
+    var loadKey by remember { mutableStateOf(unitId) }
+    val key = if (unitId in chain) loadKey else unitId
+    var book by remember(key) { mutableStateOf<ComicBook?>(null) }
+    var sizes by remember(key) { mutableStateOf<List<io.github.kgcaudit.reader.document.image.ImageSize?>>(emptyList()) }
     // 지금 자리(그림 번호 · 그 안의 비율). 보는 방식을 바꿔도 같은 그림에서 이어진다.
-    var position by remember(unitId) { mutableStateOf(0 to 0f) }
-    LaunchedEffect(unitId) {
+    var position by remember(key) { mutableStateOf(0 to 0f) }
+    LaunchedEffect(key) {
+        if (key != loadKey || chain.isEmpty()) {
+            loadKey = key
+            chain = setOf(key)
+        }
         val opened = runCatching {
             withContext(Dispatchers.IO) {
                 val unit = data.comics.unit(unitId) ?: throw java.io.FileNotFoundException(unitId)
@@ -815,8 +825,9 @@ fun ComicHost(
             )
         }
     }
-    androidx.compose.runtime.DisposableEffect(unitId) { onDispose { book?.close() } }
+    androidx.compose.runtime.DisposableEffect(key) { onDispose { book?.close() } }
     val works by remember { data.comics.works() }.collectAsState(initial = null)
+    val progress by remember { data.comics.progress() }.collectAsState(initial = emptyMap())
     val bookmarks by remember(unitId) { data.comics.bookmarks(unitId) }.collectAsState(initial = emptyList())
     val opened = book
     val all = works
@@ -830,7 +841,11 @@ fun ComicHost(
     val view = Webtoon.view(work?.view, opened.unit.info, sizes)
     val now = { System.currentTimeMillis() }
     val onBookmark: (Int) -> Unit = { p -> scope.launch(Dispatchers.IO) { data.comics.toggleBookmark(unitId, p, now()) } }
-    val onView: (ComicView?) -> Unit = { v -> work?.let { w -> scope.launch(Dispatchers.IO) { data.comics.setView(w, v) } } }
+    val onView: (ComicView?) -> Unit = { v ->
+        // 이어 붙인 다음 화를 보던 중이면 그 화로 새로 연다 — 쪽 넘김은 처음 연 화의 책을 그린다.
+        if (unitId != loadKey) chain = emptySet()
+        work?.let { w -> scope.launch(Dispatchers.IO) { data.comics.setView(w, v) } }
+    }
     when (view) {
         ComicView.PAGE -> ComicReader(
             book = opened,
@@ -854,23 +869,44 @@ fun ComicHost(
             sizes = sizes,
         )
         ComicView.WEBTOON -> WebtoonReader(
-            book = opened,
-            sizes = sizes,
-            title = title,
+            first = remember(opened) { WebtoonEpisode(work?.entries?.firstOrNull { e -> e.unit.id == loadKey || e.copies.any { it.id == loadKey } }, opened, sizes) },
+            title = work?.title ?: title,
             work = work,
+            currentId = unitId,
             startIndex = position.first,
             startOffset = position.second,
             bookmarks = bookmarks,
+            progress = progress,
             prefs = prefs,
             onPrefsChange = onPrefsChange,
             view = work?.view,
             onView = onView,
-            onPosition = { i, f, end ->
-                position = i to f
-                scope.launch(Dispatchers.IO) { data.comics.saveProgress(unitId, i, opened.pageCount, now(), offset = f, atEnd = end) }
+            openEpisode = { entry ->
+                runCatching {
+                    withContext(Dispatchers.IO) {
+                        val unit = data.comics.unit(entry.unit.id) ?: return@withContext null
+                        // 이어 붙이는 화는 몫을 반으로 — 처음 연 화와 함께 메모리에 있다.
+                        val comic = ComicBook(unit, data.openComic(unit), budget = ComicBook.memoryBudget() / 2, regions = container.comicRegions)
+                        WebtoonEpisode(entry, comic, comic.sizes())
+                    }
+                }.onFailure {
+                    if (it is kotlinx.coroutines.CancellationException) throw it
+                    android.util.Log.w("OloComic", "cannot open next ${entry.unit.id}", it)
+                }.getOrNull()
             },
-            onBookmark = onBookmark,
-            onNext = { n -> onOpen(n.unit.id) },
+            onEnter = { id ->
+                chain = chain + id
+                onOpen(id)
+            },
+            onPosition = { e, i, f, end ->
+                if (e.unitId == unitId) position = i to f
+                scope.launch(Dispatchers.IO) { data.comics.saveProgress(e.unitId, i, e.book.pageCount, now(), offset = f, atEnd = end) }
+            },
+            onBookmark = { id, p -> scope.launch(Dispatchers.IO) { data.comics.toggleBookmark(id, p, now()) } },
+            onJump = { n ->
+                chain = emptySet()
+                onOpen(n.unit.id)
+            },
             onClose = onClose,
             onChrome = onChrome,
         )

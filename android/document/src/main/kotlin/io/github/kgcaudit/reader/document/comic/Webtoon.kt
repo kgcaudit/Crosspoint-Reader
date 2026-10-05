@@ -85,3 +85,53 @@ class WebtoonColumn(sizes: List<ImageSize?>, val width: Float) {
         return tops[i] + heights[i] * fraction.coerceIn(0f, 1f)
     }
 }
+
+/**
+ * 여러 화를 한 기둥에 잇는 배치(0.47.0, 사용자 결정 ③ B): 화마다 [WebtoonColumn], 화와 화 사이에 [seam] 높이의 경계 띠.
+ * 경계 띠는 **다음 화의 머리**로 친다 — 띠가 화면 위에 걸리면 이미 다음 화를 보는 것이다(구상안: "4화 · 0%").
+ *
+ * 자리는 늘 (화, 그림, 그 안의 비율)로 바꿔 적는다. 폭이 바뀌어도 · 앞의 화를 내려놓아도 같은 칸으로 돌아온다.
+ */
+class WebtoonChain(val columns: List<WebtoonColumn>, val seam: Float) {
+    /** 화 [k] 의 첫 그림이 시작하는 높이. */
+    val starts: List<Float> = columns.indices.map { k -> columns.take(k).sumOf { it.total.toDouble() }.toFloat() + seam * k }
+
+    /** 마지막 화의 끝. 그 뒤의 끝 판은 셈에 넣지 않는다. */
+    val total: Float = if (columns.isEmpty()) 0f else starts.last() + columns.last().total
+
+    /** 화 [k] 의 끝(마지막 그림 아래). */
+    fun endOf(k: Int): Float = starts[k] + columns[k].total
+
+    /** [y] 높이를 보는 화. 경계 띠는 다음 화에 든다. 끝을 넘으면 마지막 화. */
+    fun episodeAt(y: Float): Int {
+        if (columns.isEmpty()) return 0
+        return columns.indices.lastOrNull { k -> (if (k == 0) 0f else starts[k] - seam) <= y } ?: 0
+    }
+
+    /** [y] 높이의 (화, 그림, 비율). 경계 띠 안이면 다음 화의 맨 처음. */
+    fun at(y: Float): Triple<Int, Int, Float> {
+        val k = episodeAt(y)
+        val (i, f) = columns.getOrNull(k)?.at((y - starts[k]).coerceAtLeast(0f)) ?: (0 to 0f)
+        return Triple(k, i, f)
+    }
+
+    /** [at] 의 반대. */
+    fun offsetOf(k: Int, index: Int, fraction: Float): Float {
+        if (columns.isEmpty()) return 0f
+        val e = k.coerceIn(0, columns.size - 1)
+        return starts[e] + columns[e].offsetOf(index, fraction)
+    }
+
+    /** 화 [k] 안에서 막대가 움직이는 길이. 한 화면보다 짧은 화도 0 으로 나누지 않게 1 이상. */
+    fun readable(k: Int, viewHeight: Float): Float = (columns[k].total - viewHeight).coerceAtLeast(1f)
+
+    /** 화면 위 [y] 가 그 화의 몇 %(0..1)인가. */
+    fun fraction(y: Float, viewHeight: Float): Float {
+        if (columns.isEmpty()) return 0f
+        val k = episodeAt(y)
+        return ((y - starts[k]) / readable(k, viewHeight)).coerceIn(0f, 1f)
+    }
+
+    /** 화면 아래가 화 [k] 의 끝에 닿았는가(다 읽음). 1px 덜 닿아도 끝으로 본다 — 반올림으로 끝까지 안 내려가는 일이 있다. */
+    fun reachedEnd(k: Int, y: Float, viewHeight: Float): Boolean = y + viewHeight >= endOf(k) - 1f
+}

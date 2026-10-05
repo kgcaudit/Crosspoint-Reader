@@ -345,6 +345,7 @@ class PrefsStore(context: Context) {
                 .takeIf { it in ScreenPrefs.WEBTOON_COLUMN_RANGE } ?: ScreenPrefs.DEFAULT_WEBTOON_COLUMN,
             webtoonColumnNarrow = sp.getInt(KEY_WEBTOON_COLUMN_NARROW, ScreenPrefs.DEFAULT_WEBTOON_COLUMN_NARROW)
                 .takeIf { it in ScreenPrefs.WEBTOON_COLUMN_RANGE } ?: ScreenPrefs.DEFAULT_WEBTOON_COLUMN_NARROW,
+            webtoonAutoSpeed = enumOf(KEY_WEBTOON_AUTO_SPEED, io.github.kgcaudit.reader.ui.design.AutoScrollSpeed.Normal),
         ),
         listen = ListenPrefs(
             // 망가진 값(범위 밖)은 범위 안으로 — 0 배속으로 저장된 값 때문에 듣기가 안 되면 안 된다.
@@ -402,6 +403,7 @@ class PrefsStore(context: Context) {
             .putString(KEY_IMAGE_BLEND, prefs.screen.imageBlend.name)
             .putInt(KEY_WEBTOON_COLUMN, prefs.screen.webtoonColumn)
             .putInt(KEY_WEBTOON_COLUMN_NARROW, prefs.screen.webtoonColumnNarrow)
+            .putString(KEY_WEBTOON_AUTO_SPEED, prefs.screen.webtoonAutoSpeed.name)
             // 0.36~0.41 의 만화 전용 두 쪽 설정은 쓰지 않는다(0.42.0 — 책과 같은 두 줄을 따른다). 남겨 두면 다음 판이
             // 이 이름을 다른 뜻으로 쓸 때 옛 값이 끼어든다.
             .remove(KEY_COMIC_SPREAD)
@@ -473,6 +475,7 @@ class PrefsStore(context: Context) {
         private const val KEY_IMAGE_BLEND = "imageBlend"
         private const val KEY_WEBTOON_COLUMN = "webtoonColumn"
         private const val KEY_WEBTOON_COLUMN_NARROW = "webtoonColumnNarrow"
+        private const val KEY_WEBTOON_AUTO_SPEED = "webtoonAutoSpeed"
         /** 0.41 까지의 만화 두 쪽 설정. 읽지 않고 저장할 때 지운다. */
         private const val KEY_COMIC_SPREAD = "comicSpread"
         private const val KEY_LISTEN_JOIN = "listenJoin"

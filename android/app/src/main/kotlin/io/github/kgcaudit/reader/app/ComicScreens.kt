@@ -78,7 +78,7 @@ import io.github.kgcaudit.reader.ui.design.TWO_PANE_LEFT_WIDTH
 
 /** 만화 단위 하나의 표지. 메모리에 있으면 바로, 없으면 꺼내는 동안 대신 표지. */
 @Composable
-private fun rememberComicCover(unit: ComicUnit): ImageBitmap? {
+internal fun rememberComicCover(unit: ComicUnit): ImageBitmap? {
     val covers = LocalContext.current.container.covers
     var image by remember(unit) { mutableStateOf(covers.cachedComic(unit)) }
     LaunchedEffect(unit) { image = covers.comic(unit) }

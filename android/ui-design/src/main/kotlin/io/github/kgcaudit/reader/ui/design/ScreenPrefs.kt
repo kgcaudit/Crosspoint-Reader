@@ -60,6 +60,8 @@ data class ScreenPrefs(
      * 옅어진다. 넓은 화면 값([webtoonColumn])과 따로 기억한다 — 하나로 묶으면 태블릿에서 맞춘 55% 가 휴대폰에서 너무 좁다.
      */
     val webtoonColumnNarrow: Int = DEFAULT_WEBTOON_COLUMN_NARROW,
+    /** 웹툰 자동 스크롤 빠르기(0.47.0). 켜고 끄는 것은 그때그때이고, 빠르기만 기억한다 — 다음 화 · 다음 작품에서도 같은 걸음. */
+    val webtoonAutoSpeed: AutoScrollSpeed = AutoScrollSpeed.Normal,
 ) {
     /**
      * 지금 화면에서 두 쪽을 펼칠지. 세로 두쪽은 기기의 가장 짧은 폭이 [WIDE_SCREEN_DP] 이상일 때만 — 휴대폰

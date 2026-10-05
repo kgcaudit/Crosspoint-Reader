@@ -121,3 +121,54 @@ fun CpAutoTurnPill(state: AutoTurnState, modifier: Modifier = Modifier) {
         CpIconButton(CpIcons.Close, "자동 넘김 끄기", { state.stopped = true })
     }
 }
+
+/**
+ * 웹툰 자동 스크롤 빠르기(0.47.0, 사용자 결정 ④): 한 화면을 내려가는 데 걸리는 초. 다섯 단 — 더 잘게 나누면 −/+ 를 여러 번
+ * 눌러야 차이가 보인다.
+ */
+enum class AutoScrollSpeed(val label: String, val secondsPerScreen: Float) {
+    VerySlow("아주 느림", 25f),
+    Slow("느림", 15f),
+    Normal("보통", 10f),
+    Fast("빠름", 7f),
+    VeryFast("아주 빠름", 5f),
+    ;
+
+    fun slower(): AutoScrollSpeed = entries[(ordinal - 1).coerceAtLeast(0)]
+    fun faster(): AutoScrollSpeed = entries[(ordinal + 1).coerceAtMost(entries.size - 1)]
+}
+
+/**
+ * 자동 스크롤 중 아래에 뜨는 조절기: "자동 스크롤" − 보통 + ⏸ ✕. 자동 넘김 알림([CpAutoTurnPill])과 같은 카드 모양이다 — 한 앱
+ * 안에서 같은 일을 하는 부품이 두 모양이면 다른 기능으로 읽힌다.
+ */
+@Composable
+fun CpAutoScrollPill(
+    speed: AutoScrollSpeed,
+    paused: Boolean,
+    onSpeed: (AutoScrollSpeed) -> Unit,
+    onPause: () -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val c = CpTheme.colors
+    val shape = RoundedCornerShape(CpTheme.metrics.cornerMedium)
+    Row(
+        modifier.shadow(8.dp, shape).clip(shape).background(c.surface)
+            .border(1.dp, c.divider, shape)
+            .blockTouches()
+            .padding(start = 16.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CpText(if (paused) "자동 스크롤 · 멈춤" else "자동 스크롤", CpTheme.type.label, c.text)
+        CpIconButton(CpIcons.Minus, "더 느리게", { onSpeed(speed.slower()) }, tint = if (speed == AutoScrollSpeed.entries.first()) c.textMuted else c.text)
+        CpText(speed.label, CpTheme.type.label, c.accentText)
+        CpIconButton(CpIcons.Plus, "더 빠르게", { onSpeed(speed.faster()) }, tint = if (speed == AutoScrollSpeed.entries.last()) c.textMuted else c.text)
+        CpIconButton(
+            if (paused) CpIcons.Play else CpIcons.Pause,
+            if (paused) "자동 스크롤 이어 하기" else "자동 스크롤 멈춤",
+            onPause,
+        )
+        CpIconButton(CpIcons.Close, "자동 스크롤 끄기", onClose)
+    }
+}

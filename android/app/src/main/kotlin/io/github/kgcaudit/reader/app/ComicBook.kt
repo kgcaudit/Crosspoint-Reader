@@ -166,6 +166,15 @@ class ComicBook(
         return Bitmap.createBitmap(whole, 0, y0, whole.width, y1 - y0)
     }
 
+    /**
+     * 풀어 둔 그림을 모두 내려놓는다(파일은 열린 채). 웹툰 이어 보기에서 지나온 화가 화면을 떠나도 제 몫(앱 힙의 1/8)을
+     * 쥐고 있으면 몇 화 만에 메모리가 넘친다.
+     */
+    fun trim() {
+        bitmaps.evictAll()
+        lastSource = null
+    }
+
     override fun close() {
         bitmaps.evictAll()
         lastSource = null
@@ -179,11 +188,11 @@ class ComicBook(
 
     private fun stripKey(index: Int, rows: IntRange, width: Int) = "s$index|${rows.first}-${rows.last}|$width"
 
-    private companion object {
+    companion object {
         /** 띠 풀기가 안 될 때 전체를 풀 최대 높이(픽셀). 텍스처 한도(4096) 안. */
-        const val MAX_WHOLE_HEIGHT = 4096
+        private const val MAX_WHOLE_HEIGHT = 4096
 
         /** 앱 힙의 8분의 1, 많아야 96MB. 화면 크기 쪽(1080×2340 ARGB ≈ 10MB) 여러 장 — 앞뒤 쪽을 미리 풀어 둘 만큼. */
-        fun memoryBudget(): Int = (Runtime.getRuntime().maxMemory() / 8).coerceAtMost(96L * 1024 * 1024).toInt()
+        internal fun memoryBudget(): Int = (Runtime.getRuntime().maxMemory() / 8).coerceAtMost(96L * 1024 * 1024).toInt()
     }
 }
