@@ -268,6 +268,36 @@ class ComicReaderAppTest {
         waitMenuSubtitle("1 / 3쪽 · 오→왼")
     }
 
+    private fun bounds(text: String) = compose.onAllNodes(hasText(text), useUnmergedTree = true).fetchSemanticsNodes().first().boundsInRoot
+
+    @Test
+    @Config(qualifiers = "w900dp-h680dp-xhdpi")
+    fun `on an unfolded foldable the work page has an info pane and a cover grid side by side`() {
+        // 0.46.0 사용자 결정(반응형 체계 · 구상안 가안): 넓고 높은 창은 두 판 — 왼쪽 작품 정보, 오른쪽 권 표지 격자.
+        // 0.45 까지는 가운데 600dp 줄 목록이라 양옆이 비고 권이 세로로 한 줄씩 섰다.
+        openWork()
+        waitFor(hasText("1권"))
+        val density = compose.activity.resources.displayMetrics.density
+        val one = bounds("1권"); val two = bounds("2권")
+        assertEquals(one.top / density, two.top / density, 1f, "권 표지가 격자로 나란히 서지 않았다")
+        assertTrue(two.left > one.left, "격자 차례가 어긋났다")
+        // 권 격자는 왼쪽 정보 판(320dp) 오른쪽에 선다.
+        assertTrue(one.left / density > 320f, "권 격자가 왼쪽 정보 판 자리에 있다: ${one.left / density}dp")
+        shot("comic-work-two-pane")
+    }
+
+    @Test
+    @Config(qualifiers = "w680dp-h900dp-xhdpi")
+    fun `on an upright unfolded foldable the work page is one pane with a cover grid`() {
+        // 중간(600–839dp)은 한 판: 위에 작품 정보, 아래 권 표지 격자(폭 전체).
+        openWork()
+        waitFor(hasText("1권"))
+        val density = compose.activity.resources.displayMetrics.density
+        val one = bounds("1권"); val two = bounds("2권")
+        assertEquals(one.top / density, two.top / density, 1f, "권 표지가 격자로 나란히 서지 않았다")
+        assertTrue(one.left / density < 60f, "한 판인데 격자가 왼쪽 판 자리만큼 밀렸다: ${one.left / density}dp")
+    }
+
     @Test
     fun `particles follow the last syllable`() {
         assertEquals("을", objectParticle("1권"))

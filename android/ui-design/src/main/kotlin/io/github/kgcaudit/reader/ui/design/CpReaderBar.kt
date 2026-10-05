@@ -169,7 +169,12 @@ private val READER_TITLE = androidx.compose.ui.text.TextStyle(
  * @param side false 면 태블릿에서도 화면 전체를 덮되 내용 폭만 [CONTENT_MAX_WIDTH] 로 줄인다(리더 밖의 화면: 서재 찾기).
  */
 @Composable
-fun CpFullScreen(side: Boolean = true, content: @Composable ColumnScope.() -> Unit) {
+fun CpFullScreen(
+    side: Boolean = true,
+    /** 태블릿에서도 내용 폭을 [CONTENT_MAX_WIDTH] 로 줄이지 않는다 — 두 판 · 표지 격자처럼 넓은 화면을 쓰는 배치(0.46.0). */
+    wide: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit,
+) {
     val insets = WindowInsets.systemBars.union(WindowInsets.displayCutout)
     if (!cpTablet()) {
         Column(
@@ -206,7 +211,7 @@ fun CpFullScreen(side: Boolean = true, content: @Composable ColumnScope.() -> Un
                 Modifier.matchParentSize().background(CpTheme.colors.background).windowInsetsPadding(insets).blockTouches(),
                 contentAlignment = Alignment.TopCenter,
             ) {
-                Column(Modifier.fillMaxHeight().widthIn(max = CONTENT_MAX_WIDTH).fillMaxWidth(), content = content)
+                Column(Modifier.fillMaxHeight().then(if (wide) Modifier else Modifier.widthIn(max = CONTENT_MAX_WIDTH)).fillMaxWidth(), content = content)
             }
         }
     }

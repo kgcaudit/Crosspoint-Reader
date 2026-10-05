@@ -63,6 +63,11 @@ import io.github.kgcaudit.reader.ui.design.CpSectionLabel
 import io.github.kgcaudit.reader.ui.design.CpText
 import io.github.kgcaudit.reader.ui.design.CpTheme
 import io.github.kgcaudit.reader.ui.design.cpComicGlyph
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.Arrangement
+import io.github.kgcaudit.reader.ui.design.cpRoomy
+import io.github.kgcaudit.reader.ui.design.cpTwoPane
+import io.github.kgcaudit.reader.ui.design.TWO_PANE_LEFT_WIDTH
 
 /*
  * 서재의 만화 탭 · 작품 화면 · 작품 정리(0.33.0, docs/LIBRARY_COMIC_PLAN.md 확정 구상안 ①가 · ②).
@@ -338,9 +343,21 @@ internal fun WorkScreen(
     onEntry: (WorkEntry, Int?) -> Unit,
     onCopies: (WorkEntry) -> Unit,
 ) {
-    CpFullScreen(side = false) {
+    // 배치는 창 폭 등급으로(0.46.0, docs/RESPONSIVE_PLAN.md): 좁음 · 낮은 창(가로로 돌린 휴대폰)은 줄 목록, 넓고 높으면 두 판
+    // (왼쪽 작품 · 오른쪽 권 표지 격자), 중간은 한 판(위 작품 · 아래 격자). 0.45 까지는 태블릿에서도 가운데 600dp 줄
+    // 목록이라 양옆이 비고 표지가 엄지손톱만 했다(사용자 스크린샷).
+    val layout = when {
+        !cpRoomy() -> WorkLayout.List
+        cpTwoPane() -> WorkLayout.TwoPane
+        else -> WorkLayout.Grid
+    }
+    CpFullScreen(side = false, wide = layout != WorkLayout.List) {
         CpHeader(work.title, subtitle = workSubtitle(work), onBack = onBack) {
             CpIconButton(CpIcons.More, "작품 정리", onArrange)
+        }
+        if (layout != WorkLayout.List) {
+            WorkWide(work, progress, twoPane = layout == WorkLayout.TwoPane, onEntry = onEntry, onCopies = onCopies)
+            return@CpFullScreen
         }
         LazyColumn(Modifier.fillMaxSize()) {
             // "3권 이어 보기 · 45쪽"(구상안 ②). 아무것도 펼치지 않았으면 없다 — 처음부터는 1권 줄을 누르면 된다.
@@ -368,6 +385,143 @@ internal fun WorkScreen(
                 }
             }
             item { Spacer(Modifier.height(24.dp)) }
+        }
+    }
+}
+
+private enum class WorkLayout { List, TwoPane, Grid }
+
+/** 격자 칸 하나: 권 · 화, 또는 합본 안의 권(그 합본의 [firstPage] 부터). */
+private class WorkCell(val entry: WorkEntry, val label: String, val sub: String?, val progress: Float?, val firstPage: Int?, val inside: String?)
+
+/** 권 줄과 같은 글: "다 읽음 · 180쪽" · "45 / 182쪽" · "182쪽". */
+private fun entrySub(entry: WorkEntry, progress: ComicProgress?): String? {
+    val pages = progress?.pageCount?.takeIf { it > 0 } ?: entry.unit.pageCount
+    return when {
+        progress?.finished == true -> listOfNotNull("다 읽음", pages?.let { "${it}쪽" }).joinToString(" · ")
+        progress != null && pages != null -> "${progress.page + 1} / ${pages}쪽"
+        entry.omnibus && pages != null -> "한 파일 · ${pages}쪽"
+        entry.omnibus -> "한 파일"
+        pages != null -> "${pages}쪽"
+        else -> null
+    }
+}
+
+private fun workCells(work: Work, progress: Map<String, ComicProgress>): List<WorkCell> = work.entries.flatMap { entry ->
+    val p = progress[entry.unit.id]
+    val label = if (entry.omnibus && entry.name.isRange) "${entry.label} 합본" else entry.label
+    val sections = entry.unit.contents?.sections.orEmpty()
+    listOf(WorkCell(entry, label, entrySub(entry, p), p?.let { if (it.finished) 1f else it.fraction }, null, null)) +
+        entry.sections.mapIndexed { i, section ->
+            val s = sections.getOrNull(i)?.takeIf { it.pageCount > 0 }
+            val pages = s?.let { if (it.pageCount == 1) "${it.firstPage + 1}쪽" else "${it.firstPage + 1}–${it.firstPage + it.pageCount}쪽" }
+            // 합본 안의 권은 그 합본에 속한다는 것을 글로 보인다 — 격자에서는 들여쓰기로 보일 수 없다.
+            WorkCell(entry, section, pages, null, s?.firstPage, "$label 안")
+        }
+}
+
+/**
+ * 넓은 화면의 작품 화면(0.46.0, 구상안 tablet 가안). 두 판이면 왼쪽에 큰 표지 · 이름 · 진도 · 이어 읽기, 오른쪽에 권 표지
+ * 격자. 한 판이면 그 정보를 위에 가로로 두고 아래에 격자.
+ */
+@Composable
+private fun WorkWide(
+    work: Work,
+    progress: Map<String, ComicProgress>,
+    twoPane: Boolean,
+    onEntry: (WorkEntry, Int?) -> Unit,
+    onCopies: (WorkEntry) -> Unit,
+) {
+    val resume = ComicReading.resume(work, progress)
+    val done = work.entries.count { e -> (listOf(e.unit) + e.copies).any { progress[it.id]?.finished == true } }
+    val status = listOfNotNull(
+        "$done${unitWord(work)} 다 읽음".takeIf { done > 0 },
+        resume?.let { "${it.first.label} 읽는 중" },
+    ).joinToString(" · ").ifEmpty { null }
+    val cells = workCells(work, progress)
+    val c = CpTheme.colors
+
+    @Composable
+    fun Info(coverWidth: Dp, fill: Boolean) {
+        CpText(work.title, CpTheme.type.title, c.text, maxLines = 2)
+        status?.let { CpText(it, CpTheme.type.caption, c.textMuted) }
+        resume?.let { (entry, p) ->
+            Spacer(Modifier.height(16.dp))
+            CpButton(
+                "${entry.label} 이어 읽기" + (p?.let { " · ${it.page + 1}쪽" } ?: ""), { onEntry(entry, null) },
+                if (fill) Modifier.fillMaxWidth() else Modifier,
+            )
+        }
+    }
+
+    val grid: androidx.compose.foundation.lazy.grid.LazyGridScope.() -> Unit = {
+        item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) { CpSectionLabel("${work.volumeCount}${unitWord(work)}") }
+        items(cells.size, key = { cells[it].let { cell -> cell.entry.slot + "#" + (cell.firstPage ?: -1) + cell.label } }) { i ->
+            WorkGridCell(cells[i], work.title, { onEntry(cells[i].entry, cells[i].firstPage) }, onCopies)
+        }
+    }
+    if (twoPane) {
+        Row(Modifier.fillMaxSize()) {
+            Column(
+                Modifier.width(TWO_PANE_LEFT_WIDTH).fillMaxHeight().verticalScroll(rememberScrollState())
+                    .padding(start = 24.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
+            ) {
+                ComicCover(work.entries.first().unit, work.title, null, Modifier.width(200.dp))
+                Spacer(Modifier.height(16.dp))
+                Info(200.dp, fill = true)
+            }
+            Box(Modifier.width(1.dp).fillMaxHeight().background(c.outline))
+            androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+                androidx.compose.foundation.lazy.grid.GridCells.Adaptive(WORK_CELL_MIN),
+                Modifier.weight(1f).fillMaxHeight(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                content = grid,
+            )
+        }
+    } else {
+        androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+            androidx.compose.foundation.lazy.grid.GridCells.Adaptive(WORK_CELL_MIN),
+            Modifier.fillMaxSize(),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                Row(Modifier.padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.Bottom) {
+                    ComicCover(work.entries.first().unit, work.title, null, Modifier.width(110.dp))
+                    Spacer(Modifier.width(20.dp))
+                    Column(Modifier.weight(1f)) { Info(110.dp, fill = false) }
+                }
+            }
+            grid()
+        }
+    }
+}
+
+/** 격자 칸의 가장 작은 폭. 펼친 폴더블 두 판의 오른쪽(약 560dp)에 네 칸, 한 판(약 900dp)에 여섯 칸 — 구상안과 같다. */
+private val WORK_CELL_MIN = 120.dp
+
+@Composable
+private fun WorkGridCell(cell: WorkCell, title: String, onClick: () -> Unit, onCopies: (WorkEntry) -> Unit) {
+    val c = CpTheme.colors
+    Column(Modifier.clickable(role = Role.Button, onClick = onClick).semantics(mergeDescendants = true) {}) {
+        ComicCover(cell.entry.unit, title, null, Modifier.fillMaxWidth())
+        Spacer(Modifier.height(6.dp))
+        CpText(cell.label, CpTheme.type.label, c.text)
+        cell.inside?.let { CpText(it, CpTheme.type.caption, c.textMuted) }
+        cell.progress?.let { io.github.kgcaudit.reader.ui.design.CpProgressBar(it, Modifier.fillMaxWidth().padding(vertical = 4.dp), io.github.kgcaudit.reader.ui.design.CpBarWeight.Thin) }
+        cell.sub?.let { CpText(it, CpTheme.type.caption, if (cell.progress == 1f) c.accentText else c.textMuted) }
+    }
+    if (cell.firstPage == null && cell.entry.copies.isNotEmpty()) {
+        val entry = cell.entry
+        Box(
+            Modifier.heightIn(min = CpTheme.metrics.touchTarget).clickable(role = Role.Button) { onCopies(entry) }
+                .semantics(mergeDescendants = true) { contentDescription = "${entry.label} 같은 ${unitWord(entry)} ${entry.copies.size + 1}곳" },
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            CpText("같은 ${unitWord(entry)} ${entry.copies.size + 1}곳", CpTheme.type.caption, c.textMuted)
         }
     }
 }
