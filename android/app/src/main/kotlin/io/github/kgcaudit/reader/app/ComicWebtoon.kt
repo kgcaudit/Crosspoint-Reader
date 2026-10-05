@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -70,12 +72,14 @@ import io.github.kgcaudit.reader.document.comic.ComicReading
 import io.github.kgcaudit.reader.document.comic.ComicView
 import io.github.kgcaudit.reader.document.comic.Webtoon
 import io.github.kgcaudit.reader.document.comic.WebtoonChain
+import io.github.kgcaudit.reader.document.comic.CoverCrop
 import io.github.kgcaudit.reader.document.comic.WebtoonColumn
 import io.github.kgcaudit.reader.document.comic.Work
 import io.github.kgcaudit.reader.document.comic.WorkEntry
 import io.github.kgcaudit.reader.document.image.ImageSize
 import io.github.kgcaudit.reader.ui.design.CpAutoScrollPill
 import io.github.kgcaudit.reader.ui.design.CpBrightnessRow
+import io.github.kgcaudit.reader.ui.design.CpButton
 import io.github.kgcaudit.reader.ui.design.CpFullScreen
 import io.github.kgcaudit.reader.ui.design.CpHeader
 import io.github.kgcaudit.reader.ui.design.CpIcons
@@ -168,13 +172,18 @@ fun WebtoonReader(
     onJump: (WorkEntry) -> Unit,
     onClose: () -> Unit,
     onChrome: (Boolean) -> Unit,
+    /** 표지로 쓸 장면을 고르러 열었다(서재의 "보던 장면에서 표지 고르기", ⑪). */
+    pickCover: Boolean = false,
+    /** 고른 부분을 표지로 둔다. 못 두면 false. */
+    onCover: suspend (Bitmap) -> Boolean = { false },
 ) {
     var panel by remember { mutableStateOf(WebtoonPanel.None) }
     var toast by remember { mutableStateOf<String?>(null) }
     var toastCount by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
     val latestPrefs by rememberUpdatedState(prefs)
-    LaunchedEffect(panel) { onChrome(panel != WebtoonPanel.None) }
+    // 표지를 고르는 동안은 상태 줄을 보인다 — 머리("표지로 쓸 부분")가 그 아래에 선다.
+    LaunchedEffect(panel, pickCover) { onChrome(pickCover || panel != WebtoonPanel.None) }
     fun say(message: String) {
         toast = message
         toastCount++
@@ -301,6 +310,41 @@ fun WebtoonReader(
             zoomLabel = false
         }
 
+        // 표지 틀(⑪): 화면 좌표의 가운데와 폭. 높이는 표지 비율. 처음엔 기둥 폭의 4/5 를 화면 가운데에.
+        var frameW by remember { mutableFloatStateOf(0f) }
+        var frameX by remember { mutableFloatStateOf(0f) }
+        var frameY by remember { mutableFloatStateOf(0f) }
+        var saving by remember { mutableStateOf(false) }
+        LaunchedEffect(pickCover, viewH) {
+            if (!pickCover || frameW > 0f) return@LaunchedEffect
+            frameW = minOf(colW * 0.8f, viewH * 0.7f / CoverCrop.ASPECT)
+            frameX = viewW / 2
+            frameY = viewH * 0.45f
+        }
+        fun frameRect(): androidx.compose.ui.geometry.Rect =
+            androidx.compose.ui.geometry.Rect(
+                androidx.compose.ui.geometry.Offset(frameX - frameW / 2, frameY - frameW * CoverCrop.ASPECT / 2),
+                androidx.compose.ui.geometry.Size(frameW, frameW * CoverCrop.ASPECT),
+            )
+
+        /** 틀 안의 그림을 원본에서 잘라 표지로. 틀 위쪽이 걸친 그림 하나 안에서 자른다 — 두 그림에 걸치면 아래 그림은 버린다. */
+        suspend fun saveFrame(): Boolean {
+            val r = frameRect()
+            val top = abs + r.top / zoom
+            val (ek, i, f) = chain.at(top)
+            val e = episodes.getOrNull(ek) ?: return false
+            val size = e.sizes.getOrNull(i) ?: return false
+            val colLeft = (viewW - colW) / 2f
+            val h = columns[ek].heights[i]
+            val scale = size.width / colW.toFloat()
+            val x0 = (((r.left - panX) / zoom - colLeft) * scale).toInt().coerceIn(0, size.width - 1)
+            val x1 = (((r.right - panX) / zoom - colLeft) * scale).toInt().coerceIn(x0 + 1, size.width)
+            val y0 = (f * size.height).toInt().coerceIn(0, size.height - 1)
+            val y1 = (y0 + r.height / zoom / h * size.height).toInt().coerceIn(y0 + 1, size.height)
+            val bitmap = e.book.crop(i, android.graphics.Rect(x0, y0, x1, y1), CoverStore.COVER_HEIGHT) ?: return false
+            return onCover(bitmap)
+        }
+
         // 자동 스크롤(④): 켜고 끄기는 그때그때, 빠르기는 설정에 둔다. 손을 대면 멈춘다 — 다시 이어 가는 것은 ▶.
         var autoOn by remember { mutableStateOf(false) }
         var autoPaused by remember { mutableStateOf(false) }
@@ -355,12 +399,26 @@ fun WebtoonReader(
                         // 두 손가락: 확대 · 옆으로 옮기기. 한 손가락은 건드리지 않는다(목록이 밀어 내린다). 아무 손가락이든 닿으면
                         // 자동 스크롤을 멈춘다.
                         awaitEachGesture {
-                            awaitFirstDown(requireUnconsumed = false)
+                            val down = awaitFirstDown(requireUnconsumed = false)
                             stoppedByTouch = autoOn && !autoPaused && panel == WebtoonPanel.None
                             if (stoppedByTouch) autoPaused = true
+                            // 표지 틀 안을 누르면 틀을 옮긴다. 틀 밖은 그대로 그림을 밀어 내린다 — 틀을 놓을 장면을 찾는다.
+                            val onFrame = pickCover && frameRect().contains(down.position)
                             do {
                                 val event = awaitPointerEvent(PointerEventPass.Initial)
-                                if (event.changes.count { it.pressed } >= 2) {
+                                if (pickCover && event.changes.count { it.pressed } >= 2) {
+                                    // 표지를 고르는 동안 두 손가락은 틀 크기다(그림 확대가 아니다).
+                                    frameW = (frameW * event.calculateZoom()).coerceIn(colW * 0.25f, minOf(colW.toFloat(), size.height / CoverCrop.ASPECT))
+                                    event.changes.forEach { it.consume() }
+                                } else if (onFrame) {
+                                    event.changes.firstOrNull()?.let { c ->
+                                        val d = c.position - c.previousPosition
+                                        val half = frameW * CoverCrop.ASPECT / 2
+                                        frameX = (frameX + d.x).coerceIn(frameW / 2, size.width - frameW / 2)
+                                        frameY = (frameY + d.y).coerceIn(half, size.height - half)
+                                        c.consume()
+                                    }
+                                } else if (event.changes.count { it.pressed } >= 2) {
                                     val before = zoom
                                     val after = (before * event.calculateZoom()).coerceIn(1f, MAX_ZOOM)
                                     val focus = event.calculateCentroid()
@@ -382,6 +440,7 @@ fun WebtoonReader(
                     .pointerInput(viewW) {
                         // 두 번 누르기를 받지 않는다 — 받으면 한 번 누르기가 0.3초 늦다. 확대는 두 손가락으로(⑤).
                         detectTapGestures(onTap = { at ->
+                            if (pickCover) return@detectTapGestures
                             if (panel != WebtoonPanel.None) { panel = WebtoonPanel.None; return@detectTapGestures }
                             if (stoppedByTouch) { stoppedByTouch = false; return@detectTapGestures }
                             when (latestPrefs.touch.actionAt(at.x, at.y, viewW, 56.dp.toPx())) {
@@ -438,7 +497,39 @@ fun WebtoonReader(
                 rtl = false, footer = prefs.footer, modifier = Modifier.windowInsetsPadding(WindowInsets.displayCutout),
             )
         }
-        if (bookmarked) CpRibbon(Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.displayCutout).padding(end = 20.dp))
+        if (pickCover) {
+            // 틀 밖은 어둡게. 머리와 단추는 화면 위아래에 — 아래 줄 · 책갈피 띠는 가린다(고르는 중에 쓸 일이 없다).
+            Canvas(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.displayCutout)) {
+                val r = frameRect()
+                val dim = Color(0x99000000)
+                drawRect(dim, androidx.compose.ui.geometry.Offset.Zero, androidx.compose.ui.geometry.Size(size.width, r.top))
+                drawRect(dim, androidx.compose.ui.geometry.Offset(0f, r.bottom), androidx.compose.ui.geometry.Size(size.width, size.height - r.bottom))
+                drawRect(dim, androidx.compose.ui.geometry.Offset(0f, r.top), androidx.compose.ui.geometry.Size(r.left, r.height))
+                drawRect(dim, androidx.compose.ui.geometry.Offset(r.right, r.top), androidx.compose.ui.geometry.Size(size.width - r.right, r.height))
+                drawRect(Color.White, r.topLeft, r.size, style = androidx.compose.ui.graphics.drawscope.Stroke(2.dp.toPx()))
+            }
+            Column(Modifier.fillMaxSize()) {
+                Box(Modifier.background(CpTheme.colors.surface).windowInsetsPadding(WindowInsets.statusBars)) {
+                    CpHeader("표지로 쓸 부분", subtitle = "틀을 끌어 옮기고, 두 손가락으로 크기를 바꿉니다", onBack = onClose)
+                }
+                Spacer(Modifier.weight(1f))
+                Box(
+                    Modifier.fillMaxWidth().background(CpTheme.colors.surface).windowInsetsPadding(WindowInsets.navigationBars).padding(16.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CpButton(if (saving) "저장하는 중…" else "이 부분을 표지로", {
+                        if (saving) return@CpButton
+                        saving = true
+                        scope.launch {
+                            val ok = saveFrame()
+                            saving = false
+                            if (ok) onClose() else say("이 부분을 표지로 쓸 수 없습니다")
+                        }
+                    })
+                }
+            }
+        }
+        if (bookmarked && !pickCover) CpRibbon(Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.displayCutout).padding(end = 20.dp))
         if (autoOn && panel == WebtoonPanel.None) {
             CpAutoScrollPill(
                 prefs.webtoonAutoSpeed, autoPaused,

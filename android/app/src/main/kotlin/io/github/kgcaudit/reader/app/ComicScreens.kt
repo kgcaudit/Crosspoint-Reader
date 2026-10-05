@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -85,11 +86,30 @@ internal fun rememberComicCover(unit: ComicUnit): ImageBitmap? {
     return image
 }
 
-/** 작품 · 권의 표지. 그림이 없으면 계열 COMIC 타일(보관 황토 + 칸 줄 그린 펼친 책). */
+/**
+ * 사람이 고른 작품 표지(0.47.0, 사용자 결정 ⑪). 없으면 null. 표지를 고르거나 되돌리면 다시 읽는다 — 서재로 돌아왔을 때
+ * 옛 표지가 남아 있으면 바꾸기가 안 된 줄 안다.
+ */
 @Composable
-internal fun ComicCover(unit: ComicUnit, title: String, subtitle: String?, modifier: Modifier = Modifier, small: Boolean = false) {
+internal fun rememberWorkCover(work: Work): ImageBitmap? {
+    val covers = LocalContext.current.container.covers
+    val version by covers.version.collectAsState()
+    var image by remember(work.key) { mutableStateOf(covers.cachedWork(work.key)?.image) }
+    LaunchedEffect(work.key, version) { image = covers.work(work.key).image }
+    return image
+}
+
+/**
+ * 작품 · 권의 표지. 그림이 없으면 계열 COMIC 타일(보관 황토 + 칸 줄 그린 펼친 책). [work] 를 주면 그 작품의 얼굴이다 — 사람이
+ * 고른 표지가 있으면 그것을 먼저 쓴다(서재 · 작품 화면 머리). 권 · 화 줄에는 주지 않는다 — 줄마다 같은 그림이면 어느 화인지
+ * 알 수 없다.
+ */
+@Composable
+internal fun ComicCover(unit: ComicUnit, title: String, subtitle: String?, modifier: Modifier = Modifier, small: Boolean = false, work: Work? = null) {
+    val chosen = work?.let { rememberWorkCover(it) }
+    val own = rememberComicCover(unit)
     CpCover(
-        image = rememberComicCover(unit),
+        image = chosen ?: own,
         title = title,
         subtitle = subtitle,
         fallback = CpTheme.colors.tiles.archive,
@@ -189,7 +209,7 @@ private fun ResumeItem(work: Work, entry: WorkEntry, progress: ComicProgress?, n
             .semantics(mergeDescendants = true) { contentDescription = "${work.title} ${entry.label} 이어 읽기" },
     ) {
         Box {
-            ComicCover(entry.unit, work.title, entry.label, Modifier.fillMaxWidth())
+            ComicCover(entry.unit, work.title, entry.label, Modifier.fillMaxWidth(), work = work)
             if (work.volumeCount > 1) CountBadge(countLabel(work), Modifier.align(Alignment.BottomEnd))
         }
         Spacer(Modifier.height(8.dp))
@@ -234,7 +254,7 @@ private fun WorkItem(work: Work, width: Dp, onOpen: (Work) -> Unit, onMenu: (Wor
             .semantics(mergeDescendants = true) { contentDescription = "${work.title} 작품" },
     ) {
         Box {
-            ComicCover(work.face(), work.title, kindLabel(work), Modifier.fillMaxWidth())
+            ComicCover(work.face(), work.title, kindLabel(work), Modifier.fillMaxWidth(), work = work)
             // 한 권뿐이면 꼬리표가 할 말이 없다(구상안: 고양이 탐정).
             if (work.volumeCount > 1) CountBadge(countLabel(work), Modifier.align(Alignment.BottomEnd))
         }
@@ -255,7 +275,7 @@ private fun ShelfWork(work: Work, unit: ComicUnit, subtitle: String, width: Dp, 
         Modifier.width(width).combinedClickable(role = Role.Button, onLongClick = { onMenu(work) }, onClick = onClick)
             .semantics(mergeDescendants = true) { contentDescription = description },
     ) {
-        ComicCover(unit, work.title, subtitle, Modifier.fillMaxWidth())
+        ComicCover(unit, work.title, subtitle, Modifier.fillMaxWidth(), work = work)
         if (work.volumeCount > 1) CountBadge(countLabel(work), Modifier.align(Alignment.BottomEnd))
     }
 }
@@ -278,7 +298,7 @@ private fun WorkRow(
         verticalAlignment = Alignment.Top,
     ) {
         Box(Modifier.width(56.dp).semantics(mergeDescendants = true) { contentDescription = description }) {
-            ComicCover(work.face(), work.title, kindLabel(work), Modifier.fillMaxWidth(), small = true)
+            ComicCover(work.face(), work.title, kindLabel(work), Modifier.fillMaxWidth(), small = true, work = work)
         }
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
@@ -300,7 +320,14 @@ internal fun WorkMenu(
     onReading: () -> Unit,
     onToRead: () -> Unit,
     onDismiss: () -> Unit,
+    /** 보던 자리를 열어 표지로 쓸 부분을 고른다(0.47.0, 사용자 결정 ⑪). */
+    onScene: () -> Unit = {},
+    /** 사진 · 파일에서 표지를 고른다. */
+    onPhoto: () -> Unit = {},
+    /** 고른 표지를 지운다. */
+    onRevert: () -> Unit = {},
 ) {
+    val custom = rememberWorkCover(work) != null
     CpPopup(title = work.title, message = workSubtitle(work), onDismiss = onDismiss) {
         Spacer(Modifier.height(8.dp))
         // 판 안의 행은 판 글자 시작선에서(inset 0) — 책 표지 판과 같다.
@@ -310,6 +337,18 @@ internal fun WorkMenu(
             else -> CpListRow("읽은 책으로 옮기기", onFinished, icon = CpIcons.Bookmark, compact = true, inset = 0.dp)
         }
         if (shelf != WorkShelf.TO_READ) CpListRow("읽을 책으로 옮기기", onToRead, icon = CpIcons.Back, compact = true, inset = 0.dp)
+        // 표지(⑪): 웹툰은 1화 첫 칸보다 중간의 한 장면이 작품을 더 잘 보여 줄 때가 많다. 책의 표지 판과 같은 말 · 같은 그림.
+        CpListRow("보던 장면에서 표지 고르기", onScene, icon = CpIcons.View, compact = true, inset = 0.dp)
+        CpListRow("사진 · 파일에서 표지 고르기", onPhoto, icon = CpIcons.Folder, compact = true, inset = 0.dp)
+        CpListRow(
+            "원래 표지로 되돌리기",
+            // 고른 표지가 없으면 되돌릴 것이 없다. 눌러도 판만 닫는다.
+            { if (custom) onRevert() else onDismiss() },
+            icon = CpIcons.Refresh,
+            compact = true,
+            enabled = custom,
+            inset = 0.dp,
+        )
         CpPopupButtons { CpButton("닫기", onDismiss, primary = false) }
     }
 }
@@ -466,7 +505,7 @@ private fun WorkWide(
                 Modifier.width(TWO_PANE_LEFT_WIDTH).fillMaxHeight().verticalScroll(rememberScrollState())
                     .padding(start = 24.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
             ) {
-                ComicCover(work.entries.first().unit, work.title, null, Modifier.width(200.dp))
+                ComicCover(work.entries.first().unit, work.title, null, Modifier.width(200.dp), work = work)
                 Spacer(Modifier.height(16.dp))
                 Info(200.dp, fill = true)
             }
@@ -490,7 +529,7 @@ private fun WorkWide(
         ) {
             item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
                 Row(Modifier.padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.Bottom) {
-                    ComicCover(work.entries.first().unit, work.title, null, Modifier.width(110.dp))
+                    ComicCover(work.entries.first().unit, work.title, null, Modifier.width(110.dp), work = work)
                     Spacer(Modifier.width(20.dp))
                     Column(Modifier.weight(1f)) { Info(110.dp, fill = false) }
                 }

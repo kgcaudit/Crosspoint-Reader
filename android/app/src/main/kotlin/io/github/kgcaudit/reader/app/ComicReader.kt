@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.displayCutout
@@ -776,6 +778,8 @@ fun ComicHost(
     onClose: () -> Unit,
     onChrome: (Boolean) -> Unit,
     onFail: (String) -> Unit,
+    /** 서재의 "보던 장면에서 표지 고르기" 로 열었다(0.47.0, ⑪). 고르면 작품 표지로 두고 닫는다. */
+    pickCover: Boolean = false,
 ) {
     val container = LocalContext.current.container
     val data = container.data
@@ -846,8 +850,11 @@ fun ComicHost(
         if (unitId != loadKey) chain = emptySet()
         work?.let { w -> scope.launch(Dispatchers.IO) { data.comics.setView(w, v) } }
     }
+    val saveCover: suspend (android.graphics.Bitmap) -> Boolean = { bitmap ->
+        work != null && container.covers.setCustom(CoverStore.workId(work.key), bitmap)
+    }
     when (view) {
-        ComicView.PAGE -> ComicReader(
+        ComicView.PAGE -> Box(Modifier.fillMaxSize()) { ComicReader(
             book = opened,
             title = title,
             work = work,
@@ -868,6 +875,13 @@ fun ComicHost(
             onView = onView,
             sizes = sizes,
         )
+            // 쪽 넘김 만화는 장면이 곧 쪽이다 — 보던 쪽을 통째로 표지로(웹툰처럼 틀로 자르면 쪽의 제목 · 그림이 잘린다).
+            if (pickCover) PagePickBar(onBack = onClose) {
+                val size = sizes.getOrNull(position.first) ?: return@PagePickBar false
+                val bitmap = opened.crop(position.first, android.graphics.Rect(0, 0, size.width, size.height), CoverStore.COVER_HEIGHT) ?: return@PagePickBar false
+                saveCover(bitmap).also { if (it) onClose() }
+            }
+        }
         ComicView.WEBTOON -> WebtoonReader(
             first = remember(opened) { WebtoonEpisode(work?.entries?.firstOrNull { e -> e.unit.id == loadKey || e.copies.any { it.id == loadKey } }, opened, sizes) },
             title = work?.title ?: title,
@@ -909,6 +923,35 @@ fun ComicHost(
             },
             onClose = onClose,
             onChrome = onChrome,
+            pickCover = pickCover,
+            onCover = saveCover,
         )
+    }
+}
+
+/** 쪽 넘김 만화에서 표지 고르기: 위에 "표지로 쓸 쪽", 아래에 "이 쪽을 표지로". 넘겨서 쪽을 고른다. */
+@Composable
+private fun PagePickBar(onBack: () -> Unit, onPick: suspend () -> Boolean) {
+    val scope = rememberCoroutineScope()
+    var saving by remember { mutableStateOf(false) }
+    var failed by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxSize()) {
+        Box(Modifier.background(CpTheme.colors.surface).windowInsetsPadding(WindowInsets.statusBars)) {
+            CpHeader("표지로 쓸 쪽", subtitle = if (failed) "이 쪽을 표지로 쓸 수 없습니다" else "넘겨서 쪽을 고릅니다", onBack = onBack)
+        }
+        Spacer(Modifier.weight(1f))
+        Box(
+            Modifier.fillMaxWidth().background(CpTheme.colors.surface).windowInsetsPadding(WindowInsets.navigationBars).padding(16.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            CpButton(if (saving) "저장하는 중…" else "이 쪽을 표지로", {
+                if (saving) return@CpButton
+                saving = true
+                scope.launch {
+                    failed = !onPick()
+                    saving = false
+                }
+            })
+        }
     }
 }

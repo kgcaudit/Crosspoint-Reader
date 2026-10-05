@@ -72,7 +72,33 @@ class CoverStore(
         }
     }
 
-    /** 만화 단위의 표지(메모리에 있을 때만). 만화는 사람이 고른 표지가 없다 — 그림이 곧 표지다. */
+    /**
+     * 사람이 고른 작품 표지(0.47.0, 사용자 결정 ⑪)를 메모리에서. 아직 안 읽었으면 null, 읽었는데 없으면 [Cover.image] 가 null.
+     * 작품 표지는 작품 이름 열쇠로 둔다 — 화 · 권 파일을 다시 받아도(크기가 바뀌어도) 고른 표지가 남는다.
+     */
+    fun cachedWork(workKey: String): Cover? = memory.get(workMemoryKey(workKey))
+
+    suspend fun work(workKey: String): Cover = withContext(Dispatchers.IO) {
+        memory.get(workMemoryKey(workKey))?.let { return@withContext it }
+        val version = _version.value
+        val custom = File(dir, "custom/${key(workId(workKey))}.jpg").takeIf { it.isFile }?.let(::decodeFile)
+        val cover = Cover(custom, custom = custom != null, hasOwn = true)
+        memory.put(workMemoryKey(workKey), cover)
+        if (version != _version.value) memory.remove(workMemoryKey(workKey))
+        cover
+    }
+
+    /**
+     * 화면에서 고른 장면을 표지로 둔다(장면에서 고르기). 사진에서 고르기([setCustom])와 같은 자리에 줄여 둔다. 저장하지
+     * 못하면 false 이고 아무것도 바꾸지 않는다.
+     */
+    suspend fun setCustom(id: BookId, bitmap: Bitmap): Boolean = withContext(Dispatchers.IO) {
+        if (!writeJpeg(scaleToHeight(bitmap), File(dir, "custom/${key(id)}.jpg"))) return@withContext false
+        changed()
+        true
+    }
+
+    /** 만화 단위의 표지(메모리에 있을 때만). 작품의 고른 표지는 [cachedWork] — 화 · 권의 표지는 그림이 곧 표지다. */
     fun cachedComic(unit: ComicUnit): ImageBitmap? = memory.get(comicKey(unit))?.image
 
     /** 만화 단위의 표지. 없거나 못 읽으면 null(대신 표지). 책 표지와 같은 줄에 서서 한 번에 하나씩 꺼낸다. */
@@ -174,6 +200,11 @@ class CoverStore(
                 .joinToString("") { "%02x".format(it) }.take(20)
 
         private fun memoryKey(book: LibraryBook) = "${book.id.value}|${book.sizeBytes}"
+
+        /** 작품의 고른 표지를 책 표지와 같은 곳에 두는 이름. 책 id(파일 주소)와 겹치지 않게 앞에 붙인다. */
+        fun workId(workKey: String): BookId = BookId("comic-work|$workKey")
+
+        private fun workMemoryKey(workKey: String) = "work|$workKey"
 
         private fun comicKey(unit: ComicUnit) = "comic|${unit.id}|${unit.sizeBytes}|${unit.contents?.cover}"
 

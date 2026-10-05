@@ -154,6 +154,8 @@ private fun OloApp(
     // 연 만화(단위 id)와 시작 쪽. 책과 따로 둔다 — 만화는 OpenedBook 이 아니다(쪽 그림만 있고 글자 리더가 없다).
     var comicId by rememberSaveable { mutableStateOf<String?>(null) }
     var comicStart by rememberSaveable { mutableStateOf<Int?>(null) }
+    // 서재의 "보던 장면에서 표지 고르기" 로 열었다(0.47.0). 고르거나 물러나면 서재로 돌아간다.
+    var comicPickCover by rememberSaveable { mutableStateOf(false) }
     val libraryState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     /** 라이브러리 위에 뜬 앱 정보([ABOUT]) · 라이선스 본문(그 번호). 화면을 돌려도 남게 저장한다. */
     var aboutPage by rememberSaveable { mutableStateOf<Int?>(null) }
@@ -328,9 +330,10 @@ private fun OloApp(
                     prefs = prefs.screen,
                     onPrefsChange = { prefs = prefs.copy(screen = it); container.prefs.save(prefs) },
                     onOpen = { next -> comicStart = null; comicId = next },
-                    onClose = { comicId = null; comicStart = null; hideSystemBars(false) },
+                    onClose = { comicId = null; comicStart = null; comicPickCover = false; hideSystemBars(false) },
+                    pickCover = comicPickCover,
                     onChrome = { showing -> hideSystemBars(!showing) },
-                    onFail = { message -> failureTitle = "이 만화를 열지 못했습니다"; failure = message; comicId = null; comicStart = null; hideSystemBars(false) },
+                    onFail = { message -> failureTitle = "이 만화를 열지 못했습니다"; failure = message; comicId = null; comicStart = null; comicPickCover = false; hideSystemBars(false) },
                 )
             }
         } else when (val shown = aboutPage) {
@@ -341,7 +344,8 @@ private fun OloApp(
                 scanOnStart = !scanned,
                 onStartScan = { scanned = true },
                 onAbout = { aboutPage = ABOUT },
-                onOpenComic = { id, page -> comicStart = page; comicId = id },
+                onOpenComic = { id, page -> comicStart = page; comicPickCover = false; comicId = id },
+                onPickComicCover = { id -> comicStart = null; comicPickCover = true; comicId = id },
             ) }
             ABOUT -> AboutScreen(records, onBack = { aboutPage = null }, onLicense = { aboutPage = it })
             else -> LicenseScreen(OPEN_LICENSES[shown.coerceIn(OPEN_LICENSES.indices)], onBack = { aboutPage = ABOUT })

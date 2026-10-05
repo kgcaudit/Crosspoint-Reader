@@ -167,6 +167,46 @@ class ComicBook(
     }
 
     /**
+     * 그림 [index] 의 [rect](원본 픽셀)만 높이 [height] 쯤으로 풀어 낸다 — 장면에서 표지 고르기(0.47.0). 긴 웹툰 그림을 통째로
+     * 풀지 않는다. 띠 풀기가 안 되는 그림은 전체를 줄여 풀어 자른다. 못 읽으면 null.
+     */
+    suspend fun crop(index: Int, rect: android.graphics.Rect, height: Int): Bitmap? = withContext(Dispatchers.IO) {
+        if (index !in 0 until pageCount || rect.isEmpty || height <= 0) return@withContext null
+        lock.withLock {
+            val bytes = sourceOf(index) ?: return@withLock null
+            runCatching {
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
+                var sample = 1
+                while (rect.height() / (sample * 2) >= height) sample *= 2
+                // 쪽 전체(쪽 넘김 만화의 표지 고르기)는 띠 풀기가 필요 없다 — 그냥 줄여 푼다.
+                val whole = rect.left <= 0 && rect.top <= 0 && rect.right >= bounds.outWidth && rect.bottom >= bounds.outHeight
+                val region = if (!regions || whole) null else runCatching {
+                    @Suppress("DEPRECATION")
+                    val decoder = android.graphics.BitmapRegionDecoder.newInstance(bytes, 0, bytes.size, false)
+                    try {
+                        decoder?.decodeRegion(rect, BitmapFactory.Options().apply { inSampleSize = sample })
+                    } finally {
+                        decoder?.recycle()
+                    }
+                }.getOrNull()
+                region ?: run {
+                    while (bounds.outHeight / sample > MAX_WHOLE_HEIGHT) sample *= 2
+                    val whole = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample }) ?: return@run null
+                    val sx = whole.width.toFloat() / bounds.outWidth
+                    val sy = whole.height.toFloat() / bounds.outHeight
+                    val x0 = (rect.left * sx).toInt().coerceIn(0, whole.width - 1)
+                    val y0 = (rect.top * sy).toInt().coerceIn(0, whole.height - 1)
+                    val x1 = (rect.right * sx).toInt().coerceIn(x0 + 1, whole.width)
+                    val y1 = (rect.bottom * sy).toInt().coerceIn(y0 + 1, whole.height)
+                    Bitmap.createBitmap(whole, x0, y0, x1 - x0, y1 - y0)
+                }
+            }.getOrNull()
+        }
+    }
+
+    /**
      * 풀어 둔 그림을 모두 내려놓는다(파일은 열린 채). 웹툰 이어 보기에서 지나온 화가 화면을 떠나도 제 몫(앱 힙의 1/8)을
      * 쥐고 있으면 몇 화 만에 메모리가 넘친다.
      */

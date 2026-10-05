@@ -94,6 +94,8 @@ fun LibraryScreen(
     onAbout: () -> Unit = {},
     /** 만화 한 권을 연다(단위 id, 시작 쪽 — null 이면 읽던 자리). */
     onOpenComic: (String, Int?) -> Unit = { _, _ -> },
+    /** 만화 한 화 · 권을 열어 표지로 쓸 장면을 고른다(0.47.0). */
+    onPickComicCover: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val container = context.container
@@ -148,7 +150,7 @@ fun LibraryScreen(
         scope.launch {
             val ok = container.covers.setCustom(BookId(id)) { context.contentResolver.openInputStream(uri) }
             if (ok) {
-                val label = data.library.get(BookId(id))?.label
+                val label = data.library.get(BookId(id))?.label ?: works.firstOrNull { CoverStore.workId(it.key).value == id }?.title
                 toast = if (label != null) "‘$label’ 표지를 바꿨습니다" else "표지를 바꿨습니다"
             } else {
                 notice = "이 그림을 표지로 쓸 수 없습니다" to "그림 파일(jpg · png 등)을 골라 주세요. 파일이 깨졌을 수도 있습니다."
@@ -380,6 +382,23 @@ fun LibraryScreen(
             onReading = { move(io.github.kgcaudit.reader.document.comic.ShelfMark.Reading(System.currentTimeMillis()), "읽는 책으로 옮겼습니다") },
             onToRead = { move(io.github.kgcaudit.reader.document.comic.ShelfMark.ToRead(System.currentTimeMillis()), "읽을 책으로 옮겼습니다") },
             onDismiss = { workMenu = null },
+            onScene = {
+                workMenu = null
+                val entry = io.github.kgcaudit.reader.document.comic.ComicReading.resume(w, comicProgress)?.first ?: w.entries.first()
+                onPickComicCover(entry.unit.id)
+            },
+            onPhoto = {
+                workMenu = null
+                coverForId = CoverStore.workId(w.key).value
+                pickCover.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            },
+            onRevert = {
+                workMenu = null
+                scope.launch {
+                    container.covers.clearCustom(CoverStore.workId(w.key))
+                    toast = "‘${w.title}’ 표지를 되돌렸습니다"
+                }
+            },
         )
     }
 

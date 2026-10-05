@@ -11,6 +11,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.test.swipeRight
 import androidx.test.core.app.ApplicationProvider
@@ -304,5 +305,31 @@ class ComicReaderAppTest {
         assertEquals("를", objectParticle("48화"))
         assertEquals("을", objectParticle("외전"))
         assertEquals("을", objectParticle("Vol 3"))
+    }
+
+    @Test
+    fun `the page being read can become the work cover`() {
+        // 2권(청록)을 펼쳐 둔다 — 장면 고르기는 보던 권 · 쪽에서 연다(1권 표지는 빨강 · 파랑 반반).
+        openVolume("2권")
+        waitFor(page(1))
+        compose.mainClock.advanceTimeBy(1_000)
+        compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        compose.waitForIdle()
+        compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        val cover = hasContentDescription("별 표지")
+        waitFor(cover)
+        node(cover).performTouchInput { longClick() }
+        click(hasText("보던 장면에서 표지 고르기"))
+        waitFor(hasText("표지로 쓸 쪽"))
+        click(hasText("이 쪽을 표지로"))
+        compose.waitUntil(30_000) { !has(hasText("표지로 쓸 쪽")) }
+        // 서재의 작품 표지 한가운데가 청록(2권 1쪽).
+        compose.waitUntil(30_000) {
+            has(cover) && run {
+                val box = node(cover).fetchSemanticsNode().boundsInRoot
+                val p = screen().getPixel(box.center.x.toInt(), box.center.y.toInt())
+                kotlin.math.abs(android.graphics.Color.red(p) - 0x2E) < 30 && kotlin.math.abs(android.graphics.Color.green(p) - 0x7D) < 30
+            }
+        }
     }
 }
