@@ -5,6 +5,9 @@ import androidx.room.withTransaction
 import io.github.kgcaudit.reader.data.db.AnnotationEntity
 import io.github.kgcaudit.reader.data.db.BookEntity
 import io.github.kgcaudit.reader.data.db.BookmarkEntity
+import io.github.kgcaudit.reader.data.db.ComicBookmarkEntity
+import io.github.kgcaudit.reader.data.db.ComicOverrideEntity
+import io.github.kgcaudit.reader.data.db.ComicProgressEntity
 import io.github.kgcaudit.reader.data.db.LocatorOrder
 import io.github.kgcaudit.reader.data.db.ProgressEntity
 import io.github.kgcaudit.reader.data.db.ReaderDatabase
@@ -17,16 +20,19 @@ import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
 
-/** 앱 정보의 "책 42권 · 책갈피 18개 · 형광펜 · 메모 63개". */
-data class RecordsSummary(val books: Int, val bookmarks: Int, val annotations: Int)
+/** 앱 정보의 "책 42권 · 만화 7권 · 책갈피 18개 · 형광펜 · 메모 63개". 만화는 0.49.0 부터. */
+data class RecordsSummary(val books: Int, val bookmarks: Int, val annotations: Int, val comics: Int = 0)
 
-/** 가져오기 전에 보이는 것: 이 휴대폰에서 찾은 책과 못 찾은 책. */
+/** 가져오기 전에 보이는 것: 이 휴대폰에서 찾은 책 · 만화와 못 찾은 것. */
 class ImportPlan internal constructor(
     val file: RecordsFile,
     internal val found: List<Pair<BookRecord, List<String>>>,
     val missing: List<BookRecord>,
+    internal val comicsFound: List<Pair<ComicRecord, List<String>>> = emptyList(),
+    val comicsMissing: List<ComicRecord> = emptyList(),
 ) {
     val foundBooks: Int get() = found.size
+    val foundComics: Int get() = comicsFound.size
 }
 
 data class ImportResult(
@@ -34,8 +40,9 @@ data class ImportResult(
     val bookmarks: Int,
     val annotations: Int,
     val finished: Int,
-    /** 못 찾은 책의 파일 이름. 기억해 두었다가 책 폴더가 더해지면 이어 붙인다. */
+    /** 못 찾은 책 · 만화의 파일 이름. 기억해 두었다가 폴더가 더해지면 이어 붙인다. */
     val missing: List<String>,
+    val comics: Int = 0,
 )
 
 /**
@@ -78,16 +85,62 @@ class RecordsBackup(
             )
         }
         // 기다리는 기록도 담는다. 빼면 "가져오기 → 못 찾음 → 다시 백업" 에서 그 책들의 기록이 조용히 사라진다.
-        return RecordsFile(clock(), (fromDb + pending().books).mergedByBook())
+        val waiting = pending()
+        return RecordsFile(
+            clock(),
+            (fromDb + waiting.books).mergedByBook(),
+            (collectComics() + waiting.comics).mergedByComic(),
+            collectWorks(),
+        )
     }
 
-    suspend fun summary(): RecordsSummary = collect().let { RecordsSummary(it.books.size, it.bookmarkCount, it.annotationCount) }
+    /**
+     * 만화 권마다 읽은 자리 · 다 읽은 때 · 책갈피(0.49.0). 0.48 까지는 백업에 만화가 없어, 휴대폰을 바꾸면 만화 · 웹툰을 읽던
+     * 자리가 모두 사라졌다. 단위 표에 없는 id(지운 지 오래된 권)는 이름을 몰라 담지 못한다.
+     */
+    private suspend fun collectComics(): List<ComicRecord> {
+        val comics = db.comics()
+        val progress = comics.allProgress().associateBy { it.unitId }
+        val marks = comics.allBookmarks().groupBy { it.unitId }
+        val ids = (progress.keys + marks.keys).toList()
+        val units = ids.chunked(500).flatMap { comics.unitsOf(it) }
+        return units.map { unit ->
+            val p = progress[unit.id]
+            ComicRecord(
+                name = unit.name,
+                sizeBytes = unit.sizeBytes,
+                page = p?.page,
+                pageCount = p?.pageCount ?: unit.pageCount,
+                offset = p?.offset,
+                updatedAtEpochMs = p?.updatedAtEpochMs ?: 0L,
+                finishedAtEpochMs = p?.finishedAtEpochMs,
+                bookmarks = marks[unit.id].orEmpty().map { ComicBookmarkRecord(it.page, it.createdAtEpochMs) },
+            )
+        }
+    }
+
+    /** 작품마다 손으로 정한 이름 · 넘기는 방향 · 보는 방식(사용자 결정 1-가). 작품 열쇠는 이름에서 나와 새 휴대폰에서도 같다. */
+    private suspend fun collectWorks(): List<WorkRecord> {
+        val rows = db.comics().allOverrides()
+        val keys = rows.filter { it.kind in WORK_KINDS }.map { it.subject }.distinct()
+        return keys.map { key ->
+            fun value(kind: String) = rows.firstOrNull { it.kind == kind && it.subject == key }?.value
+            WorkRecord(
+                key = key,
+                title = value(TITLE),
+                rightToLeft = when (value(RTL)) { "1" -> true; "0" -> false; else -> null },
+                view = value(VIEW),
+            )
+        }.filter { it.title != null || it.rightToLeft != null || it.view != null }
+    }
+
+    suspend fun summary(): RecordsSummary = collect().let { RecordsSummary(it.books.size, it.bookmarkCount, it.annotationCount, it.comics.size) }
 
     suspend fun export(out: OutputStream): RecordsSummary {
         val file = collect()
         out.write(RecordsCodec.encode(file).toByteArray(Charsets.UTF_8))
         out.flush()
-        return RecordsSummary(file.books.size, file.bookmarkCount, file.annotationCount)
+        return RecordsSummary(file.books.size, file.bookmarkCount, file.annotationCount, file.comics.size)
     }
 
     /** 이 앱의 백업이 아니면 null. 너무 큰 파일(동영상을 골랐다 등)은 끝까지 읽지 않는다. */
@@ -111,7 +164,13 @@ class RecordsBackup(
             val targets = targetsOf(record)
             if (targets.isEmpty()) missing += record else found += record to targets.map { it.id }
         }
-        return ImportPlan(file, found, missing)
+        val comicsFound = ArrayList<Pair<ComicRecord, List<String>>>()
+        val comicsMissing = ArrayList<ComicRecord>()
+        for (record in file.comics.mergedByComic()) {
+            val targets = comicTargetsOf(record)
+            if (targets.isEmpty()) comicsMissing += record else comicsFound += record to targets
+        }
+        return ImportPlan(file, found, missing, comicsFound, comicsMissing)
     }
 
     /** 합쳐 넣는다. 못 찾은 책은 기다리는 기록에 더한다. */
@@ -120,26 +179,31 @@ class RecordsBackup(
         // 사라졌다(가져오는 중 뒤로 가기).
         withContext(NonCancellable) {
             mergeFound(plan)
-            pendingLock.withLock { writePending((readPending().books + plan.missing).mergedByBook()) }
+            mergeWorks(plan.file.works)
+            pendingLock.withLock {
+                val waiting = readPending()
+                writePending((waiting.books + plan.missing).mergedByBook(), (waiting.comics + plan.comicsMissing).mergedByComic())
+            }
         }
         return ImportResult(
             books = plan.found.size,
-            bookmarks = plan.found.sumOf { it.first.bookmarks.size },
+            bookmarks = plan.found.sumOf { it.first.bookmarks.size } + plan.comicsFound.sumOf { it.first.bookmarks.size },
             annotations = plan.found.sumOf { it.first.annotations.size },
-            finished = plan.found.count { it.first.finishedAtEpochMs != null },
-            missing = plan.missing.map { it.displayName },
+            finished = plan.found.count { it.first.finishedAtEpochMs != null } + plan.comicsFound.count { it.first.finishedAtEpochMs != null },
+            missing = plan.missing.map { it.displayName } + plan.comicsMissing.map { it.name },
+            comics = plan.comicsFound.size,
         )
     }
 
     /** 기다리던 기록 가운데 이제 책이 보이는 것을 붙인다. 폴더를 훑은 뒤 부른다. 붙인 책 수. */
     suspend fun resumePending(): Int = pendingLock.withLock {
         val waiting = readPending()
-        if (waiting.books.isEmpty()) return 0
+        if (waiting.books.isEmpty() && waiting.comics.isEmpty()) return 0
         val plan = plan(waiting)
-        if (plan.found.isEmpty()) return 0
+        if (plan.found.isEmpty() && plan.comicsFound.isEmpty()) return 0
         mergeFound(plan)
-        writePending(plan.missing)
-        plan.found.size
+        writePending(plan.missing, plan.comicsMissing)
+        plan.found.size + plan.comicsFound.size
     }
 
     suspend fun pending(): RecordsFile = pendingLock.withLock { readPending() }
@@ -158,6 +222,56 @@ class RecordsBackup(
 
     private suspend fun mergeFound(plan: ImportPlan) = db.withTransaction {
         for ((record, ids) in plan.found) for (id in ids) mergeInto(id, record)
+        for ((record, ids) in plan.comicsFound) for (id in ids) mergeComicInto(id, record)
+    }
+
+    /** 책과 같은 찾기: 이름 + 크기, 크기를 모르면 이름이 하나뿐일 때만. 같은 권이 두 곳에 있으면 둘 다에 붙인다. */
+    private suspend fun comicTargetsOf(record: ComicRecord): List<String> {
+        val comics = db.comics()
+        val size = record.sizeBytes
+        val found = if (size != null) {
+            comics.visibleByFile(record.name, size).ifEmpty { comics.visibleByName(record.name).filter { it.sizeBytes == null }.takeIf { it.size == 1 }.orEmpty() }
+        } else {
+            comics.visibleByName(record.name).takeIf { it.size == 1 }.orEmpty()
+        }
+        return found.map { it.id }
+    }
+
+    private suspend fun mergeComicInto(id: String, r: ComicRecord) {
+        val comics = db.comics()
+        val old = comics.progress(id)
+        if (r.page != null) {
+            val mine = old?.let { ComicRecord(r.name, r.sizeBytes, it.page, it.pageCount, it.offset, it.updatedAtEpochMs, it.finishedAtEpochMs) }
+            if (mine == null || r.isFurtherThan(mine)) {
+                comics.saveProgress(
+                    ComicProgressEntity(
+                        unitId = id,
+                        page = r.page,
+                        pageCount = r.pageCount ?: old?.pageCount ?: (r.page + 1),
+                        updatedAtEpochMs = r.updatedAtEpochMs,
+                        // 이 휴대폰에서 다 읽은 때가 있으면 그대로 둔다(끝낸 날이 백업의 날로 바뀌지 않게).
+                        finishedAtEpochMs = old?.finishedAtEpochMs ?: r.finishedAtEpochMs,
+                        offset = r.offset,
+                    ),
+                )
+            } else if (old.finishedAtEpochMs == null && r.finishedAtEpochMs != null) {
+                comics.saveProgress(old.copy(finishedAtEpochMs = r.finishedAtEpochMs))
+            }
+        }
+        val marks = comics.allBookmarks().filter { it.unitId == id }.mapTo(HashSet()) { it.page }
+        for (b in r.bookmarks) if (marks.add(b.page)) comics.addBookmark(ComicBookmarkEntity(id, b.page, b.createdAtEpochMs))
+    }
+
+    /** 작품 설정은 이 휴대폰에 정한 것이 없을 때만 채운다 — 가져오기가 지금 손으로 고친 것을 덮지 않게. */
+    private suspend fun mergeWorks(works: List<WorkRecord>) {
+        if (works.isEmpty()) return
+        val comics = db.comics()
+        val have = comics.allOverrides().filter { it.kind in WORK_KINDS }.mapTo(HashSet()) { it.kind to it.subject }
+        for (w in works.mergedByWork()) {
+            if (w.title != null && (TITLE to w.key) !in have) comics.setOverride(ComicOverrideEntity(TITLE, w.key, w.title))
+            if (w.rightToLeft != null && (RTL to w.key) !in have) comics.setOverride(ComicOverrideEntity(RTL, w.key, if (w.rightToLeft) "1" else "0"))
+            if (w.view != null && (VIEW to w.key) !in have) comics.setOverride(ComicOverrideEntity(VIEW, w.key, w.view))
+        }
     }
 
     private suspend fun mergeInto(id: String, r: BookRecord) {
@@ -204,9 +318,9 @@ class RecordsBackup(
         return text?.let(RecordsCodec::decode) ?: RecordsFile(0, emptyList())
     }
 
-    private fun writePending(books: List<BookRecord>) {
+    private fun writePending(books: List<BookRecord>, comics: List<ComicRecord> = readPending().comics) {
         val file = AtomicFile(pendingFile)
-        if (books.isEmpty()) {
+        if (books.isEmpty() && comics.isEmpty()) {
             file.delete()
             return
         }
@@ -214,7 +328,7 @@ class RecordsBackup(
         // 쓰는 중에 앱이 죽어도 반쯤 쓴 파일이 남지 않게 AtomicFile 로 바꿔 끼운다.
         val out = file.startWrite()
         try {
-            out.write(RecordsCodec.encode(RecordsFile(clock(), books)).toByteArray(Charsets.UTF_8))
+            out.write(RecordsCodec.encode(RecordsFile(clock(), books, comics)).toByteArray(Charsets.UTF_8))
             file.finishWrite(out)
         } catch (e: Exception) {
             file.failWrite(out)
@@ -225,5 +339,11 @@ class RecordsBackup(
     private companion object {
         /** 책 수천 권의 기록도 몇 MB 다. 이보다 크면 백업이 아니다. */
         const val MAX_BYTES = 32 * 1024 * 1024
+        // 만화 손 고침의 종류(ComicLibrary 와 같은 글). 작품 열쇠로 적는 것만 백업한다 — WORK_OF · PREFERRED 는 이 휴대폰의 문서
+        // 주소로 적혀 새 휴대폰에서 맞지 않는다.
+        const val TITLE = "TITLE"
+        const val RTL = "RTL"
+        const val VIEW = "VIEW"
+        val WORK_KINDS = setOf(TITLE, RTL, VIEW)
     }
 }

@@ -222,6 +222,27 @@ interface ComicDao {
     @Query("SELECT * FROM comic_overrides")
     fun observeOverrides(): Flow<List<ComicOverrideEntity>>
 
+    // ── 읽기 기록 백업(0.49.0) ──
+
+    @Query("SELECT * FROM comic_overrides")
+    suspend fun allOverrides(): List<ComicOverrideEntity>
+
+    @Query("SELECT * FROM comic_progress")
+    suspend fun allProgress(): List<ComicProgressEntity>
+
+    @Query("SELECT * FROM comic_bookmarks")
+    suspend fun allBookmarks(): List<ComicBookmarkEntity>
+
+    @Query("SELECT * FROM comic_units WHERE id IN (:ids)")
+    suspend fun unitsOf(ids: List<String>): List<ComicUnitEntity>
+
+    /** 백업의 만화를 이 휴대폰에서 찾는다: 보이는 단위 중 이름 · 크기가 같은 것. */
+    @Query("SELECT * FROM comic_units WHERE missing = 0 AND notComic = 0 AND name = :name AND sizeBytes = :size")
+    suspend fun visibleByFile(name: String, size: Long): List<ComicUnitEntity>
+
+    @Query("SELECT * FROM comic_units WHERE missing = 0 AND notComic = 0 AND name = :name")
+    suspend fun visibleByName(name: String): List<ComicUnitEntity>
+
     @Upsert
     suspend fun setOverride(override: ComicOverrideEntity)
 

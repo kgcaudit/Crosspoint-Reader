@@ -1,5 +1,7 @@
 package io.github.kgcaudit.reader.app
 
+import io.github.kgcaudit.reader.data.backup.RecordsSummary
+
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.provider.DocumentsContract
@@ -174,5 +176,14 @@ class ReadingRecordsTest {
         compose.waitUntil(10_000) { !has(hasText("백업 파일이 아닙니다")) }
         assertTrue(has(hasText("읽기 기록")), "뒤로 가기가 앱 정보까지 닫았다")
         assertEquals(1, bookmarks().size)
+    }
+
+    @Test
+    fun `the summary names comics only when there are comic records`() {
+        // 만화를 읽지 않는 사람에게 "만화 0권" 을 보이지 않는다(0.49.0) — 예전 문구 그대로.
+        assertEquals("책 1권 · 책갈피 1개 · 형광펜 · 메모 0개", summaryLine(RecordsSummary(1, 1, 0)))
+        assertEquals("책 1권 · 만화 2권 · 책갈피 3개 · 형광펜 · 메모 0개", summaryLine(RecordsSummary(1, 3, 0, comics = 2)))
+        assertEquals("만화 2권 · 책갈피 3개 · 형광펜 · 메모 0개", summaryLine(RecordsSummary(0, 3, 0, comics = 2)))
+        assertEquals("아직 기록이 없습니다", summaryLine(RecordsSummary(0, 0, 0)))
     }
 }

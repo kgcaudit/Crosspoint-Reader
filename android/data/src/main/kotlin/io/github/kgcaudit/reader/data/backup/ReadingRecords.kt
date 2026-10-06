@@ -80,11 +80,76 @@ data class AnnotationRecord(
     internal val range: String get() = "$start-$end"
 }
 
-/** 백업 파일 하나. */
-data class RecordsFile(val createdAtEpochMs: Long, val books: List<BookRecord>) {
-    val bookmarkCount: Int get() = books.sumOf { it.bookmarks.size }
+/**
+ * 만화 한 권(압축 하나 · 그림 폴더 하나 · 압축 속 권 하나)의 기록(0.49.0). 책처럼 **이름 + 크기**로 가리킨다 — 만화 단위 id 는
+ * 이 휴대폰의 문서 주소라 새 휴대폰에서 모양이 다르다. 압축 속 권은 안쪽 권 이름과 크기다.
+ *
+ * @param page 마지막으로 본 쪽(0부터). null 은 읽은 자리 없이 책갈피만 있는 권.
+ * @param offset 웹툰: 그 그림 안의 비율. null 은 쪽 넘김.
+ */
+data class ComicRecord(
+    val name: String,
+    val sizeBytes: Long?,
+    val page: Int? = null,
+    val pageCount: Int? = null,
+    val offset: Float? = null,
+    val updatedAtEpochMs: Long = 0L,
+    val finishedAtEpochMs: Long? = null,
+    val bookmarks: List<ComicBookmarkRecord> = emptyList(),
+) {
+    internal val key: String get() = "$name\u0000${sizeBytes ?: ""}"
+
+    /** 이 자리가 [other] 보다 뒤인가 — 쪽, 같은 쪽이면 그림 안 비율. 책과 같이 "더 많이 읽은 쪽" 이 이긴다. */
+    fun isFurtherThan(other: ComicRecord): Boolean {
+        val mine = page ?: return false
+        val theirs = other.page ?: return true
+        return mine > theirs || (mine == theirs && (offset ?: 0f) > (other.offset ?: 0f))
+    }
+
+    /** 같은 권의 기록 두 벌을 하나로: 읽은 자리는 더 뒤쪽, 다 읽은 때는 먼저 적힌 것, 책갈피는 둘 다. */
+    internal fun mergedWith(other: ComicRecord): ComicRecord {
+        val further = if (other.isFurtherThan(this)) other else this
+        return further.copy(
+            pageCount = further.pageCount ?: pageCount ?: other.pageCount,
+            finishedAtEpochMs = listOfNotNull(finishedAtEpochMs, other.finishedAtEpochMs).minOrNull(),
+            bookmarks = (bookmarks + other.bookmarks).distinctBy { it.page }.sortedBy { it.page },
+        )
+    }
+}
+
+data class ComicBookmarkRecord(val page: Int, val createdAtEpochMs: Long)
+
+/**
+ * 작품 하나에 사람이 정한 것(0.49.0, 사용자 결정 1-가): 고친 이름 · 넘기는 방향 · 보는 방식. 작품 열쇠(이름에서 만든 것)로
+ * 가리켜 새 휴대폰에서도 같은 작품에 붙는다. null 은 "정하지 않음" 이다(규칙 5).
+ */
+data class WorkRecord(val key: String, val title: String? = null, val rightToLeft: Boolean? = null, val view: String? = null) {
+    /** 같은 작품의 설정 두 벌: 앞(이 휴대폰)이 정한 것을 두고 빈 것만 채운다 — 가져오기가 지금 손으로 고친 것을 덮지 않게. */
+    internal fun filledFrom(other: WorkRecord): WorkRecord = copy(
+        title = title ?: other.title,
+        rightToLeft = rightToLeft ?: other.rightToLeft,
+        view = view ?: other.view,
+    )
+}
+
+/** 백업 파일 하나. 만화 · 작품 설정은 0.49.0 부터 — 옛 파일에는 없고, 없으면 빈 목록으로 읽는다. */
+data class RecordsFile(
+    val createdAtEpochMs: Long,
+    val books: List<BookRecord>,
+    val comics: List<ComicRecord> = emptyList(),
+    val works: List<WorkRecord> = emptyList(),
+) {
+    val bookmarkCount: Int get() = books.sumOf { it.bookmarks.size } + comics.sumOf { it.bookmarks.size }
     val annotationCount: Int get() = books.sumOf { it.annotations.size }
 }
+
+/** 같은 권(이름 + 크기)의 만화 기록을 한 벌로. */
+internal fun List<ComicRecord>.mergedByComic(): List<ComicRecord> =
+    groupBy { it.key }.values.map { same -> same.reduce { a, b -> a.mergedWith(b) } }
+
+/** 같은 작품의 설정을 한 벌로 — 앞에 있는 것이 이긴다. */
+internal fun List<WorkRecord>.mergedByWork(): List<WorkRecord> =
+    groupBy { it.key }.values.map { same -> same.reduce { a, b -> a.filledFrom(b) } }
 
 /** 같은 책(이름 + 크기)의 기록을 한 벌로 모은다. */
 internal fun List<BookRecord>.mergedByBook(): List<BookRecord> =
@@ -107,6 +172,8 @@ object RecordsCodec {
         .put("version", VERSION)
         .put("createdAt", file.createdAtEpochMs)
         .put("books", JSONArray(file.books.map(::bookJson)))
+        .put("comics", JSONArray(file.comics.map(::comicJson)))
+        .put("works", JSONArray(file.works.map(::workJson)))
         .toString(1)
 
     /** 이 앱의 백업이 아니면(JSON 이 아님, 표시가 없음) null. */
@@ -121,7 +188,60 @@ object RecordsCodec {
         return RecordsFile(
             createdAtEpochMs = root.longOrNull("createdAt") ?: 0L,
             books = books.objects().mapNotNull(::book),
+            comics = (root.optJSONArray("comics") ?: JSONArray()).objects().mapNotNull(::comic),
+            works = (root.optJSONArray("works") ?: JSONArray()).objects().mapNotNull(::work),
         )
+    }
+
+    private fun comicJson(c: ComicRecord) = JSONObject().apply {
+        put("name", c.name)
+        putOpt("size", c.sizeBytes)
+        putOpt("page", c.page)
+        putOpt("pageCount", c.pageCount)
+        c.offset?.let { put("offset", it.toDouble()) }
+        put("updatedAt", c.updatedAtEpochMs)
+        putOpt("finishedAt", c.finishedAtEpochMs)
+        put("bookmarks", JSONArray(c.bookmarks.map { JSONObject().put("page", it.page).put("createdAt", it.createdAtEpochMs) }))
+    }
+
+    private fun comic(o: JSONObject): ComicRecord? {
+        val name = o.stringOrNull("name")?.takeIf { it.isNotBlank() } ?: return null
+        // 음수 쪽 · 비율 밖은 깨진 값이다 — 그 칸만 버리고 권은 남긴다(책갈피는 살린다).
+        val page = (o.opt("page") as? Number)?.toInt()?.takeIf { it >= 0 }
+        val offset = (o.opt("offset") as? Number)?.toFloat()?.takeIf { it.isFinite() && it in 0f..1f }
+        val marks = (o.optJSONArray("bookmarks") ?: JSONArray()).objects().mapNotNull { b ->
+            val p = (b.opt("page") as? Number)?.toInt()?.takeIf { it >= 0 } ?: return@mapNotNull null
+            ComicBookmarkRecord(p, b.longOrNull("createdAt") ?: 0L)
+        }
+        if (page == null && marks.isEmpty()) return null
+        return ComicRecord(
+            name = name,
+            sizeBytes = o.longOrNull("size")?.takeIf { it >= 0 },
+            page = page,
+            pageCount = (o.opt("pageCount") as? Number)?.toInt()?.takeIf { it > 0 },
+            offset = if (page != null) offset else null,
+            updatedAtEpochMs = o.longOrNull("updatedAt") ?: 0L,
+            finishedAtEpochMs = o.longOrNull("finishedAt"),
+            bookmarks = marks.distinctBy { it.page },
+        )
+    }
+
+    private fun workJson(w: WorkRecord) = JSONObject().apply {
+        put("key", w.key)
+        putOpt("title", w.title)
+        putOpt("rightToLeft", w.rightToLeft)
+        putOpt("view", w.view)
+    }
+
+    private fun work(o: JSONObject): WorkRecord? {
+        val key = o.stringOrNull("key")?.takeIf { it.isNotBlank() } ?: return null
+        val record = WorkRecord(
+            key = key,
+            title = o.stringOrNull("title")?.trim()?.takeIf { it.isNotEmpty() },
+            rightToLeft = o.opt("rightToLeft") as? Boolean,
+            view = o.stringOrNull("view"),
+        )
+        return record.takeIf { it.title != null || it.rightToLeft != null || it.view != null }
     }
 
     private fun bookJson(b: BookRecord) = JSONObject().apply {

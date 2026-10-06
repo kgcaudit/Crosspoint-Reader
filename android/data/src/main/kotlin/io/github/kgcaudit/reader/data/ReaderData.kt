@@ -121,16 +121,26 @@ class ReaderData(
             comics.reprobeRejected()
             runCatching { mark.writeText(PROBE_GENERATION.toString()) }
         }
+        // 살핀 뒤에 기다리는 만화 기록을 다시 맞춰 본다(0.49.0) — 그냥 zip · 압축 속 권은 살펴야 서재에 보여, 훑기 뒤에 맞추면
+        // 아직 없는 권이라 새 휴대폰에서 가져온 만화 기록이 다음 훑기까지 붙지 않았다.
+        try {
+            return@withContext probeRounds()
+        } finally {
+            runCatching { records.resumePending() }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+        }
+    }
+
+    private suspend fun probeRounds(): Int {
         var probed = 0
         // 압축 속 권(0.48.0)은 바깥 압축을 살피면서 생긴다 — 같은 부름에서 그 권들까지 살펴야 서재에 바로 보인다. 한 겹만
         // 펼치므로 두 바퀴면 끝나지만, 바퀴 수를 묶어 두어 무엇이 꼬여도 끝없이 돌지 않게 한다.
         repeat(3) {
             val todo = comics.needingProbe()
-            if (todo.isEmpty()) return@withContext probed
+            if (todo.isEmpty()) return probed
             probeOnce(todo)
             probed += todo.size
         }
-        probed
+        return probed
     }
 
     private suspend fun probeOnce(todo: List<io.github.kgcaudit.reader.data.db.ComicUnitEntity>) {

@@ -57,7 +57,15 @@ internal fun backupDate(epochMs: Long, today: LocalDate = LocalDate.now()): Stri
 internal fun backupFileName(today: LocalDate = LocalDate.now()): String = "OLO eBook 읽기 기록 $today.json"
 
 internal fun summaryLine(s: RecordsSummary): String =
-    if (s.books == 0) "아직 기록이 없습니다" else "책 ${s.books}권 · 책갈피 ${s.bookmarks}개 · 형광펜 · 메모 ${s.annotations}개"
+    if (s.books == 0 && s.comics == 0) "아직 기록이 없습니다"
+    else "${volumes(s.books, s.comics)} · 책갈피 ${s.bookmarks}개 · 형광펜 · 메모 ${s.annotations}개"
+
+/**
+ * "책 3권 · 만화 2권". 만화 기록(0.49.0)이 없으면 예전 그대로 "책 3권" — 만화를 읽지 않는 사람에게 "만화 0권" 을 보이지 않는다.
+ * 책이 없고 만화만 있으면 "만화 2권".
+ */
+internal fun volumes(books: Int, comics: Int): String =
+    listOfNotNull("책 ${books}권".takeIf { books > 0 || comics == 0 }, "만화 ${comics}권".takeIf { comics > 0 }).joinToString(" · ")
 
 /** 가져오기 · 만들기의 판. 한 번에 하나만 뜬다. */
 internal sealed interface RecordsPopup {
@@ -112,7 +120,7 @@ internal fun ReadingRecordsRows(ui: RecordsUi) {
                 val now = System.currentTimeMillis()
                 ui.lastBackup.save(now)
                 ui.last = now
-                ui.toast = "백업 파일을 만들었습니다 · 책 ${made.books}권"
+                ui.toast = "백업 파일을 만들었습니다 · ${volumes(made.books, made.comics)}"
             }
         }
     }
@@ -195,21 +203,21 @@ private fun OkButton(onClick: () -> Unit) {
 private fun PreviewPopup(plan: ImportPlan, onCancel: () -> Unit, onImport: () -> Unit) {
     val c = CpTheme.colors
     val file = plan.file
-    if (file.books.isEmpty()) {
+    if (file.books.isEmpty() && file.comics.isEmpty() && file.works.isEmpty()) {
         CpPopup(title = "백업 파일에 기록이 없습니다", message = "가져올 읽기 기록이 없어 아무것도 바꾸지 않았습니다.", onDismiss = onCancel) { OkButton(onCancel) }
         return
     }
     val made = if (file.createdAtEpochMs > 0) "${backupDate(file.createdAtEpochMs)}에 만든 백업 · " else ""
     CpPopup(
         title = "백업 파일에서 가져오기",
-        message = "${made}책 ${file.books.size}권의 기록입니다. 이 휴대폰의 기록과 합칩니다. 읽은 자리는 더 많이 읽은 쪽을 따르고, 책갈피 · 형광펜 · 메모는 양쪽 것을 모두 남깁니다.",
+        message = "${made}${volumes(file.books.size, file.comics.size)}의 기록입니다. 이 휴대폰의 기록과 합칩니다. 읽은 자리는 더 많이 읽은 쪽을 따르고, 책갈피 · 형광펜 · 메모는 양쪽 것을 모두 남깁니다.",
         onDismiss = onCancel,
     ) {
         Spacer(Modifier.height(14.dp))
-        CpText("이 휴대폰에서 찾은 책 ${plan.foundBooks}권", CpTheme.type.body, c.text)
-        if (plan.missing.isNotEmpty()) {
+        CpText("이 휴대폰에서 찾은 ${volumes(plan.foundBooks, plan.foundComics.takeIf { file.comics.isNotEmpty() } ?: 0)}", CpTheme.type.body, c.text)
+        if (plan.missing.isNotEmpty() || plan.comicsMissing.isNotEmpty()) {
             Spacer(Modifier.height(4.dp))
-            CpText("아직 못 찾은 책 ${plan.missing.size}권", CpTheme.type.body, c.text)
+            CpText("아직 못 찾은 ${volumes(plan.missing.size, plan.comicsMissing.size)}", CpTheme.type.body, c.text)
             CpText("책 폴더를 추가하면 그때 이어집니다", CpTheme.type.caption, c.textMuted)
         }
         CpPopupButtons {
@@ -229,8 +237,8 @@ private fun DonePopup(result: ImportResult, onClose: () -> Unit) {
     }.joinToString(" · ")
     val waiting = if (result.missing.isEmpty()) "" else "못 찾은 ${result.missing.size}권의 기록은 기억해 두었다가 책 폴더를 추가하면 이어 붙입니다."
     CpPopup(
-        title = if (result.books > 0) "책 ${result.books}권의 기록을 가져왔습니다" else "이 휴대폰에서 찾은 책이 없습니다",
-        message = if (result.books > 0) "$counts. $waiting".trim() else waiting,
+        title = if (result.books > 0 || result.comics > 0) "${volumes(result.books, result.comics)}의 기록을 가져왔습니다" else "이 휴대폰에서 찾은 책이 없습니다",
+        message = if (result.books > 0 || result.comics > 0) "$counts. $waiting".trim() else waiting,
         onDismiss = onClose,
     ) {
         if (result.missing.isNotEmpty()) {
