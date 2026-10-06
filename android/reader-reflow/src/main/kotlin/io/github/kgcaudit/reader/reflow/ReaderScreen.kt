@@ -248,13 +248,10 @@ fun ReaderScreen(
         onDispose { lifecycle.removeObserver(observer) }
     }
 
-    // 자동 넘김을 켜 두면 화면을 켜 둔다 — 넘기는 사이 화면 꺼짐 시간이 지나 꺼지면 자동 넘김이 뜻이 없다.
     ReadingWindow(
-        prefs.screen.copy(
-            brightness = dragBrightness ?: prefs.screen.brightness,
-            keepScreenOn = if (prefs.screen.autoTurn != io.github.kgcaudit.reader.ui.design.AutoTurn.Off) io.github.kgcaudit.reader.ui.design.KeepScreenOn.Always else prefs.screen.keepScreenOn,
-        ),
+        prefs.screen.copy(brightness = dragBrightness ?: prefs.screen.brightness),
         activity = state.position,
+        autoRunning = prefs.screen.autoTurn != io.github.kgcaudit.reader.ui.design.AutoTurn.Off,
     )
     // 듣는 동안에는 볼륨키를 음량으로 돌려준다(0.28.1, 사용자 결정). 가져가면 목소리를 줄일 수 없고, 누를 때마다 쪽이 넘어가
     // 듣기가 그 쪽 첫 문장으로 건너뛰어 읽던 곳을 놓쳤다.

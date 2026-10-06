@@ -327,6 +327,21 @@ class ReadingSettingsTest {
         compose.waitUntil(5_000) { keptOn() }
     }
 
+    @Test
+    fun `the screen stays on while auto turn runs even with the system setting`() {
+        // 화면 켜짐 유지는 기본(휴대폰 설정)이다 — 그대로면 창이 화면을 잡지 않는다.
+        openWith()
+        assertFalse(keptOn(), "휴대폰 설정인데 화면을 잡았다")
+        // 자동 넘김을 켜면 잡는다. 도는 동안 꺼지면 넘김이 멈춘 채 다음 쪽을 못 본다.
+        openView()
+        node(hasText("모든 보기 설정")).performClick()
+        waitFor(hasText("자동 넘김"))
+        node(hasText("15초")).performClick()
+        repeat(3) { back() }
+        waitFor(hasText("다음 쪽까지 15초", substring = true))
+        compose.waitUntil(5_000) { keptOn() }
+    }
+
     // ── 도구 ────────────────────────────────────────────────────────
 
     private fun volumeDown(): Boolean {

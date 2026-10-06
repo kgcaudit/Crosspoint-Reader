@@ -106,7 +106,6 @@ import io.github.kgcaudit.reader.ui.design.FooterInfo
 import io.github.kgcaudit.reader.ui.design.ReadingWindow
 import io.github.kgcaudit.reader.ui.design.AutoTurn
 import io.github.kgcaudit.reader.ui.design.CpAutoTurnPill
-import io.github.kgcaudit.reader.ui.design.KeepScreenOn
 import io.github.kgcaudit.reader.ui.design.rememberAutoTurn
 import io.github.kgcaudit.reader.ui.design.rememberPageTurnState
 import io.github.kgcaudit.reader.ui.design.visible
@@ -188,13 +187,10 @@ fun PdfScreen(
         turn[2] = state.shown.size.toLong()
     }
 
-    // 자동 넘김을 켜 두면 화면을 켜 둔다(EPUB 과 같다).
     ReadingWindow(
-        prefs.copy(
-            brightness = dragBrightness ?: prefs.brightness,
-            keepScreenOn = if (prefs.autoTurn != AutoTurn.Off) KeepScreenOn.Always else prefs.keepScreenOn,
-        ),
+        prefs.copy(brightness = dragBrightness ?: prefs.brightness),
         activity = state.page,
+        autoRunning = prefs.autoTurn != AutoTurn.Off,
     )
     // 폭 맞춤(③): 지금 쪽 안을 한 화면씩 내리는 손잡이. 보이는 PageView 가 걸어 둔다.
     val scroller = remember { PageScroller() }
