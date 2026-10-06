@@ -304,7 +304,12 @@ class ComicReaderAppTest {
         assertEquals("을", objectParticle("1권"))
         assertEquals("를", objectParticle("48화"))
         assertEquals("을", objectParticle("외전"))
+        // 숫자는 읽는 소리로: 삼(받침 있음) → 을, 이(받침 없음) → 를. 여는 중 안내와 다 읽음 판이 같은 규칙을 쓴다.
         assertEquals("을", objectParticle("Vol 3"))
+        assertEquals("를", objectParticle("Extra 2"))
+        assertEquals("을", objectParticle("Part 10"))
+        assertEquals("을", objectParticle("Bonus"))
+        assertEquals("Extra 2를 여는 중…", openingNotice("Extra 2"))
     }
 
     @Test

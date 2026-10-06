@@ -352,9 +352,11 @@ fun CpWebtoonWidthRow(percent: Int, onPreview: (Int) -> Unit, onCommit: (Int) ->
  *
  * @param activity 사용자가 뭔가 한 표시(넘긴 쪽). [KeepScreenOn.TenMinutes] 는 이 값이 바뀔 때마다 10분을
  *   새로 센다.
+ * @param autoRunning 자동 넘김 · 자동 스크롤이 도는 중. 그동안은 설정과 상관없이 화면을 켜 둔다 — 꺼지면 넘김도 멈춘 채
+ *   다음 쪽을 못 본다. 리더마다 따로 챙기던 때(0.49.0 까지)는 웹툰이 빠뜨려 자동 스크롤 중에 화면이 꺼졌다.
  */
 @Composable
-fun ReadingWindow(prefs: ScreenPrefs, activity: Any?) {
+fun ReadingWindow(prefs: ScreenPrefs, activity: Any?, autoRunning: Boolean = false) {
     val view = LocalView.current
     val window = remember(view) { view.context.findActivity()?.window }
     DisposableEffect(window, prefs.brightness) {
@@ -367,8 +369,9 @@ fun ReadingWindow(prefs: ScreenPrefs, activity: Any?) {
             window?.let { w -> w.attributes = w.attributes.apply { screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE } }
         }
     }
-    LaunchedEffect(view, prefs.keepScreenOn, activity) {
-        when (prefs.keepScreenOn) {
+    val keep = if (autoRunning) KeepScreenOn.Always else prefs.keepScreenOn
+    LaunchedEffect(view, keep, activity) {
+        when (keep) {
             KeepScreenOn.System -> view.keepScreenOn = false
             KeepScreenOn.Always -> view.keepScreenOn = true
             KeepScreenOn.TenMinutes -> {
@@ -579,8 +582,11 @@ fun CpViewSettingsScreen(
                 CpChoice("화면 켜짐 유지", keep.map { it.label }, keep.indexOf(prefs.keepScreenOn), {
                     onChange(prefs.copy(keepScreenOn = keep[it]))
                 }, child)
-                // 쪽 만화는 아래 정보 줄 없이 그림이 화면 끝까지 찬다(0.45.0, 사용자 결정) — 바꿔도 보이지 않는 줄은 숨긴다.
-                if (reader != CpReaderKind.Comic) CpLinkRow("하단 정보", prefs.footer.summary, { sub = SettingsPage.Footer }, child)
+                // 쪽 만화는 아래 정보 줄 없이 그림이 화면 끝까지 찬다(0.45.0, 사용자 결정) — 바꿔도 보이지 않는 줄은 숨긴다. 웹툰도
+                // 아래 정보 줄을 그리지 않는다(0.49.0 까지 줄만 남아 있었다).
+                if (reader != CpReaderKind.Comic && reader != CpReaderKind.Webtoon) {
+                    CpLinkRow("하단 정보", prefs.footer.summary, { sub = SettingsPage.Footer }, child)
+                }
                 // 웹툰은 세로로 밀어 내린다 — 왼쪽 끝의 위아래 밀기와 같은 몸짓이다.
                 if (reader != CpReaderKind.Webtoon) {
                     CpChoice("왼쪽 끝을 밀어 밝기 조절", listOf("켬", "끔"), if (prefs.brightnessGesture) 0 else 1, {

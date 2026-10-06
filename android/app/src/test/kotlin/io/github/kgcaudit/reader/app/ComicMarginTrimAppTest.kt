@@ -140,6 +140,10 @@ class ComicMarginTrimAppTest {
         val offs = compose.onAllNodes(hasText("끔"), useUnmergedTree = true)
         val k = offs.fetchSemanticsNodes().indexOfFirst { kotlin.math.abs(it.boundsInRoot.center.y - rowTop) < 30f }
         assertTrue(k >= 0, "여백 자르기 줄에 끔이 없다")
+        // 다른 켬 · 끔 줄(두 쪽 보기)과 같은 차례: 켬이 왼쪽. 0.49.0 은 이 줄만 "끔 · 켬" 이었다.
+        val on = compose.onAllNodes(hasText("켬"), useUnmergedTree = true).fetchSemanticsNodes()
+            .first { kotlin.math.abs(it.boundsInRoot.center.y - rowTop) < 30f }
+        assertTrue(on.boundsInRoot.center.x < offs.fetchSemanticsNodes()[k].boundsInRoot.center.x, "여백 자르기 줄의 켬이 끔보다 뒤에 있다")
         offs[k].performClick()
         compose.waitUntil(30_000) { runBlocking { !app.container.prefs.load().screen.comicTrimMargins } }
         compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }

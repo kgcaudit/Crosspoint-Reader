@@ -265,7 +265,6 @@ fun WebtoonReader(
         val percent = chain.fraction(abs, viewH.toFloat())
         val bookmarked = here.unitId == currentId && current in bookmarks
         val hereLabel = here.entry?.label
-        ReadingWindow(prefs, activity = here.unitId to current)
 
         // 화면에 걸린 화가 바뀌면 알린다 — 아래 줄 · 책갈피 · 이어 보기가 그 화를 따른다.
         LaunchedEffect(here.unitId) { if (here.unitId != currentId) onEnter(here.unitId) }
@@ -398,6 +397,8 @@ fun WebtoonReader(
         // 이번 손짓이 자동 스크롤을 멈췄다: 그 누르기는 멈춤으로만 쓴다. 넘김까지 하면 멈추려고 누른 손에 한 화면이 더 내려가
         // 읽던 칸을 놓친다.
         var stoppedByTouch by remember { mutableStateOf(false) }
+        // 흘러가는 동안은 화면을 켜 둔다(쪽 넘김의 자동 넘김과 같은 자리에서 챙긴다).
+        ReadingWindow(prefs, activity = here.unitId to current, autoRunning = autoOn && !autoPaused)
         LaunchedEffect(autoOn, autoPaused, panel, prefs.webtoonAutoSpeed, viewH) {
             if (!autoOn || autoPaused || panel != WebtoonPanel.None) return@LaunchedEffect
             val perNano = viewH / (prefs.webtoonAutoSpeed.secondsPerScreen * 1_000_000_000f)

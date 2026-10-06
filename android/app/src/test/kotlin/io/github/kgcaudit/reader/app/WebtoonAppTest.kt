@@ -34,6 +34,7 @@ import java.io.File
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -294,6 +295,35 @@ class WebtoonAppTest {
         }
     }
 
+    /** 창의 어느 뷰라도 화면 켜짐을 잡고 있는가. */
+    private fun keptOn(): Boolean {
+        fun any(v: android.view.View): Boolean = v.keepScreenOn || (v is android.view.ViewGroup && (0 until v.childCount).any { any(v.getChildAt(it)) })
+        var on = false
+        compose.runOnUiThread { on = any(compose.activity.window.decorView) }
+        return on
+    }
+
+    @Test
+    fun `the screen stays on while auto scroll runs`() {
+        // 0.49.0 의 고장: 쪽 넘김 만화의 자동 넘김만 화면을 켜 두고, 웹툰 자동 스크롤은 빠뜨려 흘러가던 중에 화면이 꺼졌다.
+        // 화면 켜짐 유지 설정은 기본(휴대폰 설정)이다 — 설정이 켜 두는 것이 아니다.
+        openChapter("전학생", "1화")
+        compose.onRoot().performTouchInput { click(center) }
+        waitFor(hasText("자동"))
+        assertFalse(keptOn(), "자동 스크롤 전부터 화면 켜짐을 잡고 있다")
+        compose.mainClock.autoAdvance = false
+        try {
+            node(hasText("자동")).performClick()
+            ticking { has(hasContentDescription("자동 스크롤 멈춤")) }
+            ticking { keptOn() }
+            node(hasContentDescription("자동 스크롤 끄기")).performClick()
+            // 끄면 휴대폰 설정대로 돌아간다 — 계속 잡고 있으면 배터리가 닳는다.
+            ticking { !keptOn() }
+        } finally {
+            compose.mainClock.autoAdvance = true
+        }
+    }
+
     @Test
     fun `two fingers zoom in and the zoom stays after the fingers lift`() {
         openChapter("전학생", "1화")
@@ -351,11 +381,11 @@ class WebtoonAppTest {
         compose.onRoot().performTouchInput { click(center) }
         click(hasText("보기"))
         click(hasText("모든 보기 설정"))
-        waitFor(hasText("하단 정보"))
-        for (row in listOf("가로에서 두 쪽 보기", "세로에서 두 쪽 보기", "두 쪽 보기에서 표지", "넘김 효과", "넘김 소리", "자동 넘김", "왼쪽 끝을 밀어 밝기 조절")) {
+        waitFor(hasText("화면 켜짐 유지"))
+        // 웹툰은 아래 정보 줄을 그리지 않는다 — "하단 정보" 도 따르지 않는 줄이다(0.49.0 까지 남아 있었다).
+        for (row in listOf("가로에서 두 쪽 보기", "세로에서 두 쪽 보기", "두 쪽 보기에서 표지", "넘김 효과", "넘김 소리", "자동 넘김", "왼쪽 끝을 밀어 밝기 조절", "하단 정보")) {
             assertTrue(!has(hasText(row)), "웹툰 설정에 따르지 않는 줄이 있다: $row")
         }
-        assertTrue(has(hasText("화면 켜짐 유지")))
     }
 
     @Test

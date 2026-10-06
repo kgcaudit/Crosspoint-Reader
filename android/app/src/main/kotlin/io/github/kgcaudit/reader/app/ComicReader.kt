@@ -136,17 +136,8 @@ internal val COMIC_BACKDROP = Color(0xFF141311)
 internal const val OPENING_NOTICE_DELAY_MS = 400L
 
 /** "1권을 여는 중…" · "3화를 여는 중…". 권 이름을 모르면(서재 밖에서 연 권) "여는 중…". */
-internal fun openingNotice(label: String?): String {
-    if (label.isNullOrBlank()) return "여는 중…"
-    val last = label.last()
-    // 받침이 있으면 "을". 숫자로 끝나면 읽는 소리로(일 · 삼 · 육 · 칠 · 팔 · 십(0)은 받침이 있다).
-    val batchim = when {
-        last in '\uAC00'..'\uD7A3' -> (last.code - 0xAC00) % 28 != 0
-        last.isDigit() -> last in "013678"
-        else -> true
-    }
-    return label + (if (batchim) "을" else "를") + " 여는 중…"
-}
+internal fun openingNotice(label: String?): String =
+    if (label.isNullOrBlank()) "여는 중…" else "$label${objectParticle(label)} 여는 중…"
 internal val COMIC_INK_MUTED = Color(0xFFB9B2A8)
 
 /** 판 하나를 밀어 넘기는 시간. 책 넘김(말림)보다 짧게 — 판이 손가락을 따라오므로 놓은 뒤에는 남은 거리만 간다. */
@@ -216,14 +207,7 @@ fun ComicReader(
     // 왼쪽 끝을 밀어 밝기(0.42.0 — 책과 같다). 미는 동안의 값은 창에만 걸고, 손을 떼면 저장한다.
     var dragBrightness by remember { mutableStateOf<Float?>(null) }
     val context = androidx.compose.ui.platform.LocalContext.current
-    ReadingWindow(
-        prefs.copy(
-            brightness = dragBrightness ?: prefs.brightness,
-            // 자동 넘김 중에는 화면이 꺼지면 안 된다 — 꺼지면 넘김도 멈춘 채 다음 쪽을 못 본다.
-            keepScreenOn = if (prefs.autoTurn != io.github.kgcaudit.reader.ui.design.AutoTurn.Off) io.github.kgcaudit.reader.ui.design.KeepScreenOn.Always else prefs.keepScreenOn,
-        ),
-        activity = page,
-    )
+    ReadingWindow(prefs.copy(brightness = dragBrightness ?: prefs.brightness), activity = page, autoRunning = prefs.autoTurn != io.github.kgcaudit.reader.ui.design.AutoTurn.Off)
 
     fun say(message: String) {
         toast = message
@@ -535,7 +519,8 @@ fun ComicReader(
                         ViewChoice(view, onView)
                         CpChoice("넘기는 방향", listOf("왼→오", "오→왼"), if (rtl) 1 else 0, { onDirection(it == 1) })
                         // 모든 만화에 한 설정(사용자 결정 3-나) — 작품마다 고르게 하면 스캔본마다 한 번씩 켜야 한다.
-                        CpChoice("여백 자르기", listOf("끔", "켬"), if (prefs.comicTrimMargins) 1 else 0, { onPrefsChange(prefs.copy(comicTrimMargins = it == 1)) })
+                        // 다른 켬 · 끔 줄(두 쪽 보기)과 같은 차례로 "켬" 이 앞이다 — 이 줄만 뒤집혀 있으면 같은 자리를 누른 손이 반대로 간다.
+                        CpChoice("여백 자르기", listOf("켬", "끔"), if (prefs.comicTrimMargins) 0 else 1, { onPrefsChange(prefs.copy(comicTrimMargins = it == 0)) })
                         // 책 · PDF 와 같은 두 줄(0.42.0).
                         CpTwoPageRows(prefs, onPrefsChange)
                         CpBrightnessRow(prefs.brightness, { onPrefsChange(prefs.copy(brightness = it)) })
@@ -566,13 +551,20 @@ fun ComicReader(
 }
 
 /**
- * 목적격 조사: 받침이 있으면 "을", 없으면 "를". 줄 이름은 "1권" · "48화" · "외전" · "4–6권" 처럼 늘 한글로 끝나지만, 한글이
- * 아니면(이름 그대로인 줄) "을" — 숫자 · 영문 뒤에서는 어느 쪽도 틀리지 않게 읽힌다.
+ * 목적격 조사: 받침이 있으면 "을", 없으면 "를". 숫자로 끝나면 읽는 소리로 — 일 · 삼 · 육 · 칠 · 팔 · 영(0)은 받침이 있다.
+ * 줄 이름은 "1권" · "48화" · "외전" 처럼 대개 한글로 끝나지만, 이름 그대로인 줄("Extra 2")도 있다. 영문 뒤에서는 "을".
+ *
+ * 받침 판정이 두 벌이던 때(0.49.0 까지)는 여는 중 안내만 숫자를 읽어, 같은 줄이 "Extra 2를 여는 중…" 다음에
+ * "Extra 2을 다 읽었습니다" 가 됐다.
  */
 internal fun objectParticle(word: String): String {
     val last = word.trimEnd().lastOrNull() ?: return "을"
-    if (last !in '가'..'힣') return "을"
-    return if ((last - '가') % 28 == 0) "를" else "을"
+    val batchim = when {
+        last in '가'..'힣' -> (last - '가') % 28 != 0
+        last.isDigit() -> last in "013678"
+        else -> true
+    }
+    return if (batchim) "을" else "를"
 }
 
 /** 보기 판의 "보는 방식" 줄: 자동 · 쪽 넘김 · 웹툰. 고른 값은 작품마다 기억한다(결정 2). */
@@ -604,9 +596,14 @@ private fun ComicPageImage(book: ComicBook, sizes: List<ImageSize?>, pages: List
         Canvas(Modifier.fillMaxSize()) {
             // 각 쪽의 비. 아직 모르면 푼 그림에서, 그것도 없으면 그리지 않는다(흔들리지 않게).
             // 여백을 자르면 비는 자른 그림의 것이다 — 머리의 비로 그리면 잘린 그림이 옆으로 늘어난다.
-            val aspects = pages.mapIndexed { k, p ->
+            val known = pages.mapIndexed { k, p ->
                 if (trim) bitmaps[k]?.let { it.width.toFloat() / it.height }
                 else sizes.getOrNull(p)?.let { it.width.toFloat() / it.height } ?: bitmaps[k]?.let { it.width.toFloat() / it.height }
+            }
+            // 깨진 쪽은 그림이 영영 오지 않는다 — 머리의 비, 그것도 없으면 짝의 비로 자리만 잡는다. 기다리면 판 전체를 그리지
+            // 않아, 두 쪽 중 하나가 깨지면 성한 쪽까지 검게 비었다(여백 자르기를 켜면 늘 그랬다 — 자른 비는 푼 그림에서만 안다).
+            val aspects = pages.mapIndexed { k, p ->
+                known[k] ?: if (broken && book.isBroken(p)) sizes.getOrNull(p)?.let { it.width.toFloat() / it.height } ?: known.firstNotNullOfOrNull { it } else null
             }
             if (aspects.any { it == null }) return@Canvas
             // 한쪽 자리에 선 혼자인 쪽은 빈 짝까지 두 쪽 폭으로 맞추고 제 반에 그린다(0.46.0).
@@ -943,14 +940,19 @@ fun ComicHost(
             view = work?.view,
             onView = onView,
             openEpisode = { entry ->
+                // 처음 연 화와 같다: 크기를 읽다 실패하거나 미리 여는 사이 취소되면(회전 · 그림 폭 바꾸기) 여기서 닫는다 — 두면
+                // 압축 · 파일이 열린 채 남았다.
+                var made: ComicBook? = null
                 runCatching {
                     withContext(Dispatchers.IO) {
                         val unit = data.comics.unit(entry.unit.id) ?: return@withContext null
                         // 이어 붙이는 화는 몫을 반으로 — 처음 연 화와 함께 메모리에 있다.
                         val comic = ComicBook(unit, data.openComic(unit), budget = ComicBook.memoryBudget() / 2, regions = container.comicRegions, stripDelayMs = { container.comicStripDelayMs })
+                            .also { made = it }
                         WebtoonEpisode(entry, comic, comic.sizes())
                     }
                 }.onFailure {
+                    made?.close()
                     if (it is kotlinx.coroutines.CancellationException) throw it
                     android.util.Log.w("OloComic", "cannot open next ${entry.unit.id}", it)
                 }.getOrNull()

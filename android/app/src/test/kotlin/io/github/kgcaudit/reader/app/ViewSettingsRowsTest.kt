@@ -62,8 +62,9 @@ class ViewSettingsRowsTest {
 
     @Test
     fun `webtoons hide every row about turning pages and two pages`() {
+        // 웹툰에는 아래 정보 줄이 없다 — 0.49.0 까지 "하단 정보" 줄이 남아, 바꿔도 아무 일이 없었다.
         val shown = rows(CpReaderKind.Webtoon)
-        assertRows(shown, (turnRows + twoPageRows + "왼쪽 끝을 밀어 밝기 조절").associateWith { false } + mapOf("하단 정보" to true, "화면 켜짐 유지" to true))
+        assertRows(shown, (turnRows + twoPageRows + "왼쪽 끝을 밀어 밝기 조절" + "하단 정보").associateWith { false } + mapOf("화면 켜짐 유지" to true))
     }
 
     @Test

@@ -61,9 +61,11 @@ class ComicSpreadAppTest {
         return ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
     }
 
+    private lateinit var root: File
+
     @Before
     fun setUp() {
-        val root = FolderProvider.install(File(app.cacheDir, "sdcard").apply { deleteRecursively(); mkdirs() })
+        root = FolderProvider.install(File(app.cacheDir, "sdcard").apply { deleteRecursively(); mkdirs() })
         File(root, "C").mkdirs()
         ZipOutputStream(File(root, "C/별 01권.cbz").outputStream()).use { zip ->
             colors.forEachIndexed { i, c ->
@@ -500,4 +502,39 @@ class ComicSpreadAppTest {
     }
 
     private fun isPageAt2(shot: Bitmap, fx: Float, fy: Float, page: Int) = near(shot.getPixel((shot.width * fx).toInt(), (shot.height * fy).toInt()), colors[page])
+
+    @Test
+    fun `a broken page in a spread still lets its partner be seen`() {
+        // 0.49.0 의 고장: 여백 자르기(기본 켬)는 쪽의 비를 푼 그림에서만 알아, 두 쪽 중 하나가 깨지면 판 전체를 그리지 않고 성한
+        // 쪽까지 검게 비었다. 망가뜨린 입력 둘: 머리만 남은 그림(크기는 안다) · 그림이 아닌 바이트(크기도 모른다).
+        val good = png(60, 90, colors[1])
+        ZipOutputStream(File(root, "C/금 01권.cbz").outputStream()).use { zip ->
+            val pages = listOf(png(60, 90, colors[0]), good, good.copyOf(60), "not a picture".toByteArray(), png(60, 90, colors[4]))
+            pages.forEachIndexed { i, bytes ->
+                zip.putNextEntry(ZipEntry("%03d.png".format(i + 1)))
+                zip.write(bytes)
+                zip.closeEntry()
+            }
+        }
+        runBlocking {
+            app.container.data.rescanAll()
+            app.container.data.probeComics()
+        }
+        compose.activityRule.scenario.recreate()
+        // 작품이 둘이 되었다(별 · 금).
+        click(hasText("만화 2"))
+        click(hasContentDescription("금 작품"))
+        click(hasText("1권"))
+        waitFor(page("1"))
+        // 깨진 쪽 알림이 화면 가운데에 뜬다 — 그 줄을 피해 위쪽에서 색을 본다.
+        fun colorAt(fx: Float, color: Int) = runCatching {
+            compose.waitUntil(30_000) { screen().let { near(it.getPixel((it.width * fx).toInt(), it.height / 4), color) } }
+        }.isSuccess
+        next()
+        waitFor(page("2–3"))
+        assertTrue(colorAt(0.4f, colors[1]), "머리만 남은 3쪽 옆의 2쪽이 그려지지 않았다")
+        next()
+        waitFor(page("4–5"))
+        assertTrue(colorAt(0.6f, colors[4]), "그림이 아닌 4쪽 옆의 5쪽이 그려지지 않았다")
+    }
 }
