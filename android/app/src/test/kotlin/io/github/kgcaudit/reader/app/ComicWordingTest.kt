@@ -31,4 +31,22 @@ class ComicWordingTest {
         val other = work.places.first { it != work.entries.first().unit.place }
         assertEquals(true, placeSummary(work, other).contains("(같은 화)"), placeSummary(work, other))
     }
+
+    @Test
+    fun `the end card names the last line by its own unit`() {
+        // 권과 화가 섞인 작품(단행본 두 권 뒤에 화 하나)은 웹툰이 아니라 작품의 세는 말이 "권" 이다. 그래도 마지막 줄이
+        // "3화" 면 끝 판은 "마지막 화입니다" — 작품의 말만 보던 때는 "마지막 권입니다" 가 떴다.
+        val mixed = ComicShelf.group(
+            listOf(archive("a", "별 01권.cbz", "C"), archive("b", "별 02권.cbz", "C"), archive("c", "별 03화.cbz", "C")),
+        ).single()
+        assertEquals(false, mixed.webtoon)
+        val last = mixed.entries.last().label
+        assertEquals("화", endUnit(last, mixed), "마지막 줄 '$last'")
+        assertEquals("권", endUnit("2권", mixed))
+        // 이름으로 알 수 없으면 작품의 말.
+        val webtoon = ComicShelf.group(listOf(folder("w1", "001화", "W", "전학생"), folder("w2", "002화", "W", "전학생"))).single()
+        assertEquals("화", endUnit("외전", webtoon))
+        assertEquals("권", endUnit("외전", mixed))
+        assertEquals("권", endUnit("외전", null))
+    }
 }

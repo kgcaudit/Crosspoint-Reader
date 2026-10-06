@@ -528,11 +528,12 @@ fun WebtoonReader(
                     if (nextEntry == null || failedNext != null) {
                         item(key = "end") {
                             val last = episodes.last()
+                            val endLabel = last.entry?.label ?: title
                             Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
                                 EndCard(
-                                    entryLabel = last.entry?.label ?: title,
+                                    entryLabel = endLabel,
                                     workTitle = work?.title,
-                                    unit = unitWord(work),
+                                    unit = endUnit(endLabel, work),
                                     next = nextEntry,
                                     onNext = { failedNext = null; onJump(it) },
                                     onLibrary = onClose,

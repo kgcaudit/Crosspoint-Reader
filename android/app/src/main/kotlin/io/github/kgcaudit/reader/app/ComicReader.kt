@@ -542,10 +542,11 @@ fun ComicReader(
     }
 
     if (ended) {
+        val endLabel = work?.let { ComicReading.entryOf(it, book.unit.id)?.label } ?: title
         VolumeEnd(
-            entryLabel = work?.let { ComicReading.entryOf(it, book.unit.id)?.label } ?: title,
+            entryLabel = endLabel,
             workTitle = work?.title,
-            unit = unitWord(work),
+            unit = endUnit(endLabel, work),
             next = next,
             onNext = { n -> ended = false; onNext(n) },
             onLibrary = onClose,
@@ -736,8 +737,19 @@ private fun VolumeEnd(entryLabel: String, workTitle: String?, unit: String, next
 }
 
 /**
+ * 끝 판 "마지막 권/화입니다" 의 세는 말. 마지막 줄 자신의 이름이 먼저다 — 끝 글자가 "화" 면 화, "권" 이면 권. 이름으로 알 수
+ * 없을 때("외전" · "Extra 2")만 작품의 세는 말([unitWord])로 물러난다. 작품의 말만 쓰면 권과 화가 섞인 작품(단행본 뒤에
+ * 연재분이 이어짐)은 웹툰이 아니라 "권" 이라, 마지막 줄이 "3화" 인데 "마지막 권입니다" 가 떴다.
+ */
+internal fun endUnit(entryLabel: String, work: Work?): String = when {
+    entryLabel.trimEnd().endsWith("화") -> "화"
+    entryLabel.trimEnd().endsWith("권") -> "권"
+    else -> unitWord(work)
+}
+
+/**
  * 권 · 화 끝 판의 내용. 쪽 넘김은 화면을 덮고, 웹툰은 목록 맨 끝에 이어 붙인다. [unit] 은 "마지막 권/화입니다" 의 세는 말
- * ([unitWord]) — 줄 이름의 끝 글자로 따로 가르던 때(0.49.0 까지)는 서재의 세는 말과 규칙이 둘이었다.
+ * ([endUnit]).
  */
 @Composable
 internal fun EndCard(entryLabel: String, workTitle: String?, unit: String, next: WorkEntry?, onNext: (WorkEntry) -> Unit, onLibrary: () -> Unit) {
