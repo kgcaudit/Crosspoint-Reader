@@ -1,66 +1,26 @@
 package io.github.kgcaudit.reader.reflow
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
-import android.content.Intent
-import android.os.Build
-import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.layout.Layout
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import io.github.kgcaudit.reader.document.Annotation
 import io.github.kgcaudit.reader.document.HighlightColor
 import io.github.kgcaudit.reader.layout.Page
 import io.github.kgcaudit.reader.text.AndroidTextMeasurer
-import io.github.kgcaudit.reader.ui.design.CpButton
-import io.github.kgcaudit.reader.ui.design.blockTouches
-import io.github.kgcaudit.reader.ui.design.CpMemoSheet
-import io.github.kgcaudit.reader.ui.design.CpPenDots
 import io.github.kgcaudit.reader.ui.design.CpText
 import io.github.kgcaudit.reader.ui.design.CpTheme
 import io.github.kgcaudit.reader.ui.design.Pen
-import kotlin.math.roundToInt
 
 /** `HighlightColor` ↔ 디자인의 [Pen]. 둘은 같은 순서다. */
 internal val HighlightColor.pen: Pen get() = Pen.entries[ordinal]
@@ -136,19 +96,6 @@ internal data class MemoDraft(
     /** [selection] 을 고른 장. 판이 떠 있는 사이 장이 바뀌어도 이 장에 칠한다. */
     val spineIndex: Int? = null,
 )
-
-/**
- * 메모 판: 아래에서 올라온다. 칠한 글 인용(색 막대) · 입력 칸 · 색 · 취소/저장. 읽던 쪽은 뒤에 흐리게 그대로.
- * 새 구간이면 "저장" 할 때 비로소 칠한다 — 취소하면 아무것도 남지 않는다.
- */
-@Composable
-internal fun MemoSheet(draft: MemoDraft, onSave: (text: String, pen: Pen) -> Unit, onCancel: () -> Unit) =
-    // PDF 와 같은 판을 쓴다(0.28.3). 한 줄씩 같은 사본을 두었더니 가로 화면의 자판 문제를 한쪽만 고칠 뻔했다.
-    CpMemoSheet(draft, draft.quote, draft.annotation?.note.orEmpty(), draft.pen, onSave, onCancel)
-
-// ── 복사 · 공유 · 사전 ─────────────────────────────────────────────
-
-// 복사 · 공유 · 사전은 공용(CpSelection.kt)을 쓴다 — ReaderScreen 이 그쪽을 가져다 써서 여기 사본은 불리지 않았다.
 
 /** 네모들을 모두 담는 네모(메뉴를 띄울 기준). */
 internal fun List<Rect>.bounds(): Rect =

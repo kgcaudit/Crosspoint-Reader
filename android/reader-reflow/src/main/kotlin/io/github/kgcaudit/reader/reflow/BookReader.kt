@@ -26,6 +26,7 @@ import io.github.kgcaudit.reader.text.FontCatalog
 import io.github.kgcaudit.reader.layout.book.BookFontTable
 import io.github.kgcaudit.reader.layout.book.LinkTarget
 import io.github.kgcaudit.reader.layout.book.SearchHit
+import io.github.kgcaudit.reader.layout.book.excerpt
 import io.github.kgcaudit.reader.listen.ListenSource
 import io.github.kgcaudit.reader.listen.SpeechChapter
 import io.github.kgcaudit.reader.layout.book.splitSentences
@@ -134,7 +135,13 @@ class BookReader(
     private fun forgetReturn() {
         returnTo = null
     }
-    private val images = LruCache<String, ImageBitmap>(8)
+    /**
+     * 디코드한 그림. **바이트로** 센다 — 장 수(8)로 세던 때는 스캔본처럼 쪽마다 지면 크기 그림이 있는 책에서 8장이
+     * 수십 MB 를 붙들어, 저사양 폰에서 넘길수록 메모리가 바닥났다. 작은 외자 그림은 많이 남는다.
+     */
+    private val images = object : LruCache<String, ImageBitmap>(IMAGE_CACHE_BYTES) {
+        override fun sizeOf(key: String, value: ImageBitmap): Int = (value.width * value.height * 4).coerceAtLeast(1)
+    }
 
     override val title: String get() = document.meta.title
 
@@ -166,7 +173,7 @@ class BookReader(
      * 순간 몇 장 앞으로 튄다.
      */
     suspend fun layOut(requested: LayoutSpec, twoPages: Boolean = false) = run {
-        val newSpec = requested.copy(edition = edition)
+        val newSpec = withBookFonts(requested.copy(edition = edition))
         if (newSpec == spec && twoPages == spread) return@run
         // 읽던 글자. 조판이 끝나든 도중에 취소되든 이것으로 되돌린다(0.30.0). show() 는 기준을 펼침의 첫머리로 바꾸는데,
         // 그 뒤 책갈피 조회 등에서 취소되면(폴더블을 빨리 접었다 펴면 화면이 앞 조판을 취소한다) 바뀐 기준이 남아
@@ -185,6 +192,10 @@ class BookReader(
             if (anchor != null) shownLocator = anchor
         }
     }
+
+    /** 책 글꼴로 조판하면 읽어 낸 가족의 지문을 캐시 키에 넣는다([LayoutSpec.bookFontsKey]). 아직 꺼내기 전이면 그대로. */
+    private fun withBookFonts(spec: LayoutSpec): LayoutSpec =
+        if (spec.useBookFonts) spec.copy(bookFontsKey = typefaces?.fingerprint) else spec
 
     private suspend fun relayOut(requested: LayoutSpec, twoPages: Boolean, anchor: Locator.Reflow?) {
         var newSpec = requested
@@ -211,13 +222,15 @@ class BookReader(
         if (newSpec.useBookFonts && typefaces?.isEmpty == true) {
             // 꺼내 보니 쓸 수 있는 책 글꼴이 없다(WOFF 뿐 · 깨짐). 휴대폰 글꼴로 그릴 것이므로 캐시 키도 책 글꼴 없이 —
             // 두면 "책 글꼴" 키로 한 번 조판한 뒤, 화면이 글꼴 없음을 알고 다시 요청해 열 때마다 두 번 조판했다.
-            newSpec = newSpec.copy(useBookFonts = false)
+            newSpec = newSpec.copy(useBookFonts = false, bookFontsKey = null)
             if (newSpec == spec) {
                 _state.value = _state.value.copy(busy = false)
                 _state.value.position?.let { show(it) }
                 return
             }
         }
+        // 처음 꺼낸 책 글꼴의 지문을 키에 넣는다(위에서 막 준비했으면 아직 없다).
+        newSpec = withBookFonts(newSpec)
         val built = BookLayout(document, newSpec, store, measurer(newSpec), fonts = bookFonts)
         val newSession = ReadingSession(built, bookmarkRepository, progressRepository)
         layout = built
@@ -319,12 +332,16 @@ class BookReader(
         show(requireLayout().resolve(back))
     }
 
-    /** 이 페이지의 책갈피를 꽂거나 뺀다. */
+    /**
+     * 보이는 쪽의 책갈피를 꽂거나 뺀다. 두쪽보기면 펼침 두 쪽을 함께 본다 — 오른쪽 쪽에 꽂힌 책갈피도 리본이 뜨고, 누르면
+     * 빠진다(꽂는 것은 왼쪽 쪽에). 판정은 글자 범위라 글자 크기를 바꾼 뒤에도 같은 쪽의 책갈피를 알아본다.
+     */
     suspend fun toggleBookmark() = run {
         val position = _state.value.position ?: return@run
         val s = requireSession()
-        val nowMarked = if (s.isBookmarked(position)) {
-            s.removeBookmarkAt(position)
+        val last = lastShown(position)
+        val nowMarked = if (s.isBookmarked(position, last)) {
+            s.removeBookmarkAt(position, last)
             false
         } else {
             s.addBookmark(position)
@@ -337,7 +354,7 @@ class BookReader(
 
     suspend fun removeBookmark(bookmark: Bookmark) = run {
         bookmarkRepository.remove(bookmark.id)
-        _state.value.position?.let { _state.value = _state.value.copy(bookmarked = requireSession().isBookmarked(it)) }
+        _state.value.position?.let { _state.value = _state.value.copy(bookmarked = requireSession().isBookmarked(it, lastShown(it))) }
     }
 
     // ── 형광펜 · 메모(N1–N4) ────────────────────────────────────────
@@ -375,7 +392,7 @@ class BookReader(
                     end = Locator.Reflow(spine, to),
                     color = color,
                     note = note,
-                    snippet = snippetOf(text, from, to, starts),
+                    snippet = excerpt(text, from, to, starts, max = SNIPPET_MAX),
                     createdAtEpochMs = clock(),
                 ).withNote(note),
             )
@@ -540,7 +557,7 @@ class BookReader(
             position = position,
             chapterCount = l.spine().size,
             percent = saved.percent,
-            bookmarked = s.isBookmarked(position),
+            bookmarked = s.isBookmarked(position, rightPosition ?: position),
             busy = false,
             error = null,
             spec = spec,
@@ -557,24 +574,16 @@ class BookReader(
         )
     }
 
+    /** 화면에 보이는 마지막 쪽: 두쪽보기면 펼침의 오른쪽 쪽(비었으면 [position]). */
+    private fun lastShown(position: ReadingPosition): ReadingPosition =
+        if (spread) requireLayout().spreadRight(position) ?: position else position
+
     private fun requireLayout() = checkNotNull(layout) { "layOut() first" }
     private fun requireSession() = checkNotNull(session) { "layOut() first" }
 }
 
-/**
- * 칠한 글 토막. 문단 사이는 한 칸([paragraphStarts]), 줄바꿈 · 겹친 공백도 한 칸으로(목록에서 한 줄로 읽히게),
- * 너무 길면 자른다 — 한 쪽 전체를 칠해도 목록 한 줄이 화면을 덮지 않게.
- */
-internal fun snippetOf(text: String, start: Int, end: Int, paragraphStarts: Set<Int> = emptySet(), max: Int = 400): String {
-    val from = start.coerceIn(0, text.length)
-    val to = end.coerceIn(from, text.length)
-    val raw = StringBuilder(to - from + 8)
-    for (i in from until to) {
-        if (i > from && i in paragraphStarts) raw.append(' ')
-        raw.append(text[i])
-    }
-    val flat = raw.replace(Regex("\\s+"), " ").trim()
-    return if (flat.length <= max) flat else flat.take(max).trimEnd() + "…"
-}
+/** 칠한 글 토막 · 고른 글 인용의 최대 글자 수. 한 쪽 전체를 칠해도 목록 한 줄이 화면을 덮지 않게. */
+internal const val SNIPPET_MAX = 400
 
-
+/** 그림 캐시의 크기: 지면 크기 그림(약 1080×1800, 4바이트) 서너 장. */
+private const val IMAGE_CACHE_BYTES = 32 * 1024 * 1024

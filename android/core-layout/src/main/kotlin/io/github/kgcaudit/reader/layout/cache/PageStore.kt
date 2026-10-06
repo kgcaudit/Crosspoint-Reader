@@ -135,7 +135,8 @@ class ChapterCache internal constructor(
      * 조판하면서 이어 쓰는 쓰기 도구.
      *
      * 페이지가 나오는 대로 받아 두고 [ChapterWriter.flush] 때 디스크에 내린다. 중간에 내려 두면
-     * 조판이 끝나기 전에도 앞쪽 페이지를 읽을 수 있다(`BookLayout.ensurePaginated` 의 첫 페이지 알림).
+     * 조판이 끝나기 전에도 앞쪽 페이지를 읽을 수 있다(`BookLayout.ensurePaginated` 에 첫 페이지 알림을 넘겼을 때만 —
+     * 지금 앱은 넘기지 않아, 장 하나는 끝날 때 한 번 내려간다). 조판이 취소돼 닫히면 그때까지를 부분 캐시로 남긴다.
      * 부분 캐시를 **이어서** 조판하는 길은 아직 없다 — 다음에 열면 처음부터 다시 한다.
      */
     fun writer(text: String): ChapterWriter = ChapterWriter(this, text)

@@ -57,7 +57,8 @@ class BookLayout(
      * 챕터 하나를 조판해 캐시에 넣는다. 이미 끝까지 캐시돼 있으면 아무것도 하지 않는다.
      *
      * [onFirstPages] 는 앞쪽 몇 페이지가 나온 직후에 한 번 불린다. 화면을 즉시 띄우려면
-     * 챕터 전체가 끝날 때까지 기다릴 이유가 없다 — 그게 이 콜백이 있는 이유다.
+     * 챕터 전체가 끝날 때까지 기다릴 이유가 없다 — 그게 이 콜백이 있는 이유다. 앞쪽을 부분 캐시로 내리는 것도
+     * 받을 쪽이 있을 때만 한다. 아무도 기다리지 않는데 내리면 장 텍스트를 한 번 더 써서 장마다 쓰기만 두 배가 된다.
      */
     suspend fun ensurePaginated(
         spineIndex: Int,
@@ -90,9 +91,9 @@ class BookLayout(
         cache.writer(chapter.text).use { writer ->
             for (page in paginator.paginate(chapter.text, chapter.blocks)) {
                 writer.add(page)
-                if (!notified && writer.pageCount >= firstPagesThreshold) {
+                if (onFirstPages != null && !notified && writer.pageCount >= firstPagesThreshold) {
                     writer.flush()
-                    onFirstPages?.invoke()
+                    onFirstPages()
                     notified = true
                 }
             }
@@ -231,11 +232,11 @@ class BookLayout(
     suspend fun percentAt(spineIndex: Int, offset: Int): Float {
         val items = spine()
         if (items.isEmpty()) return 0f
-        val weights = items.map { it.sizeBytes.coerceAtLeast(1L).toDouble() }
         val index = spineIndex.coerceIn(0, items.size - 1)
+        // [percent] 와 달리 조판 전 장도 읽어 길이를 잰다 — 찾기 결과는 아직 펴 보지 않은 장에 많고, 그 장의 처음으로
+        // 치면 한 장 안의 결과가 모두 같은 % 로 보인다.
         val length = chapterLength(index).coerceAtLeast(1)
-        val within = (offset.toDouble() / length).coerceIn(0.0, 1.0)
-        return ((weights.take(index).sum() + within * weights[index]) / weights.sum() * 100.0).toFloat()
+        return bookPercent(weights(items), index, offset.toDouble() / length)
     }
 
     /** 장의 글자 수(조판 전에도). 남은 시간을 셀 때 쓴다. */
@@ -327,14 +328,8 @@ class BookLayout(
         val items = spine()
         if (items.isEmpty()) return 0f
 
-        val weights = items.map { it.sizeBytes.coerceAtLeast(1L).toDouble() }
-        val total = weights.sum()
         val index = locator.spine.coerceIn(0, items.size - 1)
-
-        val before = weights.take(index).sum()
-        val within = chapterFraction(index, locator.charOffset)
-        val percent = (before + within * weights[index]) / total * 100.0
-        return percent.coerceIn(0.0, 100.0).toFloat()
+        return bookPercent(weights(items), index, chapterFraction(index, locator.charOffset))
     }
 
     /**
@@ -350,7 +345,7 @@ class BookLayout(
         val items = spine()
         if (items.isEmpty()) return Locator.Reflow(0, 0)
 
-        val weights = items.map { it.sizeBytes.coerceAtLeast(1L).toDouble() }
+        val weights = weights(items)
         val target = percent.coerceIn(0f, 100f) / 100.0 * weights.sum()
 
         // 목표가 든 챕터를 찾는다. 끝(100%)은 어느 챕터의 "앞" 에도 들지 않으므로 마지막
@@ -375,6 +370,21 @@ class BookLayout(
         val length = cache(index).readIndex()?.textLength ?: 0
         val offset = (within * length).toInt().coerceIn(0, (length - 1).coerceAtLeast(0))
         return Locator.Reflow(index, offset)
+    }
+
+    /**
+     * 장마다의 무게(파일 크기, 0 이면 1). [percent] · [percentAt] · [locatorAtPercent] 가 **같은** 무게를 써야 한다 —
+     * 따로 적으면 하나만 고쳐질 때 찾기 목록의 % 로 막대를 옮겨도 그 자리에 가지 않는다.
+     */
+    private fun weights(items: List<SpineItem>): DoubleArray =
+        DoubleArray(items.size) { items[it].sizeBytes.coerceAtLeast(1L).toDouble() }
+
+    /** [index] 장 앞 무게 + 장 안 비율([within], 0~1 로 자른다) → 책의 몇 %. */
+    private fun bookPercent(weights: DoubleArray, index: Int, within: Double): Float {
+        var before = 0.0
+        for (i in 0 until index) before += weights[i]
+        val percent = (before + within.coerceIn(0.0, 1.0) * weights[index]) / weights.sum() * 100.0
+        return percent.coerceIn(0.0, 100.0).toFloat()
     }
 
     private fun chapterFraction(spineIndex: Int, charOffset: Int): Double {

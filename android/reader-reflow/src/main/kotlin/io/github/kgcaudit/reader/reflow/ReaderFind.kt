@@ -4,19 +4,11 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
@@ -30,15 +22,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.kgcaudit.reader.document.TocEntry
 import io.github.kgcaudit.reader.layout.book.SearchHit
 import io.github.kgcaudit.reader.ui.design.CpBottomSheet
 import io.github.kgcaudit.reader.ui.design.CpButton
-import io.github.kgcaudit.reader.ui.design.blockTouches
-import io.github.kgcaudit.reader.ui.design.CpSearchResultBar
 import io.github.kgcaudit.reader.ui.design.CpSearchRow
 import io.github.kgcaudit.reader.ui.design.CpSearchScreen
 import io.github.kgcaudit.reader.ui.design.CpIcon
@@ -76,7 +65,11 @@ class SearchSession {
     private var job: Job? = null
 
     /** 장마다 찾아 나오는 대로 목록에 더한다(E2). 새로 찾으면 앞의 찾기는 멈춘다. */
-    fun start(reader: BookReader, scope: CoroutineScope) {
+    fun start(reader: BookReader, scope: CoroutineScope) =
+        start(scope, reader::chapterCount) { i, q -> reader.searchChapter(i, q).map { Found(it, reader.percentOf(it)) } }
+
+    /** [start] 의 본체. 책 없이 시험하려고 장 수 · 장 하나 찾기를 함수로 받는다. */
+    internal fun start(scope: CoroutineScope, chapterCount: suspend () -> Int, searchChapter: suspend (Int, String) -> List<Found>) {
         val q = query.trim()
         job?.cancel()
         results = emptyList()
@@ -86,11 +79,10 @@ class SearchSession {
         running = true
         job = scope.launch {
             try {
-                chapters = reader.chapterCount()
+                chapters = chapterCount()
                 for (i in 0 until chapters) {
                     ensureActive()
-                    val hits = reader.searchChapter(i, q)
-                    results = results + hits.map { Found(it, reader.percentOf(it)) }
+                    results = results + searchChapter(i, q)
                     searched = i + 1
                 }
             } finally {
@@ -100,8 +92,16 @@ class SearchSession {
         }
     }
 
+    /**
+     * 찾기를 지운다(검색 칸의 ×). 결과 · 요약 · 결과 막대를 모두 비운다 — 멈추기만 하던 때는 칸은 비었는데 옛 결과
+     * 목록과 "12곳 · 3장에서" 가 그대로 남아, 지운 말의 결과처럼 보였다(PDF 는 비운다). 쪽의 칠은 화면이 지운다.
+     */
     fun stop() {
         job?.cancel()
+        running = false
+        results = emptyList()
+        searched = 0
+        chapters = 0
         current = -1
     }
 }
@@ -114,6 +114,8 @@ internal fun SearchScreen(
     onSearch: () -> Unit,
     onOpen: (Int) -> Unit,
     onBack: () -> Unit,
+    /** 찾기를 지웠다(×). 쪽에 칠해 둔 찾은 자리도 지운다. */
+    onCleared: () -> Unit = {},
 ) {
     val summary = when {
         session.running -> "찾는 중… ${session.searched} / ${session.chapters}장 · 지금까지 ${session.results.size}곳"
@@ -134,7 +136,7 @@ internal fun SearchScreen(
     CpSearchScreen(
         query = session.query,
         onQuery = { session.query = it },
-        onClear = { session.query = ""; session.stop() },
+        onClear = { session.query = ""; session.stop(); onCleared() },
         summary = summary,
         progress = if (session.running && session.chapters > 0) session.searched / session.chapters.toFloat() else null,
         rows = rows,
@@ -143,17 +145,6 @@ internal fun SearchScreen(
         onBack = onBack,
     )
 }
-
-@Composable
-internal fun SearchResultBar(
-    index: Int,
-    total: Int,
-    onPrevious: () -> Unit,
-    onNext: () -> Unit,
-    onList: () -> Unit,
-    onClose: () -> Unit,
-    modifier: Modifier = Modifier,
-) = CpSearchResultBar(index, total, onPrevious, onNext, onList, onClose, modifier)
 
 /**
  * 각주 판(F3): 아래에서 올라온다. 짧으면 내용만큼, 길면 화면의 60% 까지 올라오고 판 안에서 스크롤한다. 읽던

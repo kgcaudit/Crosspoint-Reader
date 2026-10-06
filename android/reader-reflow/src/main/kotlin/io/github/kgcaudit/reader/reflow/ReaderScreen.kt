@@ -21,11 +21,9 @@ import io.github.kgcaudit.reader.ui.design.CpAutoTurnPill
 import io.github.kgcaudit.reader.ui.design.rememberAutoTurn
 import io.github.kgcaudit.reader.ui.design.visible
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.drag
-import androidx.compose.ui.draw.clip
 import io.github.kgcaudit.reader.document.Annotation
 import io.github.kgcaudit.reader.ui.design.CpReadingNotesList
 import io.github.kgcaudit.reader.ui.design.NoteFilter
@@ -74,6 +72,9 @@ import io.github.kgcaudit.reader.document.TocEntry
 import io.github.kgcaudit.reader.layout.Insets
 import io.github.kgcaudit.reader.layout.PlacedImage
 import io.github.kgcaudit.reader.ui.design.CpButton
+import io.github.kgcaudit.reader.ui.design.CpMemoSheet
+import io.github.kgcaudit.reader.ui.design.CpSearchResultBar
+import io.github.kgcaudit.reader.layout.book.excerpt
 import io.github.kgcaudit.reader.ui.design.CpChoice
 import io.github.kgcaudit.reader.ui.design.CpFullScreen
 import io.github.kgcaudit.reader.ui.design.CpHeader
@@ -151,8 +152,9 @@ fun ReaderScreen(
     var fontsRevision by remember { mutableIntStateOf(0) }
     var toast by remember { mutableStateOf<String?>(null) }
     var toastCount by remember { mutableIntStateOf(0) }
-    // 하단 정보의 "장 제목". 목차는 책마다 한 번 읽는다.
-    var toc by remember { mutableStateOf<List<TocEntry>>(emptyList()) }
+    // 하단 정보의 "장 제목" · 찾기 결과의 절 이름 · 목차 화면. 목차는 책마다 한 번 읽는다(null = 아직 읽는 중) — 목차
+    // 화면이 따로 다시 읽던 때는 열 때마다 큰 NCX 를 또 풀었다.
+    var toc by remember { mutableStateOf<List<TocEntry>?>(null) }
     LaunchedEffect(reader) { toc = runCatching { reader.outline() }.getOrDefault(emptyList()) }
     val search = remember(reader) { SearchSession() }
     // 각주 판(F3) · 브라우저 확인(F6).
@@ -202,14 +204,14 @@ fun ReaderScreen(
     val listening = hub?.takeIf { it.belongsTo(reader) }
     val listen = listening?.state?.collectAsState()?.value ?: ListenState()
     var listenSheet by remember { mutableStateOf(false) }
-    fun startListening(from: Int? = null) {
+    fun startListening() {
         val position = state.position ?: return
         val page = state.page ?: return
         val l = Listening(reader, kit.speaker(prefs.listen.engine), ListenHub.scope)
         ListenHub.attach(context, l)
         panel = Panel.None
         ListenHub.scope.launch {
-            l.start(position.spineIndex, from ?: page.startChar, prefs.listen.rate, prefs.listen.voice, prefs.listen.join, pageEnd = if (from == null) page.endCharExclusive else null)
+            l.start(position.spineIndex, page.startChar, prefs.listen.rate, prefs.listen.voice, prefs.listen.join, pageEnd = page.endCharExclusive)
         }
     }
     // 책을 닫으면 듣기도 끝낸다. 닫은 책을 화면 없이 계속 읽으면 멈출 곳이 잠금 화면뿐이다.
@@ -624,11 +626,14 @@ fun ReaderScreen(
                     onPen = { pen ->
                         lastPen = pen
                         selection = null
-                        scope.go { reader.highlight(sel.start, sel.endExclusive, pen.color) }
+                        // 고른 장을 넘긴다(메모 길과 같다). 안 넘기면 누르는 사이 듣기 · 볼륨키가 장을 넘겼을 때 다음 장의 같은
+                        // 번호 자리 — 전혀 다른 문장 — 를 칠했다.
+                        val spine = position?.spineIndex
+                        scope.go { reader.highlight(sel.start, sel.endExclusive, pen.color, spineIndex = spine) }
                         hiddenHint()
                     },
                     onWord = { word ->
-                        val quote = snippetOf(state.text, sel.start, sel.endExclusive, state.paragraphStarts)
+                        val quote = excerpt(state.text, sel.start, sel.endExclusive, state.paragraphStarts, max = SNIPPET_MAX)
                         when (word) {
                             "메모" -> memo = MemoDraft(null, sel, quote, lastPen, state.position?.spineIndex)
                             "복사" -> if (!copyText(context, quote)) say("복사했습니다")
@@ -682,7 +687,7 @@ fun ReaderScreen(
         CpReadingFooter(
             info = FooterInfo(
                 bookTitle = reader.title,
-                chapterTitle = position?.let { p -> toc.getOrNull(currentTocIndex(toc, p.spineIndex))?.label },
+                chapterTitle = position?.let { p -> toc?.let { t -> t.getOrNull(currentTocIndex(t, p.spineIndex))?.label } },
                 // 두쪽이면 두 쪽을 묶어 "5–6 / 12"(T5). 오른쪽이 빈 펼침은 한 쪽 번호만.
                 page = when {
                     position == null -> ""
@@ -730,7 +735,7 @@ fun ReaderScreen(
                 CpAutoTurnPill(autoTurn, Modifier.align(Alignment.BottomCenter).padding(bottom = 60.dp))
             }
             if (search.current >= 0 && search.results.isNotEmpty()) {
-                SearchResultBar(
+                CpSearchResultBar(
                     index = search.current,
                     total = search.results.size,
                     onPrevious = { if (search.current > 0) openHit(search.current - 1) },
@@ -763,10 +768,11 @@ fun ReaderScreen(
             )
             Panel.Search -> SearchScreen(
                 session = search,
-                toc = toc,
+                toc = toc.orEmpty(),
                 onSearch = { search.start(reader, scope) },
                 onOpen = ::openHit,
                 onBack = { panel = Panel.Bar },
+                onCleared = { scope.go { reader.clearHighlight() } },
             )
             Panel.Settings -> CpViewSettingsScreen(
                 prefs = prefs.screen,
@@ -785,6 +791,7 @@ fun ReaderScreen(
             Panel.Contents, Panel.Notes -> ReaderLists(
                 reader = reader,
                 state = state,
+                toc = toc,
                 showNotes = panel == Panel.Notes,
                 onPanel = { panel = it },
                 onMemo = { memo = it },
@@ -833,8 +840,12 @@ fun ReaderScreen(
 
         // 메모 판은 독서노트 목록 위에서도 뜬다("메모 고치기").
         memo?.let { draft ->
-            MemoSheet(
-                draft = draft,
+            // EPUB 과 PDF 가 같은 판을 쓴다(0.28.3) — 사본을 두면 가로 화면의 자판 문제를 한쪽만 고치게 된다.
+            CpMemoSheet(
+                key = draft,
+                quote = draft.quote,
+                initialText = draft.annotation?.note.orEmpty(),
+                initialPen = draft.pen,
                 onSave = { text, pen ->
                     memo = null
                     selection = null
@@ -961,16 +972,16 @@ private fun ReaderBar(
 private fun ReaderLists(
     reader: BookReader,
     state: ReaderState,
+    /** 화면이 읽어 둔 목차. null 이면 아직 읽는 중. */
+    toc: List<TocEntry>?,
     showNotes: Boolean,
     onPanel: (Panel) -> Unit,
     onMemo: (MemoDraft) -> Unit,
     onShare: (String) -> Unit,
     scope: CoroutineScope,
 ) {
-    var toc by remember { mutableStateOf<List<TocEntry>?>(null) }
     var notes by remember { mutableStateOf<ReadingNotes?>(null) }
     var filter by remember { mutableStateOf(NoteFilter.All) }
-    LaunchedEffect(Unit) { toc = runCatching { reader.outline() }.getOrDefault(emptyList()) }
     // 칠을 고치면(메모 판 · ⋮ 메뉴) notesVersion 이 는다 — 그때 목록도 다시 모은다.
     LaunchedEffect(toc, state.notesVersion) {
         val entries = toc ?: return@LaunchedEffect

@@ -16,33 +16,17 @@ import java.io.Reader
 data class ChapterHead(
     /** `<link rel="stylesheet">` 의 href. 문서 순서대로다 — 뒤의 것이 이긴다. */
     val stylesheetHrefs: List<String> = emptyList(),
-    val title: String? = null,
 ) {
     companion object {
 
         fun scan(reader: Reader): ChapterHead {
             val hrefs = ArrayList<String>()
-            var title: String? = null
-            var inTitle = false
-            val titleText = StringBuilder()
-
             for (event in XmlScanner(reader).events()) {
-                when (event) {
-                    is XmlEvent.StartElement -> {
-                        if (event.isLocal("body")) break
-                        when {
-                            event.isLocal("link") -> event.stylesheetHref()?.let(hrefs::add)
-                            event.isLocal("title") -> inTitle = true
-                        }
-                    }
-                    is XmlEvent.EndElement -> if (event.isLocal("title")) {
-                        inTitle = false
-                        title = titleText.toString().trim().takeIf { it.isNotEmpty() }
-                    }
-                    is XmlEvent.Text -> if (inTitle) titleText.append(event.value)
-                }
+                if (event !is XmlEvent.StartElement) continue
+                if (event.isLocal("body")) break
+                if (event.isLocal("link")) event.stylesheetHref()?.let(hrefs::add)
             }
-            return ChapterHead(hrefs, title)
+            return ChapterHead(hrefs)
         }
 
         /**

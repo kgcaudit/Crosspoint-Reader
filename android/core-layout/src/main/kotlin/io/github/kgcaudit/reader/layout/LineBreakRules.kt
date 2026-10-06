@@ -64,16 +64,13 @@ object LineBreakRules {
         if (before in NO_LINE_END) return false
 
         // 공백 뒤는 언제나 끊을 수 있다(공백 자체는 앞 토큰에 붙는다).
-        if (before == ' ' || before == '\t' || before == '　') return true
+        if (isSpace(before)) return true
 
         // 하이픈 뒤. 다음 글자가 숫자면 끊지 않는다(음수·범위 표기가 갈라진다).
         if ((before == '-' || before == '‐') && !after.isDigit()) return true
 
-        if (breakBetweenCjk && (isCjk(before) || isCjk(after))) {
-            // 라틴 단어 중간은 CJK 규칙이 적용되지 않는다. 한쪽이라도 CJK 면 경계로 본다.
-            return isCjk(before) || isCjk(after)
-        }
-        return false
+        // 라틴 단어 중간은 CJK 규칙이 적용되지 않는다. 한쪽이라도 CJK 면 경계로 본다.
+        return breakBetweenCjk && (isCjk(before) || isCjk(after))
     }
 
     /**

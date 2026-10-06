@@ -81,12 +81,16 @@ class SelectionTest {
 
     @Test
     fun `a snippet is one tidy line and a long one is cut`() {
-        assertEquals("보아 구렁이는 모자", snippetOf("  보아\n 구렁이는\t\t모자 ", 0, 16))
+        // 칠한 글 토막 · 고른 글 인용은 책갈피 미리보기와 같은 발췌(excerpt)를 쓴다 — 따로 짠 사본은 그림 자리 글자를 남겼다.
+        fun snippet(text: String, from: Int, to: Int, starts: Set<Int> = emptySet()) =
+            io.github.kgcaudit.reader.layout.book.excerpt(text, from, to, starts, max = SNIPPET_MAX)
+        assertEquals("보아 구렁이는 모자", snippet("  보아\n 구렁이는\t\t모자 ", 0, 16))
         // 장 텍스트는 문단을 구분자 없이 잇는다 — 문단이 시작하는 자리에 한 칸.
-        assertEquals("삼킨다. 어른들은", snippetOf("삼킨다.어른들은", 0, 9, paragraphStarts = setOf(4)))
+        assertEquals("삼킨다. 어른들은", snippet("삼킨다.어른들은", 0, 9, starts = setOf(4)))
+        assertEquals("그림 뒤", snippet("그림￼뒤", 0, 4))
         val long = "가".repeat(1000)
-        assertEquals(401, snippetOf(long, 0, 1000).length)
+        assertEquals(401, snippet(long, 0, 1000).length)
         // 범위가 텍스트 밖이어도(옛 책 · 상한 자리) 죽지 않는다.
-        assertEquals("", snippetOf("짧다", 10, 20))
+        assertEquals("", snippet("짧다", 10, 20))
     }
 }

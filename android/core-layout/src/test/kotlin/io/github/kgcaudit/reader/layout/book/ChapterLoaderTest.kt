@@ -202,7 +202,7 @@ class ChapterLoaderTest {
     }
 
     @Test
-    fun `the head scan finds the stylesheet links and the title`() = runTest {
+    fun `the head scan finds the stylesheet links`() = runTest {
         openEpub().use { doc ->
             val loader = ChapterLoader(doc, spec)
             // stylesheetFor 는 <link> 로 가리킨 외부 CSS 만 본다(규칙 3개).
