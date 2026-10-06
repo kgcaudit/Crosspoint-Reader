@@ -113,7 +113,7 @@ data class ComicUnitEntity(
     @PrimaryKey val id: String,
     val folderUri: String,
     val name: String,
-    /** `ARCHIVE` · `IMAGE_FOLDER`. */
+    /** `ARCHIVE` · `IMAGE_FOLDER` · `NESTED`(압축 속 권, 0.48.0 — id 는 바깥 압축 id + `#!/` + 안쪽 경로). */
     val kind: String,
     /** 확장자(소문자). 그림 폴더는 빈 글. 그냥 zip 은 살펴서 그림만 들어 있어야 보인다. */
     val extension: String,

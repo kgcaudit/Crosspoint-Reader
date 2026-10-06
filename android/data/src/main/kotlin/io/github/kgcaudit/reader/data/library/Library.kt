@@ -3,14 +3,13 @@ package io.github.kgcaudit.reader.data.library
 import androidx.room.withTransaction
 import io.github.kgcaudit.reader.data.db.BookEntity
 import io.github.kgcaudit.reader.data.db.ComicBookmarkEntity
-import io.github.kgcaudit.reader.data.db.ComicProgressEntity
 import io.github.kgcaudit.reader.data.db.ComicOverrideEntity
+import io.github.kgcaudit.reader.data.db.ComicProgressEntity
 import io.github.kgcaudit.reader.data.db.ComicUnitEntity
 import io.github.kgcaudit.reader.data.db.ReaderDatabase
 import io.github.kgcaudit.reader.document.BookFormat
 import io.github.kgcaudit.reader.document.BookId
 import io.github.kgcaudit.reader.document.comic.ArchiveExtensions
-import io.github.kgcaudit.reader.document.extensionOf
 import io.github.kgcaudit.reader.document.comic.ComicContents
 import io.github.kgcaudit.reader.document.comic.ComicInfo
 import io.github.kgcaudit.reader.document.comic.ComicOverrides
@@ -18,11 +17,12 @@ import io.github.kgcaudit.reader.document.comic.ComicProgress
 import io.github.kgcaudit.reader.document.comic.ComicShelf
 import io.github.kgcaudit.reader.document.comic.ComicUnit
 import io.github.kgcaudit.reader.document.comic.ComicUnitKind
-import io.github.kgcaudit.reader.document.comic.NestedArchives
 import io.github.kgcaudit.reader.document.comic.ComicView
+import io.github.kgcaudit.reader.document.comic.NestedArchives
 import io.github.kgcaudit.reader.document.comic.ShelfMark
 import io.github.kgcaudit.reader.document.comic.Work
 import io.github.kgcaudit.reader.document.comic.WorkEntry
+import io.github.kgcaudit.reader.document.extensionOf
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
@@ -304,12 +304,14 @@ class ComicLibrary(private val db: ReaderDatabase) {
     suspend fun needingProbe(): List<ComicUnitEntity> = comics.needingProbe()
 
     /**
-     * 살핀 결과를 적는다. [contents] 가 null 이면 만화가 아니다(그냥 zip) — 단, cbz 처럼 이름이 만화라고 말하는 것은 열지
-     * 못했어도 숨기지 않는다: 깨진 압축 하나가 서재에서 사라지면 무엇이 깨졌는지조차 알 수 없다(규칙 6).
+     * 살핀 결과를 적는다. [contents] 가 null 이면 만화가 아니다(그냥 zip) — 단, cbz 처럼 이름이 만화라고 말하는 것과 압축 속
+     * 권은 열지 못했어도 숨기지 않는다: 깨진 압축 하나가 서재에서 사라지면 무엇이 깨졌는지조차 알 수 없다(규칙 6).
      */
     suspend fun saveProbe(unit: ComicUnitEntity, contents: ComicContents?, info: ComicInfo?, holdsVolumes: Boolean = false) {
+        // 압축 속 권은 만화 묶음에서 꺼낸 것이라 cbz 처럼 믿는다 — 살피기(ReaderData)도 그렇게 본다. 여기서만 빠져 있어, 묶음 안의
+        // 깨진 "3권.zip" 이 "만화 아님" 으로 숨어 그 권만 빠진 채 이어 보기가 끊겼다.
         // 권 압축만 든 cbz(0.48.0)는 그 자체로는 빈 권이다 — 안의 권들이 대신 보인다.
-        val trusted = unit.extension in ArchiveExtensions.COMIC && !holdsVolumes
+        val trusted = (unit.extension in ArchiveExtensions.COMIC || unit.kind == ComicUnitKind.NESTED.name) && !holdsVolumes
         comics.saveProbe(
             id = unit.id,
             size = unit.sizeBytes,

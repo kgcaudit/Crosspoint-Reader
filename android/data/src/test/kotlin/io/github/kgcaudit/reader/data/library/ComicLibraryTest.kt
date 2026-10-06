@@ -87,6 +87,20 @@ class ComicLibraryTest {
     }
 
     @Test
+    fun `a broken zip volume inside a bundle stays visible like a cbz`() = runTest {
+        // 묶음 안의 권은 살피기가 cbz 처럼 믿는데 적을 때만 그냥 zip 으로 쳐서, 깨진 "3권.zip" 이 숨어 그 권만 빠진 채
+        // 이어 보기가 끊겼다.
+        comics.applyScan(phone, ScanResult(emptyList(), true, listOf(cbz("별 (1-3).zip", "C"))), 1)
+        val outer = comics.needingProbe().single()
+        comics.saveVolumes(outer, listOf("별/별 1권.zip" to 10L, "별/별 3권.zip" to 10L), 1)
+        comics.saveProbe(outer, null, null, holdsVolumes = true)
+        val volumes = comics.needingProbe().associateBy { it.name }
+        comics.saveProbe(volumes.getValue("별 1권.zip"), ComicContents.ofArchive(listOf("1.jpg"), true), null)
+        comics.saveProbe(volumes.getValue("별 3권.zip"), null, null)
+        assertEquals(setOf("별 1권.zip", "별 3권.zip"), comics.units().first().map { it.name }.toSet())
+    }
+
+    @Test
     fun `a broken cbz stays visible, and a changed file is probed again`() = runTest {
         val broken = cbz("깨진 01권.cbz", "C")
         comics.applyScan(phone, ScanResult(emptyList(), true, listOf(broken)), 1)

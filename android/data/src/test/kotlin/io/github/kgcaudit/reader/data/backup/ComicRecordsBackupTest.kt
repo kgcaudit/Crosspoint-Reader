@@ -161,6 +161,32 @@ class ComicRecordsBackupTest {
     }
 
     @Test
+    fun `settings of a work split off by hand stay on this phone, the work's own settings still move`() = runTest {
+        // 따로 뺀 작품의 열쇠는 이 휴대폰의 문서 주소다 — 새 휴대폰에서는 붙을 작품이 없어 백업에 쓸모없는 줄만 쌓였다.
+        val old = phone("old", "content://old/tree")
+        old.scan("별 1권.cbz" to 5000L, "별 2권.cbz" to 6000L)
+        val star = old.comics.works().first().single()
+        old.comics.setRightToLeft(star, true)
+        old.comics.split(star.entries.last())
+        val alone = old.comics.works().first().first { it.entries.single().unit.id == old.id("별 2권.cbz") }
+        old.comics.setView(alone, ComicView.WEBTOON)
+        val works = old.records.collect().works
+        assertTrue(works.none { it.key.startsWith(ComicLibrary.OWN_PREFIX) }, "따로 뺀 작품의 열쇠가 백업에 들어갔다: $works")
+        assertEquals(listOf(true), works.map { it.rightToLeft })
+    }
+
+    @Test
+    fun `the day a volume or a book was finished is the earliest either copy remembers`() = runTest {
+        // 두 휴대폰에서 끝낸 날이 다르면 먼저 끝낸 날이 맞다. 책은 목록 앞의 값을 골라, 합치는 순서에 따라 나중 날이 남았다.
+        val early = BookRecord("책.epub", 10, finishedAtEpochMs = 100)
+        val late = BookRecord("책.epub", 10, finishedAtEpochMs = 900)
+        assertEquals(100L, late.mergedWith(early).finishedAtEpochMs)
+        assertEquals(100L, early.mergedWith(late).finishedAtEpochMs)
+        val comicEarly = ComicRecord("별 1권.cbz", 10, page = 3, finishedAtEpochMs = 100)
+        assertEquals(100L, comicEarly.copy(finishedAtEpochMs = 900).mergedWith(comicEarly).finishedAtEpochMs)
+    }
+
+    @Test
     fun `a backup from an older version without comics still imports its books`() = runTest {
         // 0.48 까지의 백업: comics · works 칸이 없다.
         val text = """{"format":"olo-ebook-reading-records","version":1,"createdAt":5,"books":[{"name":"어린 왕자.epub","size":10,"bookmarks":[],"annotations":[]}]}"""

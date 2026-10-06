@@ -236,6 +236,9 @@ interface ComicDao {
     @Query("SELECT * FROM comic_bookmarks")
     suspend fun allBookmarks(): List<ComicBookmarkEntity>
 
+    @Query("SELECT * FROM comic_bookmarks WHERE unitId = :unitId")
+    suspend fun bookmarksOf(unitId: String): List<ComicBookmarkEntity>
+
     @Query("SELECT * FROM comic_units WHERE id IN (:ids)")
     suspend fun unitsOf(ids: List<String>): List<ComicUnitEntity>
 

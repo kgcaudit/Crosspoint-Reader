@@ -2,9 +2,9 @@ package io.github.kgcaudit.reader.data.library
 
 import io.github.kgcaudit.reader.document.BookFormat
 import io.github.kgcaudit.reader.document.comic.ArchiveExtensions
-import io.github.kgcaudit.reader.document.extensionOf
 import io.github.kgcaudit.reader.document.comic.ComicContents
 import io.github.kgcaudit.reader.document.comic.ComicUnitKind
+import io.github.kgcaudit.reader.document.extensionOf
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import java.io.IOException

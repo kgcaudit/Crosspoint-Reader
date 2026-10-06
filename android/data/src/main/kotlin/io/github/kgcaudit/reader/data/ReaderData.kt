@@ -15,13 +15,12 @@ import io.github.kgcaudit.reader.document.AnnotationRepository
 import io.github.kgcaudit.reader.document.BookmarkRepository
 import io.github.kgcaudit.reader.document.ProgressRepository
 import io.github.kgcaudit.reader.document.comic.ArchiveExtensions
-import io.github.kgcaudit.reader.document.extensionOf
 import io.github.kgcaudit.reader.document.comic.ComicContents
 import io.github.kgcaudit.reader.document.comic.ComicInfo
 import io.github.kgcaudit.reader.document.comic.ComicUnit
 import io.github.kgcaudit.reader.document.comic.ComicUnitKind
 import io.github.kgcaudit.reader.document.comic.NestedArchives
-import io.github.kgcaudit.reader.document.comic.NaturalOrder
+import io.github.kgcaudit.reader.document.extensionOf
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -107,10 +106,10 @@ class ReaderData(
     }
 
     /**
-     * 살필 차례인 만화 압축(zip · cbz · cbt · cbr · cb7)을 연다: 압축의 목록만 읽고(통째로 복사하지 않는다 — 1GB 압축에서 느리고 공간을
+     * 살필 차례인 만화 압축(zip · rar · 7z · cbz · cbt · cbr · cb7)을 연다: 압축의 목록만 읽고(통째로 복사하지 않는다 — 1GB 압축에서 느리고 공간을
      * 먹는다), 그림만 들었는지 · 쪽 수 · 표지 · 합본 목차 · ComicInfo 를 적는다. 하나가 깨져도 나머지는 계속한다.
      *
-     * @return 살핀 수.
+     * @return 살펴 적은 수. 이번에 읽지 못해 다음으로 미룬 압축은 세지 않는다.
      */
     suspend fun probeComics(): Int = withContext(io) {
         // 살피기 규칙이 바뀌면(0.48.0: 압축 속 권) 옛 규칙이 "만화 아님" 이라 적은 압축을 한 번 다시 본다. 파일이 그대로면
@@ -134,18 +133,28 @@ class ReaderData(
 
     private suspend fun probeRounds(): Int {
         var probed = 0
+        // 이번에 읽지 못해 미룬 단위. 다음 바퀴에 또 고르지 않는다 — 고르면 권한이 풀린 클라우드 압축 하나를 한 부름에서 세 번
+        // 열려다 실패하고, 살핀 수에도 세 번 들어갔다.
+        val deferred = HashSet<String>()
         // 압축 속 권(0.48.0)은 바깥 압축을 살피면서 생긴다 — 같은 부름에서 그 권들까지 살펴야 서재에 바로 보인다. 한 겹만
         // 펼치므로 두 바퀴면 끝나지만, 바퀴 수를 묶어 두어 무엇이 꼬여도 끝없이 돌지 않게 한다.
         repeat(3) {
-            val todo = comics.needingProbe()
+            // 폴더마다 뺀 횟수를 차례 목록을 받기 **전에** 적는다 — 목록을 받은 뒤에 적으면 그 사이에 뺀 폴더의 압축을 알아채지 못한다.
+            val removalsAtStart = HashMap(removals)
+            val todo = comics.needingProbe().filter { it.id !in deferred }
             if (todo.isEmpty()) return probed
-            probeOnce(todo)
-            probed += todo.size
+            probed += probeOnce(todo, removalsAtStart, deferred)
         }
         return probed
     }
 
-    private suspend fun probeOnce(todo: List<io.github.kgcaudit.reader.data.db.ComicUnitEntity>) {
+    /** @return 적은 수. 적지 못한 단위는 [deferred] 에 더한다. */
+    private suspend fun probeOnce(
+        todo: List<io.github.kgcaudit.reader.data.db.ComicUnitEntity>,
+        removalsAtStart: Map<String, Int>,
+        deferred: MutableSet<String>,
+    ): Int {
+        var saved = 0
         for (unit in todo) {
             currentCoroutineContext().ensureActive()
             var contents: ComicContents? = null
@@ -169,17 +178,27 @@ class ReaderData(
             } catch (e: SecurityException) {
                 // 읽기 허락이 잠시 풀렸다 · 제공자(클라우드 · SD 카드)가 빠졌다: 압축이 깨진 것이 아니다. 적지 않고 다음 훑기에
                 // 다시 살핀다 — "만화 아님" 으로 적으면 파일이 바뀌기 전까지 그 만화가 서재에서 사라진다.
+                deferred += unit.id
                 continue
             } catch (e: java.io.FileNotFoundException) {
+                deferred += unit.id
                 continue
             } catch (e: Exception) {
                 // 열 수 없는 압축(깨짐 · 암호). cbz 는 그대로 보이고 zip 은 만화가 아닌 것으로 둔다.
                 contents = null
             }
-            // 바깥을 열지 못했으면(volumes == null) 전에 꺼낸 권들은 그대로 둔다 — 잠깐 못 읽은 것으로 권이 사라지지 않게.
-            volumes?.let { comics.saveVolumes(unit, it, System.currentTimeMillis()) }
-            comics.saveProbe(unit, contents, info, holdsVolumes = !volumes.isNullOrEmpty())
+            // 살피는 사이 그 폴더를 뺐으면 적지 않는다 — 권을 적으면(missing = false) 뺀 폴더의 압축 속 권이 서재에 되살아나고,
+            // 폴더 목록에는 없어 다시 뺄 수도 없다. 훑기([rescan])와 같은 자물쇠 · 같은 확인이다.
+            val written = folderLock.withLock {
+                if ((removals[unit.folderUri] ?: 0) != (removalsAtStart[unit.folderUri] ?: 0)) return@withLock false
+                // 바깥을 열지 못했으면(volumes == null) 전에 꺼낸 권들은 그대로 둔다 — 잠깐 못 읽은 것으로 권이 사라지지 않게.
+                volumes?.let { comics.saveVolumes(unit, it, clock()) }
+                comics.saveProbe(unit, contents, info, holdsVolumes = !volumes.isNullOrEmpty())
+                true
+            }
+            if (written) saved++ else deferred += unit.id
         }
+        return saved
     }
 
     /**
@@ -203,7 +222,7 @@ class ReaderData(
                     // 다 꺼냈을 때만 표시를 남긴다 — 반쯤 꺼낸 사본을 다음에 그대로 열면 뒤쪽 쪽들이 사라진다.
                     val tmp = File(keep, "$VOLUME_FILE$ext.part")
                     if (!outer.copyEntry(inner, tmp) || !tmp.renameTo(file)) throw java.io.IOException("cannot copy out $inner")
-                    done.writeText(id)
+                    done.createNewFile()
                 }
                 outer.close()
                 return ComicArchive.openFile(file, scratch)
@@ -258,7 +277,7 @@ class ReaderData(
                             dir.deleteRecursively()
                             // 다 풀었을 때만 표시를 남긴다 — 저장 공간이 모자라 반쯤 풀렸는데 표시가 남으면 다시 풀지 않아 그 쪽들이
                             // 영영 빈 쪽이 된다. 표시가 없으면 다음에 열 때 처음부터 다시 푼다.
-                            if (archive.unpackAll(dir)) File(dir, DONE).writeText(unit.sizeBytes.toString())
+                            if (archive.unpackAll(dir)) File(dir, DONE).createNewFile()
                         }
                         archive.close()
                         ComicPages(contents.pages, { name -> File(dir, name).takeIf { it.isFile }?.inputStream() }, null)
@@ -272,7 +291,9 @@ class ReaderData(
             }
             ComicUnitKind.IMAGE_FOLDER -> {
                 val files = folderFiles(Uri.parse(unit.id))
-                val pages = files.keys.filter(ComicContents::isImageName).sortedWith(NaturalOrder)
+                // 훑기와 같은 쪽 규칙 — 그림 확장자만 보던 때는 맥이 남긴 `._001.jpg` · 숨김 그림이 쪽으로 끼어, 서재의 쪽 수와
+                // 어긋나고 그 자리에 깨진 쪽이 보였다.
+                val pages = ComicContents.folderPages(files.keys.toList())
                 if (pages.isEmpty()) throw java.io.IOException("no pictures in ${unit.name}")
                 ComicPages(pages, { name -> files[name]?.let { doc -> resolver.openInputStream(doc) } }, null)
             }
@@ -284,35 +305,38 @@ class ReaderData(
     private val unpacked = File(context.cacheDir, "comic-unpacked")
 
     /**
-     * 이 권을 풀어 둘 폴더. 같은 권(파일 · 크기)이면 다시 열 때 다시 풀지 않는다. 최근 [KEEP_UNPACKED] 권만 남긴다 — 다 두면
-     * 만화 몇십 권에 캐시가 기가바이트로 쌓인다.
+     * 이 권을 풀어 둘 폴더. 같은 권(파일 · 크기 · 수정 시각)이면 다시 열 때 다시 풀지 않는다. 최근 [KEEP_UNPACKED] 권만 남긴다 —
+     * 다 두면 만화 몇십 권에 캐시가 기가바이트로 쌓인다.
+     *
+     * 수정 시각은 지금 파일의 것을 제공자에게 묻는다: 파일 · 크기만 보던 때는 같은 이름 · 같은 크기로 바꿔 넣은 권(다시 받은
+     * 스캔본)이 옛 쪽을 보였다. 서재의 값은 마지막 훑기 때의 것이라 훑기 전에 열면 놓친다.
      */
     private fun unpackedDir(unit: ComicUnit): File {
-        val key = java.security.MessageDigest.getInstance("SHA-1").digest("${unit.id}|${unit.sizeBytes}".toByteArray())
+        val key = java.security.MessageDigest.getInstance("SHA-1").digest("${unit.id}|${unit.sizeBytes}|${modifiedOf(unit)}".toByteArray())
             .joinToString("") { "%02x".format(it) }.take(20)
         val dir = File(unpacked, key)
+        // 파일 시각이라 파일 시각끼리 견준다 — [clock] 을 쓰면 시험의 멈춘 시계에서 모든 폴더가 같은 시각이 되어 지울 차례가 엉킨다.
         dir.setLastModified(System.currentTimeMillis())
         unpacked.listFiles()?.filter { it != dir }?.sortedByDescending { it.lastModified() }?.drop(KEEP_UNPACKED - 1)?.forEach { it.deleteRecursively() }
         return dir
     }
 
-    /** 그림 폴더 바로 안의 파일: 이름 → 문서 URI. */
-    private fun folderFiles(folder: Uri): Map<String, Uri> {
-        val children = android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(folder, android.provider.DocumentsContract.getDocumentId(folder))
-        val projection = arrayOf(android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID, android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+    /**
+     * 그림 폴더 바로 안의 파일(하위 폴더는 빼고): 이름 → 문서 URI. 훑기와 같은 목록 읽기([SafDocumentTree])를 쓴다 — 제공자의
+     * 오류는 [java.io.IOException] 으로 바뀌어 "못 읽음" 으로 올라간다.
+     */
+    private fun folderFiles(folder: Uri): Map<String, Uri> =
+        SafDocumentTree(resolver, folder).children(android.provider.DocumentsContract.getDocumentId(folder))
+            .filter { !it.isDirectory }
+            .associate { it.name to Uri.parse(it.uri) }
+
+    /** 만화 파일의 지금 수정 시각. 압축 속 권은 바깥 압축의 것. 제공자가 모르거나 못 물으면 null. */
+    private fun modifiedOf(unit: ComicUnit): Long? = runCatching {
+        val uri = Uri.parse(NestedArchives.split(unit.id)?.first ?: unit.id)
         // Bundle 판 query — 5인자 판은 일부 경로(래퍼 · Robolectric)에서 제공자가 받지 않는다(SafDocumentTree 와 같은 까닭).
-        val cursor = resolver.query(children, projection, null as android.os.Bundle?, null)
-            ?: throw java.io.IOException("provider returned no cursor for $children")
-        return cursor.use { c ->
-            val out = LinkedHashMap<String, Uri>()
-            while (c.moveToNext()) {
-                val id = c.getString(0) ?: continue
-                val name = c.getString(1) ?: continue
-                out[name] = android.provider.DocumentsContract.buildDocumentUriUsingTree(folder, id)
-            }
-            out
-        }
-    }
+        resolver.query(uri, arrayOf(android.provider.DocumentsContract.Document.COLUMN_LAST_MODIFIED), null as android.os.Bundle?, null)
+            ?.use { c -> if (c.moveToFirst() && !c.isNull(0)) c.getLong(0) else null }
+    }.getOrNull()
 
     /** 폴더 빼기와 훑은 결과 넣기를 차례로 세운다. */
     private val folderLock = Mutex()
@@ -334,7 +358,10 @@ class ReaderData(
          */
         const val PROBE_GENERATION = 4
         const val PROBE_MARK = "comic-probe-generation"
-        /** 다 풀었다는 표시 파일. 풀다가 앱이 닫히면 없으니, 다음에 다시 푼다. */
+        /**
+         * 다 풀었다는 표시 파일(빈 파일 — 있는지만 본다. 어느 권인지는 폴더 열쇠가 말한다). 풀다가 앱이 닫히거나 공간이 모자라
+         * 멈췄으면 없으니, 다음에 다시 푼다.
+         */
         const val DONE = ".olo-unpacked"
         /** 압축 속 권(0.48.0)을 꺼내 둔 사본의 이름 앞부분(뒤에 확장자)과, 다 꺼냈다는 표시. */
         const val VOLUME_FILE = ".olo-volume."

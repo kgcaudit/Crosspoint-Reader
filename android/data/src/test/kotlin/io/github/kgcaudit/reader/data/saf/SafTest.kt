@@ -357,6 +357,58 @@ class SafTest {
     }
 
     @Test
+    fun `a picture folder opens with the same pages the shelf counted, without mac shadow files`() = runTest {
+        // 뷰어만 그림 확장자로 쪽을 고르던 때는 맥이 남긴 `._001.jpg` · 숨김 그림이 쪽으로 끼어 깨진 쪽이 보였다.
+        val jpg = ByteArray(16) { 1 }
+        listOf("001.jpg", "002.jpg", "003.jpg", "._001.jpg", ".hidden.jpg", "Thumbs.db").forEach { put("Webtoon/1화/$it", jpg) }
+        put("Webtoon/1화/부록/004.jpg", jpg)
+        data.folders.register(tree)
+        data.rescanAll()
+        val unit = data.comics.units().first().single()
+        assertEquals(3, unit.pageCount)
+        data.openComic(unit).use { assertEquals(listOf("001.jpg", "002.jpg", "003.jpg"), it.names) }
+        assertEquals(jpg.size, data.comicCover(unit)?.size)
+    }
+
+    @Test
+    fun `a folder removed while its archives are being probed does not bring their volumes back`() = runTest {
+        // 살피는 사이 사용자가 폴더를 뺐다. 살핀 결과를 그대로 적으면 뺀 폴더의 압축 속 권이 서재에 되살아나고(권은 missing = false
+        // 로 적힌다), 폴더 목록에는 없어 다시 뺄 수도 없다.
+        val jpg = ByteArray(16) { 1 }
+        put("C/별 (1-2).zip", zip("별 1권.cbz" to zip("1.jpg" to jpg), "별 2권.cbz" to zip("1.jpg" to jpg)))
+        data.folders.register(tree)
+        data.rescanAll()
+        TestDocumentsProvider.onOpen = {
+            TestDocumentsProvider.onOpen = null
+            kotlinx.coroutines.runBlocking { data.removeFolder(tree) }
+        }
+        data.probeComics()
+        assertTrue(data.comics.units().first().isEmpty(), "뺀 폴더의 권이 서재에 남았다")
+        // 같은 폴더를 다시 등록하면 다시 훑고 살펴 보인다.
+        data.folders.register(tree)
+        data.rescanAll()
+        data.probeComics()
+        assertEquals(setOf("별 1권.cbz", "별 2권.cbz"), data.comics.units().first().map { it.name }.toSet())
+    }
+
+    @Test
+    fun `a rar replaced by another of the same name and size opens with its new pages`() = runTest {
+        // 풀어 둔 권을 파일 · 크기로만 알아보던 때는 같은 이름 · 같은 크기로 바꿔 넣은 권(다시 받은 스캔본)이 옛 쪽을 보였다.
+        val first = listOf("001.png" to "p1".toByteArray(), "002.png" to "p2".toByteArray())
+        val second = listOf("001.png" to "q1".toByteArray(), "002.png" to "q2".toByteArray())
+        val file = put("C/별 01권.cbr", io.github.kgcaudit.reader.document.archive.StoredArchives.rar4(first))
+        data.folders.register(tree)
+        data.rescanAll()
+        data.probeComics()
+        val unit = data.comics.units().first().single()
+        data.openComic(unit).use { assertEquals("p1", it.read(0)!!.decodeToString()) }
+        file.writeBytes(io.github.kgcaudit.reader.document.archive.StoredArchives.rar4(second))
+        file.setLastModified(file.lastModified() + 60_000)
+        // 서재를 아직 다시 훑지 않았어도(서재의 크기 · 시각은 옛 값) 새 쪽이 보여야 한다.
+        data.openComic(unit).use { assertEquals("q1", it.read(0)!!.decodeToString()) }
+    }
+
+    @Test
     fun `rar and 7z volumes bundled in a zip show up as volumes and open`() = runTest {
         // 0.49.0 은 그냥 .rar · .7z 를 만화로 보면서 압축 속 권 목록에는 빠뜨려, 권 rar · 7z 를 묶은 zip 이 통째로 "만화 아님" 이 됐다.
         val pages = listOf("001.png" to "p1".toByteArray(), "002.png" to "p2".toByteArray())

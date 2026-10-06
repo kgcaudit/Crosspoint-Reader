@@ -11,6 +11,7 @@ import io.github.kgcaudit.reader.data.db.ComicProgressEntity
 import io.github.kgcaudit.reader.data.db.LocatorOrder
 import io.github.kgcaudit.reader.data.db.ProgressEntity
 import io.github.kgcaudit.reader.data.db.ReaderDatabase
+import io.github.kgcaudit.reader.data.library.ComicLibrary
 import io.github.kgcaudit.reader.document.Locator
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
@@ -119,17 +120,22 @@ class RecordsBackup(
         }
     }
 
-    /** 작품마다 손으로 정한 이름 · 넘기는 방향 · 보는 방식(사용자 결정 1-가). 작품 열쇠는 이름에서 나와 새 휴대폰에서도 같다. */
+    /**
+     * 작품마다 손으로 정한 이름 · 넘기는 방향 · 보는 방식(사용자 결정 1-가). 작품 열쇠는 이름에서 나와 새 휴대폰에서도 같다.
+     *
+     * 따로 뺀 작품의 열쇠([ComicLibrary.OWN_PREFIX] + 단위 id)는 담지 않는다 — 이 휴대폰의 문서 주소라 새 휴대폰에서 맞는
+     * 작품이 없다. 담으면 백업에 쓸모없는 줄만 쌓이고, 가져온 쪽에도 붙을 데 없는 손 고침이 남는다.
+     */
     private suspend fun collectWorks(): List<WorkRecord> {
         val rows = db.comics().allOverrides()
-        val keys = rows.filter { it.kind in WORK_KINDS }.map { it.subject }.distinct()
+        val keys = rows.filter { it.kind in WORK_KINDS && !it.subject.startsWith(ComicLibrary.OWN_PREFIX) }.map { it.subject }.distinct()
         return keys.map { key ->
             fun value(kind: String) = rows.firstOrNull { it.kind == kind && it.subject == key }?.value
             WorkRecord(
                 key = key,
-                title = value(TITLE),
-                rightToLeft = when (value(RTL)) { "1" -> true; "0" -> false; else -> null },
-                view = value(VIEW),
+                title = value(ComicLibrary.TITLE),
+                rightToLeft = when (value(ComicLibrary.RTL)) { "1" -> true; "0" -> false; else -> null },
+                view = value(ComicLibrary.VIEW),
             )
         }.filter { it.title != null || it.rightToLeft != null || it.view != null }
     }
@@ -258,7 +264,7 @@ class RecordsBackup(
                 comics.saveProgress(old.copy(finishedAtEpochMs = r.finishedAtEpochMs))
             }
         }
-        val marks = comics.allBookmarks().filter { it.unitId == id }.mapTo(HashSet()) { it.page }
+        val marks = comics.bookmarksOf(id).mapTo(HashSet()) { it.page }
         for (b in r.bookmarks) if (marks.add(b.page)) comics.addBookmark(ComicBookmarkEntity(id, b.page, b.createdAtEpochMs))
     }
 
@@ -268,9 +274,11 @@ class RecordsBackup(
         val comics = db.comics()
         val have = comics.allOverrides().filter { it.kind in WORK_KINDS }.mapTo(HashSet()) { it.kind to it.subject }
         for (w in works.mergedByWork()) {
-            if (w.title != null && (TITLE to w.key) !in have) comics.setOverride(ComicOverrideEntity(TITLE, w.key, w.title))
-            if (w.rightToLeft != null && (RTL to w.key) !in have) comics.setOverride(ComicOverrideEntity(RTL, w.key, if (w.rightToLeft) "1" else "0"))
-            if (w.view != null && (VIEW to w.key) !in have) comics.setOverride(ComicOverrideEntity(VIEW, w.key, w.view))
+            if (w.title != null && (ComicLibrary.TITLE to w.key) !in have) comics.setOverride(ComicOverrideEntity(ComicLibrary.TITLE, w.key, w.title))
+            if (w.rightToLeft != null && (ComicLibrary.RTL to w.key) !in have) {
+                comics.setOverride(ComicOverrideEntity(ComicLibrary.RTL, w.key, if (w.rightToLeft) "1" else "0"))
+            }
+            if (w.view != null && (ComicLibrary.VIEW to w.key) !in have) comics.setOverride(ComicOverrideEntity(ComicLibrary.VIEW, w.key, w.view))
         }
     }
 
@@ -318,7 +326,7 @@ class RecordsBackup(
         return text?.let(RecordsCodec::decode) ?: RecordsFile(0, emptyList())
     }
 
-    private fun writePending(books: List<BookRecord>, comics: List<ComicRecord> = readPending().comics) {
+    private fun writePending(books: List<BookRecord>, comics: List<ComicRecord>) {
         val file = AtomicFile(pendingFile)
         if (books.isEmpty() && comics.isEmpty()) {
             file.delete()
@@ -339,11 +347,8 @@ class RecordsBackup(
     private companion object {
         /** 책 수천 권의 기록도 몇 MB 다. 이보다 크면 백업이 아니다. */
         const val MAX_BYTES = 32 * 1024 * 1024
-        // 만화 손 고침의 종류(ComicLibrary 와 같은 글). 작품 열쇠로 적는 것만 백업한다 — WORK_OF · PREFERRED 는 이 휴대폰의 문서
-        // 주소로 적혀 새 휴대폰에서 맞지 않는다.
-        const val TITLE = "TITLE"
-        const val RTL = "RTL"
-        const val VIEW = "VIEW"
-        val WORK_KINDS = setOf(TITLE, RTL, VIEW)
+        // 만화 손 고침 가운데 작품 열쇠로 적는 것만 백업한다 — WORK_OF · PREFERRED 는 이 휴대폰의 문서 주소로 적혀 새 휴대폰에서
+        // 맞지 않는다.
+        val WORK_KINDS = setOf(ComicLibrary.TITLE, ComicLibrary.RTL, ComicLibrary.VIEW)
     }
 }

@@ -26,8 +26,8 @@ data class BookRecord(
 
     /**
      * 같은 책의 기록 두 벌을 하나로. 가져오기가 DB 에 합치는 규칙과 같다 — 읽은 자리는 더 뒤쪽, 책갈피 · 형광펜은
-     * 둘 다(같은 자리는 하나), 다 읽은 때는 먼저 적힌 것. 기다리는 기록(못 찾은 책)을 두 번 가져와도 두 벌로
-     * 쌓이지 않게 쓴다.
+     * 둘 다(같은 자리는 하나), 다 읽은 때는 가장 이른 때(만화 [ComicRecord.mergedWith] 와 같다). 기다리는 기록(못 찾은
+     * 책)을 두 번 가져와도 두 벌로 쌓이지 않게 쓴다.
      */
     internal fun mergedWith(other: BookRecord): BookRecord = copy(
         title = title ?: other.title,
@@ -39,7 +39,8 @@ data class BookRecord(
             else -> progress
         },
         openedAtEpochMs = listOfNotNull(openedAtEpochMs, other.openedAtEpochMs).maxOrNull(),
-        finishedAtEpochMs = finishedAtEpochMs ?: other.finishedAtEpochMs,
+        // 목록 앞의 값을 고르던 때는 합치는 순서에 따라 끝낸 날이 나중 날로 바뀌었다 — 만화는 가장 이른 날이라 둘이 어긋났다.
+        finishedAtEpochMs = listOfNotNull(finishedAtEpochMs, other.finishedAtEpochMs).minOrNull(),
         bookmarks = (bookmarks + other.bookmarks).distinctBy { it.locator },
         annotations = (annotations + other.annotations).groupBy { it.range }.values.map { same ->
             same.first().let { first -> if (first.note == null) first.copy(note = same.firstNotNullOfOrNull { it.note }) else first }
@@ -106,7 +107,7 @@ data class ComicRecord(
         return mine > theirs || (mine == theirs && (offset ?: 0f) > (other.offset ?: 0f))
     }
 
-    /** 같은 권의 기록 두 벌을 하나로: 읽은 자리는 더 뒤쪽, 다 읽은 때는 먼저 적힌 것, 책갈피는 둘 다. */
+    /** 같은 권의 기록 두 벌을 하나로: 읽은 자리는 더 뒤쪽, 다 읽은 때는 가장 이른 때(책과 같다), 책갈피는 둘 다. */
     internal fun mergedWith(other: ComicRecord): ComicRecord {
         val further = if (other.isFurtherThan(this)) other else this
         return further.copy(
