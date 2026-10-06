@@ -39,7 +39,8 @@ dependencies {
     // PDF 화면을 앱 없이 띄운다 — 밀기 · 폭 맞춤 · 듣기 판처럼 화면에서만 드러나는 동작을 이 모듈 안에서 지킨다.
     testImplementation(platform(libs.compose.bom))
     testImplementation(libs.compose.ui.test.junit4)
-    debugImplementation(libs.compose.ui.test.manifest)
+    // 화면 시험의 빈 Activity 를 release 단위 시험에도 — debugImplementation 만이면 release 시험이 Activity 를 못 찾았다.
+    testImplementation(libs.compose.ui.test.manifest)
 }
 
 tasks.withType<Test>().configureEach {
