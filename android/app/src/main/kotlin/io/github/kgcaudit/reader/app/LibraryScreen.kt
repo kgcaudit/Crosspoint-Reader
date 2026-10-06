@@ -605,11 +605,11 @@ private fun ShelfCover(book: LibraryBook, width: androidx.compose.ui.unit.Dp, on
     }
 }
 
-/** 목록 보기의 읽는 중 줄: 진도 막대 · 몇 %. */
+/** 읽는 중 줄: 진도 막대 · 몇 %. 목록 보기는 오른쪽을 띄우고([modifier] 기본), 격자 칸은 칸 폭을 다 쓴다. */
 @Composable
-private fun PercentLine(percent: Float?) {
+private fun PercentLine(percent: Float?, modifier: Modifier = Modifier.padding(top = 6.dp, end = 12.dp)) {
     val p = percent ?: 0f
-    Row(Modifier.padding(top = 6.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         CpProgressBar(p / 100f, Modifier.weight(1f), CpBarWeight.Thin)
         Spacer(Modifier.width(6.dp))
         CpText("${p.roundToInt()}%", CpTheme.type.caption, CpTheme.colors.textMuted)
@@ -635,17 +635,11 @@ private fun ShelfItem(
     onLongClick: (LibraryBook) -> Unit,
 ) {
     val c = CpTheme.colors
-    val p = percent ?: 0f
     Column(Modifier.width(width).combinedClickable(role = Role.Button, onLongClick = { onLongClick(book) }, onClick = { onOpen(book) })) {
         BookCover(book, Modifier.fillMaxWidth())
         Spacer(Modifier.height(8.dp))
         CpText(book.label, CpTheme.type.label, c.text)
-        Spacer(Modifier.height(6.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            CpProgressBar(p / 100f, Modifier.weight(1f), CpBarWeight.Thin)
-            Spacer(Modifier.width(6.dp))
-            CpText("${p.roundToInt()}%", CpTheme.type.caption, c.textMuted)
-        }
+        PercentLine(percent, Modifier.padding(top = 6.dp))
     }
 }
 
@@ -664,12 +658,10 @@ private fun DoneItem(
         BookCover(book, Modifier.fillMaxWidth())
         Spacer(Modifier.height(8.dp))
         CpText(book.label, CpTheme.type.label, c.text)
-        Spacer(Modifier.height(4.dp))
-        CpText("다 읽음 · ${monthDay(finishedAtEpochMs)}", CpTheme.type.caption, c.accentText)
+        DoneLine(finishedAtEpochMs)
     }
 }
 
-/** "9월 21일". 해가 바뀌어도 책장에서는 날짜만으로 충분하다 — 해까지 적으면 칸 폭을 넘는다. */
 /**
  * 시스템 고르기 창(파일 · 폴더 · 사진)을 연다. 그 창이 없는 기기(일부 Go · TV · 관리 프로필)에서는 열기 자체가 예외라 앱이
  * 닫혔다 — 빈 서재에서 "폴더 추가" 를 누르면 끝이었다. 없으면 [onMissing] 으로 알린다.
@@ -709,6 +701,7 @@ internal fun CoroutineScope.launchWrite(onError: (Exception) -> Unit, then: () -
     then()
 }
 
+/** "9월 21일". 해가 바뀌어도 책장에서는 날짜만으로 충분하다 — 해까지 적으면 칸 폭을 넘는다. */
 internal fun monthDay(epochMs: Long): String {
     val date = java.time.Instant.ofEpochMilli(epochMs).atZone(java.time.ZoneId.systemDefault()).toLocalDate()
     return "${date.monthValue}월 ${date.dayOfMonth}일"

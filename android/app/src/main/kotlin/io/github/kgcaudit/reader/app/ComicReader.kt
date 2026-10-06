@@ -170,10 +170,10 @@ fun ComicReader(
     onClose: () -> Unit,
     onChrome: (Boolean) -> Unit,
     /** 사람이 고른 보는 방식(null 은 자동). */
-    view: ComicView? = null,
-    onView: (ComicView?) -> Unit = {},
+    view: ComicView?,
+    onView: (ComicView?) -> Unit,
     /** 쪽 크기(머리만 읽은 것). 두 쪽 보기의 짝 · 함께 맞춤에 쓴다. 모르면 빈 목록. */
-    sizes: List<ImageSize?> = emptyList(),
+    sizes: List<ImageSize?>,
 ) {
     val count = book.pageCount
     // 지금 판의 첫 쪽. 두 쪽 보기를 켜고 끄면 그 쪽이 든 판으로 맞춘다.
@@ -227,10 +227,6 @@ fun ComicReader(
     val turns = rememberPageTurnState()
 
     /**
-     * 읽는 순서로 한 판(한 쪽 또는 두 쪽) 밀어 넘긴다. 끌던 중이면 그 자리에서 이어 민다. 마지막 판에서 앞으로 가면 권 끝 판,
-     * 첫 판에서 뒤로 가면 제자리로 돌아온다.
-     */
-    /**
      * 판의 자리(0.46.0, 종이책 규칙): 두 쪽 보기에서 혼자인 표지는 뒤 쪽 자리, 혼자 남은 쪽은 앞 쪽 자리, 펼침면 그림은
      * 가운데. 한 쪽 보기는 늘 가운데.
      */
@@ -264,6 +260,10 @@ fun ComicReader(
     /** 지금 판의 가운데에서 [index] 판의 가운데까지 — 두 그림의 가장자리가 맞닿는 거리. */
     fun stepTo(index: Int): Float = (spanOf(spreadIndex) + spanOf(index)) / 2f
 
+    /**
+     * 읽는 순서로 한 판(한 쪽 또는 두 쪽) 밀어 넘긴다. 끌던 중이면 그 자리에서 이어 민다. 마지막 판에서 앞으로 가면 권 끝 판,
+     * 첫 판에서 뒤로 가면 제자리로 돌아온다.
+     */
     fun advance(forward: Boolean, quiet: Boolean = false) {
         val target = spreadIndex + if (forward) 1 else -1
         if (target !in spreads.indices) {
@@ -543,6 +543,7 @@ fun ComicReader(
         VolumeEnd(
             entryLabel = work?.let { ComicReading.entryOf(it, book.unit.id)?.label } ?: title,
             workTitle = work?.title,
+            unit = unitWord(work),
             next = next,
             onNext = { n -> ended = false; onNext(n) },
             onLibrary = onClose,
@@ -583,7 +584,7 @@ internal fun pageAt(fraction: Float, pageCount: Int): Int =
  * 앞 쪽을 오른쪽에 둔다.
  */
 @Composable
-private fun ComicPageImage(book: ComicBook, sizes: List<ImageSize?>, pages: List<Int>, w: Int, h: Int, viewport: PageViewport?, rtl: Boolean, bias: Float, slot: SpreadSlot = SpreadSlot.Center, trim: Boolean = false) {
+private fun ComicPageImage(book: ComicBook, sizes: List<ImageSize?>, pages: List<Int>, w: Int, h: Int, viewport: PageViewport?, rtl: Boolean, bias: Float, slot: SpreadSlot, trim: Boolean) {
     val bitmaps = remember(pages, w, h, trim) { androidx.compose.runtime.mutableStateListOf(*pages.map { book.cached(it, w, h, trim) }.toTypedArray()) }
     var broken by remember(pages, w, h, trim) { mutableStateOf(pages.any { book.isBroken(it) }) }
     LaunchedEffect(pages, w, h, trim) {
@@ -656,37 +657,6 @@ internal fun spreadAspect(book: ComicBook, sizes: List<ImageSize?>, pages: List<
 private fun pageAspect(book: ComicBook, sizes: List<ImageSize?>, page: Int, trim: Boolean = false): Float? =
     (if (trim) book.trimmedAspect(page) else null) ?: sizes.getOrNull(page)?.let { it.width.toFloat() / it.height } ?: book.knownAspect(page)
 
-/**
- * 아래 줄 그리기. 웹툰(%)도 같은 모양으로 쓴다. 세 자리는 책의 하단 정보 설정을 따른다 — 0.41 까지는 "제목 · 쪽" 으로
- * 박혀 있어 설정에서 시계 · 배터리를 골라도 만화에는 나오지 않았다. 장 이름 자리에는 권 · 화 이름이 선다. 남은 쪽 · 시간은
- * 만화에 없어 빈칸이다.
- */
-@Composable
-internal fun ComicFooterLine(
-    title: String,
-    entry: String?,
-    position: String,
-    fraction: Float,
-    rtl: Boolean,
-    footer: io.github.kgcaudit.reader.ui.design.Footer,
-    modifier: Modifier,
-) {
-    io.github.kgcaudit.reader.ui.design.CpReadingFooter(
-        io.github.kgcaudit.reader.ui.design.FooterInfo(
-            bookTitle = title,
-            chapterTitle = entry,
-            page = position,
-            percent = fraction.coerceIn(0f, 1f) * 100f,
-            chapterPagesLeft = null,
-        ),
-        footer,
-        COMIC_INK_MUTED,
-        modifier.padding(top = 6.dp, bottom = 12.dp),
-        track = Color(0x33FFFFFF),
-        reversed = rtl,
-    )
-}
-
 /** 쪽 목록(구상안 ③): 쪽 그림 격자, 지금 쪽 강조. 목차가 없는 만화의 "목차" 다. */
 @Composable
 private fun PageGrid(book: ComicBook, title: String, current: Int, onBack: () -> Unit, onPick: (Int) -> Unit) {
@@ -758,21 +728,21 @@ internal fun BookmarkList(book: ComicBook, pages: List<Int>, onBack: () -> Unit,
 
 /** 권 끝(구상안 ④): "1권을 다 읽었습니다" + 다음 권 표지 · 이어서 보기 · 서재로. 마지막 권이면 서재로만. */
 @Composable
-private fun VolumeEnd(entryLabel: String, workTitle: String?, next: WorkEntry?, onNext: (WorkEntry) -> Unit, onLibrary: () -> Unit) {
+private fun VolumeEnd(entryLabel: String, workTitle: String?, unit: String, next: WorkEntry?, onNext: (WorkEntry) -> Unit, onLibrary: () -> Unit) {
     Column(
         Modifier.fillMaxSize().background(COMIC_BACKDROP).clickable(indication = null, interactionSource = null) {}
             .padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
-    ) { EndCard(entryLabel, workTitle, next, onNext, onLibrary) }
+    ) { EndCard(entryLabel, workTitle, unit, next, onNext, onLibrary) }
 }
 
-/** 끝 판의 "마지막 권/화입니다": 줄 이름이 "화" 로 끝나면 웹툰의 화다. */
-private fun endUnit(entryLabel: String) = if (entryLabel.trimEnd().endsWith("화")) "화" else "권"
-
-/** 권 · 화 끝 판의 내용. 쪽 넘김은 화면을 덮고, 웹툰은 목록 맨 끝에 이어 붙인다. */
+/**
+ * 권 · 화 끝 판의 내용. 쪽 넘김은 화면을 덮고, 웹툰은 목록 맨 끝에 이어 붙인다. [unit] 은 "마지막 권/화입니다" 의 세는 말
+ * ([unitWord]) — 줄 이름의 끝 글자로 따로 가르던 때(0.49.0 까지)는 서재의 세는 말과 규칙이 둘이었다.
+ */
 @Composable
-internal fun EndCard(entryLabel: String, workTitle: String?, next: WorkEntry?, onNext: (WorkEntry) -> Unit, onLibrary: () -> Unit) {
+internal fun EndCard(entryLabel: String, workTitle: String?, unit: String, next: WorkEntry?, onNext: (WorkEntry) -> Unit, onLibrary: () -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         CpText("${entryLabel}${objectParticle(entryLabel)} 다 읽었습니다", CpTheme.type.title, Color.White)
         Spacer(Modifier.height(24.dp))
@@ -783,7 +753,7 @@ internal fun EndCard(entryLabel: String, workTitle: String?, next: WorkEntry?, o
             Spacer(Modifier.height(20.dp))
             CpButton("이어서 읽기", { onNext(next) })
         } else {
-            CpText("마지막 ${endUnit(entryLabel)}입니다", CpTheme.type.subtitle, COMIC_INK_MUTED)
+            CpText("마지막 ${unit}입니다", CpTheme.type.subtitle, COMIC_INK_MUTED)
         }
         Spacer(Modifier.height(12.dp))
         CpTextButton("서재로", onLibrary, Modifier.heightIn(min = CpTheme.metrics.touchTarget), color = COMIC_INK_MUTED)

@@ -623,9 +623,7 @@ internal fun turnSoundAllowed(sound: TurnSound, ringerNormal: Boolean, otherAudi
  * 소리가 위아래로 갈라져 어색하다 — 이어폰 · 가로 화면 · 펼친 폴더블(폭 600dp 이상)에서만 넣는다.
  */
 internal fun spatialTurnSound(headphones: Boolean, landscape: Boolean, widthDp: Int): Boolean =
-    headphones || landscape || widthDp >= SPATIAL_WIDTH_DP
-
-internal const val SPATIAL_WIDTH_DP = 600
+    headphones || landscape || widthDp >= ScreenPrefs.WIDE_SCREEN_DP
 
 /**
  * 소리가 어디서 어디로 쓸려 가는지(-1 왼쪽 · +1 오른쪽, 결정 ① 쓸림). 넘어가는 종이 쪽에서 시작해 가운데를 조금 지나 끝난다 —

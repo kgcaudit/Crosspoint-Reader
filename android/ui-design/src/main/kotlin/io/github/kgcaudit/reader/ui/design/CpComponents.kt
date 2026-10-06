@@ -252,7 +252,7 @@ fun CpTabBar(tabs: List<String>, selected: Int, onSelect: (Int) -> Unit, modifie
 
 enum class CpBarWeight(val height: Dp) { Thin(2.dp), Medium(4.dp) }
 
-/** CrossPoint `drawProgressBar`. 굵기 3단계. */
+/** CrossPoint `drawProgressBar`. 굵기 2단계([CpBarWeight]: 가는 · 보통). */
 @Composable
 fun CpProgressBar(
     fraction: Float,

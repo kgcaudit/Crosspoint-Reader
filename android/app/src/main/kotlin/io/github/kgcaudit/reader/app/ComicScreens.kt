@@ -130,7 +130,7 @@ internal fun unitWord(entry: WorkEntry) = if (entry.name.chapter != null && entr
 private fun kindLabel(work: Work) = if (work.webtoon) "웹툰" else "만화"
 
 /** "12권" · "48화". 합본 · 외전도 한 줄로 센다 — 작품 화면에서 보이는 줄 수와 같아야 한다. */
-private fun countLabel(work: Work) = "${work.volumeCount}${if (work.webtoon) "화" else "권"}"
+private fun countLabel(work: Work) = "${work.volumeCount}${unitWord(work)}"
 
 /** 작품의 얼굴이 되는 단위: 첫 줄(1권 · 1화). */
 private fun Work.face(): ComicUnit = entries.first().unit
@@ -226,7 +226,7 @@ private fun ResumeLine(work: Work, entry: WorkEntry, progress: ComicProgress?, n
     io.github.kgcaudit.reader.ui.design.CpProgressBar(progress?.fraction ?: 0f, Modifier.fillMaxWidth(), io.github.kgcaudit.reader.ui.design.CpBarWeight.Thin)
     Spacer(Modifier.height(4.dp))
     if (newVolumes && progress == null) {
-        CpText("새 ${if (work.webtoon) "화" else "권"} · ${entry.label}부터", CpTheme.type.caption, c.accentText)
+        CpText("새 ${unitWord(work)} · ${entry.label}부터", CpTheme.type.caption, c.accentText)
     } else {
         CpText(resumeLabel(entry, progress), CpTheme.type.caption, c.textMuted)
     }
@@ -414,10 +414,7 @@ internal fun WorkScreen(
                 entry.sections.forEachIndexed { i, label ->
                     item(key = entry.slot + "#" + i) {
                         val section = sections.getOrNull(i)
-                        val pages = section?.takeIf { it.pageCount > 0 }?.let {
-                            // 한 쪽뿐이면 "5–5쪽" 이 아니라 "5쪽".
-                            if (it.pageCount == 1) "${it.firstPage + 1}쪽" else "${it.firstPage + 1}–${it.firstPage + it.pageCount}쪽"
-                        }
+                        val pages = section?.let { sectionPages(it.firstPage, it.pageCount) }
                         // 합본 안의 권을 누르면 그 권의 첫 쪽부터.
                         UnitRow(entry.unit, work.title, label, pages, indent = ENTRY_LEAD, onClick = { onEntry(entry, section?.firstPage) })
                     }
@@ -433,10 +430,14 @@ private enum class WorkLayout { List, TwoPane, Grid }
 /** 격자 칸 하나: 권 · 화, 또는 합본 안의 권(그 합본의 [firstPage] 부터). */
 private class WorkCell(val entry: WorkEntry, val label: String, val sub: String?, val progress: Float?, val firstPage: Int?, val inside: String?)
 
-/** 권 줄과 같은 글: "다 읽음 · 180쪽" · "45 / 182쪽" · "182쪽". */
+/**
+ * 권 줄 · 격자 칸의 아랫글: "다 읽음 · 180쪽" · "45 / 182쪽" · "한 파일 · 300쪽" · "182쪽". 줄 목록과 격자가 한 벌을 쓴다 — 두
+ * 벌이던 때 0.43.0 에서 한쪽만 "다 읽음 · …" 꼴로 고쳐져 둘이 어긋났다.
+ */
 private fun entrySub(entry: WorkEntry, progress: ComicProgress?): String? {
     val pages = progress?.pageCount?.takeIf { it > 0 } ?: entry.unit.pageCount
     return when {
+        // 다 읽은 줄은 서재와 같은 꼴 "다 읽음 · …"(0.43.0).
         progress?.finished == true -> listOfNotNull("다 읽음", pages?.let { "${it}쪽" }).joinToString(" · ")
         progress != null && pages != null -> "${progress.page + 1} / ${pages}쪽"
         entry.omnibus && pages != null -> "한 파일 · ${pages}쪽"
@@ -446,14 +447,24 @@ private fun entrySub(entry: WorkEntry, progress: ComicProgress?): String? {
     }
 }
 
+/** 줄 이름: 범위로 읽힌 합본은 "4–6권 합본", 목차로만 알아본 합본은 이름 그대로(이미 "합본" 이 붙은 경우가 많다). */
+private fun entryLabel(entry: WorkEntry): String = if (entry.omnibus && entry.name.isRange) "${entry.label} 합본" else entry.label
+
+/** 합본 안 권의 쪽 범위 "5–9쪽". 한 쪽뿐이면 "5–5쪽" 이 아니라 "5쪽". 쪽 수를 모르면 null. */
+private fun sectionPages(firstPage: Int, pageCount: Int): String? = when {
+    pageCount <= 0 -> null
+    pageCount == 1 -> "${firstPage + 1}쪽"
+    else -> "${firstPage + 1}–${firstPage + pageCount}쪽"
+}
+
 private fun workCells(work: Work, progress: Map<String, ComicProgress>): List<WorkCell> = work.entries.flatMap { entry ->
     val p = progress[entry.unit.id]
-    val label = if (entry.omnibus && entry.name.isRange) "${entry.label} 합본" else entry.label
+    val label = entryLabel(entry)
     val sections = entry.unit.contents?.sections.orEmpty()
     listOf(WorkCell(entry, label, entrySub(entry, p), p?.let { if (it.finished) 1f else it.fraction }, null, null)) +
         entry.sections.mapIndexed { i, section ->
             val s = sections.getOrNull(i)?.takeIf { it.pageCount > 0 }
-            val pages = s?.let { if (it.pageCount == 1) "${it.firstPage + 1}쪽" else "${it.firstPage + 1}–${it.firstPage + it.pageCount}쪽" }
+            val pages = s?.let { sectionPages(it.firstPage, it.pageCount) }
             // 합본 안의 권은 그 합본에 속한다는 것을 글로 보인다 — 격자에서는 들여쓰기로 보일 수 없다.
             WorkCell(entry, section, pages, null, s?.firstPage, "$label 안")
         }
@@ -571,20 +582,7 @@ internal val ENTRY_LEAD = ENTRY_COVER + 14.dp
 
 @Composable
 private fun EntryRow(entry: WorkEntry, title: String, progress: ComicProgress?, onEntry: (WorkEntry) -> Unit, onCopies: (WorkEntry) -> Unit) {
-    val pages = progress?.pageCount?.takeIf { it > 0 } ?: entry.unit.pageCount
-    // 범위로 읽힌 합본은 "4–6권 합본", 목차로만 알아본 합본은 이름 그대로(이미 "합본" 이 붙은 경우가 많다).
-    val label = if (entry.omnibus && entry.name.isRange) "${entry.label} 합본" else entry.label
-    val sub = when {
-        // 읽은 권은 진도를 먼저(구상안 ②: "180쪽 · 다 읽음" · "45 / 182쪽").
-        // 다 읽은 줄은 서재와 같은 꼴 "다 읽음 · …"(0.43.0 — 여기만 "180쪽 · 다 읽음" 으로 거꾸로였다).
-        progress?.finished == true -> listOfNotNull("다 읽음", pages?.let { "${it}쪽" }).joinToString(" · ")
-        progress != null && pages != null -> "${progress.page + 1} / ${pages}쪽"
-        entry.omnibus && pages != null -> "한 파일 · ${pages}쪽"
-        entry.omnibus -> "한 파일"
-        pages != null -> "${pages}쪽"
-        else -> null
-    }
-    UnitRow(entry.unit, title, label, sub, indent = 0.dp, onClick = { onEntry(entry) }, progress = progress?.let { if (it.finished) 1f else it.fraction }) {
+    UnitRow(entry.unit, title, entryLabel(entry), entrySub(entry, progress), indent = 0.dp, onClick = { onEntry(entry) }, progress = progress?.let { if (it.finished) 1f else it.fraction }) {
         if (entry.copies.isNotEmpty()) {
             val shape = RoundedCornerShape(CpTheme.metrics.cornerChip)
             Box(

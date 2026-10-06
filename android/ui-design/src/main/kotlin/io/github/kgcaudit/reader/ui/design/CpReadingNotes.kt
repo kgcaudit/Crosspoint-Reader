@@ -129,8 +129,8 @@ fun NoteFilter.shows(item: NoteItem): Boolean = when (this) {
 }
 
 /**
- * "3% · 2026.09.24.". [percent] 가 null 이면(PDF) 날짜만 — PDF 는 쪽 번호가 곧 글이다.
- * [pages] 는 쪽을 넘어 이어 고른 칠이 걸친 쪽들 — "31% · 5–6쪽에 걸침 · 2026.09.25.".
+ * "3% · 2026.09.24.". [percent] 가 null 이면(PDF) % 를 빼고 — PDF 는 쪽 번호가 곧 글이다 — 걸친 쪽 · 날짜만.
+ * [pages] 는 쪽을 넘어 이어 고른 칠이 걸친 쪽들 — "31% · 5–6쪽에 걸침 · 2026.09.25.", PDF 면 "5–6쪽에 걸침 · 2026.09.25.".
  */
 fun noteWhere(percent: Float?, createdAtEpochMs: Long, pages: IntRange? = null): String {
     val date = SimpleDateFormat("yyyy.MM.dd.", Locale.KOREA).format(Date(createdAtEpochMs))
@@ -139,8 +139,8 @@ fun noteWhere(percent: Float?, createdAtEpochMs: Long, pages: IntRange? = null):
 }
 
 /**
- * 내보내기(N8): 공유 시트로 보낼 글. 파일을 만들지 않는다 — 받는 앱(메모장 · 메일 · 메신저)이 글로 받는다.
- * 책 순서 · 장별 묶음은 화면과 같다.
+ * 내보내기(N8)의 "글" 모양: 공유 시트로 보내거나 .txt 파일로 저장하는 글(0.28.0 부터 파일 저장 · 마크다운도 있다 —
+ * [exportMarkdown]). 받는 앱(메모장 · 메일 · 메신저)이 꾸밈 없이 읽는다. 책 순서 · 장별 묶음은 화면과 같다.
  */
 fun exportNotes(title: String, author: String?, items: List<NoteItem>): String = buildString {
     append(title)

@@ -448,7 +448,7 @@ enum class CpReaderKind { Book, Pdf, Comic, Webtoon }
 @Composable
 fun CpTwoPageRows(prefs: ScreenPrefs, onChange: (ScreenPrefs) -> Unit, modifier: Modifier = Modifier, fitWidth: Boolean = false) {
     // 휴대폰에서는 흐리게 두고 까닭을 적는다. 줄을 빼 버리면 태블릿에서 본 설정을 휴대폰에서 찾아 헤맨다.
-    val wide = androidx.compose.ui.platform.LocalConfiguration.current.smallestScreenWidthDp >= ScreenPrefs.WIDE_SCREEN_DP
+    val wide = cpTablet()
     val note = Modifier.padding(start = CpTheme.metrics.gutter, bottom = 6.dp)
     Column(modifier) {
         CpChoice(

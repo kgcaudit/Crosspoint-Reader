@@ -272,10 +272,10 @@ class ComicBook(
         /** 띠 풀기가 안 될 때 전체를 풀 최대 높이(픽셀). 텍스처 한도(4096) 안. */
         private const val MAX_WHOLE_HEIGHT = 4096
 
-        /** 앱 힙의 8분의 1, 많아야 96MB. 화면 크기 쪽(1080×2340 ARGB ≈ 10MB) 여러 장 — 앞뒤 쪽을 미리 풀어 둘 만큼. */
         /** 여백을 찾을 때 줄여 보는 폭. 쪽 폭의 1% 여유와 먼지 한도를 가를 만큼은 된다. */
         private const val TRIM_PROBE = 360
 
+        /** 앱 힙의 8분의 1, 많아야 96MB. 화면 크기 쪽(1080×2340 ARGB ≈ 10MB) 여러 장 — 앞뒤 쪽을 미리 풀어 둘 만큼. */
         internal fun memoryBudget(): Int = (Runtime.getRuntime().maxMemory() / 8).coerceAtMost(96L * 1024 * 1024).toInt()
     }
 }

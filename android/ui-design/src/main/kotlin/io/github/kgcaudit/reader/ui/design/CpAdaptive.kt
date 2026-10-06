@@ -22,7 +22,8 @@ fun cpTablet(): Boolean = LocalConfiguration.current.smallestScreenWidthDp >= Sc
 enum class CpWidthClass { Compact, Medium, Expanded }
 
 internal fun widthClassOf(widthDp: Int): CpWidthClass = when {
-    widthDp < 600 -> CpWidthClass.Compact
+    // 좁음 · 중간의 경계는 태블릿 가르기와 같은 600dp 다 — 한 상수로 둔다(두 곳에 적으면 한쪽만 바뀐다).
+    widthDp < ScreenPrefs.WIDE_SCREEN_DP -> CpWidthClass.Compact
     widthDp < 840 -> CpWidthClass.Medium
     else -> CpWidthClass.Expanded
 }
@@ -41,9 +42,6 @@ internal fun roomyOf(widthDp: Int, heightDp: Int): Boolean = widthClassOf(widthD
 fun cpRoomy(): Boolean = LocalConfiguration.current.let { roomyOf(it.screenWidthDp, it.screenHeightDp) }
 
 private const val TWO_PANE_MIN_HEIGHT = 480
-
-@Composable
-fun cpWidthClass(): CpWidthClass = widthClassOf(LocalConfiguration.current.screenWidthDp)
 
 @Composable
 fun cpTwoPane(): Boolean = LocalConfiguration.current.let { twoPaneOf(it.screenWidthDp, it.screenHeightDp) }

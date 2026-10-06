@@ -22,19 +22,12 @@ import io.github.kgcaudit.reader.listen.ListenHub
 import io.github.kgcaudit.reader.listen.ListenPrefs
 import io.github.kgcaudit.reader.listen.ListenKit
 import io.github.kgcaudit.reader.listen.ListenSource
-import io.github.kgcaudit.reader.ui.design.AutoTurn
-import io.github.kgcaudit.reader.ui.design.PdfFit
 import io.github.kgcaudit.reader.text.FontCatalog
 import io.github.kgcaudit.reader.text.UserFonts
 import io.github.kgcaudit.reader.ui.design.Footer
-import io.github.kgcaudit.reader.ui.design.FooterItem
-import io.github.kgcaudit.reader.ui.design.KeepScreenOn
 import io.github.kgcaudit.reader.ui.design.PageTurn
-import io.github.kgcaudit.reader.ui.design.PaperTheme
 import io.github.kgcaudit.reader.ui.design.ReadingSpeed
 import io.github.kgcaudit.reader.ui.design.ScreenPrefs
-import io.github.kgcaudit.reader.ui.design.ScreenRotation
-import io.github.kgcaudit.reader.ui.design.TouchZones
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -323,6 +316,8 @@ class PrefsStore(context: Context) {
         ReaderPrefs()
     }
 
+    // 기본값은 ScreenPrefs() 의 것을 읽는다. 여기에 따로 적어 두면 한쪽 기본만 바뀌었을 때 새로 깐 앱(설정 없음)과 저장한
+    // 설정을 읽는 앱이 서로 다른 기본으로 열린다.
     private fun loadOrThrow(): ReaderPrefs = ReaderPrefs(
         fontSizeSp = sp.getInt(KEY_SIZE, ReaderPrefs.DEFAULT_SIZE_SP)
             .coerceIn(ReaderPrefs.MIN_SIZE_SP, ReaderPrefs.MAX_SIZE_SP),
@@ -334,38 +329,38 @@ class PrefsStore(context: Context) {
         align = enumOf(KEY_ALIGN, ReaderPrefs.ParagraphAlign.Original),
         indent = enumOf(KEY_INDENT, ReaderPrefs.Indent.Original),
         paragraphSpacing = enumOf(KEY_PARAGRAPH_SPACING, ReaderPrefs.ParagraphSpacing.Tight),
-        screen = ScreenPrefs(
-            theme = enumOf(KEY_THEME, PaperTheme.System),
+        screen = DEFAULT_SCREEN.let { d -> ScreenPrefs(
+            theme = enumOf(KEY_THEME, d.theme),
             // 음수는 "시스템 밝기"(저장하지 않은 것과 같다).
             brightness = sp.getFloat(KEY_BRIGHTNESS, -1f).takeIf { it >= 0f }?.coerceAtMost(1f),
-            keepScreenOn = enumOf(KEY_KEEP_ON, KeepScreenOn.System),
-            volumeKeys = sp.getBoolean(KEY_VOLUME_KEYS, false),
-            touch = enumOf(KEY_TOUCH, TouchZones.Default),
+            keepScreenOn = enumOf(KEY_KEEP_ON, d.keepScreenOn),
+            volumeKeys = sp.getBoolean(KEY_VOLUME_KEYS, d.volumeKeys),
+            touch = enumOf(KEY_TOUCH, d.touch),
             footer = Footer(
-                left = enumOf(KEY_FOOTER_LEFT, FooterItem.BookTitle),
-                center = enumOf(KEY_FOOTER_CENTER, FooterItem.Page),
-                right = enumOf(KEY_FOOTER_RIGHT, FooterItem.Percent),
+                left = enumOf(KEY_FOOTER_LEFT, d.footer.left),
+                center = enumOf(KEY_FOOTER_CENTER, d.footer.center),
+                right = enumOf(KEY_FOOTER_RIGHT, d.footer.right),
             ),
-            rotation = enumOf(KEY_ROTATION, ScreenRotation.Auto),
-            twoPagesLandscape = sp.getBoolean(KEY_TWO_PAGES_LANDSCAPE, true),
-            twoPagesPortrait = sp.getBoolean(KEY_TWO_PAGES_PORTRAIT, true),
-            pdfCoverAlone = sp.getBoolean(KEY_PDF_COVER_ALONE, true),
-            comicTrimMargins = sp.getBoolean(KEY_COMIC_TRIM, true),
+            rotation = enumOf(KEY_ROTATION, d.rotation),
+            twoPagesLandscape = sp.getBoolean(KEY_TWO_PAGES_LANDSCAPE, d.twoPagesLandscape),
+            twoPagesPortrait = sp.getBoolean(KEY_TWO_PAGES_PORTRAIT, d.twoPagesPortrait),
+            pdfCoverAlone = sp.getBoolean(KEY_PDF_COVER_ALONE, d.pdfCoverAlone),
+            comicTrimMargins = sp.getBoolean(KEY_COMIC_TRIM, d.comicTrimMargins),
             pageTurn = pageTurn(),
-            turnSound = enumOf(KEY_TURN_SOUND, io.github.kgcaudit.reader.ui.design.TurnSound.Off),
-            turnHaptic = sp.getBoolean(KEY_TURN_HAPTIC, false),
-            brightnessGesture = sp.getBoolean(KEY_BRIGHTNESS_GESTURE, true),
-            autoTurn = enumOf(KEY_AUTO_TURN, AutoTurn.Off),
-            showHighlights = sp.getBoolean(KEY_SHOW_HIGHLIGHTS, true),
-            pdfFit = enumOf(KEY_PDF_FIT, PdfFit.Page),
-            imageBlend = enumOf(KEY_IMAGE_BLEND, io.github.kgcaudit.reader.ui.design.ImageBlend.Paper),
+            turnSound = enumOf(KEY_TURN_SOUND, d.turnSound),
+            turnHaptic = sp.getBoolean(KEY_TURN_HAPTIC, d.turnHaptic),
+            brightnessGesture = sp.getBoolean(KEY_BRIGHTNESS_GESTURE, d.brightnessGesture),
+            autoTurn = enumOf(KEY_AUTO_TURN, d.autoTurn),
+            showHighlights = sp.getBoolean(KEY_SHOW_HIGHLIGHTS, d.showHighlights),
+            pdfFit = enumOf(KEY_PDF_FIT, d.pdfFit),
+            imageBlend = enumOf(KEY_IMAGE_BLEND, d.imageBlend),
             // 범위 밖(손상)이면 기본으로 — 0% 기둥이면 웹툰이 보이지 않는다.
             webtoonColumn = sp.getInt(KEY_WEBTOON_COLUMN, ScreenPrefs.DEFAULT_WEBTOON_COLUMN)
                 .takeIf { it in ScreenPrefs.WEBTOON_COLUMN_RANGE } ?: ScreenPrefs.DEFAULT_WEBTOON_COLUMN,
             webtoonColumnNarrow = sp.getInt(KEY_WEBTOON_COLUMN_NARROW, ScreenPrefs.DEFAULT_WEBTOON_COLUMN_NARROW)
                 .takeIf { it in ScreenPrefs.WEBTOON_COLUMN_RANGE } ?: ScreenPrefs.DEFAULT_WEBTOON_COLUMN_NARROW,
-            webtoonAutoSpeed = enumOf(KEY_WEBTOON_AUTO_SPEED, io.github.kgcaudit.reader.ui.design.AutoScrollSpeed.Normal),
-        ),
+            webtoonAutoSpeed = enumOf(KEY_WEBTOON_AUTO_SPEED, d.webtoonAutoSpeed),
+        ) },
         listen = ListenPrefs(
             // 망가진 값(범위 밖)은 범위 안으로 — 0 배속으로 저장된 값 때문에 듣기가 안 되면 안 된다.
             rate = sp.getFloat(KEY_LISTEN_RATE, 1f).takeIf { it.isFinite() }?.coerceIn(ListenPrefs.MIN_RATE, ListenPrefs.MAX_RATE) ?: 1f,
@@ -376,7 +371,6 @@ class PrefsStore(context: Context) {
         ),
     )
 
-    /** 저장된 이름의 값. 모르는 이름(나중 판에서 빠진 것)이면 기본값 — 옛 설정 때문에 책이 안 열리면 안 된다. */
     /**
      * 넘김 효과. 0.32.0 에서 기본을 "말림" 으로 바꾸며 저장 이름도 바꿨다 — 저장할 때마다 모든 설정을 쓰므로 옛 이름에는
      * 거의 모두 "없음"(옛 기본)이 적혀 있다. 옛 값이 서서히 · 밀기면 사람이 고른 것이니 지키고, 없음이거나 없으면 말림.
@@ -387,6 +381,7 @@ class PrefsStore(context: Context) {
         return if (old == PageTurn.Fade || old == PageTurn.Slide) old else PageTurn.Curl
     }
 
+    /** 저장된 이름의 값. 모르는 이름(나중 판에서 빠진 것)이면 기본값 — 옛 설정 때문에 책이 안 열리면 안 된다. */
     private inline fun <reified E : Enum<E>> enumOf(key: String, default: E): E =
         enumValues<E>().firstOrNull { it.name == sp.getString(key, null) } ?: default
 
@@ -460,6 +455,9 @@ class PrefsStore(context: Context) {
             "batang", "gothic", "system-serif" -> null
             else -> saved
         }
+
+        /** 저장한 값이 없을 때의 보기 설정 — [ScreenPrefs] 의 기본값 그대로. */
+        private val DEFAULT_SCREEN = ScreenPrefs()
 
         private const val KEY_SIZE = "fontSizeSp"
         private const val KEY_FONT = "font"

@@ -144,5 +144,5 @@ fun cpBookGlyph(): Painter = painterResource(R.drawable.ic_tile_book)
 @Composable
 fun cpComicGlyph(): Painter = painterResource(R.drawable.ic_tile_comic)
 
-/** 대신 표지 글자 밑 띠. 60% 검정 — 가장 밝은 타일(다크의 틸)에서도 흰 글자 대비가 7 을 넘는다. */
+/** 대신 표지 글자 밑 띠. 60% 검정 — 가장 밝은 타일(다크의 보관 황토)에서도 흰 글자 대비가 7 을 넘는다. */
 internal val COVER_BAND = Color(0x99000000)

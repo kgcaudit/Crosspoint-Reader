@@ -213,7 +213,8 @@ fun WebtoonReader(
         // 그림 폭 막대를 끄는 동안의 값. 저장은 손을 뗄 때 한 번 — 끄는 내내 저장하면 설정 쓰기가 쌓인다.
         var previewPercent by remember { mutableStateOf<Int?>(null) }
         val percentNow = previewPercent ?: prefs.webtoonPercent(wide)
-        val colW = (viewW * percentNow / 100f).roundToInt().coerceAtLeast(1)
+        // 기둥 폭 셈은 설정 쪽 하나([ScreenPrefs.webtoonWidth])를 쓴다 — 끄는 중이면 그 값을 얹은 설정으로.
+        val colW = (previewPercent?.let { prefs.withWebtoonPercent(wide, it) } ?: prefs).webtoonWidth(viewW, fullH, smallest).roundToInt().coerceAtLeast(1)
         val seamPx = with(density) { SEAM_HEIGHT.toPx() }
 
         val shown = episodes.toList()
@@ -530,6 +531,7 @@ fun WebtoonReader(
                                 EndCard(
                                     entryLabel = last.entry?.label ?: title,
                                     workTitle = work?.title,
+                                    unit = unitWord(work),
                                     next = nextEntry,
                                     onNext = { failedNext = null; onJump(it) },
                                     onLibrary = onClose,
