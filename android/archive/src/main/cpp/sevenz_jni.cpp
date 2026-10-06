@@ -17,6 +17,7 @@
 #include <string>
 #include <vector>
 #include <sys/stat.h>
+#include <cerrno>
 
 #include "sevenz/7z.h"
 #include "sevenz/7zCrc.h"
@@ -31,6 +32,38 @@ namespace {
 // Custom SRes the AES path returns when a folder will not decrypt -- almost
 // always a wrong or missing password. Matches SZ_ERROR_7Z_AES in 7zDec.c.
 const int kSevenZAesError = 100;
+
+// nativeExtract's "went through to the end, but some entries could not be
+// unpacked" (encrypted with no password, damaged, unsafe name, too big). The
+// same archive gives the same result next time, so the caller can keep what
+// it got instead of unpacking again on every open. Same value as the rar
+// bridge.
+const jint kSkippedSome = 3;
+
+// Whether a failed decode is this entry's own fault (it will fail the same
+// way again) rather than the device's (a read that failed, memory that ran
+// out, a stop). Only the first kind is skipped; the second stops the run so
+// nothing is marked done.
+bool entryFault(SRes r) {
+    return r != SZ_ERROR_READ && r != SZ_ERROR_MEM && r != SZ_ERROR_PROGRESS;
+}
+
+// Whether fopen failed because of the name rather than the disk: a name too
+// long or not allowed here fails the same way every time. A full or broken
+// disk (ENOSPC, EIO, ...) is the device's fault and stops the run.
+bool nameFault(int err) {
+    return err == ENAMETOOLONG || err == EISDIR || err == ENOTDIR || err == EINVAL || err == EILSEQ;
+}
+
+// Writes one unpacked file. A short fwrite or a failed fclose (the buffered
+// tail is flushed there -- that is where a full disk shows) means a cut-off
+// file: it is removed so it is never shown as a whole page.
+bool writeFile(FILE* fp, const Byte* data, size_t size, const std::string& path) {
+    bool ok = size == 0 || fwrite(data, 1, size, fp) == size;
+    if (fclose(fp) != 0) ok = false;
+    if (!ok) remove(path.c_str());
+    return ok;
+}
 
 std::vector<Byte> toUtf16le(const std::string& utf8) {
     std::vector<Byte> out;
@@ -458,7 +491,17 @@ Java_io_github_kgcaudit_reader_archive_SevenZipNative_nativeList(
 
 // Extracts into destDir. picks null/empty = everything, else the named
 // entries and what is under them. Reports and cancels through sink.
-// Returns 0 ok, 1 cancelled, 2 wrong/missing password, negative an SRes error.
+//
+// An entry that cannot be unpacked -- encrypted with no password given,
+// damaged, an unsafe name, a folder too big to decode -- is skipped and the
+// rest still unpack. Stopping there left every later page of a comic blank,
+// and because the run never finished the caller unpacked the whole archive
+// again on every open.
+//
+// Returns 0 everything unpacked, kSkippedSome (3) reached the end but skipped
+// entries, 1 cancelled, 2 wrong password (only when one was given), negative
+// an SRes error -- the run stopped (could not read, could not write, out of
+// memory) and may go differently next time.
 JNIEXPORT jint JNICALL
 Java_io_github_kgcaudit_reader_archive_SevenZipNative_nativeExtract(
         JNIEnv* env, jclass, jobjectArray jvolumes, jstring jdest,
@@ -531,11 +574,12 @@ Java_io_github_kgcaudit_reader_archive_SevenZipNative_nativeExtract(
     std::vector<UInt16> scratch;
     cs.active = true;
 
+    bool skipped = false;
     for (UInt32 i = 0; i < db.NumFiles; ++i) {
         if (env->CallBooleanMethod(sink, isCancelled)) { outcome = 1; break; }
 
         std::string name = nameOf(db, i, scratch);
-        if (!safeName(name)) { outcome = -(jint)SZ_ERROR_DATA; continue; }
+        if (!safeName(name)) { skipped = true; continue; }
         std::string full = dest + "/" + name;
         if (SzArEx_IsDir(&db, i)) {
             makeDirs(full + "/");
@@ -546,13 +590,19 @@ Java_io_github_kgcaudit_reader_archive_SevenZipNative_nativeExtract(
             struct stat sb;
             if (stat(full.c_str(), &sb) == 0) continue;
         }
-        makeDirs(full);
+
+        bool enc = false, uns = false;
+        classify(db, i, enc, uns);
+        // No password to try: the entry cannot be read, and trying would only
+        // decode the folder to find that out.
+        if (enc && pw.empty()) { skipped = true; continue; }
 
         UInt32 folder = db.FileToFolder[i];
         if (folder != (UInt32)-1 && SzAr_GetFolderUnpackSize(&db.db, folder) > kMaxFolderBytes) {
-            outcome = -(jint)SZ_ERROR_MEM;
+            skipped = true;
             continue;
         }
+        makeDirs(full);
 
         // What the progress line names while this file's folder decodes.
         cs.name = &name;
@@ -561,27 +611,32 @@ Java_io_github_kgcaudit_reader_archive_SevenZipNative_nativeExtract(
             &outBuffer, &outBufferSize, &offset, &outSizeProcessed, &g_alloc, &g_alloc);
         if (r != SZ_OK) {
             if (cs.cancelled) { outcome = 1; break; }
-            // An encrypted folder that would not decode is a wrong or missing
-            // password: stop and let the caller re-ask, since one password
-            // covers the whole archive. Other failures are a bad entry --
-            // reported at the end, the rest still extracted.
-            bool enc = false, uns = false;
-            classify(db, i, enc, uns);
+            // An encrypted folder that would not decode with the password
+            // given is a wrong password: stop and let the caller re-ask,
+            // since one password covers the whole archive.
             if (enc && (r == kSevenZAesError || r == SZ_ERROR_CRC || r == SZ_ERROR_DATA)) {
                 outcome = 2;
                 break;
             }
-            outcome = -(jint)r;
+            if (!entryFault(r)) { outcome = -(jint)r; break; }
+            skipped = true;
             continue;
         }
 
         FILE* fp = fopen(full.c_str(), "wb");
-        if (!fp) { outcome = -(jint)SZ_ERROR_WRITE; continue; }
-        if (outSizeProcessed > 0) {
-            fwrite(outBuffer + offset, 1, outSizeProcessed, fp);
+        if (!fp) {
+            if (nameFault(errno)) { skipped = true; continue; }
+            outcome = -(jint)SZ_ERROR_WRITE;
+            break;
         }
-        fclose(fp);
+        // A full disk: stop, and leave nothing that looks finished. The
+        // caller then unpacks again next time instead of keeping blank pages.
+        if (!writeFile(fp, outBuffer + offset, outSizeProcessed, full)) {
+            outcome = -(jint)SZ_ERROR_WRITE;
+            break;
+        }
     }
+    if (outcome == 0 && skipped) outcome = kSkippedSome;
 
     SevenZ_SetPassword((const Byte*)"", 0);
     ISzAlloc_Free(&g_alloc, outBuffer);

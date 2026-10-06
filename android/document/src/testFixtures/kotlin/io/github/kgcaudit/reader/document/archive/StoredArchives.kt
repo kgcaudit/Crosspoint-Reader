@@ -11,8 +11,12 @@ import java.util.zip.CRC32
  */
 object StoredArchives {
 
-    /** RAR 4 저장 압축. 이름은 ASCII 만(유니코드 이름은 따로 부호화해야 한다). */
-    fun rar4(entries: List<Pair<String, ByteArray>>): ByteArray {
+    /**
+     * RAR 4 저장 압축. 이름은 ASCII 만(유니코드 이름은 따로 부호화해야 한다).
+     *
+     * @param encrypted 암호 표시(LHD_PASSWORD)만 세운 항목. 내용은 그대로라 풀 수는 없다 — 암호 걸린 쪽을 건너뛰는지 보는 데 쓴다.
+     */
+    fun rar4(entries: List<Pair<String, ByteArray>>, encrypted: Set<String> = emptySet()): ByteArray {
         val out = ByteArrayOutputStream()
         out.write(byteArrayOf(0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x00))
         // 압축 머리: 종류 0x73, 플래그 0, 크기 13, 예약 6바이트.
@@ -33,7 +37,7 @@ object StoredArchives {
                 write(n)
             }.toByteArray()
             // 0x8000: 머리 뒤에 내용(ADD_SIZE = 묶은 크기)이 따른다.
-            out.write(block(0x74, 0x8000, body))
+            out.write(block(0x74, 0x8000 or (if (name in encrypted) 0x04 else 0), body))
             out.write(data)
         }
         out.write(block(0x7B, 0x4000, ByteArray(0)))

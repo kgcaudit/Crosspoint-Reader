@@ -16,6 +16,24 @@ data class NativeEntry(
 
 enum class NativeKind { RAR, SEVEN_Z }
 
+/** 풀기가 어떻게 끝났나. */
+enum class Unpacked {
+    /** 고른 항목을 모두 풀었다. */
+    ALL,
+
+    /**
+     * 끝까지 돌았지만 풀 수 없는 항목(암호 · 깨짐 · 위험한 이름 · 너무 큰 묶음)은 건너뛰었다. 다시 풀어도 같다 — 부르는 쪽은
+     * 풀린 것을 그대로 써도 된다. 이것을 실패로 치던 때는 암호 걸린 쪽 하나 때문에 만화를 열 때마다 통째로 다시 풀었다.
+     */
+    SKIPPED_SOME,
+
+    /**
+     * 도중에 멈췄다: 압축을 못 읽음 · 쓰기 실패(공간 부족) · 메모리 부족 · 취소. 다시 하면 달라질 수 있으니 "다 풀었음" 으로
+     * 적으면 안 된다 — 적으면 잘린 쪽이 영영 빈 쪽으로 남는다.
+     */
+    STOPPED,
+}
+
 /**
  * RAR · 7z 를 읽는다(0.37.0, docs/COMIC_PLAN.md C4 — cbr · cb7). 해제는 C++ 기준 구현(UnRAR · LZMA SDK)이 한다:
  * RAR5 의 LZ · PPMd · 필터 VM 과 7z 의 LZMA2 · PPMd · 분기 필터는 Kotlin 으로 옮기다 틀리면 그림이 조용히 깨진다.
@@ -67,12 +85,12 @@ object NativeArchives {
     }
 
     /**
-     * [picks](압축 안 경로)를 [into] 아래에 푼다. null 이면 전부. 다 풀었으면 true.
+     * [picks](압축 안 경로)를 [into] 아래에 푼다. null 이면 전부.
      *
      * RAR 은 흔히 "통짜(solid)" 라 한 쪽을 풀려면 그 앞 쪽들을 모두 풀어야 한다 — 쪽마다 따로 풀면 n² 이다. 그래서 만화를 열
      * 때는 한 번에 다 푼다(부르는 쪽). 표지 하나만 풀 때는 [picks] 로.
      */
-    fun extract(kind: NativeKind, path: String, into: File, picks: Set<String>?): Boolean {
+    fun extract(kind: NativeKind, path: String, into: File, picks: Set<String>?): Unpacked {
         if (!available(kind)) throw IOException("no native reader for $kind on this device")
         into.mkdirs()
         val code = when (kind) {
@@ -87,8 +105,16 @@ object NativeArchives {
                 override fun cancelled() = false
             })
         }
-        return code == 0
+        // C++ 다리의 약속(rar_jni.cpp · sevenz_jni.cpp): 0 다 풀었음, 3 끝까지 돌았지만 건너뛴 항목 있음, 그 밖은 멈춤.
+        return when (code) {
+            0 -> Unpacked.ALL
+            SKIPPED_SOME -> Unpacked.SKIPPED_SOME
+            else -> Unpacked.STOPPED
+        }
     }
+
+    /** C++ 다리의 kSkippedSome. */
+    private const val SKIPPED_SOME = 3
 }
 
 /**

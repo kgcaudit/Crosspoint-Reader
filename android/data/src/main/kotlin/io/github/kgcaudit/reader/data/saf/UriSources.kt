@@ -117,6 +117,16 @@ class UriSources(
         return LocalPath(copy.path) { copy.delete() }
     }
 
+    /**
+     * [localPath] 와 같되, 이미 [seekableSource] 로 연 [opened] 를 넘겨받는다(닫는 책임도). 파이프라 캐시로 받아 둔 사본이면
+     * 그 사본을 그대로 경로로 준다 — 닫고 [localPath] 를 부르면 같은 파일을 한 번 더 통째로 받는다(클라우드의 1GB 만화면 두 번).
+     */
+    fun localPath(uri: Uri, opened: SeekableSource): LocalPath {
+        if (opened is SpooledFileSource) return opened.handOver()
+        opened.close()
+        return localPath(uri)
+    }
+
     class LocalPath(val path: String, private val release: () -> Unit) : java.io.Closeable {
         override fun close() = release()
     }
@@ -186,6 +196,12 @@ private class SpooledFileSource(private val file: File) : SeekableSource {
     override fun close() {
         raf.close()
         file.delete()
+    }
+
+    /** 사본 파일을 경로로 넘긴다. 이 원천은 닫히고, 사본은 돌려준 것을 닫을 때 지운다. */
+    fun handOver(): UriSources.LocalPath {
+        raf.close()
+        return UriSources.LocalPath(file.path) { file.delete() }
     }
 }
 

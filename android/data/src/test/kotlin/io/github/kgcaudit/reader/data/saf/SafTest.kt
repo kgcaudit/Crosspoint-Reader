@@ -60,6 +60,7 @@ class SafTest {
     @After
     fun tearDown() {
         TestDocumentsProvider.onList = null
+        TestDocumentsProvider.onOpen = null
         db.close()
         base.deleteRecursively()
     }
@@ -334,6 +335,25 @@ class SafTest {
         data.openComic(seven.entries.single().unit).use { assertEquals(3, it.count); assertEquals(0x89.toByte(), it.read(0)!![0]) }
         data.openComic(star.entries[1].unit).use { assertEquals("p2", it.read(1)!!.decodeToString()) }
         data.openComic(star.entries[2].unit).use { assertEquals("z2", it.read(1)!!.decodeToString()) }
+    }
+
+    @Test
+    fun `a rar from a provider without random access is downloaded once, not twice`() = runTest {
+        // 클라우드 제공자는 되감을 수 없는 파이프를 줘서 캐시로 한 번 받아 연다. RAR · 7z 는 머리를 본 뒤 그 사본을 버리고 해제기용
+        // 경로를 새로 청해 같은 파일을 한 번 더 통째로 받았다(1GB 만화면 2GB). Robolectric 은 파이프를 흉내 내지 못해
+        // 받아 둔 사본으로 여는 길을 직접 부른다.
+        val pages = listOf("001.png" to "p1".toByteArray(), "002.png" to "p2".toByteArray())
+        put("C/별 01권.cbr", io.github.kgcaudit.reader.document.archive.StoredArchives.rar4(pages))
+        val uri = android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, "root/C/별 01권.cbr")
+        val spool = File(context.cacheDir, "spool-once").apply { deleteRecursively() }
+        val sources = UriSources(resolver, spool)
+        TestDocumentsProvider.opens = 0
+        io.github.kgcaudit.reader.data.ComicArchive.open(sources, uri, sources.spooledSource(uri), File(context.cacheDir, "scratch-once")).use { archive ->
+            assertEquals(pages.map { it.first }, archive.names)
+            assertEquals("p2", archive.entry("002.png")!!.readBytes().decodeToString())
+        }
+        assertEquals(1, TestDocumentsProvider.opens, "같은 압축을 두 번 받았다")
+        assertTrue(spool.listFiles().orEmpty().isEmpty(), "받아 둔 사본이 남았다")
     }
 
     @Test

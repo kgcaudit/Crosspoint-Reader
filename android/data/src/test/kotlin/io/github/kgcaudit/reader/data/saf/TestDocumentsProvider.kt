@@ -54,6 +54,8 @@ class TestDocumentsProvider : DocumentsProvider() {
         documentId == parentDocumentId || documentId.startsWith("$parentDocumentId/")
 
     override fun openDocument(documentId: String, mode: String, signal: CancellationSignal?): ParcelFileDescriptor {
+        opens++
+        onOpen?.invoke()
         val file = fileOf(documentId)
         if (!file.isFile) throw FileNotFoundException(documentId)
         return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
@@ -83,6 +85,12 @@ class TestDocumentsProvider : DocumentsProvider() {
         /** 폴더 목록을 줄 때마다 부른다. 훑기 한가운데서 무엇을 끼워 넣는 시험용. */
         var onList: (() -> Unit)? = null
 
+        /** 파일을 열 때마다 부른다. 살피기 한가운데서 무엇을 끼워 넣는 시험용. */
+        var onOpen: (() -> Unit)? = null
+
+        /** 파일을 연 횟수 — 클라우드 제공자라면 받은 횟수다. */
+        var opens: Int = 0
+
         private val DEFAULT_PROJECTION = arrayOf(
             Document.COLUMN_DOCUMENT_ID,
             Document.COLUMN_DISPLAY_NAME,
@@ -101,6 +109,8 @@ class TestDocumentsProvider : DocumentsProvider() {
             this.base = base
             failing = emptySet()
             unanswered = emptySet()
+            onOpen = null
+            opens = 0
             val root = File(base, ROOT_ID).apply { mkdirs() }
             val info = ProviderInfo().apply {
                 authority = AUTHORITY

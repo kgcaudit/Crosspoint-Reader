@@ -154,6 +154,32 @@ int CALLBACK listCallback(UINT msg, LPARAM, LPARAM p1, LPARAM p2) {
     }
 }
 
+// nativeExtract's "went through to the end, but some entries could not be
+// unpacked" (encrypted with no password, damaged). The same archive gives the
+// same result next time, so the caller can keep what it got instead of
+// unpacking again on every open. Same value as the 7z bridge.
+const jint kSkippedSome = 3;
+
+// Whether an entry's failure is the device's rather than the entry's: the
+// archive or a volume could not be read, the destination could not be
+// created or written (a full disk), memory ran out. These stop the run so
+// nothing is marked done; anything else is the entry's own damage and is
+// skipped.
+bool deviceFault(int code) {
+    return code == ERAR_EOPEN || code == ERAR_EREAD || code == ERAR_ECREATE || code == ERAR_EWRITE ||
+        code == ERAR_ECLOSE || code == ERAR_NO_MEMORY;
+}
+
+// Whether RARReadHeaderEx read a header. unrar's error state is sticky: after
+// one damaged entry, every later RARReadHeaderEx returns that entry's error
+// (ERAR_BAD_DATA) even though it read the next header fine -- going by the
+// return code alone stopped at the first damaged page and left all the pages
+// after it blank. A header that really could not be read returns before the
+// name is filled in (the caller zeroes it before every read).
+bool headerRead(int result, const RARHeaderDataEx& header) {
+    return result == ERAR_SUCCESS || (result != ERAR_END_ARCHIVE && header.FileName[0] != '\0');
+}
+
 bool wantsEntry(const std::string& name, const std::vector<std::string>& picks) {
     if (picks.empty()) return true;
     for (const auto& p : picks) {
@@ -238,7 +264,17 @@ Java_io_github_kgcaudit_reader_archive_RarNative_nativeList(
 
 // Extracts into destDir. picks null/empty = everything, else the named
 // entries and what is under them. Reports and cancels through sink.
-// Returns 0 ok, 1 cancelled, negative an ERAR_* error.
+//
+// An entry that cannot be unpacked -- encrypted with no password given, or
+// damaged -- is skipped and the rest still unpack. Stopping at an encrypted
+// entry left every later page blank, and because the run never finished the
+// caller unpacked the whole archive again on every open. (unrar deletes a
+// file whose data fails its check, so a skipped entry leaves nothing behind.)
+//
+// Returns 0 everything unpacked, kSkippedSome (3) reached the end but skipped
+// entries, 1 cancelled, 2 wrong password (only when one was given), negative
+// an ERAR_* error -- the run stopped (could not read, could not write, out of
+// memory) and may go differently next time.
 JNIEXPORT jint JNICALL
 Java_io_github_kgcaudit_reader_archive_RarNative_nativeExtract(
         JNIEnv* env, jclass, jstring jpath, jstring jdest,
@@ -290,12 +326,19 @@ Java_io_github_kgcaudit_reader_archive_RarNative_nativeExtract(
     RARHeaderDataEx header;
     int result;
     jint outcome = 0;
+    bool skipped = false;
     for (memset(&header, 0, sizeof(header));
-         (result = RARReadHeaderEx(h, &header)) == ERAR_SUCCESS;
+         headerRead(result = RARReadHeaderEx(h, &header), header);
          memset(&header, 0, sizeof(header))) {
         std::string name = header.FileName;
         for (auto& c : name) if (c == '\\') c = '/';
         bool take = !(header.Flags & RHDF_DIRECTORY) && wantsEntry(name, picks);
+        // No password to try: skip it without asking unrar, which would only
+        // fail it as a missing password.
+        if (take && password.empty() && (header.Flags & RHDF_ENCRYPTED)) {
+            take = false;
+            skipped = true;
+        }
         if (take && jskipExisting) {
             // Leave a file that is already unpacked, the same as the Kotlin
             // readers do -- unrar overwrites by default, so this is where
@@ -309,16 +352,21 @@ Java_io_github_kgcaudit_reader_archive_RarNative_nativeExtract(
         int pr = RARProcessFileW(h, op, (wchar_t*)wdest.c_str(), nullptr);
         if (pr != ERAR_SUCCESS) {
             if (st.cancelled) { outcome = 1; break; }
-            if (pr == ERAR_BAD_PASSWORD || pr == ERAR_MISSING_PASSWORD) { outcome = -(jint)pr; break; }
-            // A single bad entry does not stop the rest; report at the end.
-            outcome = -(jint)pr;
-            // keep going
+            if (!password.empty() && (pr == ERAR_BAD_PASSWORD || pr == ERAR_MISSING_PASSWORD)) { outcome = 2; break; }
+            if (deviceFault(pr)) { outcome = -(jint)pr; break; }
+            // The entry's own damage (or, in a solid archive, an encrypted
+            // entry it had to pass through): skip it, unpack the rest.
+            skipped = true;
         }
     }
     RARCloseArchive(h);
-    if (outcome == 0 && result != ERAR_END_ARCHIVE && result != ERAR_SUCCESS && !st.cancelled) {
+    // The header loop must have reached the end of the archive -- a header
+    // that broke half way means the rest was never seen, not that it was
+    // skipped.
+    if (outcome == 0 && result != ERAR_END_ARCHIVE && !headerRead(result, header) && !st.cancelled) {
         outcome = -(jint)result;
     }
+    if (outcome == 0 && skipped) outcome = kSkippedSome;
     return outcome;
 }
 
