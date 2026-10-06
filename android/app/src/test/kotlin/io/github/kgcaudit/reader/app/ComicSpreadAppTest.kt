@@ -170,9 +170,13 @@ class ComicSpreadAppTest {
         next(); waitFor(page("2–3"))
         compose.onRoot().performTouchInput { click(center) }
         click(hasText("보기"))
-        // 책과 같은 "가로에서 두 쪽 보기" 줄(0.42.0). 끔이 둘(가로 · 세로) — 위의 것이 가로다.
+        // 책과 같은 "가로에서 두 쪽 보기" 줄(0.42.0). 끔이 여럿(여백 자르기 · 가로 · 세로) — 그 줄과 같은 높이의 것을 누른다.
         waitFor(hasText("가로에서 두 쪽 보기"))
-        compose.onAllNodes(hasText("끔"), useUnmergedTree = true)[0].performClick()
+        val y = node(hasText("가로에서 두 쪽 보기")).fetchSemanticsNode().boundsInRoot.center.y
+        compose.onAllNodes(hasText("끔"), useUnmergedTree = true).let { nodes ->
+            val k = nodes.fetchSemanticsNodes().indexOfFirst { kotlin.math.abs(it.boundsInRoot.center.y - y) < 30f }
+            nodes[k].performClick()
+        }
         // 보던 판의 첫 쪽이 한 쪽으로.
         waitFor(page("2"))
         assertEquals(false, app.container.prefs.load().screen.twoPagesLandscape)

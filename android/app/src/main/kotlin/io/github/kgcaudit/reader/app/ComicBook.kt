@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import android.util.LruCache
 import io.github.kgcaudit.reader.data.ComicPages
 import io.github.kgcaudit.reader.document.comic.ComicUnit
+import io.github.kgcaudit.reader.document.comic.MarginTrim
 import io.github.kgcaudit.reader.document.image.ImageSize
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -37,7 +38,7 @@ class ComicBook(
     private val aspects = java.util.concurrent.ConcurrentHashMap<Int, Float>()
     private val broken = java.util.concurrent.ConcurrentHashMap.newKeySet<Int>()
 
-    fun cached(index: Int, width: Int, height: Int): Bitmap? = key(index, width, height).let { k -> bitmaps.get(k) ?: pinned[k] }
+    fun cached(index: Int, width: Int, height: Int, trim: Boolean = false): Bitmap? = key(index, width, height, trim).let { k -> bitmaps.get(k) ?: pinned[k] }
 
     /**
      * 붙잡아 둘 쪽(지금 판과 앞뒤 판). 저장소(LRU)가 내보내도 이 쪽들의 그림은 놓지 않는다 — 넘김 효과가 끝나 화면을 다시
@@ -55,6 +56,13 @@ class ComicBook(
     /** 이미 아는 쪽 가로/세로 비. 모르면 null(아직 열지 않은 쪽). */
     fun knownAspect(index: Int): Float? = aspects[index]
 
+    /**
+     * 여백을 걷어 낸 쪽의 비(0.49.0). 아직 풀지 않았으면 null. 걷을 것이 없던 쪽은 원래 비와 같다 — 판 배치가 원본 머리의
+     * 비를 쓰면 잘린 그림이 옆으로 늘어나 보인다.
+     */
+    fun trimmedAspect(index: Int): Float? = trimmedAspects[index]
+    private val trimmedAspects = java.util.concurrent.ConcurrentHashMap<Int, Float>()
+
     /** 그림으로 읽히지 않는 쪽(깨진 그림 · 사라진 항목). 다시 풀려고 애쓰지 않는다. */
     fun isBroken(index: Int): Boolean = index in broken
 
@@ -62,12 +70,12 @@ class ComicBook(
      * [index] 쪽을 [width]×[height] 안에 들어가게 푼다. 그림이 아니면 null — 화면은 "이 쪽을 그리지 못했습니다" 를 보이고
      * 다음 쪽으로 넘어갈 수 있다(깨진 쪽 하나가 권 전체를 막지 않는다, 규칙 6).
      */
-    suspend fun page(index: Int, width: Int, height: Int): Bitmap? = withContext(Dispatchers.IO) {
+    suspend fun page(index: Int, width: Int, height: Int, trim: Boolean = false): Bitmap? = withContext(Dispatchers.IO) {
         if (index !in 0 until pageCount || width <= 0 || height <= 0) return@withContext null
-        cached(index, width, height)?.let { return@withContext it }
+        cached(index, width, height, trim)?.let { return@withContext it }
         if (index in broken) return@withContext null
         lock.withLock {
-            cached(index, width, height)?.let { return@withLock it }
+            cached(index, width, height, trim)?.let { return@withLock it }
             val bytes = try {
                 pages.read(index)
             } catch (e: java.io.IOException) {
@@ -76,9 +84,10 @@ class ComicBook(
             }
             // 메모리가 모자라 못 푼 것(OutOfMemoryError)도 깨진 쪽처럼 넘긴다 — 쪽 하나 때문에 앱이 닫히면 안 된다.
             val bitmap = bytes?.let { runCatching { decode(it, width, height, index) }.getOrNull() }
+                ?.let { if (trim) trimmed(it, index) else it }
             if (bitmap == null) broken += index else {
-                bitmaps.put(key(index, width, height), bitmap)
-                if (index in pinnedPages) pinned[key(index, width, height)] = bitmap
+                bitmaps.put(key(index, width, height, trim), bitmap)
+                if (index in pinnedPages) pinned[key(index, width, height, trim)] = bitmap
             }
             bitmap
         }
@@ -94,6 +103,31 @@ class ComicBook(
         var sample = 1
         while (bounds.outWidth / (sample * 2) >= bounds.outWidth * scale && bounds.outHeight / (sample * 2) >= bounds.outHeight * scale) sample *= 2
         return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
+    }
+
+    /**
+     * 바깥 여백을 걷어 낸 그림. 여백은 줄여 본 사본(가로 [TRIM_PROBE] 픽셀)에서 찾는다 — 화면 크기 그림의 화소를 통째로
+     * 꺼내면 쪽마다 수 MB 를 잠깐 더 쓴다. 자를 것이 없거나 찾다가 실패하면 원래 그림 그대로(규칙 6).
+     */
+    private fun trimmed(bitmap: Bitmap, index: Int): Bitmap {
+        val cut = runCatching {
+            val scale = minOf(1f, TRIM_PROBE.toFloat() / bitmap.width)
+            val pw = (bitmap.width * scale).toInt().coerceAtLeast(1)
+            val ph = (bitmap.height * scale).toInt().coerceAtLeast(1)
+            val probe = if (scale < 1f) Bitmap.createScaledBitmap(bitmap, pw, ph, true) else bitmap
+            val pixels = IntArray(pw * ph).also { probe.getPixels(it, 0, pw, 0, 0, pw, ph) }
+            if (probe !== bitmap) probe.recycle()
+            MarginTrim.find(pw, ph, pixels)?.let { box ->
+                val l = (box.left / scale).toInt().coerceIn(0, bitmap.width - 1)
+                val t = (box.top / scale).toInt().coerceIn(0, bitmap.height - 1)
+                val r = (box.right / scale).toInt().coerceIn(l + 1, bitmap.width)
+                val b = (box.bottom / scale).toInt().coerceIn(t + 1, bitmap.height)
+                Bitmap.createBitmap(bitmap, l, t, r - l, b - t)
+            }
+        }.getOrNull()
+        val result = cut ?: bitmap
+        trimmedAspects[index] = result.width.toFloat() / result.height
+        return result
     }
 
     /** 쪽들의 픽셀 크기(머리만 읽음). 한 번 읽으면 둔다. 깨진 쪽은 null. */
@@ -226,7 +260,8 @@ class ComicBook(
         pages.close()
     }
 
-    private fun key(index: Int, width: Int, height: Int) = "$index|$width|$height"
+    // 자른 그림과 원래 그림은 다른 칸에 둔다 — 같은 칸이면 여백 자르기를 끄고 켜도 저장소에 남은 쪽이 그대로 보였다.
+    private fun key(index: Int, width: Int, height: Int, trim: Boolean = false) = "$index|$width|$height" + if (trim) "|t" else ""
 
     /** 쪽 그림 열쇠의 쪽 번호. 띠(웹툰) 열쇠는 붙잡지 않는다 — -1. */
     private fun pageOf(key: String): Int = if (key.startsWith("s")) -1 else key.substringBefore('|').toIntOrNull() ?: -1
@@ -238,6 +273,9 @@ class ComicBook(
         private const val MAX_WHOLE_HEIGHT = 4096
 
         /** 앱 힙의 8분의 1, 많아야 96MB. 화면 크기 쪽(1080×2340 ARGB ≈ 10MB) 여러 장 — 앞뒤 쪽을 미리 풀어 둘 만큼. */
+        /** 여백을 찾을 때 줄여 보는 폭. 쪽 폭의 1% 여유와 먼지 한도를 가를 만큼은 된다. */
+        private const val TRIM_PROBE = 360
+
         internal fun memoryBudget(): Int = (Runtime.getRuntime().maxMemory() / 8).coerceAtMost(96L * 1024 * 1024).toInt()
     }
 }
