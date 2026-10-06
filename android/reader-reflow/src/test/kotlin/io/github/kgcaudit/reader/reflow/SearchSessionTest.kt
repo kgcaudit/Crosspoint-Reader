@@ -15,12 +15,13 @@ class SearchSessionTest {
 
     @Test
     fun `clearing the search empties the results, the summary and the result bar`() {
-        val session = SearchSession()
+        val session = chapterSearch()
         session.query = "보아"
-        session.start(CoroutineScope(Dispatchers.Unconfined), chapterCount = { 3 }) { i, _ -> listOf(found(i)) }
+        session.start(CoroutineScope(Dispatchers.Unconfined), unitCount = { 3 }) { i, _ -> listOf(found(i)) }
         session.current = 1
         assertEquals(3, session.results.size)
         assertEquals(3, session.searched)
+        assertEquals("3곳 · 3장에서", session.summary)
 
         // 검색 칸의 ×. 멈추기만 하던 때는 칸은 비었는데 옛 결과 목록과 "3곳 · 3장에서" 가 남아 지운 말의 결과로 보였다.
         session.query = ""
@@ -28,6 +29,7 @@ class SearchSessionTest {
         assertTrue(session.results.isEmpty(), "결과가 남았다")
         assertEquals(0, session.searched, "요약(몇 곳 · 몇 장)이 남았다")
         assertEquals(-1, session.current, "결과 막대가 남았다")
+        assertEquals("", session.summary, "요약 줄이 남았다")
         assertFalse(session.running)
     }
 }

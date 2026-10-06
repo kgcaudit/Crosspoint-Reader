@@ -26,11 +26,10 @@ import io.github.kgcaudit.reader.ui.design.CpFloatingMenu
 import io.github.kgcaudit.reader.ui.design.CpSelectionHandles
 import io.github.kgcaudit.reader.ui.design.HANDLE_RADIUS
 import io.github.kgcaudit.reader.ui.design.Pen
+import io.github.kgcaudit.reader.ui.design.ReaderSearch
 import io.github.kgcaudit.reader.ui.design.drawMemoGlyph
 import io.github.kgcaudit.reader.ui.design.handleCentres
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
 import kotlin.math.hypot
 import kotlin.math.min
 
@@ -79,63 +78,11 @@ internal class PdfTextState {
     fun placedAt(at: Offset): Placed? = placed.firstOrNull { it.rect.contains(at) }
 }
 
-/**
- * 찾기(4-1). EPUB 의 SearchSession 과 같은 모양이다: 쪽을 차례로 찾아 찾는 대로 [results] 에 쌓는다. 결과의
- * `spine` 자리가 쪽 번호다.
- */
-@Stable
-internal class PdfSearch {
-    var query by mutableStateOf("")
-    var results by mutableStateOf<List<SearchHit>>(emptyList())
-        private set
-    var searched by mutableIntStateOf(0)
-        private set
-    var running by mutableStateOf(false)
-        private set
-    var current by mutableIntStateOf(-1)
+/** 찾기(4-1). EPUB 과 같은 찾기 상태이고 단위가 쪽이다 — 결과의 `spine` 자리가 쪽 번호다. */
+internal fun pageSearch(): ReaderSearch<SearchHit> = ReaderSearch("쪽") { it.spine }
 
-    /** [results] 를 낸 말. 결과를 연 뒤 칸의 글을 고쳐도 칠은 찾은 말을 따른다. */
-    var searchedQuery = ""
-        private set
-    private var job: Job? = null
-
-    fun start(reader: PdfReader, scope: CoroutineScope) {
-        job?.cancel()
-        results = emptyList()
-        searched = 0
-        current = -1
-        val q = query.trim()
-        searchedQuery = q
-        if (q.isEmpty()) return
-        running = true
-        job = scope.launch {
-            try {
-                reader.search(q) { page, hits ->
-                    if (hits.isNotEmpty()) results = results + hits
-                    searched = page + 1
-                }
-            } finally {
-                // 새 찾기가 이 일을 취소하고 시작했으면 "찾는 중" 은 그쪽 것이다(ReaderFind 와 같다).
-                if (job === coroutineContext[kotlinx.coroutines.Job]) running = false
-            }
-        }
-    }
-
-    fun stop() {
-        job?.cancel()
-        running = false
-        results = emptyList()
-        searched = 0
-        current = -1
-    }
-
-    fun summary(pageCount: Int): String = when {
-        running -> "찾는 중… $searched / ${pageCount}쪽 · 지금까지 ${results.size}곳"
-        searched > 0 && results.isEmpty() -> "찾지 못했습니다"
-        searched > 0 -> "${results.size}곳 · ${results.map { it.spine }.distinct().size}쪽에서"
-        else -> ""
-    }
-}
+internal fun ReaderSearch<SearchHit>.start(reader: PdfReader, scope: CoroutineScope) =
+    start(scope, { reader.book.pageCount }) { page, q -> reader.searchPage(page, q) }
 
 /**
  * 쪽 위에 얹는 층: 형광펜 · 메모 쪽지 · 찾은 곳 · 듣는 문장 · 고른 구간과 그 손잡이 · 떠 있는 메뉴.

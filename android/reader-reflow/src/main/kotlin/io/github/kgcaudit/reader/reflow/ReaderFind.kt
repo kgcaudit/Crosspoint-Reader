@@ -14,10 +14,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,80 +32,24 @@ import io.github.kgcaudit.reader.ui.design.CpPopup
 import io.github.kgcaudit.reader.ui.design.CpPopupButtons
 import io.github.kgcaudit.reader.ui.design.CpText
 import io.github.kgcaudit.reader.ui.design.CpTheme
+import io.github.kgcaudit.reader.ui.design.ReaderSearch
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /** 찾은 자리와 그 자리의 진도(%). */
 data class Found(val hit: SearchHit, val percent: Float)
 
-/**
- * 한 권에서의 찾기. 화면(목록 · 결과 막대)이 닫혀도 남는다 — "목록" 을 누르면 같은 결과로 돌아온다.
- */
-class SearchSession {
-    var query by mutableStateOf("")
-    var results by mutableStateOf<List<Found>>(emptyList())
-        private set
-    var searched by mutableIntStateOf(0)
-        private set
-    var chapters by mutableIntStateOf(0)
-        private set
-    var running by mutableStateOf(false)
-        private set
+/** 한 권에서의 찾기. 단위는 장이다 — 결과의 `spine` 이 장 번호다. */
+internal fun chapterSearch(): ReaderSearch<Found> = ReaderSearch("장") { it.hit.spine }
 
-    /** 지금 보고 있는 결과(목록에서 누른 것). -1 이면 결과 막대를 띄우지 않는다. */
-    var current by mutableIntStateOf(-1)
-
-    private var job: Job? = null
-
-    /** 장마다 찾아 나오는 대로 목록에 더한다(E2). 새로 찾으면 앞의 찾기는 멈춘다. */
-    fun start(reader: BookReader, scope: CoroutineScope) =
-        start(scope, reader::chapterCount) { i, q -> reader.searchChapter(i, q).map { Found(it, reader.percentOf(it)) } }
-
-    /** [start] 의 본체. 책 없이 시험하려고 장 수 · 장 하나 찾기를 함수로 받는다. */
-    internal fun start(scope: CoroutineScope, chapterCount: suspend () -> Int, searchChapter: suspend (Int, String) -> List<Found>) {
-        val q = query.trim()
-        job?.cancel()
-        results = emptyList()
-        current = -1
-        searched = 0
-        if (q.isEmpty()) return
-        running = true
-        job = scope.launch {
-            try {
-                chapters = chapterCount()
-                for (i in 0 until chapters) {
-                    ensureActive()
-                    results = results + searchChapter(i, q)
-                    searched = i + 1
-                }
-            } finally {
-                // 새 찾기가 이 일을 취소하고 시작했으면 "찾는 중" 은 그쪽 것이다 — 옛 일이 끄면 새 찾기가 도는데 막대가 사라졌다.
-                if (job === coroutineContext[kotlinx.coroutines.Job]) running = false
-            }
-        }
-    }
-
-    /**
-     * 찾기를 지운다(검색 칸의 ×). 결과 · 요약 · 결과 막대를 모두 비운다 — 멈추기만 하던 때는 칸은 비었는데 옛 결과
-     * 목록과 "12곳 · 3장에서" 가 그대로 남아, 지운 말의 결과처럼 보였다(PDF 는 비운다). 쪽의 칠은 화면이 지운다.
-     */
-    fun stop() {
-        job?.cancel()
-        running = false
-        results = emptyList()
-        searched = 0
-        chapters = 0
-        current = -1
-    }
-}
+/** 장마다 찾아 나오는 대로 목록에 더한다(E2). 새로 찾으면 앞의 찾기는 멈춘다. */
+internal fun ReaderSearch<Found>.start(reader: BookReader, scope: CoroutineScope) =
+    start(scope, reader::chapterCount) { i, q -> reader.searchChapter(i, q).map { Found(it, reader.percentOf(it)) } }
 
 /** 찾기 화면(모양은 ui-design 의 CpSearchScreen). 결과 자리는 책의 %. */
 @Composable
 internal fun SearchScreen(
-    session: SearchSession,
+    session: ReaderSearch<Found>,
     toc: List<TocEntry>,
     onSearch: () -> Unit,
     onOpen: (Int) -> Unit,
@@ -117,12 +57,6 @@ internal fun SearchScreen(
     /** 찾기를 지웠다(×). 쪽에 칠해 둔 찾은 자리도 지운다. */
     onCleared: () -> Unit = {},
 ) {
-    val summary = when {
-        session.running -> "찾는 중… ${session.searched} / ${session.chapters}장 · 지금까지 ${session.results.size}곳"
-        session.searched > 0 && session.results.isEmpty() -> "찾지 못했습니다"
-        session.searched > 0 -> "${session.results.size}곳 · ${session.results.map { it.hit.spine }.distinct().size}장에서"
-        else -> ""
-    }
     val rows = session.results.map { found ->
         val hit = found.hit
         CpSearchRow(
@@ -137,8 +71,8 @@ internal fun SearchScreen(
         query = session.query,
         onQuery = { session.query = it },
         onClear = { session.query = ""; session.stop(); onCleared() },
-        summary = summary,
-        progress = if (session.running && session.chapters > 0) session.searched / session.chapters.toFloat() else null,
+        summary = session.summary,
+        progress = session.progress,
         rows = rows,
         onSearch = onSearch,
         onOpen = onOpen,

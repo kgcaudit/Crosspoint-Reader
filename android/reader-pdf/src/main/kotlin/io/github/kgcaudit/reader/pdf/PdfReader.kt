@@ -204,10 +204,15 @@ class PdfReader(
     suspend fun search(query: String, onPage: suspend (page: Int, hits: List<SearchHit>) -> Unit) {
         for (page in 0 until book.pageCount) {
             kotlin.coroutines.coroutineContext.ensureActive()
-            // 줄 끝의 "\r" 을 한 칸으로(자리 수는 그대로) — 두면 목록의 문맥에 보이지 않는 글자가 끼어 줄이 깨진다.
-            val text = plainText(page).replace('\r', ' ')
-            onPage(page, if (PageText.isReadable(text)) findAll(text, query, page) else emptyList())
+            onPage(page, searchPage(page, query))
         }
+    }
+
+    /** 쪽 하나에서 찾는다. 결과의 `spine` 자리가 쪽 번호다. */
+    suspend fun searchPage(page: Int, query: String): List<SearchHit> {
+        // 줄 끝의 "\r" 을 한 칸으로(자리 수는 그대로) — 두면 목록의 문맥에 보이지 않는 글자가 끼어 줄이 깨진다.
+        val text = plainText(page).replace('\r', ' ')
+        return if (PageText.isReadable(text)) findAll(text, query, page) else emptyList()
     }
 
     // ── 형광펜(4-2) ──────────────────────────────────────────────────

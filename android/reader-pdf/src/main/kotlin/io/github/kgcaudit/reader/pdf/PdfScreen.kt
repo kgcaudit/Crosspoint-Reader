@@ -233,7 +233,7 @@ fun PdfScreen(
 
     // ── 글자 층(4단계 PDF): 찾기 · 고르기 · 칠 · 듣기 ─────────────────────
     val text = remember(reader) { PdfTextState() }
-    val search = remember(reader) { PdfSearch() }
+    val search = remember(reader) { pageSearch() }
     var lastPen by remember { mutableStateOf(Pen.Yellow) }
     // 찾은 곳 · 듣는 문장을 보이게 옮길 곳(쪽, 쪽 안 네모). 폭 맞춤 · 확대에서만 실제로 움직인다.
     var focus by remember { mutableStateOf<Pair<Int, PageRegion>?>(null) }
@@ -621,8 +621,8 @@ fun PdfScreen(
             query = search.query,
             onQuery = { search.query = it },
             onClear = { search.query = ""; search.stop(); closeSearch() },
-            summary = search.summary(state.pageCount),
-            progress = if (search.running && state.pageCount > 0) search.searched / state.pageCount.toFloat() else null,
+            summary = search.summary,
+            progress = search.progress,
             rows = search.results.map { hit ->
                 CpSearchRow(
                     section = entries.getOrNull(currentContentsIndex(entries, hit.spine))?.label ?: "${hit.spine + 1}쪽",

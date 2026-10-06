@@ -156,7 +156,7 @@ fun ReaderScreen(
     // 화면이 따로 다시 읽던 때는 열 때마다 큰 NCX 를 또 풀었다.
     var toc by remember { mutableStateOf<List<TocEntry>?>(null) }
     LaunchedEffect(reader) { toc = runCatching { reader.outline() }.getOrDefault(emptyList()) }
-    val search = remember(reader) { SearchSession() }
+    val search = remember(reader) { chapterSearch() }
     // 각주 판(F3) · 브라우저 확인(F6).
     var note by remember { mutableStateOf<Pair<String, LinkTarget.Footnote>?>(null) }
     var external by remember { mutableStateOf<String?>(null) }
