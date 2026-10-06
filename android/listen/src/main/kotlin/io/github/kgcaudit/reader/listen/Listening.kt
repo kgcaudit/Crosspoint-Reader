@@ -257,6 +257,10 @@ class Listening(
     private suspend fun speakFrom(spine: Int, n: Int, since: Int, follow: Boolean = true) {
         val from = chapter?.spine
         val resolved = resolve(spine, n)
+        // 장이 바뀌는가("장 끝" 타이머). 단위가 아니라 장([ListenSource.chapterOf])을 견준다 — PDF 는 단위가 쪽이라, 단위가
+        // 바뀔 때 멈추면 쪽마다 멈췄다. 묻는 것도 기다림일 수 있어 아래 세대 확인보다 먼저 묻는다.
+        val nextChapter = resolved != null && from != null && resolved.first.spine > from &&
+            reader.chapterOf(resolved.first.spine) != reader.chapterOf(from)
         // 장을 불러오는 사이에 멈춤 · 끄기가 왔다(이어폰이 빠짐 · 전화 · 잠자기 타이머 · 사람). 그대로 읽으면 멈춘 듣기가
         // 스피커로 다시 읽기 시작했다. 요청한 때의 세대와 다르면 그 뒤의 명령이 이긴다.
         if (generation != since) return
@@ -267,7 +271,7 @@ class Listening(
         }
         val (c, i) = resolved
         // "장 끝" 타이머: 다음 장으로 넘어가려는 순간 멈춘다.
-        if (_state.value.timer == ListenTimer.ChapterEnd && from != null && c.spine > from && _state.value.playing) {
+        if (_state.value.timer == ListenTimer.ChapterEnd && nextChapter && _state.value.playing) {
             pause()
             _state.value = _state.value.copy(timer = ListenTimer.Off)
             index = i

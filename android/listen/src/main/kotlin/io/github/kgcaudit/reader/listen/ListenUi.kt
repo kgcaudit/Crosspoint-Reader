@@ -5,14 +5,9 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -35,7 +30,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -145,6 +139,11 @@ fun ListenSheet(
     onClose: () -> Unit,
     /** 어절 쉼 줄이기를 바꿨다(저장 · 지금 듣기에 적용 — 지금 문장부터 바로 다시 읽어, 두 세기를 번갈아 눌러 견준다). */
     onJoin: (WordJoin) -> Unit = {},
+    /**
+     * "장 끝" 을 고를 수 있는가. 목차가 없는 PDF 는 장이 없어 거짓 — 두면 골라도 책 끝까지 멈추지 않는다(쪽마다 멈추던
+     * 것보다 낫지만 고른 대로 되지 않는 단추다).
+     */
+    chapterTimer: Boolean = true,
 ) {
     val c = CpTheme.colors
     val m = CpTheme.metrics
@@ -153,7 +152,7 @@ fun ListenSheet(
             CpText("듣기", CpTheme.type.title, c.text, Modifier.padding(horizontal = m.gutter, vertical = 12.dp))
             CpStepper("읽는 속도", rateLabel(prefs.rate), { onRate(prefs.stepRate(-1)) }, { onRate(prefs.stepRate(+1)) })
             CpLinkRow("목소리", prefs.voiceLabel ?: "휴대폰 기본", onVoices)
-            val timers = ListenTimer.entries
+            val timers = ListenTimer.entries.filter { chapterTimer || it != ListenTimer.ChapterEnd }
             CpChoice("타이머", timers.map { it.label }, timers.indexOf(timer), { onTimer(timers[it]) })
             val joins = WordJoin.entries
             CpChoice("어절 쉼 줄이기", joins.map { it.label }, joins.indexOf(prefs.join), { onJoin(joins[it]) })

@@ -19,6 +19,12 @@ interface ListenSource {
 
     /** 그 단위의 글자 [offset] 이 보이게 한다(듣기가 쪽을 따라 넘긴다). 이미 보이면 아무것도 안 한다. */
     suspend fun follow(unit: Int, offset: Int)
+
+    /**
+     * [unit] 이 속한 장의 번호. "장 끝" 잠자기 타이머는 이 값이 바뀌는 순간 멈춘다. EPUB 은 단위가 곧 장이라 그대로다.
+     * PDF 는 단위가 쪽이라 목차 항목으로 묶어 준다 — 단위 경계에서 멈추면 "장 끝" 이 쪽마다 멈췄다.
+     */
+    suspend fun chapterOf(unit: Int): Int = unit
 }
 
 /** 한 장(PDF 는 한 쪽)의 텍스트와 문장들(듣기). */
@@ -41,10 +47,15 @@ data class ListenPrefs(
     val join: WordJoin = WordJoin.Off,
 ) {
     /** 한 단계 빠르게(+) · 느리게(−). 0.5–2.0 을 0.1 씩(L4). 떠돌이 소수(1.2000001)가 생기지 않게 10배로 센다. */
-    fun stepRate(by: Int): ListenPrefs = copy(rate = ((kotlin.math.round(rate * 10f).toInt() + by).coerceIn(5, 20)) / 10f)
+    fun stepRate(by: Int): ListenPrefs = copy(rate = ((kotlin.math.round(rate * 10f).toInt() + by).coerceIn(STEPS_MIN, STEPS_MAX)) / 10f)
 
     companion object {
         const val MIN_RATE = 0.5f
         const val MAX_RATE = 2.0f
+
+        // 10배로 센 끝값. 저장된 빠르기를 되살릴 때(앱)도 MIN_RATE · MAX_RATE 로 가두므로, 숫자를 따로 적으면 한쪽만
+        // 바뀌었을 때 단추로는 갈 수 없는 빠르기가 되살아난다.
+        private val STEPS_MIN = kotlin.math.round(MIN_RATE * 10f).toInt()
+        private val STEPS_MAX = kotlin.math.round(MAX_RATE * 10f).toInt()
     }
 }
