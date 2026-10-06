@@ -260,4 +260,10 @@ class ReadingRecordsTest {
         assertEquals(false, canBackUp(RecordsSummary(0, 0, 0)))
         assertEquals(true, canBackUp(RecordsSummary(0, 0, 0, comics = 1)))
     }
+
+    @Test
+    fun `someone with only work settings can still back them up`() {
+        // 만화 이름 · 방향만 고쳐 두고 아직 펼친 권이 없는 사람. 권 수만 보던 때는 백업 단추가 흐려 그 설정을 옮길 길이 없었다.
+        assertEquals(true, canBackUp(RecordsSummary(0, 0, 0, works = 2)))
+    }
 }

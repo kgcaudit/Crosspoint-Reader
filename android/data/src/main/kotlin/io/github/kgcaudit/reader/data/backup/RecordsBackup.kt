@@ -21,8 +21,15 @@ import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
 
-/** 앱 정보의 "책 42권 · 만화 7권 · 책갈피 18개 · 형광펜 · 메모 63개". 만화는 0.49.0 부터. */
-data class RecordsSummary(val books: Int, val bookmarks: Int, val annotations: Int, val comics: Int = 0)
+/**
+ * 앱 정보의 "책 42권 · 만화 7권 · 책갈피 18개 · 형광펜 · 메모 63개". 만화는 0.49.0 부터.
+ *
+ * [works] 는 백업에 들어가는 작품 설정(손으로 고친 이름 · 넘기는 방향 · 보는 방식) 수다. 이것만 가진 사람(만화 이름만 고쳐
+ * 두고 아직 펼친 권이 없음)도 백업할 것이 있다 — 세지 않으면 백업 단추가 흐려 그 설정을 옮길 길이 없었다.
+ */
+data class RecordsSummary(val books: Int, val bookmarks: Int, val annotations: Int, val comics: Int = 0, val works: Int = 0)
+
+private fun RecordsFile.summary() = RecordsSummary(books.size, bookmarkCount, annotationCount, comics.size, works.size)
 
 /** 가져오기 전에 보이는 것: 이 휴대폰에서 찾은 책 · 만화와 못 찾은 것. */
 class ImportPlan internal constructor(
@@ -140,13 +147,13 @@ class RecordsBackup(
         }.filter { it.title != null || it.rightToLeft != null || it.view != null }
     }
 
-    suspend fun summary(): RecordsSummary = collect().let { RecordsSummary(it.books.size, it.bookmarkCount, it.annotationCount, it.comics.size) }
+    suspend fun summary(): RecordsSummary = collect().summary()
 
     suspend fun export(out: OutputStream): RecordsSummary {
         val file = collect()
         out.write(RecordsCodec.encode(file).toByteArray(Charsets.UTF_8))
         out.flush()
-        return RecordsSummary(file.books.size, file.bookmarkCount, file.annotationCount, file.comics.size)
+        return file.summary()
     }
 
     /** 이 앱의 백업이 아니면 null. 너무 큰 파일(동영상을 골랐다 등)은 끝까지 읽지 않는다. */

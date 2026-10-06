@@ -161,6 +161,21 @@ class ComicRecordsBackupTest {
     }
 
     @Test
+    fun `the summary counts work settings even with no volume opened yet`() = runTest {
+        // 이름 · 방향만 고쳐 두고 아직 펼친 권이 없다. 요약이 권 수만 세면 "담을 것이 없다" 로 보여 백업을 만들 수 없었다.
+        val old = phone("old", "content://old/tree")
+        old.scan("별 1권.cbz" to 5000L, "달 1권.cbz" to 7000L)
+        val works = old.comics.works().first()
+        old.comics.setRightToLeft(works.first { it.title == "별" }, true)
+        old.comics.rename(works.first { it.title == "달" }, "달빛 이야기")
+        val summary = old.records.summary()
+        assertEquals(0 to 0, summary.books to summary.comics)
+        assertEquals(2, summary.works)
+        // 파일로 써도 같은 수를 알린다.
+        assertEquals(2, old.records.export(ByteArrayOutputStream()).works)
+    }
+
+    @Test
     fun `settings of a work split off by hand stay on this phone, the work's own settings still move`() = runTest {
         // 따로 뺀 작품의 열쇠는 이 휴대폰의 문서 주소다 — 새 휴대폰에서는 붙을 작품이 없어 백업에 쓸모없는 줄만 쌓였다.
         val old = phone("old", "content://old/tree")

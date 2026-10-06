@@ -75,9 +75,9 @@ internal fun backupContents(books: Int, comics: Int, works: Int): String =
 
 /**
  * "백업 파일 만들기" 를 누를 수 있는가: 담을 것이 있을 때. 만화만 읽은 사람도 만들 수 있어야 한다 — 0.49.0 은 책 수만 보아
- * 만화 기록이 있어도 줄이 흐렸다.
+ * 만화 기록이 있어도 줄이 흐렸다. 작품 설정만 가진 사람도 같다 — 권 수만 보면 고쳐 둔 작품 이름 · 방향을 옮길 길이 없다.
  */
-internal fun canBackUp(s: RecordsSummary?): Boolean = s != null && (s.books > 0 || s.comics > 0)
+internal fun canBackUp(s: RecordsSummary?): Boolean = s != null && (s.books > 0 || s.comics > 0 || s.works > 0)
 
 /** 가져오기 · 만들기의 판. 한 번에 하나만 뜬다. */
 internal sealed interface RecordsPopup {
