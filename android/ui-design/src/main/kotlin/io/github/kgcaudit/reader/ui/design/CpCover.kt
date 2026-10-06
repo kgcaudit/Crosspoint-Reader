@@ -30,6 +30,9 @@ import androidx.compose.ui.unit.dp
 /**
  * 책장 칸의 가로 : 세로. 국판 · 신국판이 1 : 1.4–1.5 라 이 칸을 기준으로 줄을 맞춘다. 표지 그림은 이 칸에 **맞춰 자르지
  * 않는다** — 칸 안에 원래 비율대로 넣는다([CpCover]).
+ *
+ * 만화 표지를 자르는 비율(:document 의 `CoverCrop.ASPECT`)이 이 값의 역수다. 이 모듈은 :document 를 모르므로 값을 따로
+ * 적고, 둘이 같은지는 app 의 `DesignDocumentAgreementTest` 가 지킨다.
  */
 const val COVER_ASPECT: Float = 1f / 1.45f
 
