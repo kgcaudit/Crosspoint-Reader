@@ -181,6 +181,9 @@ class ZipReader private constructor(
             var offset = cdOffset
             var read = 0L
             while (read < count) {
+                // 개수가 부풀려진 아카이브: 실제 항목을 다 읽고 나면 다음 자리는 EOCD(22바이트)라 46바이트 머리가 파일 끝을
+                // 넘는다. 읽고 나서 서명을 보면 EOFException 이 먼저 나 읽은 항목까지 버리고 통째로 "zip 아님" 이 됐다.
+                if (offset + CENTRAL_HEADER_SIZE > source.size) break
                 val header = source.readFully(offset, CENTRAL_HEADER_SIZE)
                 if (header.u32(0) != CENTRAL_HEADER_SIGNATURE) break // 개수가 부풀려진 아카이브
 
@@ -188,6 +191,8 @@ class ZipReader private constructor(
                 val nameLength = header.u16(28)
                 val extraLength = header.u16(30)
                 val commentLength = header.u16(32)
+                // 마지막 머리가 잘린 경우도 같다 — 이름 · extra 가 끝 밖이면 거기까지만 믿는다.
+                if (offset + CENTRAL_HEADER_SIZE + nameLength + extraLength + commentLength > source.size) break
 
                 val variable = source.readFully(
                     offset + CENTRAL_HEADER_SIZE,

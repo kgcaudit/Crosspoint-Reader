@@ -22,7 +22,11 @@ class EpubDocumentTest {
 
     // ── EPUB 조립 도우미 ────────────────────────────────────────────
 
-    private fun epub(vararg entries: Pair<String, String>): ByteArray {
+    private fun epub(vararg entries: Pair<String, String>): ByteArray =
+        epubBytes(*entries.map { (name, body) -> name to body.toByteArray() }.toTypedArray())
+
+    /** 항목을 바이트 그대로 담는다 — UTF-8 이 아닌 본문을 넣을 때. */
+    private fun epubBytes(vararg entries: Pair<String, ByteArray>): ByteArray {
         val out = ByteArrayOutputStream()
         ZipOutputStream(out).use { zip ->
             // mimetype 은 규격상 첫 엔트리이고 무압축이어야 한다.
@@ -40,7 +44,7 @@ class EpubDocumentTest {
 
             entries.forEach { (name, body) ->
                 zip.putNextEntry(ZipEntry(name))
-                zip.write(body.toByteArray())
+                zip.write(body)
                 zip.closeEntry()
             }
         }
@@ -290,6 +294,33 @@ class EpubDocumentTest {
         )
         open(bytes).use { doc ->
             assertEquals('<', doc.openChapter(0).use { it.readText() }.first())
+        }
+    }
+
+    @Test
+    fun `a korean epub saved as euc-kr is read by the encoding its xml declaration names`() = runTest {
+        // 규격을 어긴 옛 한국 EPUB: 선언은 euc-kr 로 바르게 적혀 있다. UTF-8 로만 읽어 제목 · 본문이 통째로 깨졌다.
+        val euckr = charset("EUC-KR")
+        val bytes = epubBytes(
+            container().let { it.first to it.second.toByteArray() },
+            "OEBPS/content.opf" to """
+                <?xml version="1.0" encoding="euc-kr"?>
+                <package version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/"><metadata><dc:title>어린 왕자</dc:title></metadata>
+                  <manifest><item id="c1" href="a.xhtml" media-type="application/xhtml+xml"/>
+                    <item id="c2" href="b.xhtml" media-type="application/xhtml+xml"/><item id="c3" href="c.xhtml" media-type="application/xhtml+xml"/></manifest>
+                  <spine><itemref idref="c1"/><itemref idref="c2"/><itemref idref="c3"/></spine></package>
+            """.trimIndent().toByteArray(euckr),
+            "OEBPS/a.xhtml" to "<?xml version='1.0' encoding='EUC-KR' ?><html><body><p>사막에서 만난 여우</p></body></html>".toByteArray(euckr),
+            // 선언은 euc-kr 인데 실제로는 UTF-8 로 다시 저장된 장 — 바이트가 말하는 쪽을 믿어야 지금까지처럼 읽힌다.
+            "OEBPS/b.xhtml" to "<?xml version=\"1.0\" encoding=\"euc-kr\"?><html><body><p>장미</p></body></html>".toByteArray(),
+            // 모르는 인코딩 이름은 UTF-8 로.
+            "OEBPS/c.xhtml" to "<?xml version=\"1.0\" encoding=\"x-no-such-charset\"?><p>바오밥</p>".toByteArray(),
+        )
+        open(bytes).use { doc ->
+            assertEquals("어린 왕자", doc.meta.title)
+            assertTrue(doc.openChapter(0).use { it.readText() }.contains("사막에서 만난 여우"))
+            assertTrue(doc.openChapter(1).use { it.readText() }.contains("장미"))
+            assertTrue(doc.openChapter(2).use { it.readText() }.contains("바오밥"))
         }
     }
 

@@ -20,8 +20,8 @@ data class ImageSize(val width: Int, val height: Int) {
  *
  * 왜 디코드하지 않는가: 조판은 챕터마다 그림 수십 장을 지나간다. 픽셀까지 풀면 느리고
  * 메모리를 먹으며, 무엇보다 이 모듈은 순수 Kotlin 이라 플랫폼 디코더를 쓸 수 없다.
- * PNG·GIF·WebP 는 앞쪽 30바이트 안에, JPEG 는 세그먼트를 건너뛰며 찾는 SOF 마커 안에
- * 크기가 있다.
+ * PNG·GIF·WebP·BMP 는 앞쪽 30바이트 안에, JPEG 는 세그먼트를 건너뛰며 찾는 SOF 마커 안에
+ * 크기가 있다. AVIF · HEIC 는 아직 읽지 않는다(상자를 따라가야 한다) — 크기를 모르는 쪽으로 남는다.
  *
  * 모르는 형식이거나 깨진 파일이면 null. 예외를 던지지 않는다 — 그림 하나 때문에 챕터가
  * 안 열리면 안 된다.
@@ -39,6 +39,8 @@ object ImageHeader {
             n >= 10 && isGif(head) -> ImageSize(u16le(head, 6), u16le(head, 8))
             n >= 30 && isWebp(head) -> webp(head)
             n >= 4 && isJpeg(head) -> jpeg(head, n, input)
+            // 만화 쪽으로 bmp 도 받는다(ComicContents) — 크기를 모르면 웹툰 판별 · 기둥 배치에서 그 쪽만 빠졌다.
+            n >= 26 && isBmp(head) -> bmp(head)
             else -> null
         }
     } catch (e: IOException) {
@@ -61,6 +63,18 @@ object ImageHeader {
         ascii(b, 0, 4) == "RIFF" && ascii(b, 8, 4) == "WEBP"
 
     private fun isJpeg(b: ByteArray) = b[0] == 0xFF.toByte() && b[1] == 0xD8.toByte()
+
+    private fun isBmp(b: ByteArray) = b[0] == 'B'.code.toByte() && b[1] == 'M'.code.toByte()
+
+    /**
+     * BMP: 파일 머리(14바이트) 뒤 DIB 머리. 옛 OS/2 머리(12바이트)는 16비트, 나머지(40바이트 이상)는 32비트 부호 있는
+     * 값이다. 높이가 음수면 위에서 아래로 적은 그림일 뿐 크기는 같다.
+     */
+    private fun bmp(b: ByteArray): ImageSize? = when (u32le(b, 14)) {
+        12 -> ImageSize(u16le(b, 18), u16le(b, 20))
+        in 40..1024 -> ImageSize(u32le(b, 18), kotlin.math.abs(u32le(b, 22)))
+        else -> null
+    }
 
     private fun webp(b: ByteArray): ImageSize? = when (ascii(b, 12, 4)) {
         // 손실 압축: 프레임 머리(시작 코드 9D 01 2A) 뒤 14비트씩.

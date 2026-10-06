@@ -8,12 +8,16 @@ import io.github.kgcaudit.reader.document.ReflowDocument
 import io.github.kgcaudit.reader.document.SeekableSource
 import io.github.kgcaudit.reader.document.SpineItem
 import io.github.kgcaudit.reader.document.TocEntry
+import io.github.kgcaudit.reader.document.readUpTo
+import io.github.kgcaudit.reader.document.text.EncodingDetector
+import io.github.kgcaudit.reader.document.text.TextEncoding
 import io.github.kgcaudit.reader.document.zip.ZipReader
 import java.io.Closeable
 import java.io.IOException
 import java.io.InputStream
 import java.io.InputStreamReader
 import java.io.Reader
+import java.nio.charset.Charset
 
 /**
  * EPUB 2 / 3 문서.
@@ -184,28 +188,69 @@ class EpubDocument private constructor(
  * EPUB 안의 XML/XHTML 을 읽을 [Reader] 를 만든다.
  *
  * EPUB 규격은 본문을 UTF-8 또는 UTF-16 으로 제한하고, 실제로는 거의 전부 UTF-8 이다.
- * 그래서 TXT 처럼 인코딩을 추측하지 않고 BOM 만 본다 — BOM 이 있으면 그 인코딩, 없으면
- * UTF-8. 여기서 CP949 추측까지 하면 짧은 XML 조각이 오판될 여지만 생긴다.
+ * 그래서 TXT 처럼 바이트로 인코딩을 추측하지 않는다 — BOM 이 있으면 그 인코딩, 없으면 XML 선언
+ * (`<?xml encoding="euc-kr"?>`)이 적은 인코딩, 그것도 없으면 UTF-8. 여기서 CP949 추측까지 하면 짧은 XML
+ * 조각이 오판될 여지만 생긴다.
+ *
+ * 선언을 읽는 까닭: 규격을 어기고 EUC-KR 로 저장한 옛 한국 EPUB 이 있다. 선언은 제대로 적혀 있는데 UTF-8 로만
+ * 읽어 본문 · 목차 · 제목이 통째로 깨졌다.
  */
 private fun InputStream.asXhtmlReader(): Reader {
-    val buffered = this.buffered()
-    buffered.mark(3)
-    val head = ByteArray(3)
-    val read = buffered.read(head)
+    val buffered = this.buffered(DECLARATION_PEEK)
+    buffered.mark(DECLARATION_PEEK)
+    val head = ByteArray(DECLARATION_PEEK)
+    val read = buffered.readUpTo(head)
+    buffered.reset()
 
     val charset = when {
         read >= 3 && head[0] == 0xEF.toByte() && head[1] == 0xBB.toByte() && head[2] == 0xBF.toByte() -> {
-            Charsets.UTF_8 // BOM 3바이트는 이미 소비됐다
+            buffered.skip(3); Charsets.UTF_8
         }
         read >= 2 && head[0] == 0xFF.toByte() && head[1] == 0xFE.toByte() -> {
-            buffered.reset(); buffered.skip(2); Charsets.UTF_16LE
+            buffered.skip(2); Charsets.UTF_16LE
         }
         read >= 2 && head[0] == 0xFE.toByte() && head[1] == 0xFF.toByte() -> {
-            buffered.reset(); buffered.skip(2); Charsets.UTF_16BE
+            buffered.skip(2); Charsets.UTF_16BE
         }
-        else -> {
-            buffered.reset(); Charsets.UTF_8
-        }
+        else -> declaredCharset(head, read) ?: Charsets.UTF_8
     }
     return InputStreamReader(buffered, charset)
+}
+
+/** XML 선언을 찾으려고 앞에서 보는 바이트. 선언은 문서 맨 앞에 있어야 하고 한 줄이다. */
+private const val DECLARATION_PEEK = 4096
+
+/**
+ * XML 선언이 적은 인코딩. UTF-8 · 모르는 이름 · 선언 없음이면 null(부르는 쪽이 UTF-8 로 읽는다).
+ *
+ * 선언을 그대로 믿지 않는 경우가 둘 있다:
+ *  - UTF-16 · UTF-32: BOM 없이 선언 글자가 ASCII 로 읽혔다면 그 파일은 UTF-16 이 아니다. 믿으면 글 전체가 한자 더미가 된다.
+ *  - 실제 바이트가 UTF-8 로 맞는데 선언만 EUC-KR 인 것: 변환 도구가 옛 선언을 남긴 채 UTF-8 로 다시 저장한 책이 있다.
+ *    선언을 믿으면 지금까지 잘 읽히던 그 책들이 깨진다 — 바이트가 말하는 쪽을 믿는다.
+ */
+private fun declaredCharset(head: ByteArray, length: Int): Charset? {
+    val text = String(head, 0, length, Charsets.ISO_8859_1).trimStart()
+    if (!text.startsWith("<?xml")) return null
+    val end = text.indexOf("?>")
+    if (end < 0) return null
+    val declaration = text.substring(0, end)
+    val at = declaration.indexOf("encoding")
+    if (at < 0) return null
+    val afterEquals = declaration.substring(at + "encoding".length).trimStart()
+    if (!afterEquals.startsWith("=")) return null
+    val quoted = afterEquals.substring(1).trimStart()
+    val quote = quoted.firstOrNull()?.takeIf { it == '"' || it == '\'' } ?: return null
+    val close = quoted.indexOf(quote, startIndex = 1)
+    if (close < 0) return null
+    val name = quoted.substring(1, close).trim().lowercase()
+    val charset = when (name) {
+        // 한국 윈도우가 "euc-kr" 이라 적고 실제로는 CP949 확장 글자까지 쓴다 — TXT 와 같은 넓은 쪽으로 읽는다.
+        "euc-kr", "euckr", "ks_c_5601-1987", "ksc5601", "cp949", "ms949", "windows-949", "x-windows-949" -> TextEncoding.EUC_KR.charset
+        else -> runCatching { Charset.forName(name) }.getOrNull() ?: return null
+    }
+    if (charset == Charsets.UTF_8 || charset.name().uppercase().let { it.startsWith("UTF-16") || it.startsWith("UTF-32") }) return null
+    val body = head.copyOf(length)
+    val sample = body.copyOf(EncodingDetector.trimIncompleteTail(body))
+    if (sample.any { it < 0 } && EncodingDetector.isValidUtf8(sample)) return null
+    return charset
 }

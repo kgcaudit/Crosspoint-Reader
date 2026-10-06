@@ -33,6 +33,18 @@ class ImageHeaderTest {
     }
 
     @Test
+    fun `a bmp page gives its size, including a top-down one`() {
+        // 만화 쪽으로 bmp 를 받는데 크기를 못 읽어 웹툰 판별 · 기둥 배치에서 그 쪽만 빠졌다.
+        val bmp = encode("bmp", 640, 9000)
+        assertEquals(ImageSize(640, 9000), read(bmp))
+        // 위에서 아래로 적은 BMP 는 높이가 음수로 적힌다.
+        val topDown = bmp.copyOf().also { b -> (-9000).let { v -> for (i in 0 until 4) b[22 + i] = (v shr (8 * i)).toByte() } }
+        assertEquals(ImageSize(640, 9000), read(topDown))
+        // 머리가 잘린 BMP 는 모르는 것으로.
+        assertNull(read(bmp.copyOf(20)))
+    }
+
+    @Test
     fun `a jpeg whose size comes after a large exif block is still read`() {
         // 휴대폰 사진·스캔본은 SOF 앞에 수십 KB 짜리 EXIF(썸네일 포함)가 있다.
         val jpeg = encode("jpg", 1000, 1497)

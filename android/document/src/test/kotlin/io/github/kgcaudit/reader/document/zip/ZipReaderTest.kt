@@ -242,6 +242,19 @@ class ZipReaderTest {
     }
 
     @Test
+    fun `an archive that claims more entries than it holds still opens with the ones it has`() {
+        val bytes = zipOf(listOf(text("a.txt", "앞"), text("b.txt", "뒤")))
+        // EOCD 의 항목 수(+8 · +10)를 2 → 5 로 부풀린다. 주석이 없으면 셋째 머리를 읽으려는 자리가 파일 끝을 넘어,
+        // 서명을 보기도 전에 EOFException 으로 압축 전체가 열리지 않았다.
+        val eocd = bytes.size - 22
+        bytes[eocd + 8] = 5
+        bytes[eocd + 10] = 5
+        val zip = reader(bytes)
+        assertEquals(listOf("a.txt", "b.txt"), zip.entries.keys.toList())
+        assertEquals("뒤", zip.readBytes("b.txt")!!.decodeToString())
+    }
+
+    @Test
     fun `a realistic epub layout is navigable`() {
         val bytes = zipOf(
             listOf(

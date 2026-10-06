@@ -78,6 +78,18 @@ class EncodingDetectorTest {
         assertEquals(TextEncoding.UTF_16BE, detect(ascii.toByteArray(Charsets.UTF_16BE)).encoding)
     }
 
+    @Test
+    fun `korean utf16 without a bom is still detected when a syllable puts a nul on the other side`() {
+        // "가"(U+AC00) 는 아래 바이트가 00 이다 — LE 에서는 짝수 자리에 NUL 을 떨군다. 한 글자만 섞여도 UTF-16 을 놓쳐
+        // 8비트 글로 읽어 통째로 깨졌다. 띄어쓰기만 ASCII 인 한국어 글이라 한쪽 NUL 도 절반에 못 미친다.
+        val text = "가을이 오면 우리는 바닷가 마을로 내려가서 오래된 책을 읽는다. 바람이 불면 창문을 닫고 차를 마신다.\n".repeat(4)
+        assertEquals(TextEncoding.UTF_16LE, detect(text.toByteArray(Charsets.UTF_16LE)).encoding)
+        assertEquals(TextEncoding.UTF_16BE, detect(text.toByteArray(Charsets.UTF_16BE)).encoding)
+        // NUL 이 없는 CP949 · UTF-8 한국어 글은 그대로다.
+        assertEquals(TextEncoding.EUC_KR, detect(korean(text)).encoding)
+        assertEquals(TextEncoding.UTF_8, detect(text.toByteArray(Charsets.UTF_8)).encoding)
+    }
+
     // ── 경계 · 견고성 ───────────────────────────────────────────────
 
     @Test

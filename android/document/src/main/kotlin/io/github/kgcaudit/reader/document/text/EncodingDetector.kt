@@ -68,6 +68,11 @@ object EncodingDetector {
      * 어느 쪽에 몰리는지로 LE/BE를 가른다. 한글만 있는 UTF-16(U+AC00 이상)은 NUL이
      * 안 나오므로 이 검사에 걸리지 않지만, 그런 파일은 BOM 없이 만들어지는 경우가
      * 거의 없다.
+     *
+     * 반대쪽 NUL 을 "하나도 없음" 이 아니라 **비율**로 본다. "가"(U+AC00) · "넀"(U+B100) 처럼 아래 바이트가 00 인
+     * 한글이 반대쪽에 NUL 을 하나씩 떨어뜨려, 한 글자만 섞여도 UTF-16 을 놓치고 CP949 · UTF-8 로 읽어 글이 통째로
+     * 깨졌다. 한국어 글은 띄어쓰기 · 문장부호만 ASCII 라 한쪽 NUL 이 절반에 못 미치기도 한다 — 그래서 문턱도 낮춘다.
+     * CP949 · UTF-8 글에는 NUL 이 아예 없으니 낮춰도 그쪽을 UTF-16 으로 잘못 보지 않는다.
      */
     private fun detectUtf16WithoutBom(b: ByteArray): DetectedEncoding? {
         if (b.size < 16) return null
@@ -78,16 +83,25 @@ object EncodingDetector {
             if (b[i] == 0.toByte()) evenNul++
             if (b[i + 1] == 0.toByte()) oddNul++
         }
-        val threshold = pairs / 2
+        val threshold = pairs / UTF16_MIN_ASCII_SHARE
         return when {
-            oddNul > threshold && evenNul == 0 -> DetectedEncoding(TextEncoding.UTF_16LE)
-            evenNul > threshold && oddNul == 0 -> DetectedEncoding(TextEncoding.UTF_16BE)
+            oddNul > threshold && evenNul * UTF16_DOMINANCE <= oddNul -> DetectedEncoding(TextEncoding.UTF_16LE)
+            evenNul > threshold && oddNul * UTF16_DOMINANCE <= evenNul -> DetectedEncoding(TextEncoding.UTF_16BE)
             else -> null
         }
     }
 
-    /** 표본 끝의 불완전한 UTF-8 시퀀스를 잘라낸 길이. */
-    private fun trimIncompleteTail(b: ByteArray): Int {
+    /** 글자 8개 중 1개 넘게 ASCII(한쪽 바이트가 NUL)여야 UTF-16 으로 본다. 한국어 글의 띄어쓰기만으로도 넘는다. */
+    private const val UTF16_MIN_ASCII_SHARE = 8
+
+    /**
+     * 한쪽 NUL 이 반대쪽의 이 배수 이상이어야 한다. 아래 바이트가 00 인 한글은 "가" · "글" 처럼 자주 쓰는 글자라 한국어
+     * 글에서 몇 % 는 나온다 — 띄어쓰기(20~30%)보다는 한참 적다.
+     */
+    private const val UTF16_DOMINANCE = 4
+
+    /** 표본 끝의 불완전한 UTF-8 시퀀스를 잘라낸 길이. EPUB 의 XML 선언 확인도 같은 표본 자르기를 쓴다. */
+    internal fun trimIncompleteTail(b: ByteArray): Int {
         var end = b.size
         var trimmed = 0
         while (end > 0 && trimmed < 3) {
