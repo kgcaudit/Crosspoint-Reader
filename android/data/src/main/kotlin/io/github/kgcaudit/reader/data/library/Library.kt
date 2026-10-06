@@ -298,7 +298,7 @@ class ComicLibrary(private val db: ReaderDatabase) {
     /** 옛 규칙으로 "만화 아님" 이라 적힌 압축을 다시 살필 차례로. */
     suspend fun reprobeRejected(): Int = comics.reprobeRejected()
 
-    /** 살필 차례인 압축(zip · cbz). */
+    /** 살필 차례인 압축(zip · rar · 7z · cbz 등). */
     suspend fun needingProbe(): List<ComicUnitEntity> = comics.needingProbe()
 
     /**

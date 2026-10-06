@@ -153,7 +153,7 @@ class ReaderData(
                 openArchive(unit.id, keep = null).use { archive ->
                     // 압축 속 권은 만화 묶음에서 꺼낸 것이라 cbz 처럼 믿는다 — 그림이 하나라도 있으면 만화다. 안내 글 하나 섞였다고
                     // 묶음의 권 하나가 사라지면 그 권만 빠진 채 이어 보기가 끊긴다.
-                    contents = ComicContents.ofArchive(archive.names, trustExtension = unit.extension != "zip" || unit.kind == ComicUnitKind.NESTED.name)
+                    contents = ComicContents.ofArchive(archive.names, trustExtension = unit.extension !in LibraryScanner.PLAIN_ARCHIVES || unit.kind == ComicUnitKind.NESTED.name)
                     contents?.comicInfo?.let { name ->
                         info = runCatching { archive.entry(name)?.reader(Charsets.UTF_8)?.use { ComicInfo.parse(it) } }.getOrNull()
                     }

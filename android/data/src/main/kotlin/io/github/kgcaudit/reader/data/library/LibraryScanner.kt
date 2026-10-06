@@ -52,7 +52,7 @@ data class ScannedBook(
  * 훑기에서 찾은 만화 단위 하나(0.33.0): 만화 압축(cbz · cbr · cb7 · cbt), 만화일 수 있는 zip, 그림 폴더.
  *
  * @param folders 등록 폴더 이름부터 이 단위가 든 폴더까지. 작품 이름이 파일 이름에 없을 때 쓴다.
- * @param extension 소문자 확장자. 그림 폴더는 빈 글. "zip" 은 살펴서 그림만 들어 있어야 만화다.
+ * @param extension 소문자 확장자. 그림 폴더는 빈 글. "zip" · "rar" · "7z" 는 살펴서 그림만 들어 있어야 만화다.
  * @param folderContents 그림 폴더의 쪽 · 표지(훑으며 이미 목록을 읽었으므로 따로 살피지 않는다).
  */
 data class ScannedComic(
@@ -83,6 +83,12 @@ object LibraryScanner {
 
     /** 이름만으로 만화라고 말하는 압축. */
     val COMIC_ARCHIVES: Set<String> = setOf("cbz", "cbr", "cb7", "cbt")
+
+    /**
+     * 이름이 만화라고 말하지 않는 압축 — 살펴서 그림만 들었을 때만 만화다(0.49.0 부터 rar · 7z 도). 만화를 cbr 로 바꾸지 않고
+     * 받은 그대로(.rar · .7z) 두는 사람이 많은데, 안 보면 그 만화들이 서재에 아예 없었다.
+     */
+    val PLAIN_ARCHIVES: Set<String> = setOf("zip", "rar", "7z")
 
 
     /**
@@ -156,7 +162,7 @@ object LibraryScanner {
                 }
 
                 val extension = entry.name.substringAfterLast('.', "").lowercase()
-                if (entry.name.lastIndexOf('.') > 0 && (extension in COMIC_ARCHIVES || extension == "zip")) {
+                if (entry.name.lastIndexOf('.') > 0 && (extension in COMIC_ARCHIVES || extension in PLAIN_ARCHIVES)) {
                     comics += ScannedComic(entry.uri, entry.name, dir.names, ComicUnitKind.ARCHIVE, extension, entry.sizeBytes, entry.lastModifiedEpochMs)
                     continue
                 }
