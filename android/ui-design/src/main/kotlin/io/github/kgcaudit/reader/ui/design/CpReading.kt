@@ -98,7 +98,7 @@ fun CpToast(message: String?, onDone: () -> Unit, modifier: Modifier = Modifier,
     // 무엇을 하라는지 알 수 없었다. 가장자리에서 띄워 두 줄이 되어도 화면 끝에 붙지 않게 한다.
     Box(
         modifier.padding(start = 24.dp, end = 24.dp, bottom = 64.dp).clip(RoundedCornerShape(20.dp))
-            .background(Color(0xE6302A24)).padding(horizontal = 18.dp, vertical = 10.dp),
+            .background(CpPill.translucent).padding(horizontal = 18.dp, vertical = 10.dp),
     ) { CpText(message, CpTheme.type.label, Color.White, maxLines = 4, align = TextAlign.Center) }
 }
 
@@ -744,7 +744,7 @@ private val EDGE = 32.dp
 fun CpBrightnessOverlay(value: Float?, modifier: Modifier = Modifier) {
     if (value == null) return
     Column(
-        modifier.padding(start = 40.dp).clip(RoundedCornerShape(20.dp)).background(Color(0xE6302A24))
+        modifier.padding(start = 40.dp).clip(RoundedCornerShape(20.dp)).background(CpPill.translucent)
             .padding(horizontal = 14.dp, vertical = 16.dp)
             .semantics { contentDescription = "밝기 ${(value * 100).toInt()}%" },
         horizontalAlignment = Alignment.CenterHorizontally,

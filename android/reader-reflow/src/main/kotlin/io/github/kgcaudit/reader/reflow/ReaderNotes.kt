@@ -19,6 +19,7 @@ import io.github.kgcaudit.reader.document.HighlightColor
 import io.github.kgcaudit.reader.layout.Page
 import io.github.kgcaudit.reader.text.AndroidTextMeasurer
 import io.github.kgcaudit.reader.ui.design.CpText
+import io.github.kgcaudit.reader.ui.design.CpPill
 import io.github.kgcaudit.reader.ui.design.CpTheme
 import io.github.kgcaudit.reader.ui.design.Pen
 
@@ -126,7 +127,7 @@ internal fun continueEnd(text: String, paragraphStarts: Set<Int>, pageStart: Int
 @Composable
 internal fun ContinueBanner(charsBefore: Int, modifier: Modifier = Modifier) {
     Row(
-        modifier.clip(RoundedCornerShape(14.dp)).background(Color(0xE6302A24)).padding(horizontal = 12.dp, vertical = 5.dp),
+        modifier.clip(RoundedCornerShape(CpTheme.metrics.cornerMedium)).background(CpPill.translucent).padding(horizontal = 12.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         io.github.kgcaudit.reader.ui.design.CpIcon(io.github.kgcaudit.reader.ui.design.CpIcons.Back, Color.White, size = 14.dp)

@@ -60,8 +60,6 @@ import kotlin.math.roundToInt
 
 // ── 떠 있는 메뉴(N4) ───────────────────────────────────────────────
 
-internal val PILL = Color(0xFF302A24)
-
 /**
  * 고른 말 · 칠한 곳 위에 뜨는 어두운 알약: 4색 동그라미 / 줄 / 낱말 단추들. 구간 위에 자리가 있으면 위, 없으면
  * 아래(손잡이 밑)에 띄운다 — 손가락과 손잡이를 가리지 않게.
@@ -84,7 +82,7 @@ fun CpFloatingMenu(
     Layout(
         content = {
             Column(
-                Modifier.shadow(8.dp, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp)).background(PILL)
+                Modifier.shadow(8.dp, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp)).background(CpPill.opaque)
                     // 알약 안을 눌러도 뒤의 "고르기 풀기" 가 불리지 않게.
                     .blockTouches()
                     // 내용만큼 넓게, 화면보다 넓으면 화면 폭까지 — 낱말 줄이 그 안에서 줄을 바꾼다.

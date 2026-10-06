@@ -121,6 +121,7 @@ import io.github.kgcaudit.reader.ui.design.CpNotesExport
 import io.github.kgcaudit.reader.ui.design.noteWhere
 import io.github.kgcaudit.reader.ui.design.CpText
 import io.github.kgcaudit.reader.ui.design.CpTextButton
+import io.github.kgcaudit.reader.ui.design.CpPill
 import io.github.kgcaudit.reader.ui.design.CpTheme
 import io.github.kgcaudit.reader.ui.design.CpToolButton
 import io.github.kgcaudit.reader.ui.design.ScreenRotation
@@ -946,8 +947,8 @@ private fun ScreenPosition(page: Int, viewport: PageViewport, modifier: Modifier
             )
         }
         Box(
-            Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp).clip(RoundedCornerShape(14.dp))
-                .background(Color(0xE6302A24)).padding(horizontal = 12.dp, vertical = 5.dp)
+            Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp).clip(RoundedCornerShape(CpTheme.metrics.cornerMedium))
+                .background(CpPill.translucent).padding(horizontal = 12.dp, vertical = 5.dp)
                 .semantics { contentDescription = "쪽 안 위치" },
         ) { CpText(screenLabel(page, index, total), CpTheme.type.caption, Color.White) }
     }
