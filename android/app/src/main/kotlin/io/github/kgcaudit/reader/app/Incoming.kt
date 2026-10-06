@@ -71,7 +71,9 @@ sealed interface Incoming {
             if (size == null) {
                 size = runCatching { resolver.openAssetFileDescriptor(uri, "r")?.use { it.length } }.getOrNull()
             }
-            val fallback = uri.lastPathSegment?.substringAfterLast('/')?.takeIf { it.isNotBlank() } ?: "이름 없는 파일"
+            // 문서 id 의 저장소 이름("primary:")도 뗀다 — 백업 가져오기가 따로 이름을 묻던 때(0.49.0 까지)는 그쪽만 떼어, 같은
+            // 파일이 화면마다 다른 이름으로 보였다.
+            val fallback = uri.lastPathSegment?.substringAfterLast('/')?.substringAfterLast(':')?.takeIf { it.isNotBlank() } ?: "이름 없는 파일"
             return (name?.takeIf { it.isNotBlank() } ?: fallback) to size?.takeIf { it >= 0 }
         }
 

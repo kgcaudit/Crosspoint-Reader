@@ -186,4 +186,78 @@ class ReadingRecordsTest {
         assertEquals("만화 2권 · 책갈피 3개 · 형광펜 · 메모 0개", summaryLine(RecordsSummary(0, 3, 0, comics = 2)))
         assertEquals("아직 기록이 없습니다", summaryLine(RecordsSummary(0, 0, 0)))
     }
+
+    @Test
+    fun `someone who has read only comics can still make a backup`() {
+        // 0.49.0 의 고장: 단추가 책 수만 보아, 만화 기록뿐이면 "만화 1권 · …" 이라고 적어 놓고 누를 수 없었다.
+        val page = Bitmap.createBitmap(30, 40, Bitmap.Config.ARGB_8888).apply { eraseColor(0xFF2E7D6B.toInt()) }
+        val png = java.io.ByteArrayOutputStream().also { page.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+        File(folder, "Comics/별").mkdirs()
+        java.util.zip.ZipOutputStream(File(folder, "Comics/별/별 01권.cbz").outputStream()).use { zip ->
+            for (name in listOf("001.png", "002.png")) {
+                zip.putNextEntry(java.util.zip.ZipEntry(name))
+                zip.write(png)
+                zip.closeEntry()
+            }
+        }
+        runBlocking {
+            val data = app.container.data
+            data.rescanAll()
+            data.probeComics()
+            // 책 기록은 모두 없앤다 — 남는 것은 만화 한 권의 읽은 자리뿐.
+            data.bookmarks.forBook(prince).forEach { data.bookmarks.remove(it.id) }
+            data.progress.remove(prince)
+            data.library.returnToUnread(prince)
+            val unit = data.comics.works().first().single().entries.single().unit.id
+            data.comics.saveProgress(unit, 0, 2, 400L)
+        }
+        compose.libraryMenu("앱 정보")
+        waitFor(hasText("만화 1권 · 책갈피 0개 · 형광펜 · 메모 0개"))
+        node(hasText("백업 파일 만들기")).performClick()
+        answer("comics.json")
+        waitFor(hasText("백업 파일을 만들었습니다 · 만화 1권"))
+    }
+
+    @Test
+    fun `a backup holding only work settings says what it brings instead of zero books`() {
+        // 만화 이름만 고쳐 두고 아직 펼친 권이 없는 사람의 백업. 0.49.0 은 "책 0권의 기록입니다" · "찾은 책이 없습니다" 라고 해
+        // 빈 파일 · 실패처럼 읽혔다.
+        File(folder, "works.json").writeText(
+            """{"format":"olo-ebook-reading-records","version":1,"createdAt":0,"books":[],"works":[{"key":"별","title":"별 이야기"}]}""",
+        )
+        openAbout()
+        node(hasText("백업 파일에서 가져오기")).performClick()
+        answer("works.json")
+        waitFor(hasText("작품 설정 1개의 기록입니다", substring = true))
+        assertTrue(!has(hasText("책 0권", substring = true)), "작품 설정만 든 파일을 책 0권이라고 했다")
+        assertTrue(!has(hasText("이 휴대폰에서 찾은", substring = true)), "찾을 책이 없는 파일에 찾은 책 수를 보였다")
+        node(hasText("가져오기")).performClick()
+        waitFor(hasText("작품 설정 1개를 가져왔습니다"))
+        assertTrue(!has(hasText("이 휴대폰에서 찾은 책이 없습니다")), "가져온 작품 설정을 실패처럼 알렸다")
+    }
+
+    @Test
+    fun `with no records at all the dimmed backup row explains instead of writing an empty file`() {
+        // 흐린 줄도 눌린다(CpListRow 의 약속) — 0.49.0 까지는 흐리게만 하고 눌러 빈 백업 파일을 만들 수 있었다.
+        runBlocking {
+            val data = app.container.data
+            data.bookmarks.forBook(prince).forEach { data.bookmarks.remove(it.id) }
+            data.progress.remove(prince)
+            data.library.returnToUnread(prince)
+        }
+        compose.libraryMenu("앱 정보")
+        waitFor(hasText("아직 기록이 없습니다"))
+        node(hasText("백업 파일 만들기")).performClick()
+        waitFor(hasText("아직 담을 읽기 기록이 없습니다"))
+        assertTrue(shadowOf(compose.activity).nextStartedActivityForResult == null, "담을 것이 없는데 저장할 곳 고르기를 띄웠다")
+    }
+
+    @Test
+    fun `the backup contents name work settings only when there are some`() {
+        assertEquals("책 2권 · 만화 1권", backupContents(2, 1, 0))
+        assertEquals("만화 1권 · 작품 설정 3개", backupContents(0, 1, 3))
+        assertEquals("작품 설정 3개", backupContents(0, 0, 3))
+        assertEquals(false, canBackUp(RecordsSummary(0, 0, 0)))
+        assertEquals(true, canBackUp(RecordsSummary(0, 0, 0, comics = 1)))
+    }
 }

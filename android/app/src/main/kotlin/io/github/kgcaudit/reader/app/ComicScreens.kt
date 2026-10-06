@@ -653,11 +653,12 @@ internal fun WorkArrange(
             for (place in work.places) PlaceRow(place, placeSummary(work, place))
             CpSectionLabel("묶음")
             CpListRow(
-                "다른 작품과 합치기", { merging = true }, icon = CpIcons.Plus, subtitle = "이름이 달라 따로 보이는 같은 작품",
+                // 흐린 줄도 눌린다(CpListRow) — 합칠 작품이 없으면 빈 고르기 판을 띄우지 않는다.
+                "다른 작품과 합치기", { if (others.isNotEmpty()) merging = true }, icon = CpIcons.Plus, subtitle = "이름이 달라 따로 보이는 같은 작품",
                 enabled = others.isNotEmpty(),
             )
             CpListRow(
-                "이 작품에서 빼기", { splitting = true }, icon = CpIcons.Minus, subtitle = "잘못 묶인 ${unitWord(work)}${objectParticle(unitWord(work))} 따로",
+                "이 작품에서 빼기", { if (work.entries.size > 1) splitting = true }, icon = CpIcons.Minus, subtitle = "잘못 묶인 ${unitWord(work)}${objectParticle(unitWord(work))} 따로",
                 // 한 줄뿐인 작품에서 빼면 빈 작품과 같은 작품이 하나 더 생길 뿐이다.
                 enabled = work.entries.size > 1,
             )
