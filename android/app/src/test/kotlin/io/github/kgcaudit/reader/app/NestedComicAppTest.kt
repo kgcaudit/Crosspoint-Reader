@@ -162,8 +162,9 @@ class NestedComicAppTest {
         val work = runBlocking { app.container.data.comics.works().first().first { it.title == "인스타 걸" } }
         assertTrue(work.complete, "3권 (완결) 이 있는데 완결로 보이지 않는다")
         assertEquals(listOf("Books › Comic › $insta.zip"), work.places)
-        // 깨진 권 하나는 그 권만 빠진다 — 묶음 전체가 사라지지 않는다(규칙 6).
-        assertEquals(listOf("1권", "2권"), labels("별"))
+        // 깨진 권 하나가 묶음 전체를 없애지 않는다(규칙 6). 깨진 권도 cbz 처럼 서재에 남는다(0.49.1) — 숨기면 무엇이
+        // 깨졌는지조차 알 수 없다. 열면 "이 쪽을 그리지 못했습니다" 로 알린다.
+        assertEquals(listOf("1권", "2권", "3권"), labels("별"))
     }
 
     @Test
@@ -214,8 +215,8 @@ class NestedComicAppTest {
         assertEquals(emptyList(), runBlocking { app.container.data.comics.works().first().filter { it.title == "인스타 걸" } })
         scan()
         assertEquals(listOf("1권", "2권", "3권"), labels("인스타 걸"))
-        // 한 번만: 표시를 남겨, 정말 만화가 아닌 zip 을 열 때마다 다시 살피지 않는다.
-        assertEquals("3", File(app.noBackupFilesDir, "comic-probe-generation").readText())
+        // 한 번만: 표시를 남겨, 정말 만화가 아닌 zip 을 열 때마다 다시 살피지 않는다. 4 = 압축 속 rar · 7z 권(0.49.1).
+        assertEquals("4", File(app.noBackupFilesDir, "comic-probe-generation").readText())
     }
 
     @Test
