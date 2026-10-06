@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import io.github.kgcaudit.reader.data.db.ReaderDatabase
+import io.github.kgcaudit.reader.document.comic.ArchiveExtensions
 import io.github.kgcaudit.reader.document.comic.ComicContents
 import io.github.kgcaudit.reader.document.comic.ComicInfo
 import io.github.kgcaudit.reader.document.comic.ComicUnitKind
@@ -73,6 +74,16 @@ class ComicLibraryTest {
         comics.saveProbe(todo.getValue("소설.zip"), ComicContents.ofArchive(listOf("소설.txt", "표지.jpg"), false), null)
         assertEquals(listOf("사진 묶음"), titles())
         assertTrue(comics.needingProbe().isEmpty(), "살핀 zip 을 또 살피려 한다")
+    }
+
+    @Test
+    fun `every archive the scanner keeps is probed, and only plain ones wait for the probe to show`() = runTest {
+        // 서재의 SQL 은 확장자 목록을 글로 적는다(ComicDao) — ArchiveExtensions 에 더하고 SQL 에 빠뜨리면 그 압축은 영영 살피지
+        // 않거나(안 보임) 살피기 전의 사진 묶음이 만화로 보인다.
+        val all = ArchiveExtensions.ALL.map { cbz("별 ${it}권.$it", "C") }
+        comics.applyScan(phone, ScanResult(emptyList(), true, all), 1)
+        assertEquals(ArchiveExtensions.ALL, comics.needingProbe().map { it.extension }.toSet())
+        assertEquals(ArchiveExtensions.COMIC, comics.units().first().map { it.name.substringAfterLast('.') }.toSet())
     }
 
     @Test

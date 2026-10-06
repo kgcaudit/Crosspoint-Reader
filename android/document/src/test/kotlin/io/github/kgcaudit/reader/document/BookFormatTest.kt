@@ -23,6 +23,18 @@ class BookFormatTest {
     }
 
     @Test
+    fun `a name without a real extension has none, wherever it is read`() {
+        // 곳마다 손으로 꺼내던 때 점 없는 "zip" 이 확장자 "zip" 으로 읽혀 압축 속 권이 됐다(0.48.0).
+        assertNull(extensionOf("zip"))
+        assertNull(extensionOf("폴더/zip"))
+        assertNull(extensionOf(".zip"))
+        assertNull(extensionOf("이름."))
+        assertNull(extensionOf("폴더.v2/이름"))
+        assertEquals("cbz", extensionOf("작품/1권.CBZ"))
+        assertEquals("jpg", extensionOf("._001.jpg"))
+    }
+
+    @Test
     fun `dots in the name do not confuse the extension`() {
         assertEquals(BookFormat.EPUB, BookFormat.fromFileName("어린 왕자 (1943).v2.epub"))
     }

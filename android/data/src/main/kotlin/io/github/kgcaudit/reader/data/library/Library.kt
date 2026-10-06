@@ -9,6 +9,8 @@ import io.github.kgcaudit.reader.data.db.ComicUnitEntity
 import io.github.kgcaudit.reader.data.db.ReaderDatabase
 import io.github.kgcaudit.reader.document.BookFormat
 import io.github.kgcaudit.reader.document.BookId
+import io.github.kgcaudit.reader.document.comic.ArchiveExtensions
+import io.github.kgcaudit.reader.document.extensionOf
 import io.github.kgcaudit.reader.document.comic.ComicContents
 import io.github.kgcaudit.reader.document.comic.ComicInfo
 import io.github.kgcaudit.reader.document.comic.ComicOverrides
@@ -264,7 +266,7 @@ class ComicLibrary(private val db: ReaderDatabase) {
                 folderUri = outer.folderUri,
                 name = inner.substringAfterLast('/'),
                 kind = ComicUnitKind.NESTED.name,
-                extension = inner.substringAfterLast('.').lowercase(),
+                extension = extensionOf(inner) ?: "",
                 folders = NestedArchives.folders(outerFolders, outer.name, inner).joinToString(ComicUnitEntity.FOLDER_SEPARATOR),
                 sizeBytes = size,
                 // 바깥 압축이 바뀌면 안의 권도 다시 살핀다.
@@ -307,7 +309,7 @@ class ComicLibrary(private val db: ReaderDatabase) {
      */
     suspend fun saveProbe(unit: ComicUnitEntity, contents: ComicContents?, info: ComicInfo?, holdsVolumes: Boolean = false) {
         // 권 압축만 든 cbz(0.48.0)는 그 자체로는 빈 권이다 — 안의 권들이 대신 보인다.
-        val trusted = unit.extension in LibraryScanner.COMIC_ARCHIVES && !holdsVolumes
+        val trusted = unit.extension in ArchiveExtensions.COMIC && !holdsVolumes
         comics.saveProbe(
             id = unit.id,
             size = unit.sizeBytes,

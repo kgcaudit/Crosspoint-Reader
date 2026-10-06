@@ -337,6 +337,21 @@ class SafTest {
     }
 
     @Test
+    fun `rar and 7z volumes bundled in a zip show up as volumes and open`() = runTest {
+        // 0.49.0 은 그냥 .rar · .7z 를 만화로 보면서 압축 속 권 목록에는 빠뜨려, 권 rar · 7z 를 묶은 zip 이 통째로 "만화 아님" 이 됐다.
+        val pages = listOf("001.png" to "p1".toByteArray(), "002.png" to "p2".toByteArray())
+        val cb7 = javaClass.getResource("/comic.cb7")!!.readBytes()
+        put("C/별 (1-2).zip", zip("별 (1-2)/별 1권.rar" to io.github.kgcaudit.reader.document.archive.StoredArchives.rar4(pages), "별 (1-2)/별 2권.7z" to cb7))
+        data.folders.register(tree)
+        data.rescanAll()
+        data.probeComics()
+        val units = data.comics.units().first().associateBy { it.name }
+        assertEquals(setOf("별 1권.rar", "별 2권.7z"), units.keys)
+        data.openComic(units.getValue("별 1권.rar")).use { assertEquals("p2", it.read(1)!!.decodeToString()) }
+        data.openComic(units.getValue("별 2권.7z")).use { assertEquals(3, it.count) }
+    }
+
+    @Test
     fun `comics are found, probed through the provider and grouped into works`() = runTest {
         val jpg = ByteArray(16) { 1 }
         put("Comics/별/별 01권.cbz", zip("001.jpg" to jpg, "002.jpg" to jpg))

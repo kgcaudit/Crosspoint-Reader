@@ -11,10 +11,7 @@ object MarginTrim {
     /** 한 변에서 걷어 내는 한도(그 변 방향 길이의 비율, 사용자 결정 3-다). 넘으면 흰 바탕의 그림까지 먹어 들어간다. */
     const val MAX_SIDE: Float = 0.15f
 
-    /** 바탕과 같다고 보는 색 차(채널마다). 스캔 종이는 고르게 하얗지 않다 — 표지 자르기([CoverCrop])와 같은 값. */
-    private const val TOLERANCE = 24
-
-    /** 한 줄에서 바탕이 아닌 점을 이만큼까지 봐준다. 스캔 먼지 · 얼룩 몇 점 때문에 여백이 여백이 아니게 되면 안 된다. */
+    /** 한 줄에서 바탕([Backdrop])이 아닌 점을 이만큼까지 봐준다. 스캔 먼지 · 얼룩 몇 점 때문에 여백이 여백이 아니게 되면 안 된다. */
     private const val SPECK = 0.01f
 
     /** 걷어 낸 자리 안쪽에 남기는 여유(그 변 방향 길이의 비율). 칸 테두리가 화면 끝에 딱 붙으면 잘린 것처럼 보인다. */
@@ -39,18 +36,18 @@ object MarginTrim {
     fun find(width: Int, height: Int, pixels: IntArray): Box? {
         if (width < 8 || height < 8 || pixels.size < width * height) return null
         val corners = listOf(pixels[0], pixels[width - 1], pixels[(height - 1) * width], pixels[height * width - 1])
-        val background = corners.firstOrNull { c -> neutral(c) && corners.count { near(it, c) } >= 2 } ?: return null
+        val background = corners.firstOrNull { c -> neutral(c) && corners.count { Backdrop.near(it, c) } >= 2 } ?: return null
 
         fun blankRow(y: Int): Boolean {
             var off = 0
             val allowed = (width * SPECK).toInt()
-            for (x in 0 until width) if (!near(pixels[y * width + x], background) && ++off > allowed) return false
+            for (x in 0 until width) if (!Backdrop.near(pixels[y * width + x], background) && ++off > allowed) return false
             return true
         }
         fun blankColumn(x: Int): Boolean {
             var off = 0
             val allowed = (height * SPECK).toInt()
-            for (y in 0 until height) if (!near(pixels[y * width + x], background) && ++off > allowed) return false
+            for (y in 0 until height) if (!Backdrop.near(pixels[y * width + x], background) && ++off > allowed) return false
             return true
         }
 
@@ -89,11 +86,4 @@ object MarginTrim {
     }
 
     private const val NEUTRAL = 40
-
-    private fun near(a: Int, b: Int): Boolean {
-        fun ch(c: Int, shift: Int) = (c shr shift) and 0xFF
-        return kotlin.math.abs(ch(a, 16) - ch(b, 16)) <= TOLERANCE &&
-            kotlin.math.abs(ch(a, 8) - ch(b, 8)) <= TOLERANCE &&
-            kotlin.math.abs(ch(a, 0) - ch(b, 0)) <= TOLERANCE
-    }
 }

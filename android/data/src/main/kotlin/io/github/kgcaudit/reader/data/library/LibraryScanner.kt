@@ -1,6 +1,8 @@
 package io.github.kgcaudit.reader.data.library
 
 import io.github.kgcaudit.reader.document.BookFormat
+import io.github.kgcaudit.reader.document.comic.ArchiveExtensions
+import io.github.kgcaudit.reader.document.extensionOf
 import io.github.kgcaudit.reader.document.comic.ComicContents
 import io.github.kgcaudit.reader.document.comic.ComicUnitKind
 import kotlinx.coroutines.currentCoroutineContext
@@ -81,16 +83,6 @@ data class ScanResult(
  */
 object LibraryScanner {
 
-    /** 이름만으로 만화라고 말하는 압축. */
-    val COMIC_ARCHIVES: Set<String> = setOf("cbz", "cbr", "cb7", "cbt")
-
-    /**
-     * 이름이 만화라고 말하지 않는 압축 — 살펴서 그림만 들었을 때만 만화다(0.49.0 부터 rar · 7z 도). 만화를 cbr 로 바꾸지 않고
-     * 받은 그대로(.rar · .7z) 두는 사람이 많은데, 안 보면 그 만화들이 서재에 아예 없었다.
-     */
-    val PLAIN_ARCHIVES: Set<String> = setOf("zip", "rar", "7z")
-
-
     /**
      * 이보다 깊이는 내려가지 않는다.
      *
@@ -161,8 +153,9 @@ object LibraryScanner {
                     continue
                 }
 
-                val extension = entry.name.substringAfterLast('.', "").lowercase()
-                if (entry.name.lastIndexOf('.') > 0 && (extension in COMIC_ARCHIVES || extension in PLAIN_ARCHIVES)) {
+                // 만화로 볼 압축 목록은 압축 속 권 펼치기와 하나다(ArchiveExtensions).
+                val extension = extensionOf(entry.name)
+                if (extension != null && extension in ArchiveExtensions.ALL) {
                     comics += ScannedComic(entry.uri, entry.name, dir.names, ComicUnitKind.ARCHIVE, extension, entry.sizeBytes, entry.lastModifiedEpochMs)
                     continue
                 }

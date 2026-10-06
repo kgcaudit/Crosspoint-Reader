@@ -167,8 +167,8 @@ data class AnnotationCount(val bookId: String, val count: Int, val memos: Int)
 interface ComicDao {
 
     /** 서재에 보일 단위: 숨기지 않았고, 살펴서 만화가 아니라고 나온 것이 아니고, 그냥 압축(zip · rar · 7z)이면 살펴서 만화라고 나온 것.
-     *  목록은 [io.github.kgcaudit.reader.data.library.LibraryScanner.PLAIN_ARCHIVES] 와 같아야 한다 — 빠지면 살피기 전의
-     *  사진 묶음이 잠깐 만화로 보인다. */
+     *  목록은 [io.github.kgcaudit.reader.document.comic.ArchiveExtensions.PLAIN] 과 같아야 한다 — 빠지면 살피기 전의
+     *  사진 묶음이 잠깐 만화로 보인다(ComicLibraryTest 가 둘을 맞춰 본다). */
     @Query(
         "SELECT * FROM comic_units WHERE missing = 0 AND notComic = 0 " +
             "AND (extension NOT IN ('zip', 'rar', '7z') OR probed = 1)",
@@ -183,7 +183,8 @@ interface ComicDao {
 
     /**
      * 아직 살피지 않았거나, 살핀 뒤 파일이 바뀐 압축(zip · rar · 7z · cbz · cbt · cbr · cb7 — 0.37.0 부터 뒤의 셋도). 압축 속 권(`NESTED`,
-     * 0.48.0)도 같다 — 크기는 안쪽 권의 크기, 수정 시각은 바깥 압축의 것이다.
+     * 0.48.0)도 같다 — 크기는 안쪽 권의 크기, 수정 시각은 바깥 압축의 것이다. 목록은
+     * [io.github.kgcaudit.reader.document.comic.ArchiveExtensions.ALL] 과 같아야 한다 — 빠진 확장자는 영영 살피지 않아 서재에 안 보인다.
      */
     @Query(
         "SELECT * FROM comic_units WHERE missing = 0 AND kind IN ('ARCHIVE', 'NESTED') AND extension IN ('zip', 'rar', '7z', 'cbz', 'cbt', 'cbr', 'cb7') " +

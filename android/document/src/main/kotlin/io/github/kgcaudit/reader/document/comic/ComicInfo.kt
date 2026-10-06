@@ -15,13 +15,10 @@ data class ComicInfo(
     val series: String? = null,
     val number: Double? = null,
     val volume: Int? = null,
-    val title: String? = null,
-    val count: Int? = null,
     /** "Special" · "Omnibus" · "TPB" · "Web" … */
     val format: String? = null,
     /** `Manga=YesAndRightToLeft` — 오른쪽에서 왼쪽으로 넘긴다. "Yes" 만이면 null(방향을 정하지 않음). */
     val rightToLeft: Boolean? = null,
-    val localizedSeries: String? = null,
 ) {
     val isSpecial: Boolean get() = format?.lowercase()?.let { f -> SPECIAL_FORMATS.any { f.contains(it) } } == true
     val isOmnibus: Boolean get() = format?.lowercase()?.let { f -> f.contains("omnibus") || f == "tpb" || f == "tbp" } == true
@@ -62,15 +59,12 @@ data class ComicInfo(
                 series = fields["series"],
                 number = fields["number"]?.replace(',', '.')?.toDoubleOrNull(),
                 volume = fields["volume"]?.toIntOrNull(),
-                title = fields["title"],
-                count = fields["count"]?.toIntOrNull(),
                 format = fields["format"],
                 rightToLeft = when (manga) {
                     "yesandrighttoleft" -> true
                     "no" -> false
                     else -> null
                 },
-                localizedSeries = fields["localizedseries"],
             ).takeIf { it != ComicInfo() }
         }
     }

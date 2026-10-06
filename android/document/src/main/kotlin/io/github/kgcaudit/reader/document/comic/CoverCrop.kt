@@ -20,9 +20,6 @@ object CoverCrop {
      */
     private const val TALL_SLACK: Float = 1.25f
 
-    /** 바탕과 같다고 보는 색 차(채널마다). JPEG 의 흰 바탕은 250~255 를 오간다. */
-    private const val TOLERANCE = 24
-
     /** 첫 내용 위로 남기는 여백(그림 폭의 비율). 칸 테두리가 표지 끝에 딱 붙으면 잘린 것처럼 보인다. */
     private const val MARGIN = 0.03f
 
@@ -44,7 +41,7 @@ object CoverCrop {
         if (count <= 0) return 0
         val background = row(0).firstOrNull() ?: return 0
         for (y in 0 until count) {
-            if (row(y).any { !near(it, background) }) return y
+            if (row(y).any { !Backdrop.near(it, background) }) return y
         }
         return 0
     }
@@ -58,10 +55,5 @@ object CoverCrop {
         val margin = (size.width * MARGIN).toInt()
         val top = (contentTop - margin).coerceIn(0, size.height - height)
         return top until top + height
-    }
-
-    private fun near(a: Int, b: Int): Boolean {
-        fun ch(c: Int, shift: Int) = (c shr shift) and 0xFF
-        return listOf(16, 8, 0).all { kotlin.math.abs(ch(a, it) - ch(b, it)) <= TOLERANCE }
     }
 }

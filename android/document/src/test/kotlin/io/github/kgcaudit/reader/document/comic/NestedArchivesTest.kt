@@ -55,8 +55,17 @@ class NestedArchivesTest {
             NestedArchives.volumes(inner).map { it.substringAfterLast('/') },
         )
         assertTrue(NestedArchives.isVolumeName("a/별 3권.CBR"))
-        assertEquals(false, NestedArchives.isVolumeName("a/사진.rar"))
         assertEquals(false, NestedArchives.isVolumeName("a/zip"))
+        assertEquals(false, NestedArchives.isVolumeName("a/읽어 주세요.txt"))
+    }
+
+    @Test
+    fun `rar and 7z volumes bundled in a zip are unfolded like zip volumes`() {
+        // 0.49.0 부터 서재가 그냥 .rar · .7z 도 만화로 보는데 압축 속 권 목록에는 빠져, "1권.rar · 2권.7z" 를 묶은 zip 이
+        // 권으로 펼쳐지지 않고 묶음째 "만화 아님" 으로 사라졌다. 훑기가 보는 압축은 모두 권이 된다.
+        val bundle = listOf("별/별 2권.7z", "별/별 1권.rar", "별/별 3권.cb7", "별/._별 1권.rar", "별/rar")
+        assertEquals(listOf("별/별 1권.rar", "별/별 2권.7z", "별/별 3권.cb7"), NestedArchives.volumes(bundle))
+        for (ext in ArchiveExtensions.ALL) assertTrue(NestedArchives.isVolumeName("a/권.$ext"), ext)
     }
 
     @Test

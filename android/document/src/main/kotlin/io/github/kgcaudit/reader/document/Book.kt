@@ -25,9 +25,7 @@ enum class BookFormat {
          * 후보를 거르므로 여기서 걸러야 한다.
          */
         fun fromFileName(name: String): BookFormat? {
-            val dot = name.lastIndexOf('.')
-            if (dot <= 0) return null
-            return when (name.substring(dot + 1).lowercase()) {
+            return when (extensionOf(name)) {
                 "epub" -> EPUB
                 "txt" -> TXT
                 "pdf" -> PDF

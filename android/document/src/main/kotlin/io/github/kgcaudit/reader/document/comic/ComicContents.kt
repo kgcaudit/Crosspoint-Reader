@@ -1,5 +1,8 @@
 package io.github.kgcaudit.reader.document.comic
 
+import io.github.kgcaudit.reader.document.BookFormat
+import io.github.kgcaudit.reader.document.extensionOf
+
 /**
  * 만화 단위(압축 하나 · 그림 폴더 하나) 안에 무엇이 들었나 — 항목 이름만 보고 정한다. 압축을 풀지 않는다.
  *
@@ -21,8 +24,7 @@ data class ComicContents(
         /** 쪽은 아니지만 있어도 만화로 보는 것들. 이것 말고 다른 파일(글 · 실행 파일 …)이 섞이면 만화가 아니다. */
         private val HARMLESS = setOf("xml", "nfo", "sfv", "url", "db", "ini", "md5", "sha1", "json")
 
-        fun isImageName(name: String): Boolean =
-            name.substringAfterLast('/').substringAfterLast('.', "").lowercase() in IMAGE
+        fun isImageName(name: String): Boolean = extensionOf(name) in IMAGE
 
         internal fun isJunk(path: String): Boolean {
             val base = path.substringAfterLast('/')
@@ -47,18 +49,26 @@ data class ComicContents(
                 if (pages.size < 2) return null
                 // 확장자가 없는 파일은 문서가 아니다 — 리디에서 받은 권에는 끝에 0바이트 "zzzzzzzzzz" 표시 파일이 붙는데, 이것을
                 // 정체 모를 파일로 쳐서 그 권들이 통째로 "만화 아님" 이 됐다(사용자 보고, 0.48.3). 글 · 실행 파일은 확장자로 걸린다.
-                if (others.any { it.substringAfterLast('/').substringAfterLast('.', "").lowercase().let { ext -> ext.isNotEmpty() && ext !in HARMLESS } }) return null
+                if (others.any { extensionOf(it)?.let { ext -> ext !in HARMLESS } == true }) return null
             }
             val info = files.firstOrNull { it.substringAfterLast('/').equals("ComicInfo.xml", ignoreCase = true) }
             return of(pages, info)
         }
 
+        /**
+         * 그림 폴더의 쪽: 폴더 바로 아래 파일 이름 가운데 쪽으로 볼 것, 자연 순서. 서재 훑기([ofFolder])와 뷰어가 폴더를 열 때가
+         * 같은 규칙을 써야 한다 — 뷰어만 다른 규칙이던 때는 맥이 남긴 `._001.jpg` 가 쪽으로 끼어, 서재의 쪽 수와 뷰어의 쪽이
+         * 어긋나고 그 자리에 깨진 쪽이 보였다.
+         */
+        fun folderPages(fileNames: List<String>): List<String> =
+            fileNames.filter { !isJunk(it) && isImageName(it) }.sortedWith(NaturalOrder)
+
         /** 그림 폴더(폴더 바로 아래의 파일 이름들). 그림이 [MIN_FOLDER_PAGES] 장 미만이면 만화가 아니다. */
         fun ofFolder(fileNames: List<String>): ComicContents? {
-            val pages = fileNames.filter { !isJunk(it) && isImageName(it) }.sortedWith(NaturalOrder)
+            val pages = folderPages(fileNames)
             if (pages.size < MIN_FOLDER_PAGES) return null
             // 같은 폴더에 책(EPUB · PDF · TXT)이 있으면 그림은 그 책의 부속(표지 · 삽화)이지 만화가 아니다.
-            if (fileNames.any { it.substringAfterLast('.', "").lowercase() in BOOK_EXTENSIONS }) return null
+            if (fileNames.any { BookFormat.fromFileName(it) != null }) return null
             val info = fileNames.firstOrNull { it.equals("ComicInfo.xml", ignoreCase = true) }
             return of(pages, info)
         }
@@ -67,8 +77,6 @@ data class ComicContents(
          * 이 장 수부터 그림 폴더를 만화로 본다. 한두 장뿐인 폴더는 표지(`cover.jpg`) · 작가 사진 같은 부속이다.
          */
         const val MIN_FOLDER_PAGES: Int = 3
-
-        private val BOOK_EXTENSIONS = setOf("epub", "pdf", "txt")
 
         private fun of(pages: List<String>, info: String?): ComicContents {
             // 모든 쪽을 감싼 폴더 하나("별을 줍는 아이 1권/001.jpg")는 걷어 내고 그 아래를 본다.
@@ -81,13 +89,13 @@ data class ComicContents(
                     val dir = inner[start].substringBefore('/', "")
                     var end = start
                     while (end < inner.size && inner[end].substringBefore('/', "") == dir) end++
-                    sections += Section(dir.ifEmpty { "" }, start, end - start)
+                    sections += Section(dir, start, end - start)
                     start = end
                 }
             }
             // 폴더 둘 이상에 나뉘어야 합본의 안 목차다. 하나뿐이면 목차가 없는 것과 같다.
             val named = sections.filter { it.name.isNotEmpty() }
-            val cover = pages.firstOrNull { it.substringAfterLast('/').substringBeforeLast('.').lowercase().let { b -> b == "cover" || b == "folder" || b.startsWith("cover") } }
+            val cover = pages.firstOrNull { it.substringAfterLast('/').substringBeforeLast('.').lowercase().let { b -> b == "folder" || b.startsWith("cover") } }
                 ?: pages.first()
             return ComicContents(pages, if (named.size >= 2) sections else emptyList(), info, cover)
         }

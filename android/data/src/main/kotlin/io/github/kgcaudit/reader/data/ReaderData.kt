@@ -14,6 +14,8 @@ import io.github.kgcaudit.reader.data.saf.UriSources
 import io.github.kgcaudit.reader.document.AnnotationRepository
 import io.github.kgcaudit.reader.document.BookmarkRepository
 import io.github.kgcaudit.reader.document.ProgressRepository
+import io.github.kgcaudit.reader.document.comic.ArchiveExtensions
+import io.github.kgcaudit.reader.document.extensionOf
 import io.github.kgcaudit.reader.document.comic.ComicContents
 import io.github.kgcaudit.reader.document.comic.ComicInfo
 import io.github.kgcaudit.reader.document.comic.ComicUnit
@@ -153,7 +155,7 @@ class ReaderData(
                 openArchive(unit.id, keep = null).use { archive ->
                     // 압축 속 권은 만화 묶음에서 꺼낸 것이라 cbz 처럼 믿는다 — 그림이 하나라도 있으면 만화다. 안내 글 하나 섞였다고
                     // 묶음의 권 하나가 사라지면 그 권만 빠진 채 이어 보기가 끊긴다.
-                    contents = ComicContents.ofArchive(archive.names, trustExtension = unit.extension !in LibraryScanner.PLAIN_ARCHIVES || unit.kind == ComicUnitKind.NESTED.name)
+                    contents = ComicContents.ofArchive(archive.names, trustExtension = unit.extension !in ArchiveExtensions.PLAIN || unit.kind == ComicUnitKind.NESTED.name)
                     contents?.comicInfo?.let { name ->
                         info = runCatching { archive.entry(name)?.reader(Charsets.UTF_8)?.use { ComicInfo.parse(it) } }.getOrNull()
                     }
@@ -191,7 +193,7 @@ class ReaderData(
         try {
             if (inner !in outer.names) throw java.io.FileNotFoundException("$inner is no longer in $outerId")
             (outer as? ComicArchive.Zip)?.openStored(inner)?.let { return it }
-            val ext = inner.substringAfterLast('.').lowercase()
+            val ext = extensionOf(inner) ?: ""
             if (keep != null) {
                 val file = File(keep, VOLUME_FILE + ext)
                 val done = File(keep, VOLUME_DONE)
@@ -327,9 +329,10 @@ class ReaderData(
         const val KEEP_UNPACKED = 4
         /**
          * 살피기 규칙의 세대. 규칙이 바뀌어 옛 "만화 아님" 판정이 틀릴 수 있으면 올린다. 1 = 0.33.0 ~ 0.47.1, 2 = 0.48.0 압축 속 권,
-         * 3 = 0.48.3 확장자 없는 표시 파일("zzzzzzzzzz")을 문서로 치지 않음 · 압축 속 권은 믿음.
+         * 3 = 0.48.3 확장자 없는 표시 파일("zzzzzzzzzz")을 문서로 치지 않음 · 압축 속 권은 믿음, 4 = 압축 속 .rar · .7z 도 권으로
+         * 펼침(그 전에는 "1권.rar · 2권.7z" 만 든 zip 이 "만화 아님" 으로 적혔다).
          */
-        const val PROBE_GENERATION = 3
+        const val PROBE_GENERATION = 4
         const val PROBE_MARK = "comic-probe-generation"
         /** 다 풀었다는 표시 파일. 풀다가 앱이 닫히면 없으니, 다음에 다시 푼다. */
         const val DONE = ".olo-unpacked"
