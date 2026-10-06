@@ -27,6 +27,7 @@ import io.github.kgcaudit.reader.ui.design.CpSelectionHandles
 import io.github.kgcaudit.reader.ui.design.HANDLE_RADIUS
 import io.github.kgcaudit.reader.ui.design.Pen
 import io.github.kgcaudit.reader.ui.design.ReaderSearch
+import io.github.kgcaudit.reader.ui.design.bounds
 import io.github.kgcaudit.reader.ui.design.drawMemoGlyph
 import io.github.kgcaudit.reader.ui.design.handleCentres
 import kotlinx.coroutines.CoroutineScope
@@ -152,9 +153,6 @@ internal fun PdfTextOverlay(
         if (boxes.isNotEmpty() && text.memo == null) CpFloatingMenu(boxes.bounds(), note.color.pen, listOf("메모", "복사", "공유", "지우기"), onPen, onWord)
     }
 }
-
-/** 네모들을 모두 담는 네모(메뉴를 띄울 기준). */
-internal fun List<Rect>.bounds(): Rect = Rect(minOf { it.left }, minOf { it.top }, maxOf { it.right }, maxOf { it.bottom })
 
 /** 누른 자리의 칠. 겹치면 나중에 칠한 것(위에 보이는 것). */
 internal fun annotationAt(reader: PdfReader, text: PdfTextState, notes: List<Annotation>, at: Offset): Annotation? {

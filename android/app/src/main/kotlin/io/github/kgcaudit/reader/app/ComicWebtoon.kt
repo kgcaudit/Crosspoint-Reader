@@ -78,6 +78,7 @@ import io.github.kgcaudit.reader.document.comic.WebtoonColumn
 import io.github.kgcaudit.reader.document.comic.Work
 import io.github.kgcaudit.reader.document.comic.WorkEntry
 import io.github.kgcaudit.reader.document.image.ImageSize
+import io.github.kgcaudit.reader.ui.design.BOOKMARK_CORNER
 import io.github.kgcaudit.reader.ui.design.CpAutoScrollPill
 import io.github.kgcaudit.reader.ui.design.CpBrightnessRow
 import io.github.kgcaudit.reader.ui.design.CpButton
@@ -498,7 +499,7 @@ fun WebtoonReader(
                             if (pickCover) return@detectTapGestures
                             if (panel != WebtoonPanel.None) { panel = WebtoonPanel.None; return@detectTapGestures }
                             if (stoppedByTouch) { stoppedByTouch = false; return@detectTapGestures }
-                            when (latestPrefs.touch.actionAt(at.x, at.y, viewW, 56.dp.toPx())) {
+                            when (latestPrefs.touch.actionAt(at.x, at.y, viewW, BOOKMARK_CORNER.toPx())) {
                                 TapAction.Next -> scrollNow(true)
                                 TapAction.Previous -> scrollNow(false)
                                 TapAction.Menu -> panel = WebtoonPanel.Bar

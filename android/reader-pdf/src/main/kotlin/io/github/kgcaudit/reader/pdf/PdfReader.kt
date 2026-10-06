@@ -17,6 +17,7 @@ import io.github.kgcaudit.reader.document.Locator
 import io.github.kgcaudit.reader.document.ProgressRepository
 import io.github.kgcaudit.reader.document.ReadingProgress
 import io.github.kgcaudit.reader.document.TocEntry
+import io.github.kgcaudit.reader.ui.design.pageAt
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

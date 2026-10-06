@@ -22,6 +22,7 @@ import io.github.kgcaudit.reader.ui.design.CpText
 import io.github.kgcaudit.reader.ui.design.CpPill
 import io.github.kgcaudit.reader.ui.design.CpTheme
 import io.github.kgcaudit.reader.ui.design.Pen
+import io.github.kgcaudit.reader.ui.design.bounds
 
 /** `HighlightColor` ↔ 디자인의 [Pen]. 둘은 같은 순서다. */
 internal val HighlightColor.pen: Pen get() = Pen.entries[ordinal]
@@ -97,10 +98,6 @@ internal data class MemoDraft(
     /** [selection] 을 고른 장. 판이 떠 있는 사이 장이 바뀌어도 이 장에 칠한다. */
     val spineIndex: Int? = null,
 )
-
-/** 네모들을 모두 담는 네모(메뉴를 띄울 기준). */
-internal fun List<Rect>.bounds(): Rect =
-    Rect(minOf { it.left }, minOf { it.top }, maxOf { it.right }, maxOf { it.bottom })
 
 /** 메뉴의 "이어서 ›"(쪽을 넘어 이어서 고르기). */
 internal const val CONTINUE = "이어서 ›"

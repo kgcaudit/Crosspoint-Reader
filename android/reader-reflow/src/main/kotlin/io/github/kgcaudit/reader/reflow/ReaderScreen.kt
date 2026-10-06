@@ -1,6 +1,10 @@
 package io.github.kgcaudit.reader.reflow
 
+import io.github.kgcaudit.reader.ui.design.BOOKMARK_CORNER
+import io.github.kgcaudit.reader.ui.design.CpEmptyMessage
 import io.github.kgcaudit.reader.ui.design.HANDLE_RADIUS
+import io.github.kgcaudit.reader.ui.design.bounds
+import io.github.kgcaudit.reader.ui.design.go
 import io.github.kgcaudit.reader.ui.design.handleCentres
 import io.github.kgcaudit.reader.ui.design.lookUp
 import io.github.kgcaudit.reader.ui.design.shareOut
@@ -443,7 +447,7 @@ fun ReaderScreen(
                         // 책등: 옅은 선 한 줄. 그림자까지 그리면 e-ink 원형과 멀고 글자 옆이 탁해 보인다.
                         drawLine(
                             colors.ink.copy(alpha = 0.13f),
-                            androidx.compose.ui.geometry.Offset(half, CORNER.toPx() * 0.5f),
+                            androidx.compose.ui.geometry.Offset(half, BOOKMARK_CORNER.toPx() * 0.5f),
                             androidx.compose.ui.geometry.Offset(half, size.height - margin.bottom),
                             strokeWidth = 1.dp.toPx(),
                         )
@@ -478,7 +482,7 @@ fun ReaderScreen(
             Modifier
                 .fillMaxSize()
                 .pointerInput(reader, prefs.screen.touch) {
-                    val corner = CORNER.toPx()
+                    val corner = BOOKMARK_CORNER.toPx()
                     val touch = 48.dp.toPx()
                     detectTapGestures(
                         onLongPress = { offset ->
@@ -920,9 +924,6 @@ private class TurnClock {
 private fun isAfter(here: Pair<Int, Int>, other: Pair<Int, Int>): Boolean =
     here.first > other.first || (here.first == other.first && here.second > other.second)
 
-/** 오른쪽 위 모서리의 책갈피 네모. 리본(22dp)보다 넉넉하되 "다음 쪽" 자리를 많이 빼앗지 않는 크기. */
-private val CORNER = 56.dp
-
 @Composable
 private fun ReaderBar(
     reader: BookReader,
@@ -1081,7 +1082,7 @@ private suspend fun readingNotes(reader: BookReader, toc: List<TocEntry>): Readi
 private fun TocList(entries: List<TocEntry>?, state: ReaderState, onOpen: (TocEntry) -> Unit) {
     when {
         entries == null -> Unit
-        entries.isEmpty() -> Empty("목차가 없는 책입니다")
+        entries.isEmpty() -> CpEmptyMessage("목차가 없는 책입니다")
         else -> {
             val current = currentTocIndex(entries, state.position?.spineIndex ?: 0)
             val list = rememberLazyListState()
@@ -1153,23 +1154,6 @@ private fun ParagraphSettings(prefs: ReaderPrefs, onChange: (ReaderPrefs) -> Uni
     CpChoice("문단 간격", gaps.map { it.label }, gaps.indexOf(prefs.paragraphSpacing), {
         onChange(prefs.copy(paragraphSpacing = gaps[it]))
     }, modifier)
-}
-
-@Composable
-private fun Empty(message: String) {
-    Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-        CpText(message, CpTheme.type.subtitle, CpTheme.colors.textMuted, maxLines = 3)
-    }
-}
-
-/**
- * 동작 하나를 띄운다. 실패는 [BookReader.state] 의 error 로 화면에 가고, 여기서는 로그만
- * 남긴다 — 아무 흔적 없이 삼키면 "단추가 먹통" 인 원인을 기기에서 찾을 수 없다.
- */
-private fun CoroutineScope.go(block: suspend () -> Unit) {
-    launch {
-        runCatching { block() }.onFailure { if (it !is kotlinx.coroutines.CancellationException) Log.w(TAG, "reader action failed", it) }
-    }
 }
 
 private const val TAG = "OloReader"

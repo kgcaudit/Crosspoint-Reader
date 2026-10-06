@@ -60,6 +60,9 @@ import kotlin.math.roundToInt
 
 // ── 떠 있는 메뉴(N4) ───────────────────────────────────────────────
 
+/** 네모들을 모두 담는 네모 — [CpFloatingMenu] 의 `anchor`. 비어 있으면 안 된다(부르는 쪽이 거른다). */
+fun List<Rect>.bounds(): Rect = Rect(minOf { it.left }, minOf { it.top }, maxOf { it.right }, maxOf { it.bottom })
+
 /**
  * 고른 말 · 칠한 곳 위에 뜨는 어두운 알약: 4색 동그라미 / 줄 / 낱말 단추들. 구간 위에 자리가 있으면 위, 없으면
  * 아래(손잡이 밑)에 띄운다 — 손가락과 손잡이를 가리지 않게.

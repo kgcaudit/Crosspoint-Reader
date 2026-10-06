@@ -33,6 +33,7 @@ import java.io.File
 import java.io.FileInputStream
 import kotlin.test.Test
 import io.github.kgcaudit.reader.layout.book.findAll
+import io.github.kgcaudit.reader.ui.design.pageAt
 import kotlin.math.roundToInt
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse

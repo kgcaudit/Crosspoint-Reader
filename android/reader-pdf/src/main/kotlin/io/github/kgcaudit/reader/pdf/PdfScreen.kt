@@ -1,7 +1,6 @@
 package io.github.kgcaudit.reader.pdf
 
 import android.graphics.Bitmap
-import android.util.Log
 import androidx.activity.compose.BackHandler
 import io.github.kgcaudit.reader.document.SpreadSlot
 import androidx.compose.foundation.Canvas
@@ -35,6 +34,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import io.github.kgcaudit.reader.ui.design.BOOKMARK_CORNER
+import io.github.kgcaudit.reader.ui.design.CpEmptyMessage
 import io.github.kgcaudit.reader.ui.design.PdfFit
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -73,7 +74,9 @@ import io.github.kgcaudit.reader.ui.design.CpSearchRow
 import io.github.kgcaudit.reader.ui.design.CpSearchScreen
 import io.github.kgcaudit.reader.ui.design.Pen
 import io.github.kgcaudit.reader.ui.design.copyText
+import io.github.kgcaudit.reader.ui.design.go
 import io.github.kgcaudit.reader.ui.design.lookUp
+import io.github.kgcaudit.reader.ui.design.pageAt
 import io.github.kgcaudit.reader.ui.design.shareOut
 import io.github.kgcaudit.reader.ui.design.shareText
 import io.github.kgcaudit.reader.document.Bookmark
@@ -721,13 +724,6 @@ private class PageScroller {
     var scroll: ((forward: Boolean) -> Boolean)? = null
 }
 
-/** 오른쪽 위 모서리의 책갈피 네모(EPUB 과 같다). */
-private val CORNER = 56.dp
-
-/** 진행 막대의 0..1 → 쪽(0부터). [PdfReader.seek] 과 같은 셈이라야 막대 위 숫자와 가는 곳이 같다. */
-internal fun pageAt(fraction: Float, pageCount: Int): Int =
-    if (pageCount <= 1) 0 else (fraction.coerceIn(0f, 1f) * (pageCount - 1)).roundToInt()
-
 /** 그린 구역과 그것을 그린 화면 배치. 배치가 바뀐 뒤 옛 구역을 새 자리에 그리지 않게 함께 둔다. */
 private class Rendered<K>(val key: K, val bitmap: Bitmap)
 
@@ -835,7 +831,7 @@ private fun PageView(
                     // 두 번 누르기를 기다리느라 한 번 누르기가 조금(약 0.3초) 늦다. PDF 는 글자가 작아
                     // 확대를 자주 하므로 받아들인다.
                     onDoubleTap = { at -> viewport = viewport.toggleZoom(at.x, at.y) },
-                    onTap = { at -> tap(at, CORNER.toPx()) },
+                    onTap = { at -> tap(at, BOOKMARK_CORNER.toPx()) },
                     onLongPress = { at -> pressed(at) },
                 )
             }
@@ -1043,7 +1039,7 @@ private fun SpreadView(
             .fillMaxSize()
             .then(if (text != null) Modifier.selectionHandles(reader, text) else Modifier)
             .pointerInput(pages, viewW, viewH) {
-                detectTapGestures(onTap = { at -> tap(at, CORNER.toPx()) }, onLongPress = { at -> pressed(at) })
+                detectTapGestures(onTap = { at -> tap(at, BOOKMARK_CORNER.toPx()) }, onLongPress = { at -> pressed(at) })
             }
             .pointerInput(pages, viewW, viewH) {
                 val threshold = 48.dp.toPx()
@@ -1189,7 +1185,7 @@ private fun PdfLists(
 private fun ContentsList(entries: List<TocEntry>?, page: Int, labelOf: (Int) -> String, onOpen: (TocEntry) -> Unit) {
     when {
         entries == null -> Unit
-        entries.isEmpty() -> Empty("목차가 없는 파일입니다. 진행 막대로 원하는 쪽에 갈 수 있습니다.")
+        entries.isEmpty() -> CpEmptyMessage("목차가 없는 파일입니다. 진행 막대로 원하는 쪽에 갈 수 있습니다.")
         else -> {
             val current = currentContentsIndex(entries, page)
             val list = rememberLazyListState()
@@ -1213,27 +1209,11 @@ private fun ContentsList(entries: List<TocEntry>?, page: Int, labelOf: (Int) -> 
     }
 }
 
-@Composable
-private fun Empty(message: String) {
-    Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-        CpText(message, CpTheme.type.subtitle, CpTheme.colors.textMuted, maxLines = 3)
-    }
-}
-
 private val io.github.kgcaudit.reader.document.Locator.fixedPage: Int
     get() = (this as? io.github.kgcaudit.reader.document.Locator.FixedPage)?.page ?: 0
 
-/** 동작 하나를 띄운다. 실패는 로그로 — 흔적 없이 삼키면 "단추가 먹통" 인 원인을 기기에서 찾을 수 없다. */
-private fun CoroutineScope.go(block: suspend () -> Unit) {
-    launch {
-        runCatching { block() }.onFailure { if (it !is kotlinx.coroutines.CancellationException) Log.w(TAG, "pdf action failed", it) }
-    }
-}
-
 /** 손을 멈춘 뒤 선명하게 다시 그리기까지. 끄는 동안 매 프레임 그리면 렌더가 줄줄이 쌓인다. */
 private const val SETTLE_MS = 150L
-
-private const val TAG = "OloPdf"
 
 /**
  * 바탕 그림의 픽셀 크기. 폭 맞춤에서 세로로 아주 긴 쪽(웹툰형 PDF)은 화면 폭 그대로면 한 장이 100MB 를 넘어, 그리는

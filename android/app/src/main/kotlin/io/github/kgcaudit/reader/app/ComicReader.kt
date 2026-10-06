@@ -63,6 +63,8 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.key
 import androidx.compose.ui.platform.LocalView
+import io.github.kgcaudit.reader.ui.design.BOOKMARK_CORNER
+import io.github.kgcaudit.reader.ui.design.pageAt
 import io.github.kgcaudit.reader.ui.design.rememberTurnFeedback
 import io.github.kgcaudit.reader.ui.design.turnSide
 import kotlinx.coroutines.launch
@@ -399,7 +401,7 @@ fun ComicReader(
                                 onDoubleTap = { at -> setViewport(viewportNow.value?.toggleZoom(at.x, at.y)) },
                                 onTap = { at ->
                                     if (panel != ComicPanel.None) { panel = ComicPanel.None; return@detectTapGestures }
-                                    when (latestPrefs.touch.actionAt(at.x, at.y, viewW, 56.dp.toPx())) {
+                                    when (latestPrefs.touch.actionAt(at.x, at.y, viewW, BOOKMARK_CORNER.toPx())) {
                                         // 화면의 오른쪽 = 왼→오 책의 다음. 오→왼이면 뒤집는다.
                                         TapAction.Next -> advance(ComicReading.forward(screenNext = true, rightToLeft = rtl))
                                         TapAction.Previous -> advance(ComicReading.forward(screenNext = false, rightToLeft = rtl))
@@ -574,10 +576,6 @@ internal fun ViewChoice(view: ComicView?, onView: (ComicView?) -> Unit) {
     val options = listOf(null, ComicView.PAGE, ComicView.WEBTOON)
     CpChoice("보는 방식", listOf("자동", "쪽 넘김", "웹툰"), options.indexOf(view), { onView(options[it]) })
 }
-
-/** 진행 막대 0..1 → 쪽. 막대 위 숫자와 가는 곳이 같아야 한다. */
-internal fun pageAt(fraction: Float, pageCount: Int): Int =
-    if (pageCount <= 1) 0 else (fraction.coerceIn(0f, 1f) * (pageCount - 1)).roundToInt()
 
 /**
  * 한 판(쪽 하나 · 둘)의 그림. [viewport] 가 없으면(옆에 붙은 판 · 크기를 아직 모름) 화면에 맞춰 가운데. [rtl] 이면 두 쪽의

@@ -1,6 +1,8 @@
 package io.github.kgcaudit.reader.ui.design
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 
 /**
  * 조판과 상관없는 보기 설정 — EPUB · TXT 와 PDF 가 **함께** 쓴다.
@@ -147,6 +149,12 @@ enum class TouchZones(val label: String, val description: String) {
 }
 
 enum class TapAction { Previous, Next, Menu, Bookmark }
+
+/**
+ * 오른쪽 위 모서리의 책갈피 네모([actionAt] 의 `cornerPx`). 리본(22dp)보다 넉넉하되 "다음 쪽" 자리를 많이 빼앗지 않는
+ * 크기. 리더마다 적던 때는 한 곳만 바꾸면 같은 자리를 눌러도 책은 책갈피, 만화는 다음 쪽이 된다.
+ */
+val BOOKMARK_CORNER: Dp = 56.dp
 
 /**
  * 누른 자리의 동작.

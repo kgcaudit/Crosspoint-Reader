@@ -684,3 +684,11 @@ private fun SliderBody(value: Float, onChange: (Float) -> Unit, onCommit: (Float
         )
     }
 }
+
+/** 판 가운데의 안내 한 줄(목차 없음 · 메모 없음 따위). 판이 비어 보이면 고장으로 읽힌다. */
+@Composable
+fun CpEmptyMessage(message: String) {
+    Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+        CpText(message, CpTheme.type.subtitle, CpTheme.colors.textMuted, maxLines = 3)
+    }
+}
