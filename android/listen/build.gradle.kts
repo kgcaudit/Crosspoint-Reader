@@ -28,4 +28,14 @@ dependencies {
 
     testImplementation(libs.junit4)
     testImplementation(libs.kotlin.test)
+    testImplementation(libs.coroutines.test)
+    // 음성 엔진(TextToSpeech)을 흉내 내는 그림자가 Robolectric 에 있다 — "한국어를 못 읽는 엔진" 을 기기 없이 만든다.
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
+}
+
+tasks.withType<Test>().configureEach {
+    providers.gradleProperty("reader.robolectricRepo").orNull?.let {
+        systemProperty("robolectric.dependency.repo.url", it)
+    }
 }

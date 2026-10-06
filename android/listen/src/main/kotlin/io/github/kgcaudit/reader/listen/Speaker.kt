@@ -58,13 +58,30 @@ class AndroidSpeaker(private val context: Context, private val engine: String?) 
 
     override suspend fun prepare(): Boolean {
         if (ready) return true
+        val created = connect() ?: return false
+        // 한국어를 못 읽는 엔진이면 한국어 책을 영어 발음으로 읽는다 — 차라리 알리는 편이 낫다. 전에는 그런 엔진도
+        // 쓸 수 있다고 답해, "엔진을 찾지 못했습니다" 안내 대신 알아들을 수 없는 발음으로 읽기 시작했다.
+        if (created.isLanguageAvailable(Locale.KOREAN) < TextToSpeech.LANG_AVAILABLE) {
+            shutdown()
+            return false
+        }
+        created.language = Locale.KOREAN
+        ready = true
+        return true
+    }
+
+    /**
+     * 엔진을 켜고 알림 · 소리 줄기를 건다. 대답이 없거나 실패하면 null. 한국어는 보지 않는다 — 깔린 엔진 목록은 기본
+     * 엔진이 한국어를 못 읽어도 받아야 한다([voices]). 거기서 한국어까지 보면 다른 엔진의 한국어 목소리마저 사라진다.
+     */
+    private suspend fun connect(): TextToSpeech? {
         // 전에 실패한 것이 남아 있으면 끈다 — 새로 만들며 옛 엔진 연결을 버리면 책을 닫을 때까지 붙들고 있었다.
         shutdown()
         val done = CompletableDeferred<Boolean>()
         val created = TextToSpeech(context.applicationContext, { status -> done.complete(status == TextToSpeech.SUCCESS) }, engine)
         tts = created
         // 엔진이 대답하지 않는 기기가 있다(엔진을 지운 직후 등). 끝없이 기다리면 단추가 먹통이 된다.
-        ready = try {
+        val ok = try {
             withTimeoutOrNull(8_000) { done.await() } == true
         } catch (e: kotlinx.coroutines.CancellationException) {
             // 기다리는 사이 화면을 떠났다(목소리 화면을 목록이 뜨기 전에 나감). 끄지 않으면 엔진 서비스에 묶인 채 앱이
@@ -72,9 +89,9 @@ class AndroidSpeaker(private val context: Context, private val engine: String?) 
             shutdown()
             throw e
         }
-        if (!ready) {
+        if (!ok) {
             shutdown()
-            return false
+            return null
         }
         created.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String) { events?.onStart(utteranceId) }
@@ -90,10 +107,7 @@ class AndroidSpeaker(private val context: Context, private val engine: String?) 
                 .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
                 .build(),
         )
-        // 한국어를 못 읽는 엔진이면 한국어 책을 영어 발음으로 읽는다 — 차라리 알리는 편이 낫다.
-        val korean = created.isLanguageAvailable(Locale.KOREAN) >= TextToSpeech.LANG_AVAILABLE
-        if (korean) created.language = Locale.KOREAN
-        return true
+        return created
     }
 
     override fun speak(id: String, text: String, flush: Boolean) {
@@ -129,8 +143,8 @@ class AndroidSpeaker(private val context: Context, private val engine: String?) 
         suspend fun voices(context: Context): List<VoiceChoice> {
             val probe = AndroidSpeaker(context, null)
             val engines = try {
-                probe.prepare()
-                probe.tts?.engines.orEmpty()
+                // 엔진 목록만 받는다 — 기본 엔진이 한국어를 못 읽어도 다른 엔진은 읽을 수 있다.
+                probe.connect()?.engines.orEmpty()
             } finally {
                 probe.shutdown()
             }
