@@ -445,6 +445,16 @@ class PaginatorTest {
     }
 
     @Test
+    fun `the cache key tells apart which book fonts could be read`() {
+        // 같은 책 · 같은 설정이라도 꺼낸 책 글꼴 가족이 다르면 글자 폭이 다르다 — 키가 같으면 옛 쪽을 다른 글꼴로 그린다.
+        val on = spec().copy(useBookFonts = true)
+        assertTrue(on.copy(bookFontsKey = "all").cacheKey != on.copy(bookFontsKey = "some").cacheKey)
+        assertTrue(on.copy(bookFontsKey = "all").cacheKey != on.cacheKey)
+        // 책 글꼴을 끄면 지문은 키에 들지 않는다(쓰이지 않으니 다시 조판할 이유가 없다).
+        assertEquals(spec().cacheKey, spec().copy(bookFontsKey = "all").cacheKey)
+    }
+
+    @Test
     fun `the cache key is stable for the same settings`() {
         assertEquals(spec().cacheKey, spec().cacheKey)
         assertEquals(16, spec().cacheKey.length)

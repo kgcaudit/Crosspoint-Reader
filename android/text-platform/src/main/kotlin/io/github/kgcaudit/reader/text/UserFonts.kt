@@ -31,8 +31,8 @@ class UserFonts(private val dir: File) {
     )
 
     data class Face(val file: File, val info: FontFace) {
-        /** 짝짓기에 쓰는 굵기. 가변 폰트는 보통(400)을 낼 수 있으면 400 으로 본다. */
-        val nominalWeight: Int get() = info.variableWeights?.takeIf { 400 in it }?.let { 400 } ?: info.weight
+        /** 짝짓기에 쓰는 굵기([nominalWeight] — 출판사 글꼴과 같은 규칙). */
+        val nominalWeight: Int get() = nominalWeight(info.weight, info.variableWeights)
     }
 
     sealed interface ImportResult {

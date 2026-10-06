@@ -48,7 +48,7 @@ class BookTypefacesTest {
         .gone { font-family: "없음" } .web { font-family: "웹" }
     """.trimIndent()
 
-    private fun book(): EpubDocument {
+    private fun book(withBold: Boolean = true): EpubDocument {
         val out = ByteArrayOutputStream()
         ZipOutputStream(out).use { zip ->
             fun put(name: String, bytes: ByteArray) {
@@ -66,7 +66,7 @@ class BookTypefacesTest {
             put("OEBPS/Text/c.xhtml", "<html><body><p>x</p></body></html>".toByteArray())
             put("OEBPS/Styles/s.css", css.toByteArray())
             put("OEBPS/Fonts/Regular.ttf", TestFonts.file("olo-test-regular.ttf").readBytes())
-            put("OEBPS/Fonts/Bold.ttf", TestFonts.file("olo-test-bold.ttf").readBytes())
+            if (withBold) put("OEBPS/Fonts/Bold.ttf", TestFonts.file("olo-test-bold.ttf").readBytes())
             put("OEBPS/Fonts/Web.woff", "wOFF".toByteArray() + ByteArray(100))
         }
         return EpubDocument.open(BookId("t"), "b.epub", SeekableSource.of(out.toByteArray()))
@@ -139,6 +139,31 @@ class BookTypefacesTest {
         val (table, again) = prepared()
         assertNotNull(again.select(table.faceFor(listOf("바탕")), bold = false), "망가진 사본을 버리고 다시 꺼내야 한다")
         assertTrue(dir.listFiles()!!.all { it.length() > 10 })
+    }
+
+    @Test
+    fun `the layout cache key changes when a book font family could not be read`() {
+        // 한 번은 모두 꺼내고, 다음엔 굵은 파일을 못 꺼냈다(저장 공간 · 깨진 사본). 키가 같으면 "바탕B" 를 책 글꼴 폭으로
+        // 나눈 옛 쪽을 본문 글꼴로 그려 줄 끝이 어긋난다.
+        val all = prepared().second
+        val again = prepared().second
+        val fewer = runBlocking {
+            val document = book(withBold = false)
+            BookTypefaces.prepare(document, BookFontTable.load(document), temp.newFolder("fewer"))
+        }
+        assertEquals(all.fingerprint, again.fingerprint, "같은 글꼴을 읽으면 같은 키 — 열 때마다 다시 조판하지 않는다")
+        assertNotEquals(all.fingerprint, fewer.fingerprint)
+        val on = spec.copy(useBookFonts = true)
+        assertNotEquals(on.copy(bookFontsKey = all.fingerprint).cacheKey, on.copy(bookFontsKey = fewer.fingerprint).cacheKey)
+    }
+
+    @Test
+    fun `a variable font is weighed the same way as a user font`() {
+        // 보통(400)을 낼 수 있는 가변 폰트는 400, 굵은 쪽 축뿐이면 파일이 밝힌 굵기 — 사용자 글꼴과 출판사 글꼴이 같은
+        // 파일을 같은 굵기로 본다. 따로 적던 때는 출판사 쪽만 축 끝(500)으로 봐, 같은 파일이 한쪽에서만 합성 굵게를 받았다.
+        assertEquals(400, nominalWeight(700, 100..900))
+        assertEquals(900, nominalWeight(900, 500..900))
+        assertEquals(300, nominalWeight(300, null))
     }
 
     private companion object {

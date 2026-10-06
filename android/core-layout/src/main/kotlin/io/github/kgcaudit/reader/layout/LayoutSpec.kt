@@ -68,6 +68,11 @@ data class LayoutSpec(
      */
     val useBookFonts: Boolean = false,
     /**
+     * 실제로 읽어 낸 책 글꼴의 지문([useBookFonts] 일 때만 키에 든다). 같은 책도 어떤 가족을 꺼냈느냐에 따라 폭이
+     * 다르다 — 없으면 하나를 못 꺼낸 날, 모두 꺼낸 날 조판한 쪽을 본문 글꼴로 그려 줄 끝이 어긋났다. null 이면 넣지 않는다.
+     */
+    val bookFontsKey: String? = null,
+    /**
      * 본문 정렬을 사용자가 **정했다**(null = 원본: 책이 정한 곳은 책대로, 안 정한 곳만 [align]).
      *
      * 책이 양쪽·왼쪽으로 정한 문단에만 덮어쓴다. 가운데·오른쪽 정렬(시, 제목, 서명)까지 덮으면 "왼쪽" 을
@@ -117,7 +122,10 @@ data class LayoutSpec(
         append(breakBetweenCjk).append('|').append(imagesEnabled).append('|')
         append(usePublisherStyles).append('|').append(fontId).append('|').append(cssPxScale)
         // 끈 상태(기본)의 키는 예전과 같게 둔다. 안 그러면 책 글꼴 없는 책까지 한 번씩 다시 조판한다.
-        if (useBookFonts) append("|bookfonts")
+        if (useBookFonts) {
+            append("|bookfonts")
+            if (bookFontsKey != null) append('=').append(bookFontsKey)
+        }
         // 새 칸도 기본값이면 키에 넣지 않는다 — 판을 올릴 때 모든 책이 다시 조판되지 않게.
         if (alignOverride != null) append("|align=").append(alignOverride.name)
         if (indentOff) append("|noindent")

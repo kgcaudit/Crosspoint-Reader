@@ -22,6 +22,19 @@ class BookTypefaces private constructor(private val families: List<Family?>) {
     /** 읽을 수 있는 글꼴이 하나도 없다. 목록에 "출판사 글꼴" 을 내놓을 이유가 없다. */
     val isEmpty: Boolean get() = families.all { it == null }
 
+    /**
+     * 읽어 낸 가족들의 지문. 조판 캐시 키([LayoutSpec.bookFontsKey][io.github.kgcaudit.reader.layout.LayoutSpec.bookFontsKey])에
+     * 넣는다 — 같은 책이라도 어떤 가족을 읽었는지에 따라 글자 폭이 다르다. 키가 `|bookfonts` 하나뿐이던 때는, 한 번은
+     * 모두 읽고 다음엔 하나를 못 꺼내면(저장 공간 부족 · 깨진 사본) 책 글꼴 폭으로 나눈 옛 쪽을 본문 글꼴로 그려 줄 끝이
+     * 지면을 넘거나 비었다.
+     */
+    val fingerprint: String = sha1Hex(
+        families.joinToString(";") { family ->
+            family?.faces?.joinToString(",") { "${it.weight}${if (it.italic) "i" else ""}" } ?: "-"
+        },
+        12,
+    )
+
     /** 목록에서 "출판사 글꼴" 이름을 그릴 서체(본문에 가장 많이 쓰일 첫 가족). */
     val preview: Typeface? get() = families.firstNotNullOfOrNull { it }?.let { pick(it, bold = false).first }
 
@@ -62,7 +75,7 @@ class BookTypefaces private constructor(private val families: List<Family?>) {
                     val target = File(dir, name(file.path))
                     if (!target.isFile && !extract(document, file.path, target)) return@mapNotNull null
                     val info = runCatching { SfntReader.read(target).firstOrNull() }.getOrNull()
-                    // 가변 폰트는 기본 인스턴스가 아니라 보통(400)으로 — 기본이 아주 가는 글꼴이 있다.
+                    // 가변 폰트는 기본 인스턴스가 아니라 보통(400)으로 — 기본이 아주 가는 글꼴이 있다. 사용자 글꼴도 같다(UserFonts.pair).
                     val axis = info?.variableWeights?.let { 400.coerceIn(it) }
                     val typeface = info?.let { UserFonts.load(target, it.index, axis) }
                     if (info == null || typeface == null) {
@@ -70,7 +83,7 @@ class BookTypefaces private constructor(private val families: List<Family?>) {
                         target.delete()
                         return@mapNotNull null
                     }
-                    Face(typeface, file.weight ?: axis ?: info.weight, file.italic ?: info.italic)
+                    Face(typeface, file.weight ?: nominalWeight(info.weight, info.variableWeights), file.italic ?: info.italic)
                 }
                 faces.takeIf { it.isNotEmpty() }?.let(::Family)
             }

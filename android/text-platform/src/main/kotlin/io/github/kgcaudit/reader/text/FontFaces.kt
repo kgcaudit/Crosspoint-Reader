@@ -18,6 +18,18 @@ internal fun <T> chooseRegularAndBold(faces: List<T>, weight: (T) -> Int, italic
     return regular to bold
 }
 
+/**
+ * 짝짓기(보통 · 굵게 고르기)와 합성 굵게 판단에 쓰는 굵기. 가변 폰트는 보통(400)을 낼 수 있으면 400 이고, 낼 수
+ * 없으면(굵기 축이 500~900 처럼 한쪽뿐) 파일이 적은 기본 굵기(OS/2)다.
+ *
+ * 사용자 글꼴과 출판사 글꼴이 이 하나를 쓴다. 출판사 글꼴만 `400.coerceIn(축)`(축 끝 값)을 쓰던 때는 같은 가변 파일이
+ * 넣은 방식에 따라 다른 굵기로 읽혀 한쪽에서만 합성 굵게가 붙었다(축 500~900, 파일 굵기 900: 출판사 쪽은 500 → 합성). 기준을 사용자 글꼴 쪽으로 둔 이유: 넣어 둔
+ * 사용자 글꼴의 가족 짝(어느 파일이 보통인가 — 목록 이름 · 설정 키가 거기서 나온다)이 이미 이 규칙으로 정해져 있어,
+ * 바꾸면 사용자가 고른 글꼴이 다른 파일로 바뀔 수 있다. 축 끝 값은 우리가 고른 값이지 글꼴이 밝힌 굵기가 아니기도 하다.
+ */
+internal fun nominalWeight(osWeight: Int, variableWeights: IntRange?): Int =
+    if (variableWeights != null && 400 in variableWeights) 400 else osWeight
+
 /** 16진수 해시 앞 [length] 자. 파일 이름에 쓴다(경로에 한글·공백·`../` 가 섞여도 안전하다). */
 internal fun hexDigest(digest: ByteArray, length: Int): String = digest.joinToString("") { "%02x".format(it) }.take(length)
 
