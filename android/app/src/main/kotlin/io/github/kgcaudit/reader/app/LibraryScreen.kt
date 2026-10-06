@@ -74,7 +74,9 @@ import io.github.kgcaudit.reader.ui.design.CpProgressBar
 import io.github.kgcaudit.reader.ui.design.CpText
 import io.github.kgcaudit.reader.ui.design.CpTheme
 import io.github.kgcaudit.reader.ui.design.CpTile
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
@@ -143,6 +145,7 @@ fun LibraryScreen(
     // id 로 저장한다(rememberSaveable) — 사진을 고르는 사이 앱이 회수됐다 돌아와도 어느 책의 표지인지 안다.
     var coverForId by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
     var toast by remember { mutableStateOf<String?>(null) }
+    val writeFailed: (Exception) -> Unit = { notice = WRITE_FAILED to "휴대폰 저장 공간이 넉넉한지 확인하고 다시 해 주세요." }
     val pickCover = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         val id = coverForId ?: return@rememberLauncherForActivityResult
         coverForId = null
@@ -271,7 +274,7 @@ fun LibraryScreen(
         }
 
         if (folders.isEmpty()) {
-            EmptyLibrary { pickFolder.launchOr(null) { notice = NO_PICKER to "휴대폰의 ‘파일’ 앱이 꺼져 있으면 켜 주세요." } }
+            EmptyLibrary { pickFolder.launchOr(null) { notice = NO_PICKER to NO_PICKER_HINT } }
         } else if (comics) {
             androidx.compose.foundation.pager.HorizontalPager(pager, Modifier.fillMaxSize(), verticalAlignment = Alignment.Top) { page ->
                 if (page == 0) bookPage() else ShelfWall(layout) { LazyColumn(Modifier.fillMaxSize()) {
@@ -332,21 +335,14 @@ fun LibraryScreen(
                     // 열어 둔 작품을 합친 쪽으로 옮겨 둔다 — 그대로 두면 열쇠를 잃은 화면이 닫혀 서재로 튕긴다.
                     openWork = into.key
                     arranging = false
-                    scope.launch {
-                        withContext(Dispatchers.IO) { data.comics.merge(work, into) }
-                        toast = "‘${work.title}’ — ‘${into.title}’ 작품에 합쳤습니다"
-                    }
+                    scope.launchWrite(writeFailed, then = { toast = "‘${work.title}’ — ‘${into.title}’ 작품에 합쳤습니다" }) { data.comics.merge(work, into) }
                 },
                 onSplit = { entry ->
-                    scope.launch {
-                        withContext(Dispatchers.IO) { data.comics.split(entry) }
-                        toast = "‘${entry.label}’ — 따로 뺐습니다"
-                    }
+                    scope.launchWrite(writeFailed, then = { toast = "‘${entry.label}’ — 따로 뺐습니다" }) { data.comics.split(entry) }
                 },
                 onRename = { title ->
-                    scope.launch {
-                        withContext(Dispatchers.IO) { data.comics.rename(work, title) }
-                        toast = if (title.isBlank()) "작품 이름을 되돌렸습니다" else "작품 이름을 고쳤습니다"
+                    scope.launchWrite(writeFailed, then = { toast = if (title.isBlank()) "작품 이름을 되돌렸습니다" else "작품 이름을 고쳤습니다" }) {
+                        data.comics.rename(work, title)
                     }
                 },
                 onCopies = { copiesOf = it.slot },
@@ -357,7 +353,7 @@ fun LibraryScreen(
                 entry,
                 onPick = { unit ->
                     copiesOf = null
-                    scope.launch { withContext(Dispatchers.IO) { data.comics.prefer(entry, unit.id) } }
+                    scope.launchWrite(writeFailed) { data.comics.prefer(entry, unit.id) }
                 },
                 onDismiss = { copiesOf = null },
             )
@@ -370,10 +366,7 @@ fun LibraryScreen(
         val status = io.github.kgcaudit.reader.document.comic.WorkStatuses.of(w, comicProgress)
         fun move(mark: io.github.kgcaudit.reader.document.comic.ShelfMark, done: String) {
             workMenu = null
-            scope.launch {
-                withContext(Dispatchers.IO) { data.comics.setShelf(w, mark) }
-                toast = "‘${w.title}’ — $done"
-            }
+            scope.launchWrite(writeFailed, then = { toast = "‘${w.title}’ — $done" }) { data.comics.setShelf(w, mark) }
         }
         WorkMenu(
             w, status.shelf,
@@ -390,7 +383,7 @@ fun LibraryScreen(
             onPhoto = {
                 workMenu = null
                 coverForId = CoverStore.workId(w.key).value
-                pickCover.launchOr(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) { notice = NO_PICKER to "휴대폰의 ‘파일’ 앱이 꺼져 있으면 켜 주세요." }
+                pickCover.launchOr(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) { notice = NO_PICKER to NO_PICKER_HINT }
             },
             onRevert = {
                 workMenu = null
@@ -411,7 +404,7 @@ fun LibraryScreen(
                 title = "폴더 추가",
                 icon = CpIcons.Plus,
                 tile = colors.accent,
-                onClick = { manageFolders = false; pickFolder.launchOr(null) { notice = NO_PICKER to "휴대폰의 ‘파일’ 앱이 꺼져 있으면 켜 주세요." } },
+                onClick = { manageFolders = false; pickFolder.launchOr(null) { notice = NO_PICKER to NO_PICKER_HINT } },
                 compact = true,
                 inset = 0.dp,
             )
@@ -456,28 +449,24 @@ fun LibraryScreen(
             onUnread = if (book.id in shelfIds) {
                 {
                     coverMenu = null
-                    scope.launch {
-                        withContext(Dispatchers.IO) { data.library.returnToUnread(book.id) }
-                        toast = "‘${book.label}’ — 읽을 책으로 옮겼습니다"
-                    }
+                    scope.launchWrite(writeFailed, then = { toast = "‘${book.label}’ — 읽을 책으로 옮겼습니다" }) { data.library.returnToUnread(book.id) }
                 }
             } else {
                 null
             },
             onFinished = {
                 coverMenu = null
-                scope.launch {
-                    val now = System.currentTimeMillis()
-                    // 여러 줄을 한 번에 고치는(트랜잭션) 일이라 화면 스레드에서 하면 Room 이 막는다.
-                    withContext(Dispatchers.IO) { data.library.setFinished(book.id, if (done) null else now, now) }
-                    // 책 이름 뒤에 조사를 붙이지 않는다 — 받침에 따라 을/를이 갈려 틀리기 쉽다.
-                    toast = if (done) "‘${book.label}’ — 읽는 책으로 옮겼습니다" else "‘${book.label}’ — 읽은 책으로 옮겼습니다"
+                val now = System.currentTimeMillis()
+                // 여러 줄을 한 번에 고치는(트랜잭션) 일이라 화면 스레드에서 하면 Room 이 막는다(launchWrite 가 입출력 스레드에서 쓴다).
+                // 책 이름 뒤에 조사를 붙이지 않는다 — 받침에 따라 을/를이 갈려 틀리기 쉽다.
+                scope.launchWrite(writeFailed, then = { toast = if (done) "‘${book.label}’ — 읽는 책으로 옮겼습니다" else "‘${book.label}’ — 읽은 책으로 옮겼습니다" }) {
+                    data.library.setFinished(book.id, if (done) null else now, now)
                 }
             },
             onPick = {
                 coverMenu = null
                 coverForId = book.id.value
-                pickCover.launchOr(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) { notice = NO_PICKER to "휴대폰의 ‘파일’ 앱이 꺼져 있으면 켜 주세요." }
+                pickCover.launchOr(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) { notice = NO_PICKER to NO_PICKER_HINT }
             },
             onRevert = {
                 coverMenu = null
@@ -695,6 +684,30 @@ internal fun <I> androidx.activity.result.ActivityResultLauncher<I>.launchOr(inp
 
 /** 고르기 창이 없을 때 알림. */
 internal const val NO_PICKER = "이 휴대폰에서 고르기 창을 열 수 없습니다"
+
+/** [NO_PICKER] 아래에 붙는 까닭. 네 곳(폴더 추가 · 표지 고르기)이 같은 말을 한다. */
+internal const val NO_PICKER_HINT = "휴대폰의 ‘파일’ 앱이 꺼져 있으면 켜 주세요."
+
+/** DB 쓰기가 실패했을 때 알림. */
+internal const val WRITE_FAILED = "바꾼 것을 저장하지 못했습니다"
+
+/**
+ * DB 에 쓰는 일([write])을 입출력 스레드에서 돌리고, 끝나면 [then]. 쓰기가 실패하면(저장 공간이 가득 · DB 가 깨짐) 앱을
+ * 닫지 않고 [onError] 로 알린다 — 잡지 않은 예외는 화면 범위를 거쳐 앱을 닫았다(서재의 갈래 옮기기 · 작품 합치기, 만화의
+ * 자리 적기 · 책갈피). 취소는 실패가 아니라 그대로 올린다.
+ */
+internal fun CoroutineScope.launchWrite(onError: (Exception) -> Unit, then: () -> Unit = {}, write: suspend () -> Unit): Job = launch {
+    try {
+        withContext(Dispatchers.IO) { write() }
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        android.util.Log.w("OloData", "write failed", e)
+        onError(e)
+        return@launch
+    }
+    then()
+}
 
 internal fun monthDay(epochMs: Long): String {
     val date = java.time.Instant.ofEpochMilli(epochMs).atZone(java.time.ZoneId.systemDefault()).toLocalDate()

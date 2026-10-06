@@ -134,4 +134,29 @@ class ShelfTest {
         waitFor(hasText("읽은 책 · 1권"))
         assertTrue(has(hasText("읽는 책 · 4권")))
     }
+
+    @Test
+    fun `a failed save says so instead of closing the app`() {
+        // 망가뜨린 입력: 저장 공간이 가득 찬 것처럼 읽은 책 표(recent)에 쓰기만 막는다. 0.49.0 까지는 갈래를 옮기는 손에
+        // 예외가 화면 범위를 거쳐 올라가 앱이 닫혔다.
+        // 앱과 같은 DB 파일(reader.db, 준비에서 이미 열었다)을 따로 열어 막는다 — 시험 쪽에는 Room 이 없다. 앱의 연결도 바뀐
+        // 표 정의를 곧바로 따른다.
+        val db = android.database.sqlite.SQLiteDatabase.openDatabase(app.getDatabasePath("reader.db").path, null, android.database.sqlite.SQLiteDatabase.OPEN_READWRITE)
+        for (op in listOf("INSERT", "UPDATE")) {
+            db.execSQL("CREATE TRIGGER full_$op BEFORE $op ON recent BEGIN SELECT RAISE(ABORT, 'database or disk is full'); END")
+        }
+        try {
+            waitFor(hasText("옛 일기.txt"))
+            compose.onAllNodes(hasText("옛 일기.txt"), useUnmergedTree = true)[0].performTouchInput { longClick() }
+            waitFor(hasText("읽은 책으로 옮기기"))
+            compose.onAllNodes(hasText("읽은 책으로 옮기기"), useUnmergedTree = true)[0].performClick()
+            waitFor(hasText(WRITE_FAILED))
+            // 옮겼다는 알림은 없다 — 옮기지 못했다.
+            assertFalse(has(hasText("읽은 책으로 옮겼습니다", substring = true)))
+            assertTrue(has(hasText("읽는 책 · 4권")), "책장이 사라졌다")
+        } finally {
+            for (op in listOf("INSERT", "UPDATE")) db.execSQL("DROP TRIGGER IF EXISTS full_$op")
+            db.close()
+        }
+    }
 }
