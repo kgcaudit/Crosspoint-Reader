@@ -4,6 +4,7 @@ import io.github.kgcaudit.reader.layout.Block
 import io.github.kgcaudit.reader.layout.InlineRun
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /** 각주 내용 뽑기와 본문 검색(순수 함수). */
@@ -85,5 +86,29 @@ class BookLinksTest {
         assertEquals("어른들은", excerpt(text, 11, 15, setOf(11)))
         // 범위가 텍스트 밖이어도 죽지 않는다(상한 자리).
         assertEquals("", excerpt(text, 500, 900, emptySet()))
+    }
+
+    @Test
+    fun `an excerpt drops picture marks and is cut at the limit`() {
+        // 칠한 글 토막은 그림 자리 글자를 그대로 뜨던 따로 짠 함수를 썼다 — 형광펜 목록에 "￼" 가 섞여 나왔다.
+        val text = "앞 글￼￼뒤 글"
+        assertTrue('￼' !in excerpt(text, 0, text.length, emptySet(), max = 400))
+        // 줄바꿈 · 탭 · 겹친 공백 · NBSP 는 한 칸.
+        assertEquals("보아 구렁이는 모자", excerpt("  보아\n 구렁이는\t\t모자  ", 0, 16, emptySet(), max = 400))
+        // 한 쪽 전체를 칠해도 목록 한 줄이 화면을 덮지 않게 자른다.
+        val long = "가".repeat(1000)
+        assertEquals(401, excerpt(long, 0, 1000, emptySet(), max = 400).length)
+        assertTrue(excerpt(long, 0, 1000, emptySet(), max = 400).endsWith("…"))
+    }
+
+    @Test
+    fun `search finds several words separated by non-breaking spaces`() {
+        // 어절 사이를 NBSP(U+00A0) · 좁은 NBSP(U+202F) · 전각 공백(U+3000)으로 띄운 책. `\s` 는 이것들을 모른다 —
+        // 두 어절 이상을 찾으면 언제나 0건이었다.
+        for (space in listOf(' ', ' ', '　')) {
+            val text = "그때 보아${space}구렁이가 나타났다."
+            val hit = assertNotNull(findAll(text, "보아 구렁이", 0).singleOrNull(), "U+%04X 로 띄운 두 어절을 못 찾았다".format(space.code))
+            assertEquals("보아${space}구렁이", text.substring(hit.start, hit.endExclusive))
+        }
     }
 }

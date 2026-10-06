@@ -225,6 +225,40 @@ class ReadingSessionTest {
     }
 
     @Test
+    fun `a bookmark still shows and comes off after the font size changes`() = runTest {
+        // 작은 글자에서 꽂은 책갈피는 쪽의 첫 글자를 기억한다. 글자를 키우면 그 글자는 새 쪽의 한가운데다 — 자리가
+        // 정확히 같은지만 보던 때는 리본이 사라지고, 다시 누르면 책갈피가 하나 더 생겼다.
+        val small = newSession()
+        val bigger = newSession(spec.copy(baseSizePx = 14f))
+        // 큰 글자에서 쪽 한가운데로 가는 작은 글자의 쪽을 고른다(쪽 경계가 우연히 겹치는 쪽은 시험이 되지 않는다).
+        val mark = (1..10).map { small.forward(it, small.restore()) }.first { p ->
+            val offset = layoutOf(small).locatorAt(p.spineIndex, p.pageIndex)
+            val there = layoutOf(bigger).resolve(offset)
+            layoutOf(bigger).locatorAt(there.spineIndex, there.pageIndex) != offset
+        }
+        small.addBookmark(mark)
+        val there = bigger.goTo(bigger.bookmarks().single())!!
+
+        assertTrue(bigger.isBookmarked(there), "글자 크기를 바꾸자 리본이 사라졌다")
+        assertTrue(bigger.removeBookmarkAt(there))
+        assertTrue(bigger.bookmarks().isEmpty(), "눌렀는데 책갈피가 남았다")
+    }
+
+    @Test
+    fun `in a two-page spread the right page's bookmark shows and comes off`() = runTest {
+        // 두쪽보기의 펼침은 왼쪽 쪽 자리로 다룬다. 오른쪽 쪽에 꽂힌 책갈피도 그 펼침의 것이다.
+        val session = newSession()
+        val left = session.forward(2, session.restore())
+        val right = session.forward(1, left)
+        session.addBookmark(right)
+
+        assertFalse(session.isBookmarked(left), "한 쪽 보기의 왼쪽 쪽에는 없다")
+        assertTrue(session.isBookmarked(left, lastShown = right), "펼침의 오른쪽 쪽 책갈피가 보이지 않는다")
+        assertTrue(session.removeBookmarkAt(left, lastShown = right))
+        assertTrue(session.bookmarks().isEmpty())
+    }
+
+    @Test
     fun `tapping a bookmark goes back to its page`() = runTest {
         val session = newSession()
         val here = session.forward(4, session.restore())

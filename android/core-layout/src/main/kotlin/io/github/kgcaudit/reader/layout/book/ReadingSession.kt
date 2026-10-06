@@ -35,8 +35,9 @@ class ReadingSession(
         return layout.resolve(saved ?: Locator.Reflow(spine = 0, charOffset = 0))
     }
 
-    /** 지금 자리를 이어읽기 위치로 저장한다. */
     /**
+     * 지금 자리를 이어읽기 위치로 저장한다.
+     *
      * @param lastShown 화면에 보이는 마지막 쪽(두쪽보기면 오른쪽). 그것이 책의 마지막 쪽이면 진도를 100 으로 둔다 — 진도는
      *   쪽의 **첫 글자** 자리로 재서 마지막 쪽에서도 97% 쯤에 멈췄고, 그러면 책장이 "다 읽은 책" 을 알 수 없었다.
      */
@@ -79,17 +80,38 @@ class ReadingSession(
         )
     }
 
-    /** 이 페이지의 책갈피를 뺀다. 없으면 아무 일도 없다. 있으면 true. */
-    suspend fun removeBookmarkAt(position: ReadingPosition): Boolean {
-        val locator = layout.locatorAt(position.spineIndex, position.pageIndex)
-        val existing = bookmarks.forBook(bookId).firstOrNull { it.locator == locator } ?: return false
-        bookmarks.remove(existing.id)
-        return true
+    /**
+     * 보이는 쪽([position]부터 [lastShown]까지 — 두쪽보기면 오른쪽 쪽까지)의 책갈피를 모두 뺀다. 하나라도 뺐으면 true.
+     *
+     * 자리가 정확히 같은 것만 빼던 때는, 글자 크기를 바꿔 쪽 첫 글자가 달라지면 리본은 보이는데(아래 [isBookmarked])
+     * 눌러도 빠지지 않고 하나 더 꽂혔다.
+     */
+    suspend fun removeBookmarkAt(position: ReadingPosition, lastShown: ReadingPosition = position): Boolean {
+        val shown = bookmarksOn(position, lastShown)
+        shown.forEach { bookmarks.remove(it.id) }
+        return shown.isNotEmpty()
     }
 
-    suspend fun isBookmarked(position: ReadingPosition): Boolean {
-        val locator = layout.locatorAt(position.spineIndex, position.pageIndex)
-        return bookmarks.forBook(bookId).any { it.locator == locator }
+    /** 보이는 쪽에 책갈피가 있는가(리본). [removeBookmarkAt] 과 같은 범위를 본다. */
+    suspend fun isBookmarked(position: ReadingPosition, lastShown: ReadingPosition = position): Boolean =
+        bookmarksOn(position, lastShown).isNotEmpty()
+
+    /**
+     * 보이는 쪽에 드는 책갈피. 자리가 아니라 **글자 범위**로 본다 — 책갈피는 꽂을 때 쪽의 첫 글자를 기억하는데, 글자
+     * 크기 · 여백을 바꾸면 쪽 경계가 움직여 그 글자가 쪽 한가운데로 간다. 그래도 그 쪽의 책갈피다.
+     *
+     * 범위는 첫 쪽의 첫 글자부터 마지막 쪽 다음 쪽의 첫 글자 앞까지다. 장의 첫 쪽 · 끝 쪽은 바깥으로 연다 — 책갈피로
+     * 가는 [goTo] 가 범위 밖 글자를 첫 쪽 · 끝 쪽으로 보내므로, 판정도 같아야 간 쪽에서 리본이 보인다.
+     */
+    private suspend fun bookmarksOn(position: ReadingPosition, lastShown: ReadingPosition): List<Bookmark> {
+        val spine = position.spineIndex
+        val last = if (lastShown.spineIndex == spine && lastShown.pageIndex >= position.pageIndex) lastShown else position
+        val from = if (position.pageIndex == 0) Int.MIN_VALUE else layout.locatorAt(spine, position.pageIndex).charOffset
+        val to = if (last.isLastPageOfChapter) Int.MAX_VALUE else layout.locatorAt(spine, last.pageIndex + 1).charOffset
+        return bookmarks.forBook(bookId).filter { b ->
+            val at = b.locator as? Locator.Reflow ?: return@filter false
+            at.spine == spine && at.charOffset >= from && at.charOffset < to
+        }
     }
 
     /** 책갈피를 눌러 그 자리로 간다. */

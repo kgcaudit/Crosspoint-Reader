@@ -1,6 +1,8 @@
 package io.github.kgcaudit.reader.layout.book
 
 import io.github.kgcaudit.reader.layout.Block
+import io.github.kgcaudit.reader.layout.OBJECT_REPLACEMENT_CHAR
+import io.github.kgcaudit.reader.layout.SPACE_RUN
 
 /** 링크를 눌렀을 때 갈 곳. */
 sealed interface LinkTarget {
@@ -63,9 +65,10 @@ internal fun noteText(text: String, blocks: List<Block>, anchorOffsets: Collecti
  * 겹치는 자리는 세지 않는다(한 번 찾은 뒤 그 끝부터 다시). [paragraphStarts] 를 넘는 자리는 찾지 않는다.
  */
 fun findAll(text: String, query: String, spine: Int, paragraphStarts: Collection<Int> = emptyList()): List<SearchHit> {
-    val words = query.trim().split(WHITESPACE).filter { it.isNotEmpty() }
+    val words = query.trim().split(SPACE_RUN).filter { it.isNotEmpty() }
     if (words.isEmpty()) return emptyList()
-    val pattern = Regex(words.joinToString("\\s+") { Regex.escape(it) }, RegexOption.IGNORE_CASE)
+    // 어절 사이는 [SPACE_RUN] 으로 잇는다 — `\s+` 로 이으면 NBSP 로 띄운 책에서 "보아 구렁이" 가 한 번도 안 찾혔다.
+    val pattern = Regex(words.joinToString(SPACE_RUN.pattern) { Regex.escape(it) }, RegexOption.IGNORE_CASE)
     // 문단을 사이 글자 없이 이어 붙인 글이라, 한 문단의 끝과 다음 문단의 처음이 붙어 가짜로 찾힌다("…삼킨다" + "어른…"
     // = "다어"). 문단 경계를 넘는 자리는 버린다 — 사람이 찾는 말은 한 문단 안에 있다.
     val starts = paragraphStarts as? Set<Int> ?: paragraphStarts.toHashSet()
@@ -91,24 +94,23 @@ private const val MAX_BLOCKS = 6
 private const val MAX_CHARS = 1500
 private const val CONTEXT = 28
 private val BACKLINKS = Regex("[↩↑⤴]|\\^\\s*$")
-private val WHITESPACE = Regex("\\s+")
 
 /**
- * 장 텍스트의 [from]..[to] 를 목록 한 줄로 읽히게 뜬다(책갈피 미리보기 · 칠한 글).
+ * 장 텍스트의 [from]..[to] 를 목록 한 줄로 읽히게 뜬다(책갈피 미리보기 · 칠한 글 토막).
  *
  * 장 텍스트는 문단을 구분자 없이 잇는다. 그대로 뜨면 "삼킨다.어른들은" 처럼 두 문단이 한 낱말로 붙는다 — 문단이
- * 시작하는 자리([paragraphStarts])마다 한 칸을 넣는다. 제어 문자 · 그림 자리 글자(U+FFFC)도 한 칸으로.
+ * 시작하는 자리([paragraphStarts])마다 한 칸을 넣는다. 제어 문자 · 그림 자리 글자(U+FFFC)도 한 칸으로, 겹친 공백은
+ * 한 칸으로. [max] 글자를 넘으면 자르고 "…" 를 붙인다 — 한 쪽 전체를 칠해도 목록 한 줄이 화면을 덮지 않게.
  */
-internal fun excerpt(text: String, from: Int, to: Int, paragraphStarts: Set<Int>): String {
+fun excerpt(text: String, from: Int, to: Int, paragraphStarts: Set<Int>, max: Int = Int.MAX_VALUE): String {
     val start = from.coerceIn(0, text.length)
     val end = to.coerceIn(start, text.length)
     val out = StringBuilder(end - start + 8)
     for (i in start until end) {
         if (i > start && i in paragraphStarts) out.append(' ')
         val c = text[i]
-        out.append(if (c < ' ' || c == '￼') ' ' else c)
+        out.append(if (c < ' ' || c == OBJECT_REPLACEMENT_CHAR) ' ' else c)
     }
-    return out.toString().replace(EXCERPT_SPACE, " ").trim()
+    val flat = out.replace(SPACE_RUN, " ").trim()
+    return if (flat.length <= max) flat else flat.take(max).trimEnd() + "…"
 }
-
-private val EXCERPT_SPACE = Regex("\\s+")
