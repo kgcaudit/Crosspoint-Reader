@@ -7,10 +7,12 @@ import io.github.kgcaudit.reader.data.ComicPages
 import io.github.kgcaudit.reader.document.comic.ComicUnit
 import io.github.kgcaudit.reader.document.comic.MarginTrim
 import io.github.kgcaudit.reader.document.image.ImageSize
+import io.github.kgcaudit.reader.ui.design.sampleKeeping
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlin.math.ceil
 
 /**
  * 연 만화 한 권: 쪽 그림을 화면 크기로 줄여 풀고 몇 장을 메모리에 둔다(0.34.0).
@@ -100,8 +102,7 @@ class ComicBook(
         aspects[index] = bounds.outWidth.toFloat() / bounds.outHeight
         // 화면 상자에 맞춘 크기보다 작아지지 않는 만큼만 솎는다(2의 거듭제곱 — 풀기가 가장 싸다).
         val scale = minOf(width.toFloat() / bounds.outWidth, height.toFloat() / bounds.outHeight)
-        var sample = 1
-        while (bounds.outWidth / (sample * 2) >= bounds.outWidth * scale && bounds.outHeight / (sample * 2) >= bounds.outHeight * scale) sample *= 2
+        val sample = sampleKeeping(bounds.outWidth, bounds.outHeight, ceil(bounds.outWidth * scale).toInt(), ceil(bounds.outHeight * scale).toInt())
         return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
     }
 
@@ -181,26 +182,10 @@ class ComicBook(
         val srcW = bounds.outWidth
         val srcH = bounds.outHeight
         if (srcW <= 0 || srcH <= 0) return null
-        var sample = 1
-        while (srcW / (sample * 2) >= width) sample *= 2
+        val sample = sampleKeeping(srcW, srcH, width, 0)
         val top = rows.first.coerceIn(0, srcH - 1)
         val bottom = (rows.last + 1).coerceIn(top + 1, srcH)
-        val region = if (!regions) null else runCatching {
-            @Suppress("DEPRECATION")
-            val decoder = android.graphics.BitmapRegionDecoder.newInstance(bytes, 0, bytes.size, false)
-            try {
-                decoder?.decodeRegion(android.graphics.Rect(0, top, srcW, bottom), BitmapFactory.Options().apply { inSampleSize = sample })
-            } finally {
-                decoder?.recycle()
-            }
-        }.getOrNull()
-        if (region != null) return region
-        // 띠 풀기가 안 되는 그림: 전체를 더 줄여 풀고(높이 한도 안으로) 그 띠만 자른다.
-        while (srcH / sample > MAX_WHOLE_HEIGHT) sample *= 2
-        val whole = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample }) ?: return null
-        val y0 = (top.toLong() * whole.height / srcH).toInt().coerceIn(0, whole.height - 1)
-        val y1 = (bottom.toLong() * whole.height / srcH).toInt().coerceIn(y0 + 1, whole.height)
-        return Bitmap.createBitmap(whole, 0, y0, whole.width, y1 - y0)
+        return decodeRect(bytes, srcW, srcH, android.graphics.Rect(0, top, srcW, bottom), sample, regions, MAX_WHOLE_HEIGHT)
     }
 
     /**
@@ -215,30 +200,10 @@ class ComicBook(
                 val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
                 if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
-                var sample = 1
-                while (rect.height() / (sample * 2) >= height) sample *= 2
+                val sample = sampleKeeping(rect.width(), rect.height(), 0, height)
                 // 쪽 전체(쪽 넘김 만화의 표지 고르기)는 띠 풀기가 필요 없다 — 그냥 줄여 푼다.
                 val whole = rect.left <= 0 && rect.top <= 0 && rect.right >= bounds.outWidth && rect.bottom >= bounds.outHeight
-                val region = if (!regions || whole) null else runCatching {
-                    @Suppress("DEPRECATION")
-                    val decoder = android.graphics.BitmapRegionDecoder.newInstance(bytes, 0, bytes.size, false)
-                    try {
-                        decoder?.decodeRegion(rect, BitmapFactory.Options().apply { inSampleSize = sample })
-                    } finally {
-                        decoder?.recycle()
-                    }
-                }.getOrNull()
-                region ?: run {
-                    while (bounds.outHeight / sample > MAX_WHOLE_HEIGHT) sample *= 2
-                    val whole = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample }) ?: return@run null
-                    val sx = whole.width.toFloat() / bounds.outWidth
-                    val sy = whole.height.toFloat() / bounds.outHeight
-                    val x0 = (rect.left * sx).toInt().coerceIn(0, whole.width - 1)
-                    val y0 = (rect.top * sy).toInt().coerceIn(0, whole.height - 1)
-                    val x1 = (rect.right * sx).toInt().coerceIn(x0 + 1, whole.width)
-                    val y1 = (rect.bottom * sy).toInt().coerceIn(y0 + 1, whole.height)
-                    Bitmap.createBitmap(whole, x0, y0, x1 - x0, y1 - y0)
-                }
+                decodeRect(bytes, bounds.outWidth, bounds.outHeight, rect, sample, regions && !whole, MAX_WHOLE_HEIGHT)
             }.getOrNull()
         }
     }

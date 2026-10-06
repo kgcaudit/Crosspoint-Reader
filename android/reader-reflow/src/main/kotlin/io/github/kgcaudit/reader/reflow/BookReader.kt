@@ -31,6 +31,7 @@ import io.github.kgcaudit.reader.listen.ListenSource
 import io.github.kgcaudit.reader.listen.SpeechChapter
 import io.github.kgcaudit.reader.layout.book.splitSentences
 import io.github.kgcaudit.reader.layout.html.Link
+import io.github.kgcaudit.reader.ui.design.sampleKeeping
 import java.io.File
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -501,9 +502,7 @@ class BookReader(
                 .getOrNull() ?: return@withContext null
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-            var sample = 1
-            while (bounds.outWidth / (sample * 2) >= widthPx && bounds.outHeight / (sample * 2) >= heightPx) sample *= 2
-            val options = BitmapFactory.Options().apply { inSampleSize = sample }
+            val options = BitmapFactory.Options().apply { inSampleSize = sampleKeeping(bounds.outWidth, bounds.outHeight, widthPx, heightPx) }
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.asImageBitmap()?.also { images.put(key, it) }
         }
     }

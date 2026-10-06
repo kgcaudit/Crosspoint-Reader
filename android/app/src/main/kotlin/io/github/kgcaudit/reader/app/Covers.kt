@@ -10,6 +10,8 @@ import io.github.kgcaudit.reader.document.BookId
 import io.github.kgcaudit.reader.document.comic.ComicUnit
 import io.github.kgcaudit.reader.document.comic.CoverCrop
 import io.github.kgcaudit.reader.document.image.ImageSize
+import io.github.kgcaudit.reader.ui.design.sampleKeeping
+import io.github.kgcaudit.reader.ui.design.sampleWithinPixels
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -226,10 +228,9 @@ class CoverStore(
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
             if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-            var sample = 1
-            while (bounds.outHeight / (sample * 2) >= COVER_HEIGHT) sample *= 2
+            val byHeight = sampleKeeping(bounds.outWidth, bounds.outHeight, 0, COVER_HEIGHT)
             // 가로로 아주 긴 그림(파노라마)은 높이만 보면 통째로 풀린다(20000×500 → 40MB) — 폭으로도 솎는다.
-            while (bounds.outWidth / (sample * 2) >= MAX_COVER_WIDTH) sample *= 2
+            val sample = sampleKeeping(bounds.outWidth, bounds.outHeight, MAX_COVER_WIDTH, 0, from = byHeight)
             val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
                 ?: return null
             return scaleToHeight(bitmap)
@@ -248,10 +249,9 @@ class CoverStore(
             if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
             val size = ImageSize(bounds.outWidth, bounds.outHeight)
             if (!CoverCrop.isTall(size)) return decodeScaled(bytes)
-            var probeSample = 1
-            while (size.width / (probeSample * 2) >= PROBE_WIDTH) probeSample *= 2
+            val byWidth = sampleKeeping(size.width, size.height, PROBE_WIDTH, 0)
             // 아주 긴 띠는 폭만 보고 솎으면 화소 수가 크다(360×25000 = 36MB) — 화소 수로도 묶는다.
-            while (size.width.toLong() / probeSample * (size.height / probeSample) > PROBE_PIXELS) probeSample *= 2
+            val probeSample = sampleWithinPixels(size.width, size.height, PROBE_PIXELS, from = byWidth)
             val probe = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = probeSample })
                 ?: return null
             val scale = size.height.toFloat() / probe.height
@@ -259,17 +259,8 @@ class CoverStore(
             val line = IntArray(probe.width)
             val first = CoverCrop.firstContentRow(probe.height) { y -> line.also { probe.getPixels(it, 0, probe.width, 0, y, probe.width, 1) } }
             val window = CoverCrop.window(size, (first * scale).toInt())
-            var sample = 1
-            while ((window.last - window.first + 1) / (sample * 2) >= COVER_HEIGHT) sample *= 2
-            val region = if (!regions) null else runCatching {
-                @Suppress("DEPRECATION")
-                val decoder = android.graphics.BitmapRegionDecoder.newInstance(bytes, 0, bytes.size, false)
-                try {
-                    decoder?.decodeRegion(android.graphics.Rect(0, window.first, size.width, window.last + 1), BitmapFactory.Options().apply { inSampleSize = sample })
-                } finally {
-                    decoder?.recycle()
-                }
-            }.getOrNull()
+            val sample = sampleKeeping(size.width, window.last - window.first + 1, 0, COVER_HEIGHT)
+            val region = if (!regions) null else decodeRegion(bytes, android.graphics.Rect(0, window.first, size.width, window.last + 1), sample)
             if (region != null) return scaleToHeight(region)
             // 띠 풀기가 안 되는 그림: 솎아 푼 것에서 자른다. 폭이 좁아 조금 흐리지만 표지 칸은 작다.
             val y0 = (window.first / scale).toInt().coerceIn(0, probe.height - 1)
