@@ -18,8 +18,10 @@ import io.github.kgcaudit.reader.layout.css.Stylesheet
  * 모르면 테스트에서 지면을 꾸며 낼 필요가 없다.
  */
 data class StyleContext(
-    /** 기준 글자 크기(px). px·pt 로 적힌 길이를 em 으로 되돌리는 데만 쓴다. */
+    /** 기준 글자 크기(화면 px). px·pt 로 적힌 길이를 em 으로 되돌리는 데만 쓴다. */
     val baseSizePx: Float = 16f,
+    /** CSS 1px 이 화면 몇 px 인가([LayoutSpec.cssPxScale]). 여백의 px · pt 를 그림 크기와 같은 잣대로 옮긴다. */
+    val cssPxScale: Float = 1f,
     /** 퍼센트 길이의 기준이 되는 본문 폭(px). 0 이면 퍼센트는 0 으로 본다. */
     val contentWidthPx: Float = 0f,
     /** 책이 정렬을 지정하지 않았을 때 쓰는 정렬. */
@@ -32,6 +34,7 @@ data class StyleContext(
     companion object {
         fun of(spec: LayoutSpec): StyleContext = StyleContext(
             baseSizePx = spec.baseSizePx,
+            cssPxScale = spec.cssPxScale,
             contentWidthPx = spec.contentWidthPx,
             defaultAlign = spec.align,
             usePublisherStyles = spec.usePublisherStyles,
@@ -117,10 +120,16 @@ class StyleResolver(
             text = textStyle(parent.text, declarations),
         )
 
-    /** 상속된 값과 이 요소의 선언으로 최종 블록 서식을 만든다. */
-    fun blockStyle(inherited: InheritedStyle, declarations: CssDeclarations): BlockStyle =
+    /**
+     * 상속된 값과 이 요소의 선언으로 최종 블록 서식을 만든다.
+     *
+     * 아무도 정렬을 정하지 않은 제목 · `pre`([TagDefaults.START_ALIGNED_TAGS])는 사용자 정렬이 아니라 왼쪽(시작)이다 —
+     * 양쪽정렬하면 두 줄짜리 제목의 첫 줄이 지면 폭까지 늘어나고 `pre` 의 공백이 벌어진다. 태그 기본 CSS 에 적지 않고
+     * 여기서 고르는 이유는 [TagDefaults] 참고(가운데 정렬 부모를 이겨 버린다).
+     */
+    fun blockStyle(inherited: InheritedStyle, declarations: CssDeclarations, tag: String = ""): BlockStyle =
         BlockStyle(
-            align = inherited.align ?: context.defaultAlign,
+            align = inherited.align ?: if (tag in TagDefaults.START_ALIGNED_TAGS) TextAlign.Start else context.defaultAlign,
             firstLineIndentEm = inherited.firstLineIndentEm,
             marginTopEm = box(declarations.marginTop, declarations.paddingTop),
             marginBottomEm = box(declarations.marginBottom, declarations.paddingBottom),
@@ -133,7 +142,7 @@ class StyleResolver(
         (margin?.let { em(it) } ?: 0f) + (padding?.let { em(it) } ?: 0f)
 
     private fun em(length: CssLength): Float =
-        length.toEm(context.baseSizePx, context.contentWidthPx)
+        length.toEm(context.baseSizePx, context.contentWidthPx, context.cssPxScale)
 }
 
 /**

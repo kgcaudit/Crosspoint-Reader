@@ -6,6 +6,7 @@ import io.github.kgcaudit.reader.layout.Block
 import io.github.kgcaudit.reader.layout.BlockStyle
 import io.github.kgcaudit.reader.layout.ImageSizing
 import io.github.kgcaudit.reader.layout.InlineRun
+import io.github.kgcaudit.reader.layout.OBJECT_REPLACEMENT_CHAR
 import io.github.kgcaudit.reader.layout.book.BookFontTable
 import io.github.kgcaudit.reader.layout.css.CssDeclarations
 import io.github.kgcaudit.reader.layout.css.CssLength
@@ -82,6 +83,9 @@ class ChapterParser(
 
         /** 여는 요소 하나마다 한 칸. CSS 후손 셀렉터가 이 목록을 본다. */
         private val elements = ArrayList<ElementInfo>()
+
+        /** 깊이마다 마지막으로 닫힌 요소 — 그 깊이에 다음에 열리는 요소의 바로 앞 형제다(`h2 + p`). */
+        private val lastClosed = ArrayList<ElementInfo?>()
         private val frames = ArrayList<Frame>()
 
         /** 지금 쌓고 있는 문단. */
@@ -146,7 +150,7 @@ class ChapterParser(
                 // 닫힐 때 프레임과 스택을 하나씩 뺀다(endElement). 여기서 넣지 않으면 **부모의 것**이
                 // 빠진다 — `<head><title>` 뒤에 `head` 프레임이, 인용문 속 `<noscript>` 뒤에 인용문의
                 // 들여쓰기와 `.poem p` 규칙이 사라진다.
-                elements.add(ElementInfo.of(tag, event.attribute("class"), event.attribute("id")))
+                pushElement(tag, event)
                 frames.add(Frame(tag, current(), isBlock = false, restoreStyle = blockStyle))
                 skipDepth = 1
                 skipTag = tag
@@ -158,13 +162,12 @@ class ChapterParser(
                 return
             }
 
-            val element = ElementInfo.of(tag, event.attribute("class"), event.attribute("id"))
-            elements.add(element)
+            pushElement(tag, event)
 
             val declarations = resolver.declarationsFor(elements, event.attribute("style"))
             if (declarations.hidden == true && void) {
                 // 숨긴 그림 · 줄바꿈. 건너뛸 내용이 없다 — 건너뛰기를 켜면 닫힘을 기다리다 장의 나머지를 버렸다.
-                elements.removeAt(elements.size - 1)
+                popElement()
                 return
             }
             if (declarations.hidden == true) {
@@ -184,7 +187,7 @@ class ChapterParser(
             if (isBlock) {
                 flushParagraph()
                 continuation = false
-                blockStyle = resolver.blockStyle(inherited, declarations)
+                blockStyle = resolver.blockStyle(inherited, declarations, tag)
             }
             if (declarations.pageBreakBefore == true) pendingPageBreak = true
 
@@ -201,7 +204,7 @@ class ChapterParser(
             if (void) {
                 // 곧바로 닫는다. 블록이면(hr) 닫힐 때처럼 문단 틀도 되돌린다.
                 val frame = frames.removeAt(frames.size - 1)
-                elements.removeAt(elements.size - 1)
+                popElement()
                 frame.link?.let { closeLink(it) }
                 if (frame.isBlock) {
                     flushParagraph()
@@ -218,7 +221,7 @@ class ChapterParser(
                 // 스킵이 끝나면 그 요소의 프레임과 스택도 함께 닫는다.
                 if (skipDepth == 0 && frames.isNotEmpty() && elements.isNotEmpty()) {
                     val frame = frames.removeAt(frames.size - 1)
-                    elements.removeAt(elements.size - 1)
+                    popElement()
                     if (frame.isBlock) {
                         flushParagraph()
                         blockStyle = frame.restoreStyle
@@ -263,10 +266,26 @@ class ChapterParser(
             }
         }
 
+        private fun pushElement(tag: String, event: XmlEvent.StartElement) {
+            val depth = elements.size
+            // 더 깊은 칸은 앞 형제의 자식들이다. 지우지 않으면 새 요소의 첫 자식이 사촌을 형제로 본다.
+            while (lastClosed.size > depth + 1) lastClosed.removeAt(lastClosed.size - 1)
+            val sibling = lastClosed.getOrNull(depth)
+            elements.add(ElementInfo.of(tag, event.attribute("class"), event.attribute("id"), sibling))
+        }
+
+        private fun popElement() {
+            if (elements.isEmpty()) return
+            val depth = elements.size - 1
+            val closed = elements.removeAt(depth)
+            while (lastClosed.size <= depth) lastClosed.add(null)
+            lastClosed[depth] = closed
+        }
+
         private fun closeTop() {
             if (frames.isEmpty()) return
             val frame = frames.removeAt(frames.size - 1)
-            if (elements.isNotEmpty()) elements.removeAt(elements.size - 1)
+            popElement()
             frame.link?.let { closeLink(it) }
             if (frame.tag in TagDefaults.PREFORMATTED_TAGS && preDepth > 0) preDepth--
             if (frame.isBlock) {
@@ -410,7 +429,7 @@ class ChapterParser(
             val start = text.length
             // 그림 자리에 글자 한 칸(U+FFFC)을 둔다. 그래야 오프셋이 끊기지 않고,
             // 그림으로 시작하는 페이지에도 책갈피를 꽂을 수 있다.
-            text.append(OBJECT_REPLACEMENT)
+            text.append(OBJECT_REPLACEMENT_CHAR)
             blocks.add(
                 Block.Image(
                     href = href,
@@ -436,7 +455,7 @@ class ChapterParser(
         private fun rule() {
             flushParagraph()
             val start = text.length
-            text.append(OBJECT_REPLACEMENT)
+            text.append(OBJECT_REPLACEMENT_CHAR)
             blocks.add(
                 Block.Rule(
                     charStart = start,
@@ -501,8 +520,6 @@ class ChapterParser(
     private class OpenLink(val href: String, val start: Int, val noteRef: Boolean, val superscript: Boolean)
 
     private companion object {
-        const val OBJECT_REPLACEMENT = '￼'
-
         /** EPUB 3 구조 어휘(epub:type)와 DPUB-ARIA(role)의 각주 · 미주 내용. */
         val NOTE_TYPES = setOf("footnote", "endnote", "rearnote", "note", "doc-footnote", "doc-endnote")
 

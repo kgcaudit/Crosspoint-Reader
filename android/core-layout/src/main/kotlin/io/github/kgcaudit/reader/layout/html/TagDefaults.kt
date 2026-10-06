@@ -16,6 +16,10 @@ import io.github.kgcaudit.reader.layout.css.Stylesheet
  * 문단 여백이 0 인 것은 의도다. 문단 사이 간격은 사용자 설정
  * (`LayoutSpec.paragraphSpacingEm`)이 맡는다. 여기서 1em 을 주면 설정을 0 으로 해도
  * 간격이 남는다.
+ *
+ * 제목 · `pre` 에 `text-align` 을 주지 않는 것도 의도다. `text-align` 은 상속 속성이라, 여기서 `left` 로 정하면
+ * 가운데 정렬한 표제지 `<div>` 안의 `<h1>` 이 왼쪽으로 쏠린다(브라우저 기본 스타일시트에도 없다). 아무도 정하지
+ * 않았을 때 이들을 왼쪽에 두는 일은 [START_ALIGNED_TAGS] 로 [StyleResolver.blockStyle] 이 맡는다.
  */
 object TagDefaults {
 
@@ -46,19 +50,22 @@ object TagDefaults {
         "area", "base", "br", "col", "embed", "hr", "img", "image", "input", "link", "meta", "param", "source", "track", "wbr",
     )
 
+    /** 부모도 책도 정렬을 정하지 않았을 때 사용자 정렬(보통 양쪽) 대신 왼쪽(시작)에 두는 태그. */
+    val START_ALIGNED_TAGS: Set<String> = setOf("h1", "h2", "h3", "h4", "h5", "h6", "pre")
+
     /** 공백을 그대로 보존하는 태그. */
     val PREFORMATTED_TAGS: Set<String> = setOf("pre")
 
     private val CSS = """
-        h1 { font-size: 2em;    font-weight: bold; margin: 0.67em 0; text-align: left; text-indent: 0 }
-        h2 { font-size: 1.5em;  font-weight: bold; margin: 0.83em 0; text-align: left; text-indent: 0 }
-        h3 { font-size: 1.17em; font-weight: bold; margin: 1em 0;    text-align: left; text-indent: 0 }
-        h4 { font-weight: bold; margin: 1.33em 0; text-align: left; text-indent: 0 }
-        h5 { font-size: 0.83em; font-weight: bold; margin: 1.67em 0; text-align: left; text-indent: 0 }
-        h6 { font-size: 0.67em; font-weight: bold; margin: 2.33em 0; text-align: left; text-indent: 0 }
+        h1 { font-size: 2em;    font-weight: bold; margin: 0.67em 0; text-indent: 0 }
+        h2 { font-size: 1.5em;  font-weight: bold; margin: 0.83em 0; text-indent: 0 }
+        h3 { font-size: 1.17em; font-weight: bold; margin: 1em 0;    text-indent: 0 }
+        h4 { font-weight: bold; margin: 1.33em 0; text-indent: 0 }
+        h5 { font-size: 0.83em; font-weight: bold; margin: 1.67em 0; text-indent: 0 }
+        h6 { font-size: 0.67em; font-weight: bold; margin: 2.33em 0; text-indent: 0 }
 
         blockquote { margin: 1em 2em; text-indent: 0 }
-        pre { margin: 1em 0; text-align: left; text-indent: 0 }
+        pre { margin: 1em 0; text-indent: 0 }
         figure { margin: 1em 0 }
         figcaption { font-size: 0.9em; text-align: center; text-indent: 0 }
         hr { margin: 1em 0 }

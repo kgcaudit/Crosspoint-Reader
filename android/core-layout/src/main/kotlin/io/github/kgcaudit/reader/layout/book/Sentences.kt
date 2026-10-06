@@ -1,5 +1,8 @@
 package io.github.kgcaudit.reader.layout.book
 
+import io.github.kgcaudit.reader.layout.OBJECT_REPLACEMENT_CHAR
+import io.github.kgcaudit.reader.layout.SPACE_RUN
+
 /**
  * 소리 내어 읽을 한 토막(듣기, L2 · L3). 장 텍스트의 글자 구간이다 — 지금 읽는 문장을 칠하고, 멈춘 자리를
  * 글자 위치로 저장하는 데 그대로 쓴다.
@@ -82,11 +85,11 @@ fun speakable(text: CharSequence, sentence: Sentence): String {
         val c = text[i]
         when {
             c in INVISIBLE -> Unit
-            c < ' ' || c == OBJECT_REPLACEMENT || Character.isSpaceChar(c) -> sb.append(' ')
+            c < ' ' || c == OBJECT_REPLACEMENT_CHAR || Character.isSpaceChar(c) -> sb.append(' ')
             else -> sb.append(c)
         }
     }
-    return sb.replace(SPACES, " ").trim()
+    return sb.replace(SPACE_RUN, " ").trim()
 }
 
 /** 문장 끝 뒤에 올 수 있는 틈: 공백 종류 전부와 폭 없는 공백. "다.(U+200B)다음" 도 두 문장이다. */
@@ -124,6 +127,3 @@ private const val CLOSERS = "\"'”’)]」』〉》"
 private const val SOFT_BREAKS = ",，、;:"
 /** 보이지 않아 읽을 것이 없는 글자: 폭 없는 공백 · 폭 없는 비결합자 · 낱말 잇기 · BOM · 소프트 하이픈. */
 private const val INVISIBLE = "\u200B\u200C\u2060\uFEFF\u00AD"
-/** 그림 자리 글자. 조판이 그림 하나를 이 한 글자로 둔다. */
-private const val OBJECT_REPLACEMENT = '\uFFFC'
-private val SPACES = Regex("\\s+")

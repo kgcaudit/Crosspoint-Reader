@@ -17,15 +17,17 @@ data class CssLength(val value: Float, val unit: CssUnit) {
     /**
      * em 으로 환산한다.
      *
-     * @param baseSizePx 기준 글자 크기(px). px·pt 를 em 으로 되돌리는 데 쓴다.
+     * @param baseSizePx 기준 글자 크기(화면 px). px·pt 를 em 으로 되돌리는 데 쓴다.
      * @param containerWidthPx 퍼센트의 기준이 되는 폭. 0 이면 퍼센트는 0 으로 본다
      *   (해석할 수 없는 값으로 엉뚱한 여백을 만드는 것보다 없는 편이 낫다).
+     * @param cssPxScale CSS 1px 이 화면 몇 px 인가(`LayoutSpec.cssPxScale`). [baseSizePx] 는 화면 px 라서, 이걸 곱하지
+     *   않고 나누면 3배 밀도 폰에서 `text-indent: 20px` 가 그림의 `width: 20px` 의 3분의 1 로 줄었다.
      */
-    fun toEm(baseSizePx: Float, containerWidthPx: Float = 0f): Float = when (unit) {
+    fun toEm(baseSizePx: Float, containerWidthPx: Float = 0f, cssPxScale: Float = 1f): Float = when (unit) {
         CssUnit.Em, CssUnit.Rem -> value
-        CssUnit.Px -> if (baseSizePx > 0f) value / baseSizePx else 0f
+        CssUnit.Px -> if (baseSizePx > 0f) value * cssPxScale / baseSizePx else 0f
         // 1pt = 1/72 인치, 1px = 1/96 인치 → 1pt = 1.333px
-        CssUnit.Pt -> if (baseSizePx > 0f) value * PT_TO_PX / baseSizePx else 0f
+        CssUnit.Pt -> if (baseSizePx > 0f) value * PT_TO_PX * cssPxScale / baseSizePx else 0f
         CssUnit.Percent ->
             if (containerWidthPx > 0f && baseSizePx > 0f) {
                 value / 100f * containerWidthPx / baseSizePx

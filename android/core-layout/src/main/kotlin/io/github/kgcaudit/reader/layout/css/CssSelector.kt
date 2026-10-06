@@ -1,13 +1,19 @@
 package io.github.kgcaudit.reader.layout.css
 
-/** 셀렉터가 가리키는 요소 하나. 태그 이름·클래스·id 를 함께 본다. */
+/**
+ * 셀렉터가 가리키는 요소 하나. 태그 이름·클래스·id 를 함께 본다.
+ *
+ * [previousSibling] 은 바로 앞 형제 요소다(인접 결합자 `h2 + p` 용). 그 형제의 형제는 담지 않는다 — 담으면 한 장의
+ * 문단 수천 개가 사슬로 이어져, 같음 비교 · 해시가 사슬 끝까지 재귀하다 스택이 넘친다. 그래서 `a + b + c` 는 맞히지 않는다.
+ */
 data class ElementInfo(
     val tag: String,
     val classes: Set<String> = emptySet(),
     val id: String? = null,
+    val previousSibling: ElementInfo? = null,
 ) {
     companion object {
-        fun of(tag: String, classAttribute: String?, id: String?): ElementInfo = ElementInfo(
+        fun of(tag: String, classAttribute: String?, id: String?, previousSibling: ElementInfo? = null): ElementInfo = ElementInfo(
             tag = tag.lowercase(),
             classes = classAttribute
                 ?.split(' ', '\t', '\n')
@@ -15,25 +21,34 @@ data class ElementInfo(
                 ?.toSet()
                 ?: emptySet(),
             id = id?.takeIf { it.isNotBlank() },
+            previousSibling = previousSibling?.copy(previousSibling = null),
         )
     }
 }
 
 /**
- * 지원하는 셀렉터: 타입(`p`) · 클래스(`.x`) · id(`#x`) · 후손(`div p`) · 그룹(`,`).
+ * 지원하는 셀렉터: 타입(`p`) · 클래스(`.x`) · id(`#x`) · 후손(`div p`) · 인접 형제(`h2 + p`) · 그룹(`,`).
  *
  * 자식 결합자(`>`)는 **후손으로 취급한다.** 규칙을 버리는 것보다 조금 넓게 맞히는
  * 편이 낫다 — EPUB 에서 `div > p` 로 적힌 문단 서식을 통째로 잃으면 본문 전체가
  * 밋밋해진다. 의사 클래스(`:first-child`)와 속성 셀렉터(`[lang]`)도 같은 이유로
  * 떼어 내고 나머지를 쓴다.
+ *
+ * 형제 결합자는 넓게 맞히면 안 된다. `h2 + p { text-indent: 0 }`(제목 바로 뒤 문단만 들여쓰지 않기)를 후손으로 낮추던
+ * 때는 `p { text-indent: 0 }` 으로 읽혀 **모든 문단**의 들여쓰기가 사라졌다. 그래서 `+` 는 바로 앞 형제를 보고 맞히고,
+ * 앞 형제를 모두 기억해야 하는 `~` 는 규칙을 버린다.
  */
 data class CssSelector(val parts: List<Part>) {
 
-    /** 후손 연쇄의 한 마디. [tag] 가 null 이면 전체 선택자(`*`). */
+    /**
+     * 연쇄의 한 마디. [tag] 가 null 이면 전체 선택자(`*`). [adjacent] 면 다음 마디의 **바로 앞 형제**여야 하고,
+     * 아니면 다음 마디의 조상이면 된다.
+     */
     data class Part(
         val tag: String? = null,
         val classes: Set<String> = emptySet(),
         val id: String? = null,
+        val adjacent: Boolean = false,
     ) {
         fun matches(element: ElementInfo): Boolean {
             if (tag != null && tag != element.tag) return false
@@ -56,20 +71,31 @@ data class CssSelector(val parts: List<Part>) {
     /**
      * [stack] 은 문서 루트부터 현재 요소까지의 조상 목록이며 마지막이 현재 요소다.
      * 마지막 마디는 현재 요소에 맞아야 하고, 앞 마디들은 조상 중 어디서든 순서대로
-     * 맞으면 된다.
+     * 맞으면 된다(인접 마디는 그 자리 요소의 바로 앞 형제에).
      */
     fun matches(stack: List<ElementInfo>): Boolean {
         if (parts.isEmpty() || stack.isEmpty()) return false
         if (!parts.last().matches(stack.last())) return false
+        return matchesBefore(stack, parts.size - 1, stack.size - 1, stack.last())
+    }
 
-        var partIndex = parts.size - 2
-        var stackIndex = stack.size - 2
-        while (partIndex >= 0) {
-            if (stackIndex < 0) return false
-            if (parts[partIndex].matches(stack[stackIndex])) partIndex--
-            stackIndex--
+    /**
+     * [partIndex] 마디가 [element] 에 맞았다. 그 앞 마디들을 맞춘다. [element] 의 조상은 `stack[0 until depth]` 다 —
+     * 형제는 같은 부모를 두므로 형제로 건너가도 [depth] 는 그대로다.
+     *
+     * 후손 마디는 되짚어 본다: `h2 + p span` 에서 가장 가까운 `p` 가 제목 뒤가 아니어도 더 바깥 `p` 가 맞을 수 있다.
+     */
+    private fun matchesBefore(stack: List<ElementInfo>, partIndex: Int, depth: Int, element: ElementInfo): Boolean {
+        if (partIndex == 0) return true
+        val previous = parts[partIndex - 1]
+        if (previous.adjacent) {
+            val sibling = element.previousSibling ?: return false
+            return previous.matches(sibling) && matchesBefore(stack, partIndex - 1, depth, sibling)
         }
-        return true
+        for (k in depth - 1 downTo 0) {
+            if (previous.matches(stack[k]) && matchesBefore(stack, partIndex - 1, k, stack[k])) return true
+        }
+        return false
     }
 
     companion object {
@@ -79,16 +105,31 @@ data class CssSelector(val parts: List<Part>) {
             // 요소 전체에 적용하면 `p::first-letter { font-size: 3em }`(드롭 캡)이 모든 문단을 3배로,
             // `::before { display: none }` 가 문단 자체를 지운다. 규칙을 버린다.
             if (PSEUDO_ELEMENT.containsMatchIn(raw)) return null
-            val parts = raw.trim()
-                // 자식·인접 결합자는 후손으로 낮춘다(§ 클래스 주석 참조).
+            // 괄호 · 대괄호 안을 먼저 지운다. `:nth-child(2n+1)` 의 `+`, `[class~=x]` 의 `~` 를 결합자로 읽으면 안 된다.
+            val tokens = raw.replace(BRACKETED, "")
+                // 자식 결합자는 후손으로 낮춘다(§ 클래스 주석 참조).
                 .replace('>', ' ')
-                .replace('+', ' ')
-                .replace('~', ' ')
+                .replace("+", " + ")
+                .replace("~", " ~ ")
                 .split(' ', '\t', '\n')
                 .filter { it.isNotBlank() }
-                .mapNotNull(::parsePart)
-            return if (parts.isEmpty()) null else CssSelector(parts)
+            // 앞 형제를 모두 봐야 하는 `~` 는 맞힐 수 없다. 후손으로 낮추면 넓게 맞아 해가 되므로 규칙을 버린다.
+            if ("~" in tokens) return null
+            val parts = ArrayList<Part>()
+            for (token in tokens) {
+                if (token == "+") {
+                    // 앞 마디가 없거나(`+ p`) 버려진 마디 뒤면 맞힐 형제가 없다 — 넓게 맞히지 않게 규칙째 버린다.
+                    val last = parts.lastOrNull() ?: return null
+                    parts[parts.size - 1] = last.copy(adjacent = true)
+                    continue
+                }
+                parsePart(token)?.let(parts::add)
+            }
+            if (parts.isEmpty() || parts.last().adjacent) return null
+            return CssSelector(parts)
         }
+
+        private val BRACKETED = Regex("""\([^)]*\)|\[[^\]]*\]""")
 
         private val PSEUDO_ELEMENT = Regex("::|:(first-letter|first-line|before|after|marker|selection)\\b", RegexOption.IGNORE_CASE)
 

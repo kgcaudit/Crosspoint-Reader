@@ -49,12 +49,40 @@ class CssSelectorTest {
     }
 
     @Test
-    fun `combinators are downgraded to descendant rather than dropped`() {
+    fun `the child combinator is downgraded to descendant rather than dropped`() {
         // EPUB 에서 흔한 `div > p` 를 버리면 본문 서식이 통째로 사라진다.
         assertTrue(matches("div > p", el("div"), el("p")))
-        assertEquals(2, CssSelector.parse("h1 + p")!!.parts.size)
-        assertEquals(2, CssSelector.parse("h1~p")!!.parts.size)
         assertTrue(matches("div>p", el("div"), el("p")))
+    }
+
+    @Test
+    fun `an adjacent sibling rule matches only right after that sibling`() {
+        // `h2 + p { text-indent: 0 }` 를 후손으로 낮추던 때는 `p` 하나만 남아 모든 문단의 들여쓰기가 사라졌다.
+        val afterHeading = el("p").copy(previousSibling = el("h2"))
+        val afterParagraph = el("p").copy(previousSibling = el("p"))
+        assertTrue(matches("h2 + p", el("body"), afterHeading))
+        assertTrue(matches("h2+p", el("body"), afterHeading))
+        assertFalse(matches("h2 + p", el("body"), afterParagraph))
+        assertFalse(matches("h2 + p", el("body"), el("p")), "앞 형제가 없는 첫 문단")
+        assertFalse(matches("h2 + p", el("h2"), el("p")), "제목 안의 문단은 형제가 아니다")
+        // 형제 앞의 후손 마디는 형제의 부모 쪽에서 맞힌다.
+        assertTrue(matches("div h2 + p", el("div"), afterHeading))
+        assertFalse(matches("section h2 + p", el("div"), afterHeading))
+        // 인접 마디 뒤에 후손이 오는 꼴: 제목 바로 뒤 문단 안의 강조.
+        assertTrue(matches("h2 + p em", el("body"), afterHeading, el("em")))
+        assertFalse(matches("h2 + p em", el("body"), afterParagraph, el("em")))
+    }
+
+    @Test
+    fun `general sibling rules and stray plus signs are dropped instead of matching too widely`() {
+        // `~` 는 앞 형제 모두를 봐야 해서 맞힐 수 없다 — 낮추면 넓게 맞아 해가 된다.
+        assertNull(CssSelector.parse("h1 ~ p"))
+        assertNull(CssSelector.parse("h1~p"))
+        assertNull(CssSelector.parse("+ p"))
+        assertNull(CssSelector.parse("h1 +"))
+        // 괄호 · 대괄호 안의 `+` `~` 는 결합자가 아니다.
+        assertTrue(matches("p:nth-child(2n+1)", el("p")))
+        assertTrue(matches("p[class~=x]", el("p")))
     }
 
     @Test

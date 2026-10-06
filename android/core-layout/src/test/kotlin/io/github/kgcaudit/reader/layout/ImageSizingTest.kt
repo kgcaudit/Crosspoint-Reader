@@ -157,4 +157,20 @@ class ImageSizingTest {
         val huge = place(100_000, 20, width = pct(1000f))
         assertTrue(huge.widthPx <= contentW + 0.5f && huge.heightPx >= 1f)
     }
+
+    @Test
+    fun `a 20px indent is as long on screen as a 20px wide picture on a dense phone`() {
+        // 3배 밀도 폰. 그림의 20px 는 화면 60px 인데 들여쓰기의 20px 는 기준 글자 크기(화면 px)로만 나눠 20px 이 됐다 —
+        // 같은 책에서 같은 "20px" 이 3분의 1 로 줄었다.
+        val dense = LayoutSpec(viewportWidthPx = 1080f, viewportHeightPx = 1800f, margin = Insets.all(30f), baseSizePx = 48f, cssPxScale = 3f)
+        val chapter = io.github.kgcaudit.reader.layout.html.ChapterParser(
+            context = io.github.kgcaudit.reader.layout.html.StyleContext.of(dense),
+        ).parse("""<p style="text-indent: 20px">가나다</p><p><img src="a.png" style="width: 20px"/></p>""")
+        val page = Paginator(dense, FakeMeasurer(48f)).paginate(chapter.text, chapter.blocks).single()
+
+        val indent = page.runs.first().xPx - dense.margin.left
+        val picture = page.images.single().widthPx
+        assertEquals(60f, picture, 0.5f)
+        assertEquals(picture, indent, 0.5f, "들여쓰기 20px 이 그림 20px 과 다른 길이다")
+    }
 }

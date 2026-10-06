@@ -480,5 +480,29 @@ class ChapterParserTest {
         assertTrue(p.first().let { chapter.text.substring(it.charStart, it.charEndExclusive) }.contains("onetwo"), "짝 없는 </div> 가 문단을 끊었다")
         assertEquals(0f, p.last().style.indentStartEm, "인용 뒤 문단이 들여쓰기를 물려받았다")
     }
+
+    @Test
+    fun `a heading inside a centered block stays centered`() {
+        // 표제지: 가운데 정렬한 div 안의 h1. 태그 기본값이 제목을 왼쪽으로 정해 두던 때는 상속이 끊겨 제목만 왼쪽에 붙었다.
+        val chapter = parse("""<div style="text-align: center"><h1>어린 왕자</h1><pre>코드</pre></div>""")
+        assertEquals(listOf(TextAlign.Center, TextAlign.Center), chapter.paragraphs().map { it.style.align })
+        // 제목의 들여쓰기 없음은 그대로다.
+        assertEquals(0f, chapter.paragraphs().first().style.firstLineIndentEm)
+    }
+
+    @Test
+    fun `an adjacent sibling rule reaches only the paragraph right after the heading`() {
+        // 제목 바로 뒤 문단만 들여쓰지 않는 흔한 규칙. 후손으로 낮추던 때는 `p { text-indent: 0 }` 이 되어 모든 문단이 붙었다.
+        val chapter = parse(
+            "<body><h2>제목</h2><p>첫 문단</p><p>둘째 문단</p><div><p>안쪽 첫 문단</p></div><h2>또</h2><br/><p>사이에 줄바꿈</p></body>",
+            css = "p { text-indent: 1em } h2 + p { text-indent: 0 }",
+        )
+        val indents = chapter.paragraphs().filter { chapter.text.substring(it.charStart, it.charEndExclusive).contains("문단") || chapter.text.substring(it.charStart, it.charEndExclusive).contains("사이") }
+            .map { chapter.text.substring(it.charStart, it.charEndExclusive) to it.style.firstLineIndentEm }
+        assertEquals(
+            listOf("첫 문단" to 0f, "둘째 문단" to 1f, "안쪽 첫 문단" to 1f, "사이에 줄바꿈" to 1f),
+            indents,
+        )
+    }
 }
 
