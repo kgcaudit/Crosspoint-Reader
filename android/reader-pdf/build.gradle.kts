@@ -16,6 +16,8 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     buildFeatures { compose = true }
+    // 화면 시험(PdfScreenTest)의 빈 액티비티를 매니페스트에서 찾는다.
+    testOptions { unitTests.isIncludeAndroidResources = true }
 }
 
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
@@ -34,6 +36,10 @@ dependencies {
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.coroutines.test)
+    // PDF 화면을 앱 없이 띄운다 — 밀기 · 폭 맞춤 · 듣기 판처럼 화면에서만 드러나는 동작을 이 모듈 안에서 지킨다.
+    testImplementation(platform(libs.compose.bom))
+    testImplementation(libs.compose.ui.test.junit4)
+    debugImplementation(libs.compose.ui.test.manifest)
 }
 
 tasks.withType<Test>().configureEach {

@@ -17,7 +17,10 @@ import java.io.Closeable
  * PDF 를 그리는 쪽. 플랫폼 [PdfRenderer] 가 구현이고, 테스트는 가짜를 쓴다(Robolectric 에는 PDF
  * 엔진이 없다). Pdfium 으로 바꿀 때 바꾸는 곳이 이 인터페이스 하나다.
  *
- * **한 스레드에서만 부른다.** PdfRenderer 는 한 번에 한 페이지만 열 수 있고 스레드 안전하지 않다.
+ * **구현이 동기화를 책임진다.** PdfRenderer 는 한 번에 한 페이지만 열 수 있고 스레드 안전하지 않은데, 부르는 쪽은
+ * 한 스레드가 아니다 — 그리기 · 글자 층은 리더의 그리기 스레드에서, 쪽 비율은 IO 에서([PdfBook.pageAspectRatio]) 부른다.
+ * 그래서 [PlatformPdfSource] 는 메서드마다 잠근다. 새 구현(Pdfium 등)도 그래야 한다 — 빠뜨리면 두 쪽이 동시에 열려
+ * 엔진이 예외를 던지고 그 쪽이 빈 종이로 남는다.
  */
 interface PdfSource : Closeable {
     val pageCount: Int

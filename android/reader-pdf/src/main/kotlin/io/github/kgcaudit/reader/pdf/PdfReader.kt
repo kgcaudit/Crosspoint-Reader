@@ -92,8 +92,9 @@ data class PdfState(
 /**
  * PDF 한 권을 읽는 동안의 상태와 동작. EPUB 의 `BookReader` 와 같은 역할이다.
  *
- * 위치는 [Locator.FixedPage] 로 저장한다(쪽 + 쪽 안의 세로 위치 천분율). 확대해서 보던 자리까지는
- * 저장하지 않는다 — 다시 열면 그 쪽의 전체가 보이는 편이 어디였는지 알아보기 쉽다.
+ * 위치는 [Locator.FixedPage] 로 저장한다(쪽 + 쪽 안의 세로 위치 천분율). 세로 위치는 폭 맞춤에서 쪽 안을 내려 읽던
+ * 자리다([keepScroll]) — 쪽만 저장하면 긴 쪽의 아래를 읽다 닫았을 때 다시 열면 쪽 머리부터 다시 내려가야 했다. 확대
+ * 배율까지는 저장하지 않는다 — 다시 열면 쉬는 크기로 보이는 편이 어디였는지 알아보기 쉽다.
  *
  * 그리기는 **한 스레드**([renderThread])에서만 한다. PdfRenderer 는 한 번에 한 쪽만 열 수 있다.
  */
@@ -124,8 +125,28 @@ class PdfReader(
     /** 저장된 자리로 간다. 없으면 첫 쪽, 범위를 벗어났으면(파일이 짧아짐) 마지막 쪽. */
     suspend fun open() {
         val saved = runCatching { progressRepository.get(book.meta.id)?.locator as? Locator.FixedPage }.getOrNull()
-        show(saved?.page ?: 0, save = false)
+        show(saved?.page ?: 0, save = false, yPermille = saved?.yPermille ?: 0)
         refreshNotes()
+    }
+
+    /** 지금 쪽 안의 세로 자리(천분율, 0 은 쪽 머리). 쪽을 옮기면 0 에서 시작한다. */
+    private var yPermille = 0
+
+    /**
+     * [page] 를 폭 맞춤으로 처음 놓을 때 쪽 안 어디서 시작할지(천분율). 지금 쪽이 아니면 0 — 쪽 머리. 다시 연 책 ·
+     * 화면을 돌린 뒤의 쪽이 읽던 자리에서 시작한다.
+     */
+    fun scrollPermille(page: Int): Int = if (page == _state.value.page) yPermille else 0
+
+    /**
+     * 화면이 폭 맞춤에서 쪽 안을 옮긴 뒤 알린다. 지금 쪽이 아니면(넘김 효과 동안의 옛 쪽) 버린다 — 받으면 새 쪽의
+     * 자리에 옛 쪽의 세로 위치가 저장됐다. 같은 값이면 쓰지 않는다(쪽을 놓을 때마다 저장이 한 번씩 더 돌지 않게).
+     */
+    suspend fun keepScroll(page: Int, permille: Int) {
+        val y = permille.coerceIn(0, 1000)
+        if (page != _state.value.page || y == yPermille) return
+        yPermille = y
+        saveProgress()
     }
 
     // ── 글자 층(안드로이드 15+) ────────────────────────────────────────
@@ -229,6 +250,12 @@ class PdfReader(
 
     override suspend fun unitCount(): Int = book.pageCount
 
+    /**
+     * 쪽이 든 목차 항목(하단 정보의 "장 제목" 과 같은 셈). "장 끝" 타이머가 이 값이 바뀔 때 멈춘다 — 단위(쪽)로 견주면
+     * 쪽마다 멈췄다. 목차가 없으면 모든 쪽이 같은 값이라 멈추지 않는다(그때는 듣기 판에 "장 끝" 을 두지 않는다).
+     */
+    override suspend fun chapterOf(unit: Int): Int = currentContentsIndex(outline(), unit)
+
     /** [unit] 쪽의 문장들. 머리말 · 쪽 번호는 뺀다(결정 4). 글이 없는 쪽(그림 · 스캔)은 문장 없음 — 듣기가 건너뛴다. */
     override suspend fun speech(unit: Int): SpeechChapter {
         val layer = textLayer(unit)
@@ -249,7 +276,8 @@ class PdfReader(
     suspend fun setSpread(coverAlone: Boolean?) {
         if (spread == coverAlone) return
         spread = coverAlone
-        if (_state.value.ready) show(_state.value.page, save = false)
+        // 같은 쪽에 머무르면 세로 자리도 그대로 — 지우면 다시 열 때 쪽 머리로 돌아갔다.
+        if (_state.value.ready) show(_state.value.page, save = false, yPermille = yPermille)
     }
 
     suspend fun next() {
@@ -343,7 +371,8 @@ class PdfReader(
         Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888).also { book.source.render(page, it, region) }
     }.getOrNull()
 
-    private suspend fun show(page: Int, save: Boolean = true) {
+    /** [yPermille] 은 그 쪽 안에서 시작할 세로 자리 — 다시 열 때만 준다. 다른 길로 쪽을 옮기면 쪽 머리다. */
+    private suspend fun show(page: Int, save: Boolean = true, yPermille: Int = 0) {
         val count = book.pageCount
         if (count <= 0) {
             _state.value = _state.value.copy(ready = true)
@@ -354,15 +383,20 @@ class PdfReader(
         // 두쪽이면 이 쪽이 든 펼침의 왼쪽부터 — 목차 · 책갈피가 오른쪽 쪽을 가리켜도 그 펼침이 보인다.
         val target = if (cover != null) spreadStart(wanted, cover) else wanted
         val shown = if (cover != null) spreadPages(target, count, cover) else listOf(target)
+        // 저장된 자리가 펼침 · 짧아진 파일 때문에 다른 쪽으로 옮겨졌으면 그 세로 자리는 그 쪽의 것이 아니다.
+        this.yPermille = if (target == page) yPermille.coerceIn(0, 1000) else 0
         _state.value = _state.value.copy(page = target, pageCount = count, ready = true, shown = shown)
         refreshBookmarked()
-        if (save) {
-            runCatching {
-                progressRepository.save(
-                    ReadingProgress(book.meta.id, Locator.FixedPage(target), _state.value.percent.coerceIn(0f, 100f), clock()),
-                )
-            }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
-        }
+        if (save) saveProgress()
+    }
+
+    private suspend fun saveProgress() {
+        val page = _state.value.page
+        runCatching {
+            progressRepository.save(
+                ReadingProgress(book.meta.id, Locator.FixedPage(page, yPermille = yPermille), _state.value.percent.coerceIn(0f, 100f), clock()),
+            )
+        }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
     }
 
     private fun shownPages(): List<Int> = _state.value.shown.ifEmpty { listOf(_state.value.page) }

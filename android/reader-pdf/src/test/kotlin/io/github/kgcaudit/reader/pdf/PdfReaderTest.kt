@@ -16,7 +16,15 @@ import io.github.kgcaudit.reader.document.pdf.TestPdf
 import io.github.kgcaudit.reader.document.pdf.TestPdf.Companion.pages
 import io.github.kgcaudit.reader.document.pdf.TestPdf.Companion.utf16
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import io.github.kgcaudit.reader.listen.ListenTimer
+import io.github.kgcaudit.reader.listen.Listening
+import io.github.kgcaudit.reader.listen.Speaker
+import io.github.kgcaudit.reader.listen.SpeakerEvents
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
@@ -145,6 +153,56 @@ class PdfReaderTest {
         assertEquals(3, again.state.value.page)
         assertEquals(Locator.FixedPage(3), progress.get(id)?.locator)
         assertEquals(40f, again.state.value.percent)
+    }
+
+    @Test
+    fun `reading down a page in fit width reopens at that spot of the page, not its top`() = runTest {
+        // 폭 맞춤에서 쪽 아래쪽을 읽다 닫았다. 쪽만 저장하면 다시 열 때 쪽 머리에서 다시 내려가야 한다.
+        val first = reader()
+        first.open()
+        first.goTo(3)
+        first.keepScroll(3, 640)
+        assertEquals(Locator.FixedPage(3, yPermille = 640), progress.get(id)?.locator)
+        // 넘김 효과 동안 옛 쪽이 늦게 알린 자리는 버린다 — 받으면 새 쪽에 옛 쪽의 세로 위치가 저장된다.
+        first.keepScroll(2, 100)
+        assertEquals(Locator.FixedPage(3, yPermille = 640), progress.get(id)?.locator)
+        first.close()
+
+        val again = reader()
+        again.open()
+        assertEquals(3, again.state.value.page)
+        assertEquals(640, again.scrollPermille(3))
+        // 다른 쪽으로 가면 그 쪽은 머리부터, 저장도 머리.
+        again.next()
+        assertEquals(0, again.scrollPermille(4))
+        assertEquals(Locator.FixedPage(4), progress.get(id)?.locator)
+    }
+
+    @Test
+    fun `a chapter end timer on a pdf stops where the next contents entry begins, not at every page`() = runTest {
+        // 목차: 1장 0–2쪽, 2장 3–5쪽. 쪽이 듣기의 단위라, 단위로 견주면 첫 쪽 끝에서 멈췄다.
+        val pages = (0 until 6).associateWith { "${it + 1}쪽의 문장입니다." }
+        val contents = listOf(TocEntry("1장", Locator.FixedPage(0)), TocEntry("2장", Locator.FixedPage(3)))
+        val r = PdfReader(PdfBook(BookMeta(id, BookFormat.PDF, "설명서"), FakeSource(6, texts = pages), contents), bookmarks, progress, Dispatchers.Unconfined) { 1_000L }
+        r.open()
+        assertEquals(r.chapterOf(0), r.chapterOf(2))
+        assertTrue(r.chapterOf(2) != r.chapterOf(3))
+
+        val scope = TestScope(StandardTestDispatcher(testScheduler))
+        val speaker = OneAtATime()
+        val listening = Listening(r, speaker, scope)
+        scope.launch { listening.start(0, 0, 1f, null) }
+        scope.runCurrent()
+        listening.setTimer(ListenTimer.ChapterEnd)
+        val heard = ArrayList<Int>()
+        while (listening.state.value.playing && heard.size < 10) {
+            heard += listening.state.value.spine
+            speaker.finish()
+            scope.runCurrent()
+        }
+        assertEquals(listOf(0, 1, 2), heard)
+        // 2장 첫 쪽에 서서 멈춘다(이어 듣기를 누르면 거기서).
+        assertEquals(3, listening.state.value.spine)
     }
 
     @Test
@@ -456,6 +514,28 @@ private class FakeSource(
 
     override fun close() {
         closed = true
+    }
+}
+
+/** 문장을 하나씩 읽는 가짜 음성 엔진. [finish] 가 지금 문장을 끝낸다(Robolectric 에는 엔진이 없다). */
+private class OneAtATime : Speaker {
+    private val queue = ArrayDeque<String>()
+    override var events: SpeakerEvents? = null
+    override suspend fun prepare() = true
+    override fun speak(id: String, text: String, flush: Boolean) {
+        if (flush) queue.clear()
+        queue.addLast(id)
+        if (queue.size == 1) events?.onStart(id)
+    }
+    override fun stop() = queue.clear()
+    override fun setRate(rate: Float) = Unit
+    override fun setVoice(voice: String?) = Unit
+    override fun shutdown() = queue.clear()
+
+    fun finish() {
+        val id = queue.removeFirstOrNull() ?: return
+        events?.onDone(id)
+        queue.firstOrNull()?.let { events?.onStart(it) }
     }
 }
 

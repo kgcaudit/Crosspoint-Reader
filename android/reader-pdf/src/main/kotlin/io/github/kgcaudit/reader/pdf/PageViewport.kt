@@ -117,6 +117,12 @@ class PageViewport private constructor(
         return index to total
     }
 
+    /** 화면 맨 위에 보이는 곳이 쪽 높이의 몇 천분의 몇인가(저장하는 쪽 안 자리). 쪽 머리면 0. */
+    val topPermille: Int get() = (visible().top * 1000f).roundToInt().coerceIn(0, 1000)
+
+    /** [topPermille] 이 [permille] 이 되게 내린다(다시 연 쪽을 읽던 자리에서 시작). 쪽 끝을 넘으면 끝에 멈춘다. */
+    fun atPermille(permille: Int): PageViewport = clamped(scale, left, -permille.coerceIn(0, 1000) / 1000f * height)
+
     /** 화면에 보이는 부분(페이지 비율). 확대했을 때 이 부분만 선명하게 다시 그린다. */
     fun visible(): PageRegion = PageRegion(
         left = (max(0f, -left) / width).coerceIn(0f, 1f),

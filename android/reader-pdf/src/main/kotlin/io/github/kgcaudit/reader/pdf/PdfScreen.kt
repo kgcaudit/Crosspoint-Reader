@@ -25,7 +25,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
@@ -49,7 +48,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.clip
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.FilterQuality
@@ -134,11 +132,12 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
- * PDF 리더. 조작은 EPUB 리더와 같다 — 왼쪽 3분의 1 은 앞 쪽, 오른쪽 3분의 1 은 다음 쪽, 가운데는
- * 메뉴, 옆으로 밀어도 넘어간다. 책 종류에 따라 손에 익은 동작이 달라지면 안 된다.
+ * PDF 리더. 조작은 EPUB 리더와 같다 — 누르는 자리(터치 영역 설정)로 앞 쪽 · 다음 쪽 · 메뉴, 옆으로 밀어도
+ * 넘어간다. 책 종류에 따라 손에 익은 동작이 달라지면 안 된다.
  *
- * 더해진 것은 확대뿐이다: 두 손가락으로 벌리거나 두 번 누른다. 확대한 동안 한 손가락으로 끌면
- * 쪽 안을 움직인다(넘기지 않는다). 넘기면 새 쪽은 다시 전체가 보인다.
+ * 더해진 것은 확대와 폭 맞춤이다: 두 손가락으로 벌리거나 두 번 누르면 확대하고, 확대한 동안 한 손가락으로 끌면
+ * 쪽 안을 움직인다(넘기지 않는다). 넘기면 새 쪽은 쉬는 크기로 돌아온다 — 쪽 맞춤이면 전체, 폭 맞춤이면 앞으로 넘긴
+ * 쪽은 머리부터 · 뒤로 넘긴 쪽은 끝부터.
  *
  * @param onChrome 메뉴가 열리고 닫힐 때. 앱이 시스템 바를 보이고 숨기는 데 쓴다.
  */
@@ -164,9 +163,11 @@ fun PdfScreen(
     var panel by remember { mutableStateOf(PdfPanel.None) }
     var toast by remember { mutableStateOf<String?>(null) }
     var toastCount by remember { mutableIntStateOf(0) }
-    // 하단 정보의 "장 제목" · "이 장 남은 쪽". 목차는 파일마다 한 번 읽는다.
-    var contents by remember { mutableStateOf<List<TocEntry>>(emptyList()) }
+    // 하단 정보의 "장 제목" · "이 장 남은 쪽" · 목차 화면 · 듣기의 "장 끝". 목차는 파일마다 한 번 읽어 함께 쓴다.
+    // null 은 아직 읽는 중 — 목차 화면이 그동안 "목차가 없는 파일입니다" 를 잠깐 보이지 않게 빈 목록과 가른다.
+    var contents by remember(reader) { mutableStateOf<List<TocEntry>?>(null) }
     LaunchedEffect(reader) { contents = runCatching { reader.outline() }.getOrDefault(emptyList()) }
+    val entries = contents.orEmpty()
 
     // 왼쪽 끝을 미는 동안의 밝기(E6). 손을 떼면 설정으로 저장한다.
     var dragBrightness by remember { mutableStateOf<Float?>(null) }
@@ -204,13 +205,17 @@ fun PdfScreen(
     val fitWidth = prefs.pdfFit == PdfFit.Width
 
     /**
-     * 누름 · 볼륨 키 · 자동 넘김의 "앞으로 / 뒤로". 폭 맞춤이면 쪽 안에서 한 화면 옮기고, 쪽 끝이면 넘긴다.
-     * 셋이 따로 판단하면 누르면 내려가는데 볼륨 키는 쪽을 건너뛰어 쪽 아래쪽을 못 읽는다.
+     * 누름 · 볼륨 키 · 자동 넘김 · 옆으로 밀기의 "앞으로 / 뒤로". 폭 맞춤이면 쪽 안에서 한 화면 옮기고, 쪽 끝이면 넘긴다.
+     * 따로 판단하면 누르면 내려가는데 볼륨 키는 쪽을 건너뛰어 쪽 아래쪽을 못 읽는다.
+     *
+     * [withinPage] 가 거짓이면(옆으로 밀기) 쪽 안을 옮기지 않고 바로 넘긴다 — 미는 것은 쪽을 넘기겠다는 뜻이다. 그래도
+     * 이 길로 넘겨야 앞 쪽이 끝부터 보인다. 밀기만 따로 넘기던 때는 폭 맞춤에서 앞 쪽으로 밀면 쪽 머리가 보여, 방금
+     * 읽던 곳(앞 쪽의 끝)을 찾으러 쪽을 다 내려가야 했다.
      */
     // 사람이 넘길 때만 넘김 효과 · 소리(0.32.0). 목차 · 책갈피로 건너뛴 쪽, 폭 맞춤에서 쪽 안을 내려간 것에는 내지 않는다.
     val turns = rememberPageTurnState()
-    fun advance(forward: Boolean, quiet: Boolean = false) {
-        if (fitWidth && scroller.scroll?.invoke(forward) == true) return
+    fun advance(forward: Boolean, quiet: Boolean = false, withinPage: Boolean = true) {
+        if (withinPage && fitWidth && scroller.scroll?.invoke(forward) == true) return
         turns.request(quiet)
         scope.go {
             if (forward) {
@@ -380,7 +385,9 @@ fun PdfScreen(
             PdfPanel.View -> PdfPanel.Bar
             PdfPanel.Settings -> PdfPanel.View
             PdfPanel.Bar -> PdfPanel.None
-            PdfPanel.Voices -> { if (heard.active) listenSheet = true; PdfPanel.None }
+            // 닿지 않는다 — 목소리 화면(VoiceScreen)이 나중에 건 제 BackHandler 가 뒤로 가기를 먼저 받는다(onBack).
+            // when 이 모든 판을 다뤄야 해서 둔다.
+            PdfPanel.Voices -> PdfPanel.Voices
         }
     }
 
@@ -428,7 +435,7 @@ fun PdfScreen(
                 }
                 // 넘김 효과 동안 옛 쪽도 자리를 알리므로, 지금 보이는 쪽의 것만 받는다.
                 val onPlaced: (List<Placed>) -> Unit = { list -> if (list.all { it.page in reader.state.value.shown } && list != text.placed) text.placed = list }
-                val onSwipe: (Boolean) -> Unit = { forward -> turns.request(); scope.go { if (forward) reader.next() else reader.previous() } }
+                val onSwipe: (Boolean) -> Unit = { forward -> advance(forward, withinPage = false) }
                 // 넘김 효과(E7): 보이는 쪽(들)이 바뀔 때.
                 if (state.ready && state.pageCount > 0 && viewW > 0f && viewH > 0f) CpPageTurn(
                     key = state.shown,
@@ -479,7 +486,7 @@ fun PdfScreen(
             CpReadingFooter(
                 info = FooterInfo(
                     bookTitle = reader.title,
-                    chapterTitle = contents.getOrNull(currentContentsIndex(contents, state.page))?.label,
+                    chapterTitle = entries.getOrNull(currentContentsIndex(entries, state.page))?.label,
                     // 인쇄된 쪽 번호가 파일 순서와 다르면(로마 숫자 머리말 등) 앞에 함께 적는다: "iv · 4 / 230".
                     // 두쪽이면 두 쪽을 묶어 "2–3 / 84"(T5).
                     page = if (state.pageCount > 0) {
@@ -492,14 +499,14 @@ fun PdfScreen(
                     },
                     percent = state.percent,
                     chapterPagesLeft = if (state.pageCount > 0) {
-                        pagesLeftInSection(contents, state.shown.maxOrNull() ?: state.page, state.pageCount)
+                        pagesLeftInSection(entries, state.shown.maxOrNull() ?: state.page, state.pageCount)
                     } else {
                         null
                     },
                     // 남은 시간(E5): PDF 는 쪽 단위로 잰다(글자를 읽을 수 없다).
                     chapterMinutesLeft = speedRevision.let { _ ->
                         if (state.pageCount > 0) {
-                            speed.minutesFor(pagesLeftInSection(contents, state.shown.maxOrNull() ?: state.page, state.pageCount).toDouble())
+                            speed.minutesFor(pagesLeftInSection(entries, state.shown.maxOrNull() ?: state.page, state.pageCount).toDouble())
                         } else {
                             null
                         }
@@ -606,6 +613,7 @@ fun PdfScreen(
         PdfPanel.Settings -> CpViewSettingsScreen(prefs, onPrefsChange, onBack = { panel = PdfPanel.View }, pdf = true, highlights = reader.readsText)
         PdfPanel.Contents, PdfPanel.Notes -> PdfLists(
             reader = reader,
+            contents = contents,
             page = state.page,
             notes = state.notes,
             showNotes = panel == PdfPanel.Notes,
@@ -621,7 +629,7 @@ fun PdfScreen(
             progress = if (search.running && state.pageCount > 0) search.searched / state.pageCount.toFloat() else null,
             rows = search.results.map { hit ->
                 CpSearchRow(
-                    section = contents.getOrNull(currentContentsIndex(contents, hit.spine))?.label ?: "${hit.spine + 1}쪽",
+                    section = entries.getOrNull(currentContentsIndex(entries, hit.spine))?.label ?: "${hit.spine + 1}쪽",
                     context = hit.context,
                     matchStart = hit.contextMatchStart,
                     matchLength = (hit.endExclusive - hit.start).coerceAtMost(hit.context.length - hit.contextMatchStart),
@@ -664,6 +672,8 @@ fun PdfScreen(
             onTimer = { listening?.setTimer(it) },
             onClose = { listenSheet = false },
             onJoin = { level -> onListenChange(listen.copy(join = level)); listening?.setJoin(level) },
+            // 목차 없는 PDF 는 장이 없다 — "장 끝" 을 고르면 책 끝까지 멈추지 않는다.
+            chapterTimer = entries.isNotEmpty(),
         )
     }
 
@@ -757,7 +767,12 @@ private fun PageView(
     val pressed by rememberUpdatedState(onLongPress)
     fun rest(aspect: Float, bottom: Boolean = false) =
         if (fitWidth) PageViewport.fitWidth(viewW, viewH, aspect, bottom) else PageViewport.fit(viewW, viewH, aspect)
-    var viewport by remember(page, viewW, viewH, pageAspect, fitWidth) { mutableStateOf(rest(pageAspect, fromBottom)) }
+    var viewport by remember(page, viewW, viewH, pageAspect, fitWidth) {
+        // 폭 맞춤이면 저장해 둔 쪽 안 자리에서 시작한다 — 다시 연 책 · 돌린 화면이 쪽 머리로 돌아가지 않게.
+        val start = rest(pageAspect, fromBottom)
+        val y = if (fitWidth && !fromBottom) reader.scrollPermille(page) else 0
+        mutableStateOf(if (y > 0) start.atPermille(y) else start)
+    }
     // 바탕 그림은 쉬는 크기 그대로 그린다. 폭 맞춤을 쪽 전체 크기로 그려 늘리면 쉬는 동안 내내 글자가 흐리다.
     val (fitW, fitH) = baseSize(rest(pageAspect))
     if (scroller != null && fitWidth) {
@@ -774,6 +789,13 @@ private fun PageView(
         onPlaced(listOf(Placed(page, Rect(viewport.left, viewport.top, viewport.left + viewport.width, viewport.top + viewport.height))))
     }
     LaunchedEffect(focus) { focus?.let { viewport = viewport.reveal(it) } }
+    // 폭 맞춤에서 쪽 안의 자리를 저장한다. 손을 멈춘 뒤에만 — 끄는 동안 매 프레임 저장하면 쓰기가 줄줄이 쌓인다.
+    if (fitWidth) {
+        LaunchedEffect(viewport) {
+            delay(SETTLE_MS)
+            reader.keepScroll(page, viewport.topPermille)
+        }
+    }
 
     // 미리 그려 둔 쪽이면 첫 프레임부터 보인다. 기다렸다 받으면 넘길 때마다 빈 종이가 한 번 번쩍인다.
     var base by remember(page, fitW, fitH) { mutableStateOf(reader.cachedPage(page, fitW, fitH)) }
@@ -1059,12 +1081,16 @@ private fun SpreadView(
 }
 
 /**
- * 목차 · 독서노트 전체 화면. EPUB 리더의 것과 같은 모양이다(탭 두 개, 지금 위치에 불). PDF 는 글자를 고를 수
- * 없어 독서노트에 책갈피만 모인다 — 칩 대신 그렇다고 한 줄로 알린다.
+ * 목차 · 독서노트 전체 화면. EPUB 리더의 것과 같은 모양이다(탭 두 개, 지금 위치에 불). 독서노트에는 책갈피와
+ * 형광펜이 함께 모인다. 글자를 꺼낼 수 없는 휴대폰(안드로이드 14 이하)에서만 책갈피뿐이라, 그때는 거르개 대신
+ * 그렇다고 한 줄로 알린다.
+ *
+ * [contents] 는 리더 화면이 읽어 둔 목차다(null 은 아직 읽는 중). 여기서 또 읽으면 열 때마다 파일 목차를 다시 걸렀다.
  */
 @Composable
 private fun PdfLists(
     reader: PdfReader,
+    contents: List<TocEntry>?,
     page: Int,
     notes: List<Annotation>,
     showNotes: Boolean,
@@ -1072,12 +1098,10 @@ private fun PdfLists(
     onMemo: (Annotation) -> Unit,
     scope: CoroutineScope,
 ) {
-    var contents by remember { mutableStateOf<List<TocEntry>?>(null) }
     var marks by remember { mutableStateOf<List<Bookmark>?>(null) }
     var filter by remember { mutableStateOf(NoteFilter.All) }
     val context = androidx.compose.ui.platform.LocalContext.current
     LaunchedEffect(Unit) {
-        contents = runCatching { reader.outline() }.getOrDefault(emptyList())
         marks = runCatching { reader.bookmarks() }.getOrDefault(emptyList())
     }
     fun label(p: Int) = "${reader.book.pageLabel(p) ?: "${p + 1}"}쪽"
