@@ -54,9 +54,13 @@ internal fun backupDate(epochMs: Long, today: LocalDate = LocalDate.now()): Stri
 /** 백업 파일 이름. 날짜가 들어가야 여러 벌 가운데 최근 것을 고른다. */
 internal fun backupFileName(today: LocalDate = LocalDate.now()): String = "OLO eBook 읽기 기록 $today.json"
 
-internal fun summaryLine(s: RecordsSummary): String =
-    if (s.books == 0 && s.comics == 0) "아직 기록이 없습니다"
-    else "${volumes(s.books, s.comics)} · 책갈피 ${s.bookmarks}개 · 형광펜 · 메모 ${s.annotations}개"
+internal fun summaryLine(s: RecordsSummary): String = when {
+    s.books > 0 || s.comics > 0 -> "${volumes(s.books, s.comics)} · 책갈피 ${s.bookmarks}개 · 형광펜 · 메모 ${s.annotations}개"
+    // 작품 설정(이름 · 방향 · 보는 방식)만 있어도 백업할 것이 있다 — "기록이 없습니다" 라고 하면서 백업 단추가 켜져 있으면
+    // 무엇을 담는지 알 수 없다.
+    s.works > 0 -> "작품 설정 ${s.works}개"
+    else -> "아직 기록이 없습니다"
+}
 
 /**
  * "책 3권 · 만화 2권". 만화 기록(0.49.0)이 없으면 예전 그대로 "책 3권" — 만화를 읽지 않는 사람에게 "만화 0권" 을 보이지 않는다.

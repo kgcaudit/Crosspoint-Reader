@@ -185,6 +185,8 @@ class ReadingRecordsTest {
         assertEquals("책 1권 · 만화 2권 · 책갈피 3개 · 형광펜 · 메모 0개", summaryLine(RecordsSummary(1, 3, 0, comics = 2)))
         assertEquals("만화 2권 · 책갈피 3개 · 형광펜 · 메모 0개", summaryLine(RecordsSummary(0, 3, 0, comics = 2)))
         assertEquals("아직 기록이 없습니다", summaryLine(RecordsSummary(0, 0, 0)))
+        // 작품 설정만 있는 사람 — 백업 단추가 켜지니 무엇을 담는지 말한다.
+        assertEquals("작품 설정 2개", summaryLine(RecordsSummary(0, 0, 0, works = 2)))
     }
 
     @Test
