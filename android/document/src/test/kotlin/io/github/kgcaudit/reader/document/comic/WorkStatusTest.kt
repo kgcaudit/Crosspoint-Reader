@@ -85,6 +85,22 @@ class WorkStatusTest {
     }
 
     @Test
+    fun `a work moved back to reading returns to finished once its last volume is read to the end again`() {
+        val all = mapOf("1" to done(5), "2" to done(6), "3" to done(9))
+        // 20 에 읽는 중으로 되돌렸다. 마지막 권을 처음부터 다시 펴서 중간까지 — 아직 읽는 중.
+        val midway = all + ("3" to ComicProgress(40, 100, 30, finishedAtEpochMs = 9))
+        assertEquals(WorkShelf.READING, WorkStatuses.of(work(mark = ShelfMark.Reading(20)), midway).shelf)
+        // 마지막 쪽까지 — 다 읽은 작품으로 돌아가고, 다 읽은 날은 다시 끝낸 때다.
+        val again = all + ("3" to ComicProgress(99, 100, 40, finishedAtEpochMs = 9))
+        val status = WorkStatuses.of(work(mark = ShelfMark.Reading(20)), again)
+        assertEquals(WorkShelf.FINISHED, status.shelf)
+        assertEquals(40L, status.finishedAtEpochMs)
+        // 앞 권만 다시 끝까지 읽은 것은 다시 읽는 중이다.
+        val firstOnly = all + ("1" to ComicProgress(99, 100, 40, finishedAtEpochMs = 5))
+        assertEquals(WorkShelf.READING, WorkStatuses.of(work(mark = ShelfMark.Reading(20)), firstOnly).shelf)
+    }
+
+    @Test
     fun `marks survive a round trip and broken marks are ignored`() {
         for (m in listOf(ShelfMark.Finished(123, 4), ShelfMark.Reading(5), ShelfMark.ToRead(0))) {
             assertEquals(m, ShelfMark.parse(ShelfMark.format(m)))

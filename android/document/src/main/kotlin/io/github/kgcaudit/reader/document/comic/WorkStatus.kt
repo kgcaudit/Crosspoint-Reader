@@ -101,7 +101,20 @@ object WorkStatuses {
                     // 다 읽었다고 옮긴 뒤 새 권이 들어왔다.
                     WorkStatus(WorkShelf.READING, unopened.isNotEmpty(), lastRead)
                 }
-            is ShelfMark.Reading -> if (auto == WorkShelf.FINISHED) WorkStatus(WorkShelf.READING, false, lastRead) else base.copy(shelf = WorkShelf.READING)
+            is ShelfMark.Reading -> {
+                // 읽는 중으로 되돌린 뒤 마지막 권을 다시 끝까지 읽었으면 다 읽은 작품으로 돌아간다. 권의 "다 읽은 때" 는 처음 한
+                // 번만 적혀 다시 읽어도 바뀌지 않으므로, 표시 뒤에 마지막 쪽에 닿은 진도로 가린다 — 이것이 없으면 한 번 되돌린
+                // 작품은 몇 번을 다시 읽어도 읽는 중에 붙박였다(사용자 보고, 0.49.1). 다 읽은 권은 다시 열면 처음부터 열리므로
+                // 펼치기만 해서는 끝 쪽 진도가 새로 적히지 않는다.
+                val reread = work.entries.lastOrNull()?.let { e -> (listOf(e.unit) + e.copies).mapNotNull { progress[it.id] } }
+                    ?.filter { it.updatedAtEpochMs > mark.atEpochMs && it.fraction >= 1f }
+                    ?.maxOfOrNull { it.updatedAtEpochMs }
+                when {
+                    auto == WorkShelf.FINISHED && reread != null -> base.copy(finishedAtEpochMs = reread)
+                    auto == WorkShelf.FINISHED -> WorkStatus(WorkShelf.READING, false, lastRead)
+                    else -> base.copy(shelf = WorkShelf.READING)
+                }
+            }
             // 읽을 작품으로 옮긴 뒤 다시 펼쳤으면 집계를 따른다 — 펼친 작품이 읽을 칸에 남아 있으면 이어 볼 길이 사라진다.
             is ShelfMark.ToRead -> if ((lastRead ?: Long.MIN_VALUE) > mark.atEpochMs) base else WorkStatus(WorkShelf.TO_READ, false, lastRead)
         }

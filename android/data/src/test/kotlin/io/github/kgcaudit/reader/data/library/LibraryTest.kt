@@ -152,6 +152,14 @@ class LibraryTest {
         val again = library.shelf().first()
         assertEquals("c.pdf", again.first().book.displayName)
         assertEquals(30L, again.first().finishedAtEpochMs)
+
+        // 읽은 책을 읽는 책으로 되돌린 뒤 다시 끝까지 읽으면 읽은 책으로 돌아간다 — 다시 끝낸 날로.
+        library.setFinished(c, null, nowEpochMs = 60)
+        assertNull(library.shelf().first().first { it.book.id == c }.finishedAtEpochMs)
+        progress.save(ReadingProgress(c, Locator.FixedPage(0), 1f, 70))
+        assertNull(library.shelf().first().first { it.book.id == c }.finishedAtEpochMs)
+        progress.save(ReadingProgress(c, Locator.FixedPage(99), 100f, 80))
+        assertEquals(80L, library.shelf().first().first { it.book.id == c }.finishedAtEpochMs)
     }
 
     @Test
