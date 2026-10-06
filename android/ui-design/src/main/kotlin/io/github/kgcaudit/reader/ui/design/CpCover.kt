@@ -3,6 +3,7 @@ package io.github.kgcaudit.reader.ui.design
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -33,6 +34,22 @@ import androidx.compose.ui.unit.dp
 const val COVER_ASPECT: Float = 1f / 1.45f
 
 /**
+ * 표지 뒤에 그림자를 깐다(책장 보기, 0.48.6). 표지를 그리는 쪽이 아니라 놓는 쪽(책장)이 정한다 — 격자 · 목록에는 그림자가 없다.
+ * 그림자는 칸이 아니라 **그림 크기**로 진다: 칸 크기로 깔던 때는 칸보다 낮거나 좁은 표지(잡지 · 문고본) 위 · 옆으로 빈 그림자
+ * 네모가 떠 보였다(사용자 보고).
+ */
+val LocalCoverShadow = androidx.compose.runtime.compositionLocalOf { false }
+
+/** 뒷벽에 비스듬히(오른쪽 아래로) 지는 그림자. 위는 6dp 내려 시작하고 오른쪽으로 6dp 삐져나온다. */
+@Composable
+private fun androidx.compose.foundation.layout.BoxScope.CoverShadow() {
+    Box(
+        Modifier.matchParentSize().padding(start = 6.dp, top = 6.dp).offset(x = 6.dp)
+            .clip(RoundedCornerShape(6.dp)).background(Color(0x66000000)),
+    )
+}
+
+/**
  * 책 표지. 칸([COVER_ASPECT])의 크기는 늘 같고, 그림은 원래 비율 그대로 칸 안에 가장 크게 넣는다. 큰 표지는 칸의 밑면에,
  * [small](목록 줄의 작은 표지)은 가운데에 둔다. 테두리 · 둥근 모서리는 그림에만 두르고 남는 자리는 바탕 그대로다.
  *
@@ -53,22 +70,36 @@ fun CpCover(
     modifier: Modifier = Modifier,
     small: Boolean = false,
     glyph: Painter? = null,
+    /** 안에서만 쓴다: 대신 표지의 그림자를 이미 깔았다. */
+    shadowed: Boolean = false,
 ) {
     val c = CpTheme.colors
     val shape = RoundedCornerShape(if (small) 4.dp else 8.dp)
     if (image != null) {
         val aspect = (image.width.toFloat() / image.height.coerceAtLeast(1)).takeIf { it.isFinite() && it > 0f } ?: COVER_ASPECT
+        val shadow = LocalCoverShadow.current
         Box(modifier.aspectRatio(COVER_ASPECT), contentAlignment = if (small) Alignment.Center else Alignment.BottomCenter) {
-            Image(
-                image, null,
-                Modifier
-                    // 칸보다 넓으면 폭에, 좁으면 높이에 맞춘다 — 어느 쪽도 칸 밖으로 나가지 않는다.
-                    .aspectRatio(aspect, matchHeightConstraintsFirst = aspect < COVER_ASPECT)
-                    .clip(shape)
-                    .border(1.dp, c.divider, shape)
-                    .semantics { contentDescription = "$title 표지" },
-                contentScale = ContentScale.FillBounds,
-            )
+            // 칸보다 넓으면 폭에, 좁으면 높이에 맞춘다 — 어느 쪽도 칸 밖으로 나가지 않는다. 그림자는 이 그림 크기 그대로.
+            Box(Modifier.aspectRatio(aspect, matchHeightConstraintsFirst = aspect < COVER_ASPECT)) {
+                if (shadow) CoverShadow()
+                Image(
+                    image, null,
+                    Modifier
+                        .matchParentSize()
+                        .clip(shape)
+                        .border(1.dp, c.divider, shape)
+                        .semantics { contentDescription = "$title 표지" },
+                    contentScale = ContentScale.FillBounds,
+                )
+            }
+        }
+        return
+    }
+    if (LocalCoverShadow.current && !shadowed) {
+        // 대신 표지는 칸을 꽉 채운다 — 그림자도 칸 크기.
+        Box(modifier.aspectRatio(COVER_ASPECT)) {
+            CoverShadow()
+            CpCover(null, title, subtitle, fallback, icon, Modifier.matchParentSize(), small, glyph, shadowed = true)
         }
         return
     }
