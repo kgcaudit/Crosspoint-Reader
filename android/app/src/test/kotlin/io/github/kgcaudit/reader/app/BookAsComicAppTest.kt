@@ -161,6 +161,9 @@ class BookAsComicAppTest {
         click(hasText("보기"))
         waitFor(hasText("넘기는 방향"))
         assertFalse(has(hasText("보는 방식")), "책을 만화로 볼 때 보는 방식 줄이 보인다")
+        // 만화로만 열어도 책 제목을 적는다 — 위 막대와 서재에 파일 이름이 남지 않는다.
+        assertTrue(has(hasText("고양이 탐정")), "위 막대가 책 제목 대신 파일 이름을 보인다")
+        assertEquals("고양이 탐정", runBlocking { app.container.data.library.get(idOf("고양이 탐정.epub"))?.label })
     }
 
     @Test

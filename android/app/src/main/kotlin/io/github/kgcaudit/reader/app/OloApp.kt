@@ -308,12 +308,16 @@ class AppContainer(private val app: Application) {
                 closingOnFailure(doc) {
                     val pictures = doc.pictureBook() ?: throw java.io.IOException("no pictures in ${book.displayName}")
                     val pages = io.github.kgcaudit.reader.data.ComicPages(pictures.pages.map { it.path }, doc::openPicture, doc)
+                    // 책 뷰어처럼 제목 · 저자를 적는다 — 만화로만 여는 그림책은 책 뷰어를 거치지 않아, 빼면 서재와 위 막대에
+                    // 파일 이름("고양이 그림책.epub")이 계속 남았다.
+                    doc.meta.let { data.library.updateMetadata(book.id, it.title, it.author) }
                     BookComic.ofPictures(ComicBook(unit, pages, regions = comicRegions, stripDelayMs = { comicStripDelayMs }), pictures)
                 }
             }
             BookFormat.PDF -> {
                 val pdf = PdfBook.open(book.id, book.displayName, data.sources.seekableDescriptor(uri), pdfEngine)
                 closingOnFailure(pdf) {
+                    if (pdf.hasOwnTitle) pdf.meta.let { data.library.updateMetadata(book.id, it.title, it.author) }
                     val renderer = object : io.github.kgcaudit.reader.data.ComicPages.Renderer {
                         override fun size(index: Int) = pdf.pageSize(index)?.let { (w, h) -> io.github.kgcaudit.reader.document.image.ImageSize(w, h) }
                         override fun render(index: Int, maxWidth: Int, maxHeight: Int) = pdf.renderPage(index, maxWidth, maxHeight)

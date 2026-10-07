@@ -115,7 +115,8 @@ fun BookComicHost(
                 val at = p?.let { c.pageOf(it.locator) }
                 // 다 읽고 끝에 멈춘 책을 다시 열면 처음부터 — 만화와 같다(끝에서 열면 곧바로 "다 읽었습니다" 판이 뜬다).
                 start = if (at == null || (p.percent >= 99.95f && at >= c.comic.pageCount - 1)) 0 else at
-                title = book.label
+                // 여는 동안 책 제목을 적었으니 다시 읽는다.
+                title = data.library.get(id)?.label ?: book.label
                 chosenRtl = data.library.bookRightToLeft(id)
                 marks = data.bookmarks.forBook(id)
                 c
