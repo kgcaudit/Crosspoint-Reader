@@ -445,8 +445,9 @@ fun LibraryScreen(
         val done = book.id in finishedIds
         // 만화로 볼 수 있는 책(0.50.0): PDF 와 그림만 든 EPUB. 글 EPUB 에는 줄을 두지 않는다 — 그림만 보이면 글이 사라진다.
         // null 은 해당 없음(또는 아직 살피는 중), 값은 지금 만화로 여는지.
-        val asComic by androidx.compose.runtime.produceState<Boolean?>(null, book) {
-            value = withContext(Dispatchers.IO) {
+        var asComic by remember(book) { mutableStateOf<Boolean?>(null) }
+        LaunchedEffect(book) {
+            asComic = withContext(Dispatchers.IO) {
                 val eligible = book.format == BookFormat.PDF || (book.format == BookFormat.EPUB && container.isPictureBook(book))
                 if (eligible) container.opensAsComic(book) else null
             }
