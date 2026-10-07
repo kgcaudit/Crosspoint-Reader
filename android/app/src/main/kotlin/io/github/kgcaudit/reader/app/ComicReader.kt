@@ -173,7 +173,8 @@ fun ComicReader(
     onChrome: (Boolean) -> Unit,
     /** 사람이 고른 보는 방식(null 은 자동). */
     view: ComicView?,
-    onView: (ComicView?) -> Unit,
+    /** 보는 방식을 바꿀 때. null 이면 보기 판에 그 줄을 두지 않는다 — 책을 만화로 볼 때(0.50.0)는 쪽 넘김뿐이다. */
+    onView: ((ComicView?) -> Unit)?,
     /** 쪽 크기(머리만 읽은 것). 두 쪽 보기의 짝 · 함께 맞춤에 쓴다. 모르면 빈 목록. */
     sizes: List<ImageSize?>,
 ) {
@@ -518,7 +519,7 @@ fun ComicReader(
             above = {
                 if (panel == ComicPanel.View) {
                     Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                        ViewChoice(view, onView)
+                        onView?.let { ViewChoice(view, it) }
                         CpChoice("넘기는 방향", listOf("왼→오", "오→왼"), if (rtl) 1 else 0, { onDirection(it == 1) })
                         // 모든 만화에 한 설정(사용자 결정 3-나) — 작품마다 고르게 하면 스캔본마다 한 번씩 켜야 한다.
                         // 다른 켬 · 끔 줄(두 쪽 보기)과 같은 차례로 "켬" 이 앞이다 — 이 줄만 뒤집혀 있으면 같은 자리를 누른 손이 반대로 간다.

@@ -78,15 +78,23 @@ class ComicBook(
         if (index in broken) return@withContext null
         lock.withLock {
             cached(index, width, height, trim)?.let { return@withLock it }
-            val bytes = try {
-                pages.read(index)
-            } catch (e: java.io.IOException) {
-                android.util.Log.w("OloComic", "page $index of ${unit.name} unreadable", e)
-                null
+            val renderer = pages.renderer
+            // 그려 내는 쪽(스캔 PDF, 0.50.0)은 바이트를 거치지 않고 화면 크기로 바로 그린다.
+            val bitmap = if (renderer != null) {
+                runCatching { renderer.render(index, width, height) }.getOrNull()
+                    ?.also { aspects[index] = it.width.toFloat() / it.height }
+                    ?.let { if (trim) trimmed(it, index) else it }
+            } else {
+                val bytes = try {
+                    pages.read(index)
+                } catch (e: java.io.IOException) {
+                    android.util.Log.w("OloComic", "page $index of ${unit.name} unreadable", e)
+                    null
+                }
+                // 메모리가 모자라 못 푼 것(OutOfMemoryError)도 깨진 쪽처럼 넘긴다 — 쪽 하나 때문에 앱이 닫히면 안 된다.
+                bytes?.let { runCatching { decode(it, width, height, index) }.getOrNull() }
+                    ?.let { if (trim) trimmed(it, index) else it }
             }
-            // 메모리가 모자라 못 푼 것(OutOfMemoryError)도 깨진 쪽처럼 넘긴다 — 쪽 하나 때문에 앱이 닫히면 안 된다.
-            val bitmap = bytes?.let { runCatching { decode(it, width, height, index) }.getOrNull() }
-                ?.let { if (trim) trimmed(it, index) else it }
             if (bitmap == null) broken += index else {
                 bitmaps.put(key(index, width, height, trim), bitmap)
                 if (index in pinnedPages) pinned[key(index, width, height, trim)] = bitmap

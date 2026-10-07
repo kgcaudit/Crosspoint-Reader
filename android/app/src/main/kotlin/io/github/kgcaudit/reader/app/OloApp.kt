@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.net.Uri
 import io.github.kgcaudit.reader.data.ReaderData
+import io.github.kgcaudit.reader.data.library.BookView
 import io.github.kgcaudit.reader.data.library.LibraryBook
 import io.github.kgcaudit.reader.document.BookFormat
 import io.github.kgcaudit.reader.document.BookId
@@ -260,6 +261,72 @@ class AppContainer(private val app: Application) {
                 reader.open()
                 OpenedBook.Pdf(reader)
             }
+        }
+    }
+
+    /**
+     * 그림만 든 EPUB 인가(0.50.0, [io.github.kgcaudit.reader.document.epub.PictureBooks]). 살펴 둔 값이 있으면 그것을 쓴다 —
+     * 표지 판 · 열기마다 장을 모두 훑지 않게. 못 열면 false(책 뷰어가 그 실패를 알린다).
+     */
+    suspend fun isPictureBook(book: LibraryBook): Boolean = withContext(Dispatchers.IO) {
+        if (book.format != BookFormat.EPUB) return@withContext false
+        data.library.pictureBook(book.id, book.sizeBytes)?.let { return@withContext it }
+        val found = try {
+            EpubDocument.open(book.id, book.displayName, data.sources.seekableSource(Uri.parse(book.id.value))).use { it.pictureBook() != null }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return@withContext false
+        }
+        runCatching { data.library.setPictureBook(book.id, book.sizeBytes, found) }
+        found
+    }
+
+    /**
+     * 이 책을 만화 뷰어로 열까(0.50.0). 사람이 고른 것이 먼저고, 고르지 않았으면 그림만 든 EPUB 만 만화로. PDF 는 스캔인지
+     * 글 문서인지 미리 알 수 없어 사람이 고를 때만.
+     */
+    suspend fun opensAsComic(book: LibraryBook): Boolean = when (data.library.bookView(book.id)) {
+        BookView.COMIC -> book.format == BookFormat.PDF || isPictureBook(book)
+        BookView.BOOK -> false
+        null -> isPictureBook(book)
+    }
+
+    /** 책을 만화 뷰어로 연다(0.50.0). 그림만 든 EPUB 은 그림을, PDF 는 쪽을 그려 쪽으로 쓴다. */
+    suspend fun openAsComic(book: LibraryBook): BookComic = withContext(Dispatchers.IO) {
+        val uri = Uri.parse(book.id.value)
+        val unit = io.github.kgcaudit.reader.document.comic.ComicUnit(
+            id = book.id.value,
+            name = book.label,
+            folders = emptyList(),
+            kind = io.github.kgcaudit.reader.document.comic.ComicUnitKind.ARCHIVE,
+            sizeBytes = book.sizeBytes,
+        )
+        val opened = when (book.format) {
+            BookFormat.EPUB -> {
+                val doc = EpubDocument.open(book.id, book.displayName, data.sources.seekableSource(uri))
+                closingOnFailure(doc) {
+                    val pictures = doc.pictureBook() ?: throw java.io.IOException("no pictures in ${book.displayName}")
+                    val pages = io.github.kgcaudit.reader.data.ComicPages(pictures.pages.map { it.path }, doc::openPicture, doc)
+                    BookComic.ofPictures(ComicBook(unit, pages, regions = comicRegions, stripDelayMs = { comicStripDelayMs }), pictures)
+                }
+            }
+            BookFormat.PDF -> {
+                val pdf = PdfBook.open(book.id, book.displayName, data.sources.seekableDescriptor(uri), pdfEngine)
+                closingOnFailure(pdf) {
+                    val renderer = object : io.github.kgcaudit.reader.data.ComicPages.Renderer {
+                        override fun size(index: Int) = pdf.pageSize(index)?.let { (w, h) -> io.github.kgcaudit.reader.document.image.ImageSize(w, h) }
+                        override fun render(index: Int, maxWidth: Int, maxHeight: Int) = pdf.renderPage(index, maxWidth, maxHeight)
+                    }
+                    val pages = io.github.kgcaudit.reader.data.ComicPages(List(pdf.pageCount) { it.toString() }, { null }, java.io.Closeable { pdf.close() }, renderer)
+                    BookComic.ofPdf(ComicBook(unit, pages, regions = false, stripDelayMs = { comicStripDelayMs }))
+                }
+            }
+            BookFormat.TXT -> throw java.io.IOException("a text book has no pages to show as a comic")
+        }
+        closingOnFailure(opened) {
+            data.library.markOpened(book.id, System.currentTimeMillis())
+            opened
         }
     }
 

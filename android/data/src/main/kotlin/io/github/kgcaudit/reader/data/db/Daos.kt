@@ -271,6 +271,9 @@ interface ComicDao {
     @Query("DELETE FROM comic_overrides WHERE kind = :kind AND subject = :subject")
     suspend fun clearOverride(kind: String, subject: String)
 
+    @Query("SELECT value FROM comic_overrides WHERE kind = :kind AND subject = :subject")
+    suspend fun override(kind: String, subject: String): String?
+
     @Query("SELECT * FROM comic_progress")
     fun observeProgress(): Flow<List<ComicProgressEntity>>
 

@@ -443,9 +443,24 @@ fun LibraryScreen(
 
     coverMenu?.let { book ->
         val done = book.id in finishedIds
+        // 만화로 볼 수 있는 책(0.50.0): PDF 와 그림만 든 EPUB. 글 EPUB 에는 줄을 두지 않는다 — 그림만 보이면 글이 사라진다.
+        // null 은 해당 없음(또는 아직 살피는 중), 값은 지금 만화로 여는지.
+        val asComic by androidx.compose.runtime.produceState<Boolean?>(null, book) {
+            value = withContext(Dispatchers.IO) {
+                val eligible = book.format == BookFormat.PDF || (book.format == BookFormat.EPUB && container.isPictureBook(book))
+                if (eligible) container.opensAsComic(book) else null
+            }
+        }
         CoverMenu(
             book,
             finished = done,
+            asComic = asComic,
+            onComicView = { comic ->
+                coverMenu = null
+                scope.launchWrite(writeFailed, then = { toast = if (comic) "‘${book.label}’ — 만화로 봅니다" else "‘${book.label}’ — 책으로 봅니다" }) {
+                    data.library.setBookView(book.id, if (comic) io.github.kgcaudit.reader.data.library.BookView.COMIC else io.github.kgcaudit.reader.data.library.BookView.BOOK)
+                }
+            },
             onUnread = if (book.id in shelfIds) {
                 {
                     coverMenu = null
@@ -963,6 +978,10 @@ private fun bookFolder(id: BookId): String? = runCatching {
 private fun CoverMenu(
     book: LibraryBook,
     finished: Boolean,
+    /** 만화로 볼 수 있는 책이면 지금 만화로 여는지, 아니면 null(줄을 두지 않음). */
+    asComic: Boolean?,
+    /** 만화로(true) · 책으로(false) 보기를 고른다. */
+    onComicView: (Boolean) -> Unit,
     /** 책장에 있는 책만: 읽을 책으로 되돌린다. */
     onUnread: (() -> Unit)?,
     onFinished: () -> Unit,
@@ -984,6 +1003,10 @@ private fun CoverMenu(
         // 이 행들이 문장에 "속한" 것처럼 보였다(0.29.0).
         CpListRow(if (finished) "읽는 책으로 옮기기" else "읽은 책으로 옮기기", onFinished, icon = if (finished) CpIcons.Book else CpIcons.Bookmark, compact = true, inset = 0.dp)
         onUnread?.let { CpListRow("읽을 책으로 옮기기", it, icon = CpIcons.Back, compact = true, inset = 0.dp) }
+        asComic?.let { comic ->
+            if (comic) CpListRow("책으로 보기", { onComicView(false) }, icon = CpIcons.Book, compact = true, inset = 0.dp)
+            else CpListRow("만화로 보기", { onComicView(true) }, icon = CpIcons.Grid, compact = true, inset = 0.dp)
+        }
         CpListRow("사진 · 파일에서 표지 고르기", onPick, icon = CpIcons.Folder, compact = true, inset = 0.dp)
         CpListRow(
             if (cover?.hasOwn == true) "원래 표지로 되돌리기" else "대신 표지로 되돌리기",

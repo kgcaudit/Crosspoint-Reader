@@ -153,6 +153,9 @@ private fun OloApp(
     var comicStart by rememberSaveable { mutableStateOf<Int?>(null) }
     // 서재의 "보던 장면에서 표지 고르기" 로 열었다(0.47.0). 고르거나 물러나면 서재로 돌아간다.
     var comicPickCover by rememberSaveable { mutableStateOf(false) }
+    // 만화 뷰어로 연 책(0.50.0, 그림만 든 EPUB · 만화로 보기를 고른 PDF). 못 열면 [asBook] 에 적고 책 뷰어로 다시 연다.
+    var bookComicId by rememberSaveable { mutableStateOf<String?>(null) }
+    var asBook by rememberSaveable { mutableStateOf<String?>(null) }
     val libraryState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     /** 라이브러리 위에 뜬 앱 정보([ABOUT]) · 라이선스 본문(그 번호). 화면을 돌려도 남게 저장한다. */
     var aboutPage by rememberSaveable { mutableStateOf<Int?>(null) }
@@ -299,6 +302,19 @@ private fun OloApp(
         if (reader != null) return@LaunchedEffect
         val book = container.data.library.get(BookId(id))
         if (book == null) { openId = null; return@LaunchedEffect }
+        // 그림만 든 EPUB · 만화로 보기를 고른 PDF 는 만화 뷰어로(0.50.0). 판정이 실패해도 책으로는 연다.
+        val comic = id != asBook && book.format != BookFormat.TXT && try {
+            container.opensAsComic(book)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            false
+        }
+        if (comic) {
+            bookComicId = id
+            openId = null
+            return@LaunchedEffect
+        }
         runCatching { openKeepingResult { container.open(book) } }
             .onSuccess { reader = it }
             .onFailure {
@@ -310,6 +326,7 @@ private fun OloApp(
     }
 
     fun close() {
+        asBook = null
         reader?.close()
         reader = null
         openId = null
@@ -335,6 +352,19 @@ private fun OloApp(
                     pickCover = comicPickCover,
                     onChrome = { showing -> hideSystemBars(!showing) },
                     onFail = { message -> failureTitle = "이 만화를 열지 못했습니다"; failure = message; comicId = null; comicStart = null; comicPickCover = false; hideSystemBars(false) },
+                )
+            }
+        } else if (bookComicId != null) {
+            LaunchedEffect(bookComicId) { hideSystemBars(true) }
+            CpReaderTheme(prefs.screen.theme) {
+                BookComicHost(
+                    bookId = bookComicId!!,
+                    prefs = prefs.screen,
+                    onPrefsChange = { prefs = prefs.copy(screen = it); container.prefs.save(prefs) },
+                    onClose = { bookComicId = null; asBook = null; hideSystemBars(false) },
+                    onChrome = { showing -> hideSystemBars(!showing) },
+                    // 만화로 못 열면 책으로 연다 — 그림책 판정이 틀렸어도 책은 열린다(규칙 6).
+                    onFail = { val id = bookComicId; asBook = id; bookComicId = null; openId = id },
                 )
             }
         } else when (val shown = aboutPage) {

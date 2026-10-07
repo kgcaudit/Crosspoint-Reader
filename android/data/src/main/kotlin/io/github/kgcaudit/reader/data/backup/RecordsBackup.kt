@@ -265,6 +265,8 @@ class RecordsBackup(
             db.recent().delete(old.id)
             db.bookmarks().deleteForBook(old.id)
             db.annotations().deleteForBook(old.id)
+            // 책마다 고른 보기 · 넘기는 방향(0.50.0)도 책 주소가 주어다.
+            moveOverrides(old.id, target.id)
             books += old.id to target.id
         }
         MovedRecords(books, adoptMovedComics())

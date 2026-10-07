@@ -65,6 +65,7 @@ class MovedRecordsTest {
     fun `a book moved to another folder keeps its place and bookmarks`() = runTest {
         scanBooks("A", book("A", "어린 왕자.epub", 9000))
         readTo("A/어린 왕자.epub", 3)
+        library.setBookView(BookId("A/어린 왕자.epub"), io.github.kgcaudit.reader.data.library.BookView.COMIC)
         // 같은 파일을 B 로 옮겼다: A 에서는 사라지고 B 에서 나타났다.
         scanBooks("A")
         scanBooks("B", book("B", "어린 왕자.epub", 9000))
@@ -73,6 +74,8 @@ class MovedRecordsTest {
         assertEquals(listOf("A/어린 왕자.epub" to "B/어린 왕자.epub"), moved.books)
         assertEquals(Locator.Reflow(3, 100), Locator.decodeOrNull(db.progress().get("B/어린 왕자.epub")!!.locator))
         assertEquals(1, db.bookmarks().forBook("B/어린 왕자.epub").size)
+        // 책마다 고른 보기(만화로 보기, 0.50.0)도 따라온다.
+        assertEquals(io.github.kgcaudit.reader.data.library.BookView.COMIC, library.bookView(BookId("B/어린 왕자.epub")))
         // 책장(읽는 중)에도 새 자리로 선다. 옛 자리는 비었다 — 두 번 잇지 않는다.
         assertEquals(listOf("어린 왕자.epub"), library.shelf().first().map { it.book.displayName })
         assertNull(db.progress().get("A/어린 왕자.epub"))

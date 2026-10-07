@@ -77,6 +77,23 @@ class PdfBook(
         }
     }.getOrNull()
 
+    /** [index] 쪽의 크기(포인트). 못 재면 null. 스캔 PDF 를 만화로 볼 때(0.50.0) 쪽 모양 · 펼침면을 가린다. */
+    fun pageSize(index: Int): Pair<Int, Int>? =
+        runCatching { source.pageSize(index) }.getOrNull()?.takeIf { (w, h) -> w > 0 && h > 0 }
+
+    /**
+     * [index] 쪽을 [maxWidth]×[maxHeight] 안에 들어가게 통째로 그린다(만화로 보기, 0.50.0). 바탕은 흰 종이. 못 그리면 null —
+     * 만화 뷰어가 "이 쪽을 그리지 못했습니다" 를 보이고 다음 쪽으로 넘어갈 수 있다.
+     */
+    fun renderPage(index: Int, maxWidth: Int, maxHeight: Int): Bitmap? = runCatching {
+        val (w, h) = pageSize(index) ?: return null
+        val scale = minOf(maxWidth.toFloat() / w, maxHeight.toFloat() / h)
+        Bitmap.createBitmap((w * scale).toInt().coerceAtLeast(1), (h * scale).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888).also {
+            it.eraseColor(Color.WHITE)
+            source.render(index, it, PageRegion.WHOLE)
+        }
+    }.getOrNull()
+
     override fun close() = source.close()
 
     companion object {

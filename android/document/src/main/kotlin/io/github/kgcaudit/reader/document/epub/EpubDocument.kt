@@ -83,6 +83,26 @@ class EpubDocument private constructor(
     /** 표지 이미지. 없으면 null. */
     fun openCoverImage(): InputStream? = opf.coverImageItem?.href?.let(zip::openStream)
 
+    /**
+     * 그림만 든 책이면 그 쪽들(0.50.0, [PictureBooks]). 글 책이면 앞 몇 장에서 멈춘다 — 소설을 열 때마다 장을 모두 읽지 않게.
+     * 읽을 수 없는 장(항목이 사라짐)은 빈 장으로 친다.
+     */
+    suspend fun pictureBook(): PictureBook? {
+        val seen = ArrayList<PictureBooks.Chapter>()
+        for ((i, item) in readingOrder.withIndex()) {
+            val chapter = runCatching { openChapter(i).use { PictureBooks.scan(item.href, it) } }.getOrDefault(PictureBooks.Chapter(emptyList(), 0))
+            seen += chapter
+            if (PictureBooks.alreadyRejected(seen, readingOrder.size)) return null
+        }
+        return PictureBooks.decide(seen, opf.rightToLeft)?.let { book ->
+            // zip 에 없는 그림(깨진 링크)은 쪽에서 뺀다 — 빈 쪽이 끼면 쪽 수 · 진도가 어긋난다.
+            book.copy(pages = book.pages.filter { it.path in zip }).takeIf { it.pages.size >= 2 }
+        }
+    }
+
+    /** 그림책 쪽의 그림 바이트를 연다. */
+    fun openPicture(path: String): InputStream? = zip.openStream(path)
+
     override fun close() = zip.close()
 
     // ── 목차 ────────────────────────────────────────────────────────

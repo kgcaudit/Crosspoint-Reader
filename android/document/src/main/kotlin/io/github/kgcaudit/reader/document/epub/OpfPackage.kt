@@ -25,6 +25,8 @@ data class OpfPackage(
     /** EPUB 2 `<meta name="cover" content="...">` 가 가리키는 manifest id. */
     val coverMetaId: String?,
     val version: String?,
+    /** spine 의 `page-progression-direction`. null 은 "적혀 있지 않음" — 왼→오와 다르다(규칙 5). */
+    val rightToLeft: Boolean? = null,
 ) {
     /**
      * 읽기 순서대로 풀린 spine.

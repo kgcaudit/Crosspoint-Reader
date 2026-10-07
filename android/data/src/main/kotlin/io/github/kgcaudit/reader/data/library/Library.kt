@@ -56,6 +56,9 @@ data class LibraryBook(
  * 빠짐, 클라우드 제공자가 잠시 응답 없음, 권한 일시 회수). 그때 행을 지우면 진도·책갈피를
  * 찾을 열쇠가 사라진다. 대신 숨겨 두었다가 다시 보이면 그대로 되살린다.
  */
+/** 책을 어떤 뷰어로 볼지(0.50.0). */
+enum class BookView { BOOK, COMIC }
+
 class Library(private val db: ReaderDatabase) {
 
     private val books = db.books()
@@ -172,6 +175,31 @@ class Library(private val db: ReaderDatabase) {
      */
     suspend fun forgetFolder(folderUri: String) = books.hideFolder(folderUri)
 
+    // ── 책을 만화로 보기(0.50.0) ──
+    // 책마다 하나뿐인 작은 값이라 표를 새로 두지 않고 손 고침 표에 책 id 를 주어로 적는다(스키마 그대로). 이 종류들은 백업의
+    // 작품 설정(WORK_KINDS)에 들지 않는다 — 열쇠가 이 휴대폰의 문서 주소라 새 휴대폰에서 맞을 책이 없다.
+
+    /** 사람이 고른 보기. null 은 고르지 않음 — 그림만 든 EPUB 은 만화로, 나머지는 책으로 연다. */
+    suspend fun bookView(id: BookId): BookView? = db.comics().override(BOOK_VIEW, id.value)?.let { v -> BookView.entries.firstOrNull { it.name == v } }
+
+    suspend fun setBookView(id: BookId, view: BookView) = db.comics().setOverride(ComicOverrideEntity(BOOK_VIEW, id.value, view.name))
+
+    /** 만화로 볼 때 사람이 고른 넘기는 방향. null 은 고르지 않음 — 책에 적힌 방향(EPUB 의 spine)을 따른다. */
+    suspend fun bookRightToLeft(id: BookId): Boolean? = db.comics().override(BOOK_RTL, id.value)?.let { it == "1" }
+
+    suspend fun setBookRightToLeft(id: BookId, rightToLeft: Boolean) =
+        db.comics().setOverride(ComicOverrideEntity(BOOK_RTL, id.value, if (rightToLeft) "1" else "0"))
+
+    /**
+     * 그림만 든 책인지 살펴 둔 값(파일 크기와 함께 — 파일이 바뀌면 다시 본다). 표지 판을 열 때마다 장을 모두 훑지 않으려고.
+     * 모르면 null.
+     */
+    suspend fun pictureBook(id: BookId, sizeBytes: Long?): Boolean? =
+        db.comics().override(PICTURES, id.value)?.split(':')?.takeIf { it.size == 2 && it[0] == sizeBytes.toString() }?.let { it[1] == "1" }
+
+    suspend fun setPictureBook(id: BookId, sizeBytes: Long?, pictures: Boolean) =
+        db.comics().setOverride(ComicOverrideEntity(PICTURES, id.value, "$sizeBytes:${if (pictures) 1 else 0}"))
+
     /** 모르는 포맷 이름(다음 버전이 쓴 값 등)이 든 행은 목록에서만 빠진다. */
     private fun toBook(row: BookEntity): LibraryBook? {
         val format = BookFormat.entries.firstOrNull { it.name == row.format } ?: return null
@@ -185,14 +213,14 @@ class Library(private val db: ReaderDatabase) {
             addedAtEpochMs = row.addedAtEpochMs,
         )
     }
+
+    companion object {
+        const val BOOK_VIEW: String = "BOOK_VIEW"
+        const val BOOK_RTL: String = "BOOK_RTL"
+        const val PICTURES: String = "PICTURES"
+    }
 }
 
-/**
- * 만화 서재(0.33.0): 훑은 만화 단위 + 손 고침 → 작품들([ComicShelf.group]). 책 [Library] 와 같은 DB 를 쓰되 표가 다르다.
- *
- * 작품은 저장하지 않고 **매번 계산한다** — 저장하면 훑기 · 손 고침 · 살피기 결과가 바뀔 때마다 작품 표도 맞춰 고쳐야 하고,
- * 한 군데를 놓치면 옛 묶음이 남는다. 단위 수천 개도 묶기는 순수 계산이라 한 번에 끝난다.
- */
 class ComicLibrary(private val db: ReaderDatabase) {
 
     private val comics = db.comics()

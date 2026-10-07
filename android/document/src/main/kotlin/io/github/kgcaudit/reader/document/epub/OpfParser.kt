@@ -37,6 +37,7 @@ object OpfParser {
 
         val manifest = LinkedHashMap<String, ManifestItem>()
         val spine = ArrayList<String>()
+        var rightToLeft: Boolean? = null
 
         // 지금 텍스트를 모으고 있는 메타데이터 요소의 지역명. null 이면 모으지 않는다.
         var collecting: String? = null
@@ -92,7 +93,15 @@ object OpfParser {
                         }
                     }
 
-                    event.isLocal("spine") -> ncxId = event.attribute("toc")
+                    event.isLocal("spine") -> {
+                        ncxId = event.attribute("toc")
+                        // 오→왼 책(일본 만화 · 세로쓰기). 그림만 든 책을 만화로 볼 때 넘기는 방향의 기본값(0.50.0).
+                        rightToLeft = when (event.attribute("page-progression-direction")?.trim()?.lowercase()) {
+                            "rtl" -> true
+                            "ltr" -> false
+                            else -> null
+                        }
+                    }
 
                     event.isLocal("itemref") -> {
                         val idref = event.attribute("idref")
@@ -131,6 +140,7 @@ object OpfParser {
             ncxId = ncxId,
             coverMetaId = coverMetaId,
             version = version,
+            rightToLeft = rightToLeft,
         )
     }
 }
