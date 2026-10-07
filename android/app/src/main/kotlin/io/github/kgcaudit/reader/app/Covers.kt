@@ -134,6 +134,20 @@ class CoverStore(
         changed()
     }
 
+    /**
+     * 옮긴 파일(0.50.0)의 고른 표지를 새 자리로. 고른 표지는 파일 주소로 찾아서, 옮기지 않으면 진도는 따라왔는데 표지만
+     * 원래 표지로 돌아갔다. 새 자리에 이미 고른 표지가 있으면 그것을 둔다. [moved] 는 (옛 id, 새 id).
+     */
+    fun moveCustom(moved: List<Pair<BookId, BookId>>) {
+        var any = false
+        for ((from, to) in moved) {
+            val src = File(dir, "custom/${key(from)}.jpg")
+            val dst = File(dir, "custom/${key(to)}.jpg")
+            if (src.isFile && !dst.exists() && src.renameTo(dst)) any = true
+        }
+        if (any) changed()
+    }
+
     private fun changed() {
         // 어느 책의 메모리 항목인지는 크기까지 붙은 열쇠라 여기서 모른다. 표지 고르기는 드물어 통째로 비운다.
         _version.value++

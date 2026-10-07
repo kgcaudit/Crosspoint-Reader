@@ -5,6 +5,8 @@ import android.net.Uri
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import io.github.kgcaudit.reader.data.ReaderData
+import io.github.kgcaudit.reader.document.Locator
+import io.github.kgcaudit.reader.document.ReadingProgress
 import io.github.kgcaudit.reader.data.db.ReaderDatabase
 import io.github.kgcaudit.reader.document.TxtDocument
 import io.github.kgcaudit.reader.document.epub.EpubDocument
@@ -129,6 +131,27 @@ class SafTest {
 
         data.rescan(tree)
         assertEquals(listOf("a.epub"), data.library.books().first().map { it.displayName })
+    }
+
+    @Test
+    fun `a book moved into another folder keeps reading where it was after the next scan`() = runTest {
+        // 0.50.0: 열쇠가 파일 주소라 옮기면 처음부터였다. 훑기가 사라진 책과 새로 보인 책을 이름 + 크기로 이어 준다.
+        val bytes = epub("어린 왕자", "사막에서 조종사를 만났다.")
+        val old = put("소설/어린 왕자.epub", bytes)
+        data.rescan(tree)
+        val before = data.library.books().first().single()
+        data.progress.save(ReadingProgress(before.id, Locator.Reflow(2, 30), 40f, 900))
+        val moves = ArrayList<io.github.kgcaudit.reader.data.backup.MovedRecords>()
+        data.onMoved = { moves += it }
+
+        old.delete()
+        put("다 읽을 책/어린 왕자.epub", bytes)
+        data.rescan(tree)
+
+        val after = data.library.books().first().single()
+        assertTrue(after.id != before.id, "같은 주소면 옮긴 시험이 아니다")
+        assertEquals(Locator.Reflow(2, 30), data.progress.get(after.id)?.locator)
+        assertEquals(listOf(before.id.value to after.id.value), moves.single().books)
     }
 
     @Test

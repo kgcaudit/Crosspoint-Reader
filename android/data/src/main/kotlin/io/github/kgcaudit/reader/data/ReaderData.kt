@@ -2,6 +2,7 @@ package io.github.kgcaudit.reader.data
 
 import android.content.Context
 import android.net.Uri
+import io.github.kgcaudit.reader.data.backup.MovedRecords
 import io.github.kgcaudit.reader.data.backup.RecordsBackup
 import io.github.kgcaudit.reader.data.db.ReaderDatabase
 import io.github.kgcaudit.reader.data.library.ComicLibrary
@@ -82,6 +83,7 @@ class ReaderData(
             true
         }
         if (!applied) return@withContext ScanResult(emptyList(), complete = true)
+        adoptMoved()
         // 백업에서 가져왔지만 책을 못 찾아 기다리던 기록 — 방금 훑은 폴더에 그 책이 있으면 이제 붙는다. 저장 공간이 모자라
         // 기다림 파일을 못 쓰더라도 훑기는 이미 끝났다 — 그 실패로 훑기 결과까지 버리지 않는다(다음 훑기에 다시 붙인다).
         try {
@@ -91,6 +93,22 @@ class ReaderData(
         }
         result
     }
+
+    /**
+     * 옮긴 파일의 기록을 새 자리에 잇고(0.50.0, [RecordsBackup.adoptMoved]) 옮긴 것을 [onMoved] 로 알린다. 폴더 빼기와 같은
+     * 자물쇠 안에서 한다 — 빼는 중인 폴더의 책을 "사라진 책" 으로 보고 다른 폴더의 같은 파일에 기록을 넘기는 일이 사이에
+     * 끼지 않게.
+     */
+    private suspend fun adoptMoved() {
+        val moved = folderLock.withLock { records.adoptMoved() }
+        if (!moved.isEmpty) onMoved?.invoke(moved)
+    }
+
+    /**
+     * 옮긴 파일의 기록을 이었을 때 부른다. 앱이 사람이 고른 표지처럼 DB 밖에 둔, 파일 주소로 찾는 것을 함께 옮긴다.
+     * 입출력 스레드에서 불린다.
+     */
+    @Volatile var onMoved: ((MovedRecords) -> Unit)? = null
 
     /** 등록된 폴더 전부를 훑는다. 한 폴더의 실패가 다른 폴더를 막지 않는다. */
     suspend fun rescanAll(): Map<Uri, ScanResult> = folders.folders().associateWith { rescan(it) }
@@ -127,6 +145,8 @@ class ReaderData(
         try {
             return@withContext probeRounds()
         } finally {
+            // 압축 속 권 · 그냥 zip 은 살펴야 보이므로, 옮긴 권의 기록도 살핀 뒤에 다시 잇는다(0.50.0).
+            runCatching { adoptMoved() }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
             runCatching { records.resumePending() }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
         }
     }

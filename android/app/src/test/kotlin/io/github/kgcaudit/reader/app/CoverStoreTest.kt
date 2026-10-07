@@ -62,6 +62,24 @@ class CoverStoreTest {
     }
 
     @Test
+    fun `a picked cover follows a book moved to another folder`() = runBlocking {
+        // 0.50.0: 기록은 새 자리로 따라오는데 고른 표지만 원래 표지로 돌아가면 옮긴 책이 다른 책처럼 보인다.
+        val store = CoverStore(dir) { red() }
+        val moved = book.copy(id = BookId("content://y/옛 일기.txt"))
+        assertTrue(store.setCustom(book.id) { CoverTest.png(Color.BLUE, width = 600, height = 900).inputStream() })
+        store.moveCustom(listOf(book.id to moved.id))
+        val cover = store.cover(moved)
+        assertTrue(cover.custom, "옮긴 책의 고른 표지가 따라오지 않았다")
+        assertTrue(isBlue(cover.image!!.asAndroidBitmap().getPixel(10, 10)))
+        // 새 자리에 이미 고른 표지가 있으면 그것을 둔다 — 옛 표지로 덮지 않는다.
+        val other = book.copy(id = BookId("content://z/옛 일기.txt"))
+        assertTrue(store.setCustom(other.id) { CoverTest.png(Color.GREEN, width = 600, height = 900).inputStream() })
+        assertTrue(store.setCustom(book.id) { CoverTest.png(Color.BLUE, width = 600, height = 900).inputStream() })
+        store.moveCustom(listOf(book.id to other.id))
+        assertTrue(Color.green(store.cover(other).image!!.asAndroidBitmap().getPixel(10, 10)) > 200)
+    }
+
+    @Test
     fun `a picked picture wins over the book's own cover until it is reverted`() = runBlocking {
         val store = CoverStore(dir) { red() }
         assertFalse(store.cover(book).custom)

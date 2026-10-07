@@ -87,6 +87,10 @@ interface BookmarkDao {
 
     @Query("DELETE FROM bookmarks WHERE id = :id")
     suspend fun delete(id: Long)
+
+    /** 옮긴 책(0.50.0)의 옛 자리 기록을 비운다 — 새 자리에 합친 뒤. */
+    @Query("DELETE FROM bookmarks WHERE bookId = :bookId")
+    suspend fun deleteForBook(bookId: String)
 }
 
 @Dao
@@ -156,6 +160,10 @@ interface AnnotationDao {
 
     @Query("DELETE FROM annotations WHERE id = :id")
     suspend fun delete(id: Long)
+
+    /** 옮긴 책(0.50.0)의 옛 자리 기록을 비운다 — 새 자리에 합친 뒤. */
+    @Query("DELETE FROM annotations WHERE bookId = :bookId")
+    suspend fun deleteForBook(bookId: String)
 }
 
 /** 책 한 권의 수. Room 이 질의 결과 칸 이름(bookId · count)으로 채운다. */
@@ -241,6 +249,14 @@ interface ComicDao {
 
     @Query("SELECT * FROM comic_units WHERE id IN (:ids)")
     suspend fun unitsOf(ids: List<String>): List<ComicUnitEntity>
+
+    // ── 옮긴 파일(0.50.0): 옛 자리의 기록을 새 자리에 합친 뒤 비운다 ──
+
+    @Query("DELETE FROM comic_progress WHERE unitId = :unitId")
+    suspend fun deleteProgress(unitId: String)
+
+    @Query("DELETE FROM comic_bookmarks WHERE unitId = :unitId")
+    suspend fun deleteBookmarks(unitId: String)
 
     /** 백업의 만화를 이 휴대폰에서 찾는다: 보이는 단위 중 이름 · 크기가 같은 것. */
     @Query("SELECT * FROM comic_units WHERE missing = 0 AND notComic = 0 AND name = :name AND sizeBytes = :size")

@@ -63,6 +63,11 @@ data class ImportResult(
  * 본다. 새 휴대폰에서는 백업을 먼저 가져오고 책 폴더를 나중에 더하는 순서가 흔하다 — 그때 기록을 버리면 사용자는
  * 다시 가져와야 하는 줄 모른다.
  */
+/** [RecordsBackup.adoptMoved] 가 옮긴 (옛 id, 새 id). */
+data class MovedRecords(val books: List<Pair<String, String>>, val comics: List<Pair<String, String>>) {
+    val isEmpty: Boolean get() = books.isEmpty() && comics.isEmpty()
+}
+
 class RecordsBackup(
     private val db: ReaderDatabase,
     private val pendingFile: File,
@@ -77,21 +82,7 @@ class RecordsBackup(
         val marks = db.bookmarks().all().groupBy { it.bookId }
         val notes = db.annotations().all().groupBy { it.bookId }
         // 책 표에 없는 id(다른 앱이 넘겨 열었던 파일)의 기록은 담지 못한다 — 파일 이름을 모르니 새 휴대폰에서 찾을 길이 없다.
-        val fromDb = db.books().all().mapNotNull { book ->
-            val id = book.id
-            if (id !in progress && id !in recent && id !in marks && id !in notes) return@mapNotNull null
-            BookRecord(
-                displayName = book.displayName,
-                sizeBytes = book.sizeBytes,
-                title = book.title,
-                author = book.author,
-                progress = progress[id]?.let { ProgressRecord(it.locator, it.percent, it.updatedAtEpochMs) },
-                openedAtEpochMs = recent[id]?.openedAtEpochMs,
-                finishedAtEpochMs = recent[id]?.finishedAtEpochMs,
-                bookmarks = marks[id].orEmpty().map { BookmarkRecord(it.locator, it.snippet, it.createdAtEpochMs) },
-                annotations = notes[id].orEmpty().map { AnnotationRecord(it.start, it.end, it.color, it.note, it.snippet, it.createdAtEpochMs) },
-            )
-        }
+        val fromDb = db.books().all().mapNotNull { book -> recordOf(book, progress, recent, marks, notes) }
         // 기다리는 기록도 담는다. 빼면 "가져오기 → 못 찾음 → 다시 백업" 에서 그 책들의 기록이 조용히 사라진다.
         val waiting = pending()
         return RecordsFile(
@@ -99,6 +90,29 @@ class RecordsBackup(
             (fromDb + waiting.books).mergedByBook(),
             (collectComics() + waiting.comics).mergedByComic(),
             collectWorks(),
+        )
+    }
+
+    /** 책 한 권의 기록. 아무 기록도 없으면 null. 백업과 옮긴 파일 잇기(0.50.0)가 같은 모양을 쓴다. */
+    private fun recordOf(
+        book: BookEntity,
+        progress: Map<String, ProgressEntity>,
+        recent: Map<String, io.github.kgcaudit.reader.data.db.RecentEntity>,
+        marks: Map<String, List<BookmarkEntity>>,
+        notes: Map<String, List<AnnotationEntity>>,
+    ): BookRecord? {
+        val id = book.id
+        if (id !in progress && id !in recent && id !in marks && id !in notes) return null
+        return BookRecord(
+            displayName = book.displayName,
+            sizeBytes = book.sizeBytes,
+            title = book.title,
+            author = book.author,
+            progress = progress[id]?.let { ProgressRecord(it.locator, it.percent, it.updatedAtEpochMs) },
+            openedAtEpochMs = recent[id]?.openedAtEpochMs,
+            finishedAtEpochMs = recent[id]?.finishedAtEpochMs,
+            bookmarks = marks[id].orEmpty().map { BookmarkRecord(it.locator, it.snippet, it.createdAtEpochMs) },
+            annotations = notes[id].orEmpty().map { AnnotationRecord(it.start, it.end, it.color, it.note, it.snippet, it.createdAtEpochMs) },
         )
     }
 
@@ -220,6 +234,117 @@ class RecordsBackup(
     }
 
     suspend fun pending(): RecordsFile = pendingLock.withLock { readPending() }
+
+    /**
+     * 옮긴 파일의 기록을 새 자리에 잇는다(0.50.0). 책 · 만화의 열쇠는 파일 주소라, 파일을 다른 폴더로 옮기거나 폴더 이름을
+     * 바꾸면 주소가 달라져 진도 · 책갈피 · 형광펜이 숨은 옛 행에 남고 새 자리는 처음부터였다(사용자가 가장 아까워하는 것).
+     *
+     * 숨은(사라진) 행 가운데 기록이 있는 것을 보이는 행과 **이름 + 크기**로 맞춘다. 백업 가져오기와 같은 합치기를 쓴다 — 더
+     * 나간 자리가 이기고 책갈피 · 형광펜은 합친다. 묻지 않고 옮기므로 백업보다 엄격하다(사용자 결정 1-나):
+     * - 크기를 모르면 옮기지 않는다. 이름만 같은 다른 판에 붙으면 되돌릴 길이 없다. 그림 폴더는 크기 대신 쪽 수로 맞춘다.
+     * - 옛 쪽이든 새 쪽이든 같은 이름 · 크기가 둘 이상이면 옮기지 않는다 — 어느 것이 어느 것인지 모른다.
+     * 옛 행은 남기고 기록만 비운다. 파일이 옛 자리로 돌아오면 그 행이 다시 보이되 기록은 따라간 자리에 있다.
+     *
+     * @return 옮긴 (옛 id, 새 id). 책은 앱이 직접 고른 표지를 함께 옮기는 데 쓴다.
+     */
+    suspend fun adoptMoved(): MovedRecords = db.withTransaction {
+        val progress = db.progress().all().associateBy { it.bookId }
+        val recent = db.recent().all().associateBy { it.bookId }
+        val marks = db.bookmarks().all().groupBy { it.bookId }
+        val notes = db.annotations().all().groupBy { it.bookId }
+        val all = db.books().all()
+        val orphans = all.filter { it.missing && it.sizeBytes != null }
+            .mapNotNull { book -> recordOf(book, progress, recent, marks, notes)?.let { book to it } }
+        val orphanKeys = all.filter { it.missing && it.sizeBytes != null }.groupingBy { it.displayName to it.sizeBytes }.eachCount()
+        val books = ArrayList<Pair<String, String>>()
+        for ((old, record) in orphans) {
+            if (orphanKeys[old.displayName to old.sizeBytes] != 1) continue
+            val target = db.books().visibleByFile(old.displayName, old.sizeBytes!!).singleOrNull() ?: continue
+            mergeInto(target.id, record)
+            db.progress().delete(old.id)
+            db.recent().delete(old.id)
+            db.bookmarks().deleteForBook(old.id)
+            db.annotations().deleteForBook(old.id)
+            books += old.id to target.id
+        }
+        MovedRecords(books, adoptMovedComics())
+    }
+
+    private suspend fun adoptMovedComics(): List<Pair<String, String>> {
+        val comics = db.comics()
+        val progress = comics.allProgress().associateBy { it.unitId }
+        val marks = comics.allBookmarks().groupBy { it.unitId }
+        val withRecords = (progress.keys + marks.keys).toList().chunked(500).flatMap { comics.unitsOf(it) }
+        val orphans = withRecords.filter { it.missing && matchKey(it) != null }
+        if (orphans.isEmpty()) return emptyList()
+        val orphanKeys = orphans.groupingBy { matchKey(it) }.eachCount()
+        val moved = ArrayList<Pair<String, String>>()
+        for (old in orphans) {
+            val key = matchKey(old) ?: continue
+            if (orphanKeys[key] != 1) continue
+            val target = comics.visibleByName(old.name).filter { matchKey(it) == key }.singleOrNull() ?: continue
+            val p = progress[old.id]
+            mergeComicInto(
+                target.id,
+                ComicRecord(
+                    name = old.name,
+                    sizeBytes = old.sizeBytes,
+                    page = p?.page,
+                    pageCount = p?.pageCount ?: old.pageCount,
+                    offset = p?.offset,
+                    updatedAtEpochMs = p?.updatedAtEpochMs ?: 0L,
+                    finishedAtEpochMs = p?.finishedAtEpochMs,
+                    bookmarks = marks[old.id].orEmpty().map { ComicBookmarkRecord(it.page, it.createdAtEpochMs) },
+                ),
+            )
+            comics.deleteProgress(old.id)
+            comics.deleteBookmarks(old.id)
+            moveOverrides(old.id, target.id)
+            moved += old.id to target.id
+        }
+        return moved
+    }
+
+    /**
+     * 만화 권을 맞추는 열쇠: 압축은 (이름, 크기), 그림 폴더는 크기가 없어 (이름, 쪽 수). 모르면 null — 옮기지 않는다.
+     * 종류도 열쇠에 넣는다: 같은 이름의 폴더와 압축은 다른 권이다.
+     */
+    private fun matchKey(unit: io.github.kgcaudit.reader.data.db.ComicUnitEntity): Triple<String, String, Long>? = when {
+        unit.sizeBytes != null -> Triple(unit.kind, unit.name, unit.sizeBytes)
+        unit.kind == io.github.kgcaudit.reader.document.comic.ComicUnitKind.IMAGE_FOLDER.name && unit.pageCount != null ->
+            Triple(unit.kind, unit.name, -unit.pageCount.toLong() - 1)
+        else -> null
+    }
+
+    /**
+     * 단위 id 에 걸린 손 고침을 새 id 로: 작품에서 뺀 권(`WORK_OF` 주어 · [ComicLibrary.OWN_PREFIX] 작품 열쇠)과 같은 권 여러
+     * 사본 중 고른 것(`PREFERRED` 값). 이름에서 나온 작품 열쇠는 옮길 것이 없다. 새 id 에 이미 같은 손 고침이 있으면 그것을 둔다.
+     */
+    private suspend fun moveOverrides(oldId: String, newId: String) {
+        val comics = db.comics()
+        val rows = comics.allOverrides()
+        val have = rows.mapTo(HashSet()) { it.kind to it.subject }
+        val oldOwn = ComicLibrary.OWN_PREFIX + oldId
+        val newOwn = ComicLibrary.OWN_PREFIX + newId
+        for (r in rows) {
+            val subject = when (r.subject) {
+                oldId -> newId
+                oldOwn -> newOwn
+                else -> r.subject
+            }
+            val value = when (r.value) {
+                oldId -> newId
+                oldOwn -> newOwn
+                else -> r.value
+            }
+            if (subject == r.subject && value == r.value) continue
+            if (subject != r.subject) {
+                comics.clearOverride(r.kind, r.subject)
+                if ((r.kind to subject) in have) continue
+            }
+            comics.setOverride(ComicOverrideEntity(r.kind, subject, value))
+        }
+    }
 
     private suspend fun targetsOf(record: BookRecord): List<BookEntity> {
         val size = record.sizeBytes

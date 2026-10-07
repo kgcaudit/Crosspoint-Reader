@@ -103,6 +103,18 @@ class AppContainer(private val app: Application) {
         extract = ::extractCover,
     )
 
+    init {
+        // 옮긴 파일의 기록을 이으면(0.50.0) 고른 표지도 따라간다. 따로 뺀 만화 작품의 표지는 작품 열쇠에 단위 주소가 들어 있어
+        // 함께 옮긴다.
+        data.onMoved = { moved ->
+            val own = io.github.kgcaudit.reader.data.library.ComicLibrary.OWN_PREFIX
+            covers.moveCustom(
+                moved.books.map { (a, b) -> BookId(a) to BookId(b) } +
+                    moved.comics.map { (a, b) -> CoverStore.workId(own + a) to CoverStore.workId(own + b) },
+            )
+        }
+    }
+
     /**
      * 본문 글꼴(휴대폰 글꼴 + 사용자 글꼴). 사용자가 넣은 폰트는 앱 파일 영역에 둔다 — 캐시
      * 영역이면 저장 공간이 부족할 때 시스템이 지운다.
