@@ -6,6 +6,7 @@ import android.util.LruCache
 import io.github.kgcaudit.reader.data.ComicPages
 import io.github.kgcaudit.reader.document.comic.ComicUnit
 import io.github.kgcaudit.reader.document.comic.MarginTrim
+import io.github.kgcaudit.reader.document.comic.SpreadSplit
 import io.github.kgcaudit.reader.document.image.ImageSize
 import io.github.kgcaudit.reader.ui.design.sampleKeeping
 import kotlinx.coroutines.Dispatchers
@@ -20,6 +21,74 @@ import kotlin.math.ceil
  * 쪽은 늘 **화면에 맞는 크기로** 푼다. 스캔본 한 쪽(2000×3000)을 통째로 풀면 24MB 라 서너 장이면 메모리가 모자란다.
  * 확대는 푼 그림을 늘린다 — 화면 크기로 풀어도 두 배까지는 또렷하고, 더 크게 보는 일은 드물다.
  */
+/**
+ * 쪽 넘김 뷰어가 그리는 쪽들(0.50.0). 책의 쪽 그대로([ComicBook])이거나, 펼침면을 반으로 나눈 조각들([SplitPages]).
+ */
+interface ComicPageSource {
+    val pageCount: Int
+
+    /** 메모리에 있으면 기다리지 않고 준다. */
+    fun cached(index: Int, width: Int, height: Int, trim: Boolean = false): Bitmap?
+
+    /** [index] 를 [width]×[height] 안에 들어가게 그린다. 그림이 아니면 null. */
+    suspend fun page(index: Int, width: Int, height: Int, trim: Boolean = false): Bitmap?
+
+    fun isBroken(index: Int): Boolean
+
+    /** 붙잡아 둘 것(지금 판과 앞뒤 판). */
+    fun pin(indices: Set<Int>)
+
+    fun knownAspect(index: Int): Float?
+
+    fun trimmedAspect(index: Int): Float?
+}
+
+/**
+ * 펼침면을 반으로 나눈 조각들(0.50.0, [SpreadSplit]). 반 조각은 펼침면 전체를 화면 폭의 두 배로 풀어(여백 자르기도 펼침면에
+ * 한 번) 반을 잘라 낸다 — 화면 폭으로 풀어 반을 늘리면 글자가 흐려졌다. 나머지 일(풀기 · 깨진 쪽 · 붙잡기)은 책에 맡긴다.
+ */
+class SplitPages(private val base: ComicBook, private val parts: List<SpreadSplit.Part>) : ComicPageSource {
+    override val pageCount: Int get() = parts.size
+
+    private val halves = object : LruCache<String, Bitmap>(ComicBook.memoryBudget() / 4) {
+        override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
+    }
+    private val halfAspects = java.util.concurrent.ConcurrentHashMap<Int, Float>()
+
+    private fun key(index: Int, width: Int, height: Int, trim: Boolean) = "$index|$width|$height|$trim"
+
+    override fun cached(index: Int, width: Int, height: Int, trim: Boolean): Bitmap? {
+        val part = parts.getOrNull(index) ?: return null
+        return if (part.half == SpreadSplit.Half.WHOLE) base.cached(part.page, width, height, trim) else halves.get(key(index, width, height, trim))
+    }
+
+    override suspend fun page(index: Int, width: Int, height: Int, trim: Boolean): Bitmap? {
+        val part = parts.getOrNull(index) ?: return null
+        if (part.half == SpreadSplit.Half.WHOLE) return base.page(part.page, width, height, trim)
+        halves.get(key(index, width, height, trim))?.let { return it }
+        val full = base.page(part.page, width * 2, height, trim) ?: return null
+        val half = (full.width / 2).coerceAtLeast(1)
+        val cut = Bitmap.createBitmap(full, if (part.half == SpreadSplit.Half.LEFT) 0 else full.width - half, 0, half, full.height)
+        halfAspects[index] = cut.width.toFloat() / cut.height
+        halves.put(key(index, width, height, trim), cut)
+        return cut
+    }
+
+    override fun isBroken(index: Int): Boolean = parts.getOrNull(index)?.let { base.isBroken(it.page) } ?: false
+
+    override fun pin(indices: Set<Int>) = base.pin(indices.mapNotNullTo(HashSet()) { parts.getOrNull(it)?.page })
+
+    override fun knownAspect(index: Int): Float? {
+        val part = parts.getOrNull(index) ?: return null
+        return base.knownAspect(part.page)?.let { if (part.half == SpreadSplit.Half.WHOLE) it else it / 2 }
+    }
+
+    override fun trimmedAspect(index: Int): Float? {
+        val part = parts.getOrNull(index) ?: return null
+        return if (part.half == SpreadSplit.Half.WHOLE) base.trimmedAspect(part.page) else halfAspects[index]
+    }
+}
+
 class ComicBook(
     val unit: ComicUnit,
     private val pages: ComicPages,
@@ -29,8 +98,8 @@ class ComicBook(
     budget: Int = memoryBudget(),
     /** 띠를 풀기 전에 기다리는 시간(ms). 시험만 쓴다(`AppContainer.comicStripDelayMs`). */
     private val stripDelayMs: () -> Long = { 0L },
-) : AutoCloseable {
-    val pageCount: Int get() = pages.count
+) : AutoCloseable, ComicPageSource {
+    override val pageCount: Int get() = pages.count
 
     /** 압축 읽기는 한 번에 하나(같은 파일 위치를 옮겨 다닌다). 풀기도 함께 세워 메모리 꼭대기를 낮춘다. */
     private val lock = Mutex()
@@ -40,13 +109,13 @@ class ComicBook(
     private val aspects = java.util.concurrent.ConcurrentHashMap<Int, Float>()
     private val broken = java.util.concurrent.ConcurrentHashMap.newKeySet<Int>()
 
-    fun cached(index: Int, width: Int, height: Int, trim: Boolean = false): Bitmap? = key(index, width, height, trim).let { k -> bitmaps.get(k) ?: pinned[k] }
+    override fun cached(index: Int, width: Int, height: Int, trim: Boolean): Bitmap? = key(index, width, height, trim).let { k -> bitmaps.get(k) ?: pinned[k] }
 
     /**
      * 붙잡아 둘 쪽(지금 판과 앞뒤 판). 저장소(LRU)가 내보내도 이 쪽들의 그림은 놓지 않는다 — 넘김 효과가 끝나 화면을 다시
      * 짤 때 그 쪽이 저장소에 없으면 다시 풀릴 때까지 한 장면 동안 비어 깜박였다(0.45.1, 태블릿 두 쪽).
      */
-    fun pin(indices: Set<Int>) {
+    override fun pin(indices: Set<Int>) {
         pinnedPages = indices
         pinned.keys.removeAll { k -> pageOf(k) !in indices }
         bitmaps.snapshot().forEach { (k, v) -> if (pageOf(k) in indices) pinned[k] = v }
@@ -56,23 +125,23 @@ class ComicBook(
     private val pinned = java.util.concurrent.ConcurrentHashMap<String, Bitmap>()
 
     /** 이미 아는 쪽 가로/세로 비. 모르면 null(아직 열지 않은 쪽). */
-    fun knownAspect(index: Int): Float? = aspects[index]
+    override fun knownAspect(index: Int): Float? = aspects[index]
 
     /**
      * 여백을 걷어 낸 쪽의 비(0.49.0). 아직 풀지 않았으면 null. 걷을 것이 없던 쪽은 원래 비와 같다 — 판 배치가 원본 머리의
      * 비를 쓰면 잘린 그림이 옆으로 늘어나 보인다.
      */
-    fun trimmedAspect(index: Int): Float? = trimmedAspects[index]
+    override fun trimmedAspect(index: Int): Float? = trimmedAspects[index]
     private val trimmedAspects = java.util.concurrent.ConcurrentHashMap<Int, Float>()
 
     /** 그림으로 읽히지 않는 쪽(깨진 그림 · 사라진 항목). 다시 풀려고 애쓰지 않는다. */
-    fun isBroken(index: Int): Boolean = index in broken
+    override fun isBroken(index: Int): Boolean = index in broken
 
     /**
      * [index] 쪽을 [width]×[height] 안에 들어가게 푼다. 그림이 아니면 null — 화면은 "이 쪽을 그리지 못했습니다" 를 보이고
      * 다음 쪽으로 넘어갈 수 있다(깨진 쪽 하나가 권 전체를 막지 않는다, 규칙 6).
      */
-    suspend fun page(index: Int, width: Int, height: Int, trim: Boolean = false): Bitmap? = withContext(Dispatchers.IO) {
+    override suspend fun page(index: Int, width: Int, height: Int, trim: Boolean): Bitmap? = withContext(Dispatchers.IO) {
         if (index !in 0 until pageCount || width <= 0 || height <= 0) return@withContext null
         cached(index, width, height, trim)?.let { return@withContext it }
         if (index in broken) return@withContext null

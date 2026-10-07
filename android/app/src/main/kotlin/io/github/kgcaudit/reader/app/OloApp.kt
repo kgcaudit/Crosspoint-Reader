@@ -425,6 +425,7 @@ class PrefsStore(context: Context) {
             twoPagesPortrait = sp.getBoolean(KEY_TWO_PAGES_PORTRAIT, d.twoPagesPortrait),
             pdfCoverAlone = sp.getBoolean(KEY_PDF_COVER_ALONE, d.pdfCoverAlone),
             comicTrimMargins = sp.getBoolean(KEY_COMIC_TRIM, d.comicTrimMargins),
+            comicSplitSpreads = sp.getBoolean(KEY_COMIC_SPLIT, d.comicSplitSpreads),
             pageTurn = pageTurn(),
             turnSound = enumOf(KEY_TURN_SOUND, d.turnSound),
             turnHaptic = sp.getBoolean(KEY_TURN_HAPTIC, d.turnHaptic),
@@ -487,6 +488,7 @@ class PrefsStore(context: Context) {
             .putBoolean(KEY_TWO_PAGES_PORTRAIT, prefs.screen.twoPagesPortrait)
             .putBoolean(KEY_PDF_COVER_ALONE, prefs.screen.pdfCoverAlone)
             .putBoolean(KEY_COMIC_TRIM, prefs.screen.comicTrimMargins)
+            .putBoolean(KEY_COMIC_SPLIT, prefs.screen.comicSplitSpreads)
             .putString(KEY_PAGE_TURN, prefs.screen.pageTurn.name)
             .putString(KEY_TURN_SOUND, prefs.screen.turnSound.name)
             .putBoolean(KEY_TURN_HAPTIC, prefs.screen.turnHaptic)
@@ -563,6 +565,7 @@ class PrefsStore(context: Context) {
         private const val KEY_TWO_PAGES_PORTRAIT = "twoPagesPortraitV2"
         private const val KEY_PDF_COVER_ALONE = "pdfCoverAlone"
         private const val KEY_COMIC_TRIM = "comicTrimMargins"
+        private const val KEY_COMIC_SPLIT = "comicSplitSpreads"
         private const val KEY_PAGE_TURN = "pageTurnV2"
         /** 0.31 까지의 넘김 효과 — 읽기만 한다([pageTurn]). */
         private const val KEY_PAGE_TURN_OLD = "pageTurn"

@@ -10,7 +10,6 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.flow.first
@@ -166,6 +165,9 @@ class ComicSpreadAppTest {
     }
 
     @Test
+    // 가로 태블릿에서 잰다 — 가로 휴대폰은 보기 판이 굴러야 이 줄이 보이는데(0.50.0 에 펼침면 나누기 줄이 더해졌다), 그 굴리기가
+    // 시험 힙을 넘겨 시험 프로세스가 통째로 죽었다(아래 시험과 같은 사정).
+    @Config(qualifiers = "w1280dp-h800dp-mdpi")
     fun `two pages can be turned off from the view panel`() {
         openVolume()
         waitFor(page("1"))
