@@ -118,6 +118,17 @@ class PrefsStoreTest {
     }
 
     @Test
+    fun `the comic colour correction is saved by name and a broken value opens uncorrected`() {
+        // 고른 값은 다시 켜도 남는다 — 새 저장소로 읽어 열쇠가 저장 · 읽기에서 같은지까지 본다.
+        val store = PrefsStore(context)
+        store.save(ReaderPrefs(screen = io.github.kgcaudit.reader.ui.design.ScreenPrefs(comicColor = io.github.kgcaudit.reader.ui.design.ComicColor.Gray)))
+        assertEquals(io.github.kgcaudit.reader.ui.design.ComicColor.Gray, PrefsStore(context).load().screen.comicColor)
+        // 모르는 이름(손으로 고친 백업 · 나중 판의 값)은 끔 — 엉뚱한 보정이 씌워지거나 만화가 안 열리면 안 된다(규칙 6).
+        context.getSharedPreferences("reader", Context.MODE_PRIVATE).edit().putString("comicColor", "Sepia").commit()
+        assertEquals(io.github.kgcaudit.reader.ui.design.ComicColor.Off, PrefsStore(context).load().screen.comicColor)
+    }
+
+    @Test
     fun `an unfolded phone shows two upright pages even for a reader who saved settings before 0_30`() {
         // 0.29 까지는 설정을 저장할 때마다 "세로 두 쪽 = 끔" 이 적혔다. 그 값을 그대로 읽으면 올려 받은 사람은
         // 폴더블을 펼쳐도 한 쪽에 긴 줄로 읽는다 — 휴대폰에서는 고를 수도 없던 값인데.

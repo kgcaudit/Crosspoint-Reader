@@ -56,6 +56,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -87,6 +88,8 @@ import io.github.kgcaudit.reader.document.comic.Work
 import io.github.kgcaudit.reader.document.comic.WorkEntry
 import io.github.kgcaudit.reader.pdf.PageViewport
 import io.github.kgcaudit.reader.ui.design.CpBrightnessRow
+import io.github.kgcaudit.reader.ui.design.ComicColor
+import io.github.kgcaudit.reader.ui.design.colorFilter
 import io.github.kgcaudit.reader.ui.design.CpTwoPageRows
 import io.github.kgcaudit.reader.ui.design.CpReaderKind
 import io.github.kgcaudit.reader.ui.design.CpAutoTurnPill
@@ -207,6 +210,9 @@ fun ComicReader(
     val trim = prefs.comicTrimMargins
     // 펼침면 나누기(0.50.0, 사용자 결정 3): 한 쪽 보기에서만. 두 쪽 보기에서는 펼침면이 원래 한 판이다.
     val split = prefs.comicSplitSpreads && !two
+    // 색 보정(사용자 결정 2-1): 그리는 단계의 거르개라 풀어 둔 그림 · 여백 자르기 분석 · 그림 저장소는 그대로 — 켜고 끌 때
+    // 다시 풀지 않는다. 끔은 null(거르지 않음).
+    val color = prefs.comicColor.colorFilter
     val parts = remember(split, sizes, rtl, bookCount) {
         if (split) SpreadSplit.parts(List(bookCount) { sizes.getOrNull(it) }, rtl) else SpreadSplit.whole(bookCount)
     }
@@ -386,7 +392,7 @@ fun ComicReader(
                         mirrored = rtl,
                     ) { index ->
                         Box(Modifier.fillMaxSize().background(COMIC_BACKDROP)) {
-                            spreads.getOrNull(index)?.let { ComicPageImage(pages, partSizes, it, w, h, if (index == spreadIndex) viewport else null, rtl, bias, slotOf(index), trim) }
+                            spreads.getOrNull(index)?.let { ComicPageImage(pages, partSizes, it, w, h, if (index == spreadIndex) viewport else null, rtl, bias, slotOf(index), trim, color) }
                         }
                     }
                 } else if (w > 0 && h > 0 && count > 0) {
@@ -398,7 +404,7 @@ fun ComicReader(
                             val offset = if (k == 0) 0f else k * nextSide * stepTo(spreadIndex + k)
                             key(spreadIndex + k) {
                                 Box(Modifier.fillMaxSize().graphicsLayer { translationX = slide.value + offset; alpha = if (k == 0 || slide.value != 0f) 1f else 0f }) {
-                                    ComicPageImage(pages, partSizes, spread, w, h, if (k == 0) viewport else null, rtl, bias, slotOf(spreadIndex + k), trim)
+                                    ComicPageImage(pages, partSizes, spread, w, h, if (k == 0) viewport else null, rtl, bias, slotOf(spreadIndex + k), trim, color)
                                 }
                             }
                         }
@@ -546,6 +552,7 @@ fun ComicReader(
                         CpChoice("여백 자르기", listOf("켬", "끔"), if (prefs.comicTrimMargins) 0 else 1, { onPrefsChange(prefs.copy(comicTrimMargins = it == 0)) })
                         // 펼침면 나누기(0.50.0) — 여백 자르기와 같은 "쪽 그림 다듬기" 무리라 바로 아래에, 같은 켬 · 끔 차례로.
                         CpChoice("펼침면 나누기", listOf("켬", "끔"), if (prefs.comicSplitSpreads) 0 else 1, { onPrefsChange(prefs.copy(comicSplitSpreads = it == 0)) })
+                        ComicColorChoice(prefs, onPrefsChange)
                         // 책 · PDF 와 같은 두 줄(0.42.0).
                         CpTwoPageRows(prefs, onPrefsChange)
                         CpBrightnessRow(prefs.brightness, { onPrefsChange(prefs.copy(brightness = it)) })
@@ -595,6 +602,16 @@ internal fun objectParticle(word: String): String {
     return if (batchim) "을" else "를"
 }
 
+/**
+ * 보기 판의 "색 보정" 줄: 끔 · 선명하게 · 흑백(사용자 결정 2-1). 쪽 넘김과 웹툰이 같은 줄 · 같은 설정을 쓴다(결정 2-2) —
+ * 만화마다 · 보는 방식마다 따로 고르게 하면 같은 스캔본을 웹툰으로 바꿔 볼 때 다시 누렇다.
+ */
+@Composable
+internal fun ComicColorChoice(prefs: ScreenPrefs, onPrefsChange: (ScreenPrefs) -> Unit) {
+    val modes = ComicColor.entries
+    CpChoice("색 보정", modes.map { it.label }, modes.indexOf(prefs.comicColor), { onPrefsChange(prefs.copy(comicColor = modes[it])) })
+}
+
 /** 보기 판의 "보는 방식" 줄: 자동 · 쪽 넘김 · 웹툰. 고른 값은 작품마다 기억한다(결정 2). */
 @Composable
 internal fun ViewChoice(view: ComicView?, onView: (ComicView?) -> Unit) {
@@ -604,10 +621,10 @@ internal fun ViewChoice(view: ComicView?, onView: (ComicView?) -> Unit) {
 
 /**
  * 한 판(쪽 하나 · 둘)의 그림. [viewport] 가 없으면(옆에 붙은 판 · 크기를 아직 모름) 화면에 맞춰 가운데. [rtl] 이면 두 쪽의
- * 앞 쪽을 오른쪽에 둔다.
+ * 앞 쪽을 오른쪽에 둔다. [color] 는 색 보정 거르개(끔이면 null).
  */
 @Composable
-private fun ComicPageImage(book: ComicPageSource, sizes: List<ImageSize?>, pages: List<Int>, w: Int, h: Int, viewport: PageViewport?, rtl: Boolean, bias: Float, slot: SpreadSlot, trim: Boolean) {
+private fun ComicPageImage(book: ComicPageSource, sizes: List<ImageSize?>, pages: List<Int>, w: Int, h: Int, viewport: PageViewport?, rtl: Boolean, bias: Float, slot: SpreadSlot, trim: Boolean, color: ColorFilter?) {
     val bitmaps = remember(pages, w, h, trim) { androidx.compose.runtime.mutableStateListOf(*pages.map { book.cached(it, w, h, trim) }.toTypedArray()) }
     var broken by remember(pages, w, h, trim) { mutableStateOf(pages.any { book.isBroken(it) }) }
     LaunchedEffect(pages, w, h, trim) {
@@ -648,6 +665,7 @@ private fun ComicPageImage(book: ComicPageSource, sizes: List<ImageSize?>, pages
                         dstOffset = IntOffset(x.roundToInt(), vp.top.roundToInt()),
                         dstSize = IntSize(pw.roundToInt(), vp.height.roundToInt()),
                         filterQuality = FilterQuality.Medium,
+                        colorFilter = color,
                     )
                 }
                 x += pw

@@ -82,6 +82,7 @@ import io.github.kgcaudit.reader.ui.design.bookmarkMessage
 import io.github.kgcaudit.reader.ui.design.BOOKMARK_CORNER
 import io.github.kgcaudit.reader.ui.design.CpAutoScrollPill
 import io.github.kgcaudit.reader.ui.design.CpBrightnessRow
+import io.github.kgcaudit.reader.ui.design.colorFilter
 import io.github.kgcaudit.reader.ui.design.CpButton
 import io.github.kgcaudit.reader.ui.design.CpFullScreen
 import io.github.kgcaudit.reader.ui.design.CpHeader
@@ -522,7 +523,8 @@ fun WebtoonReader(
                     items(cells, key = { it.key }) { c ->
                         val h = with(density) { c.height.toDp() }
                         when (c) {
-                            is Strip -> StripView(c.episode.book, c, colW, Modifier.width(with(density) { colW.toDp() }).height(h))
+                            // 색 보정은 쪽 넘김과 같은 설정(사용자 결정 2-2).
+                            is Strip -> StripView(c.episode.book, c, colW, prefs.comicColor.colorFilter, Modifier.width(with(density) { colW.toDp() }).height(h))
                             is Seam -> SeamView(c.before.entry?.label, c.after, work, Modifier.fillMaxWidth().height(h))
                         }
                     }
@@ -631,6 +633,8 @@ fun WebtoonReader(
                                     onPrefsChange(prefs.withWebtoonPercent(wide, it))
                                 },
                             )
+                            // 쪽 넘김의 "색 보정" 과 같은 줄 · 같은 설정(사용자 결정 2-2). 그림 폭과 같은 "그림 다듬기" 무리라 그 아래에.
+                            ComicColorChoice(prefs, onPrefsChange)
                             CpBrightnessRow(prefs.brightness, { onPrefsChange(prefs.copy(brightness = it)) })
                             CpLinkRow("모든 보기 설정", "", { panel = WebtoonPanel.Settings })
                         }
@@ -728,9 +732,9 @@ private fun EpisodeThumb(entry: WorkEntry) {
     }
 }
 
-/** 띠 하나. 풀리기 전에는 바탕만 — 높이는 이미 알아서 목록이 출렁이지 않는다. */
+/** 띠 하나. 풀리기 전에는 바탕만 — 높이는 이미 알아서 목록이 출렁이지 않는다. [color] 는 색 보정 거르개(끔이면 null). */
 @Composable
-private fun StripView(book: ComicBook, strip: Strip, width: Int, modifier: Modifier) {
+private fun StripView(book: ComicBook, strip: Strip, width: Int, color: androidx.compose.ui.graphics.ColorFilter?, modifier: Modifier) {
     val rows = strip.rows
     // 그림은 띠마다 하나만 쥐고, 폭이 바뀌면 새 폭의 그림이 풀릴 때까지 옛 그림을 새 칸 크기로 늘려 그린다. 폭마다 비우면
     // 그림 폭을 바꿀 때 풀리는 동안(수십 ms) 칸이 비어 화면이 깜박였다.
@@ -757,6 +761,7 @@ private fun StripView(book: ComicBook, strip: Strip, width: Int, modifier: Modif
                 b.asImageBitmap(),
                 dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()),
                 filterQuality = androidx.compose.ui.graphics.FilterQuality.Medium,
+                colorFilter = color,
             )
         }
         if (broken) CpText("이 그림을 그리지 못했습니다", CpTheme.type.subtitle, COMIC_INK_MUTED, Modifier.align(Alignment.Center))
