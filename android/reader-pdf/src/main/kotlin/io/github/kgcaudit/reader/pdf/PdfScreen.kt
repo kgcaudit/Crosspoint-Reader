@@ -112,6 +112,8 @@ import io.github.kgcaudit.reader.ui.design.CpAutoTurnPill
 import io.github.kgcaudit.reader.ui.design.rememberAutoTurn
 import io.github.kgcaudit.reader.ui.design.rememberPageTurnState
 import io.github.kgcaudit.reader.ui.design.visible
+import io.github.kgcaudit.reader.ui.design.running
+import io.github.kgcaudit.reader.ui.design.ReadingDwellEffect
 import io.github.kgcaudit.reader.ui.design.ScreenPrefs
 import io.github.kgcaudit.reader.ui.design.TapAction
 import io.github.kgcaudit.reader.ui.design.VolumeKeyPaging
@@ -177,19 +179,6 @@ fun PdfScreen(
     val latestPrefs by androidx.compose.runtime.rememberUpdatedState(prefs)
     val context = androidx.compose.ui.platform.LocalContext.current
     var speedRevision by remember { mutableIntStateOf(0) }
-    // 읽는 속도: 앞으로 넘길 때마다 방금 본 쪽 수와 머문 시간으로 잰다.
-    val turn = remember { longArrayOf(0L, -1L, 0L) } // [시각, 첫 쪽, 쪽 수]
-    LaunchedEffect(state.page) {
-        if (!state.ready) return@LaunchedEffect
-        val now = System.currentTimeMillis()
-        if (turn[1] >= 0 && state.page > turn[1] && speed.record(turn[2].toDouble(), now - turn[0])) {
-            onSpeedChange(speed)
-            speedRevision++
-        }
-        turn[0] = now
-        turn[1] = state.page.toLong()
-        turn[2] = state.shown.size.toLong()
-    }
 
     ReadingWindow(
         prefs.copy(brightness = dragBrightness ?: prefs.brightness),
@@ -529,6 +518,20 @@ fun PdfScreen(
         val autoSuspended = panel != PdfPanel.None || heard.active || text.selection != null || text.memo != null
         // 자동 넘김은 효과만 — 손을 대지 않았는데 소리가 나면 놀란다.
         val autoTurn = rememberAutoTurn(prefs.autoTurn, state.page, autoSuspended) { advance(true, quiet = true) }
+        // 읽는 속도(E5): 사람이 읽고 한 쪽(두쪽이면 펼침) 넘긴 것만 그 쪽 수와 머문 시간으로 잰다. 자동 넘김 · 듣기가 넘긴 쪽,
+        // 목차 · 찾기 · 진행 막대로 건너뛴 쪽은 뺀다(TurnSampler). 다음 펼침은 보이던 마지막 쪽 바로 뒤에서 시작한다.
+        ReadingDwellEffect(
+            book = reader,
+            key = state.shown.takeIf { state.ready && it.isNotEmpty() },
+            units = state.shown.size.toDouble(),
+            driven = heard.active || autoTurn.running(prefs.autoTurn),
+            isNext = { before, after -> after.first() == before.last() + 1 },
+        ) { read ->
+            if (speed.record(read.units, read.millis)) {
+                onSpeedChange(speed)
+                speedRevision++
+            }
+        }
         val lift = if (heard.active || autoTurn.visible(prefs.autoTurn, autoSuspended)) 124.dp else 64.dp
         if (panel == PdfPanel.None) {
             if (heard.active) {

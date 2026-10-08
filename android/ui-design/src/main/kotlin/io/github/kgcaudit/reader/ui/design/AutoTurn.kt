@@ -91,6 +91,12 @@ internal suspend fun AutoTurnState.countDown(onScreen: suspend () -> Unit) {
     }
 }
 
+/**
+ * 자동 넘김이 이 책에서 쪽을 넘기는 중인가: 켜져 있고 ⏸ · ✕ 로 세우지 않았다. 메뉴가 열려 잠깐 쉬는 동안도 넘기는 중으로 본다 —
+ * 그 쪽에 머문 시간은 사람이 읽은 시간이 아니라 고른 초에 묶여 있다(읽는 속도에 넣지 않는다).
+ */
+fun AutoTurnState.running(setting: AutoTurn): Boolean = setting != AutoTurn.Off && !stopped && !paused
+
 /** 알약이 보일 때: 켜져 있고, ✕ 로 끄지 않았고, 메뉴 · 듣기 중이 아닐 때. */
 fun AutoTurnState.visible(setting: AutoTurn, suspended: Boolean): Boolean = setting != AutoTurn.Off && !stopped && !suspended
 

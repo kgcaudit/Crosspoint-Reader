@@ -23,7 +23,9 @@ import io.github.kgcaudit.reader.listen.Listening
 import io.github.kgcaudit.reader.listen.VoiceScreen
 import io.github.kgcaudit.reader.ui.design.CpAutoTurnPill
 import io.github.kgcaudit.reader.ui.design.rememberAutoTurn
+import io.github.kgcaudit.reader.ui.design.running
 import io.github.kgcaudit.reader.ui.design.visible
+import io.github.kgcaudit.reader.ui.design.ReadingDwellEffect
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -289,22 +291,6 @@ fun ReaderScreen(
         search.current = index
         panel = Panel.None
         scope.go { reader.goTo(found.hit) }
-    }
-
-    // 읽는 속도: 앞으로 넘길 때마다 방금 읽은 쪽(두쪽이면 두 쪽)의 글자 수와 머문 시간으로 잰다.
-    val turn = remember { TurnClock() }
-    LaunchedEffect(state.position?.spineIndex, state.position?.pageIndex) {
-        val p = state.position ?: return@LaunchedEffect
-        val now = System.currentTimeMillis()
-        val here = p.spineIndex to p.pageIndex
-        val before = turn.key
-        if (before != null && isAfter(here, before) && speed.record(turn.chars.toDouble(), now - turn.at)) {
-            onSpeedChange(speed)
-            speedRevision++
-        }
-        turn.key = here
-        turn.at = now
-        turn.chars = listOfNotNull(state.page, state.rightPage).sumOf { it.endCharExclusive - it.startChar }
     }
 
     LaunchedEffect(panel) { onChrome(panel != Panel.None) }
@@ -720,6 +706,20 @@ fun ReaderScreen(
             turns.request(quiet = true)
             scope.go { reader.next() }
         }
+        // 읽는 속도(E5): 사람이 읽고 한 쪽(두쪽이면 펼침) 넘긴 것만 그 글자 수와 머문 시간으로 잰다. 자동 넘김 · 듣기가 넘긴
+        // 쪽, 목차 · 찾기 · 진행 막대로 건너뛴 쪽은 뺀다(TurnSampler).
+        ReadingDwellEffect(
+            book = reader,
+            key = state.position?.let { ShownPages(it, state.spread, state.spec) },
+            units = listOfNotNull(state.page, state.rightPage).sumOf { it.endCharExclusive - it.startChar }.toDouble(),
+            driven = listen.active || autoTurn.running(prefs.screen.autoTurn),
+            isNext = ShownPages::isFollowedBy,
+        ) { read ->
+            if (speed.record(read.units, read.millis)) {
+                onSpeedChange(speed)
+                speedRevision++
+            }
+        }
         val lift = if (listen.active || autoTurn.visible(prefs.screen.autoTurn, autoSuspended)) 124.dp else 64.dp
         if (panel == Panel.None) {
             if (listen.active) {
@@ -912,13 +912,6 @@ private data class PageFrame(
     val rightImages: Map<PlacedImage, ImageBitmap>,
     val painter: io.github.kgcaudit.reader.text.AndroidTextMeasurer?,
 )
-
-/** 마지막으로 쪽이 바뀐 때 · 그 쪽 · 그 쪽의 글자 수. */
-private class TurnClock {
-    var at = 0L
-    var key: Pair<Int, Int>? = null
-    var chars = 0
-}
 
 /** (장, 쪽) 이 [other] 보다 뒤인가. */
 private fun isAfter(here: Pair<Int, Int>, other: Pair<Int, Int>): Boolean =
