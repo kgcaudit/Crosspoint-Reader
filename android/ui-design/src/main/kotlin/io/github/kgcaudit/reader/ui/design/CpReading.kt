@@ -80,6 +80,15 @@ fun CpRibbon(modifier: Modifier = Modifier) {
 }
 
 /**
+ * 책갈피를 꽂거나 뺀 뒤의 알림. 책 · PDF · 만화가 같은 말을 쓴다 — 리더마다 말이 다르면 같은 동작이 다른 것으로 읽힌다.
+ * @param bookmarked 누른 **뒤** 책갈피가 꽂혀 있는가.
+ */
+fun bookmarkMessage(bookmarked: Boolean): String = if (bookmarked) "책갈피를 꽂았습니다" else "책갈피를 뺐습니다"
+
+/** 형광펜을 숨긴 채 칠하거나 메모했을 때. 아무 일도 없어 보이면 저장이 안 된 줄 안다(책 · PDF 가 함께 쓴다). */
+const val HIDDEN_HIGHLIGHT_HINT = "형광펜을 숨겨 둔 상태라 보이지 않습니다. 보기 설정에서 켤 수 있습니다."
+
+/**
  * 잠깐 떴다 사라지는 안내("책갈피를 꽂았습니다"). [message] 가 null 이 아니면 보이고, [durationMs] 뒤
  * [onDone] 을 부른다. 같은 말을 연달아 띄우려면 부르는 쪽이 [key] 를 바꾼다.
  *

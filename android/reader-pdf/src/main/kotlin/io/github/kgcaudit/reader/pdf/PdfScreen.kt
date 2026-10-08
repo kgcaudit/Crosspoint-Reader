@@ -31,6 +31,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import io.github.kgcaudit.reader.ui.design.HIDDEN_HIGHLIGHT_HINT
+import io.github.kgcaudit.reader.ui.design.bookmarkMessage
 import io.github.kgcaudit.reader.ui.design.BOOKMARK_CORNER
 import io.github.kgcaudit.reader.ui.design.CpTocList
 import io.github.kgcaudit.reader.ui.design.CpTocRow
@@ -207,7 +209,7 @@ fun PdfScreen(
     }
     fun toggleBookmark() = scope.go {
         reader.toggleBookmark()
-        say(if (reader.state.value.bookmarked) "책갈피를 꽂았습니다" else "책갈피를 뺐습니다")
+        say(bookmarkMessage(reader.state.value.bookmarked))
     }
 
     // ── 글자 층(4단계 PDF): 찾기 · 고르기 · 칠 · 듣기 ─────────────────────
@@ -232,7 +234,7 @@ fun PdfScreen(
         }
     }
     fun hiddenHint() {
-        if (!latestPrefs.showHighlights) say("형광펜을 숨겨 둔 상태라 보이지 않습니다. 보기 설정에서 켤 수 있습니다.")
+        if (!latestPrefs.showHighlights) say(HIDDEN_HIGHLIGHT_HINT)
     }
     fun longPress(at: Offset) {
         if (!reader.readsText) return

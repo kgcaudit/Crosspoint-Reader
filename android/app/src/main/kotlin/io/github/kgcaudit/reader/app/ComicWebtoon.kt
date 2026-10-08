@@ -78,6 +78,7 @@ import io.github.kgcaudit.reader.document.comic.WebtoonColumn
 import io.github.kgcaudit.reader.document.comic.Work
 import io.github.kgcaudit.reader.document.comic.WorkEntry
 import io.github.kgcaudit.reader.document.image.ImageSize
+import io.github.kgcaudit.reader.ui.design.bookmarkMessage
 import io.github.kgcaudit.reader.ui.design.BOOKMARK_CORNER
 import io.github.kgcaudit.reader.ui.design.CpAutoScrollPill
 import io.github.kgcaudit.reader.ui.design.CpBrightnessRow
@@ -422,7 +423,7 @@ fun WebtoonReader(
             scope.launch { list.animateScrollBy((if (forward) 1 else -1) * viewH / zoom * SCREEN_STEP) }
         }
         fun toggleBookmark() {
-            say(if (bookmarked) "책갈피를 뺐습니다" else "책갈피를 꽂았습니다")
+            say(bookmarkMessage(!bookmarked))
             onBookmark(here.unitId, current)
         }
         // 손짓 처리기는 한 번 만들어 계속 쓴다 — 그 안에서 지금 값(목록 · 지금 그림 · 기둥 폭)을 바로 읽으면 처음 값에 묶인다.

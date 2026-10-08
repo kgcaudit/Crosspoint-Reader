@@ -1,5 +1,7 @@
 package io.github.kgcaudit.reader.reflow
 
+import io.github.kgcaudit.reader.ui.design.HIDDEN_HIGHLIGHT_HINT
+import io.github.kgcaudit.reader.ui.design.bookmarkMessage
 import io.github.kgcaudit.reader.ui.design.BOOKMARK_CORNER
 import io.github.kgcaudit.reader.ui.design.CpTocList
 import io.github.kgcaudit.reader.ui.design.CpTocRow
@@ -191,7 +193,7 @@ fun ReaderScreen(
     }
     // 형광펜을 숨긴 채 칠하면 아무 일도 없어 보인다 — 저장은 됐다고 알린다.
     fun hiddenHint() {
-        if (!latestPrefs.screen.showHighlights) say("형광펜을 숨겨 둔 상태라 보이지 않습니다. 보기 설정에서 켤 수 있습니다.")
+        if (!latestPrefs.screen.showHighlights) say(HIDDEN_HIGHLIGHT_HINT)
     }
 
     // ── 듣기(4단계) ── PDF 와 같은 연결(rememberListenHookup). 시작 자리 · 보이는 쪽 알리기만 여기서 정한다.
@@ -245,7 +247,7 @@ fun ReaderScreen(
     }
     fun toggleBookmark() = scope.go {
         reader.toggleBookmark()
-        toast = if (reader.state.value.bookmarked) "책갈피를 꽂았습니다" else "책갈피를 뺐습니다"
+        toast = bookmarkMessage(reader.state.value.bookmarked)
         toastCount++
     }
 

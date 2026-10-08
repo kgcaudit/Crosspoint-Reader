@@ -63,6 +63,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.key
 import androidx.compose.ui.platform.LocalView
+import io.github.kgcaudit.reader.ui.design.bookmarkMessage
 import io.github.kgcaudit.reader.ui.design.BOOKMARK_CORNER
 import io.github.kgcaudit.reader.ui.design.pageAt
 import io.github.kgcaudit.reader.ui.design.rememberTurnFeedback
@@ -309,7 +310,7 @@ fun ComicReader(
         }
     }
     fun toggleBookmark() {
-        say(if (bookmarked) "책갈피를 뺐습니다" else "책갈피를 꽂았습니다")
+        say(bookmarkMessage(!bookmarked))
         // 두 쪽 중 이미 꽂힌 쪽이 있으면 그것을 뺀다. 없으면 판의 첫 쪽에 꽂는다.
         onBookmark(shown.map(::realOf).firstOrNull { it in bookmarks } ?: realOf(shown.first()))
     }
