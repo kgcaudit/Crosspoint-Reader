@@ -21,6 +21,8 @@ data class BookRecord(
     val finishedAtEpochMs: Long? = null,
     val bookmarks: List<BookmarkRecord> = emptyList(),
     val annotations: List<AnnotationRecord> = emptyList(),
+    /** 읽은 시간의 하루 합(0.51.0, 독서 기록). 옛 백업에는 없다 — 빈 목록으로 읽는다. */
+    val time: List<TimeRecord> = emptyList(),
 ) {
     internal val key: String get() = "$displayName\u0000${sizeBytes ?: ""}"
 
@@ -45,8 +47,19 @@ data class BookRecord(
         annotations = (annotations + other.annotations).groupBy { it.range }.values.map { same ->
             same.first().let { first -> if (first.note == null) first.copy(note = same.firstNotNullOfOrNull { it.note }) else first }
         },
+        time = (time + other.time).mergedByDay(),
     )
 }
+
+/**
+ * 읽은 시간의 하루 합 한 칸(0.51.0). [mode] 는 `READ` · `LISTEN` · `AUTO` — 모르는 방식(다음 판)도 그대로 옮긴다. 두 벌을 합칠
+ * 때는 (날, 방식)마다 **큰 쪽**이다 — 더하면 같은 백업을 두 번 가져올 때마다 시간이 불어난다(사용자 결정 1-4).
+ */
+data class TimeRecord(val day: java.time.LocalDate, val mode: String, val millis: Long)
+
+/** (날, 방식)마다 큰 쪽 하나. 날 차례로 늘어놓는다 — 백업 파일을 사람이 열어 봐도 읽히게. */
+internal fun List<TimeRecord>.mergedByDay(): List<TimeRecord> =
+    groupBy { it.day to it.mode }.values.map { same -> same.maxBy { it.millis } }.sortedWith(compareBy({ it.day }, { it.mode }))
 
 data class ProgressRecord(val locator: String, val percent: Float, val updatedAtEpochMs: Long) {
     /**
@@ -97,6 +110,8 @@ data class ComicRecord(
     val updatedAtEpochMs: Long = 0L,
     val finishedAtEpochMs: Long? = null,
     val bookmarks: List<ComicBookmarkRecord> = emptyList(),
+    /** 읽은 시간의 하루 합(0.51.0). */
+    val time: List<TimeRecord> = emptyList(),
 ) {
     internal val key: String get() = "$name\u0000${sizeBytes ?: ""}"
 
@@ -114,6 +129,7 @@ data class ComicRecord(
             pageCount = further.pageCount ?: pageCount ?: other.pageCount,
             finishedAtEpochMs = listOfNotNull(finishedAtEpochMs, other.finishedAtEpochMs).minOrNull(),
             bookmarks = (bookmarks + other.bookmarks).distinctBy { it.page }.sortedBy { it.page },
+            time = (time + other.time).mergedByDay(),
         )
     }
 }
@@ -121,15 +137,25 @@ data class ComicRecord(
 data class ComicBookmarkRecord(val page: Int, val createdAtEpochMs: Long)
 
 /**
- * 작품 하나에 사람이 정한 것(0.49.0, 사용자 결정 1-가): 고친 이름 · 넘기는 방향 · 보는 방식. 작품 열쇠(이름에서 만든 것)로
- * 가리켜 새 휴대폰에서도 같은 작품에 붙는다. null 은 "정하지 않음" 이다(규칙 5).
+ * 작품 하나에 사람이 정한 것(0.49.0, 사용자 결정 1-가): 고친 이름 · 넘기는 방향 · 보는 방식 · 옮긴 서재 갈래(0.51.0). 작품
+ * 열쇠(이름에서 만든 것)로 가리켜 새 휴대폰에서도 같은 작품에 붙는다. null 은 "정하지 않음" 이다(규칙 5).
+ *
+ * @param shelf 길게 눌러 옮긴 갈래(`ShelfMark.format` 글, 0.38.0). 0.50 까지 백업에서 빠져, 종이책으로 다 읽어 "다 읽음" 으로
+ *   옮긴 작품이 새 휴대폰에서 다시 "읽을 작품" 에 섰다.
  */
-data class WorkRecord(val key: String, val title: String? = null, val rightToLeft: Boolean? = null, val view: String? = null) {
+data class WorkRecord(
+    val key: String,
+    val title: String? = null,
+    val rightToLeft: Boolean? = null,
+    val view: String? = null,
+    val shelf: String? = null,
+) {
     /** 같은 작품의 설정 두 벌: 앞(이 휴대폰)이 정한 것을 두고 빈 것만 채운다 — 가져오기가 지금 손으로 고친 것을 덮지 않게. */
     internal fun filledFrom(other: WorkRecord): WorkRecord = copy(
         title = title ?: other.title,
         rightToLeft = rightToLeft ?: other.rightToLeft,
         view = view ?: other.view,
+        shelf = shelf ?: other.shelf,
     )
 }
 
@@ -168,6 +194,9 @@ object RecordsCodec {
     const val FORMAT: String = "olo-ebook-reading-records"
     const val VERSION: Int = 1
 
+    /** 하루. 읽은 시간 한 칸이 이보다 길 수 없다. */
+    private const val DAY_MS: Long = 24 * 60 * 60_000L
+
     fun encode(file: RecordsFile): String = JSONObject()
         .put("format", FORMAT)
         .put("version", VERSION)
@@ -203,6 +232,7 @@ object RecordsCodec {
         put("updatedAt", c.updatedAtEpochMs)
         putOpt("finishedAt", c.finishedAtEpochMs)
         put("bookmarks", JSONArray(c.bookmarks.map { JSONObject().put("page", it.page).put("createdAt", it.createdAtEpochMs) }))
+        if (c.time.isNotEmpty()) put("time", timeJson(c.time))
     }
 
     private fun comic(o: JSONObject): ComicRecord? {
@@ -214,7 +244,9 @@ object RecordsCodec {
             val p = (b.opt("page") as? Number)?.toInt()?.takeIf { it >= 0 } ?: return@mapNotNull null
             ComicBookmarkRecord(p, b.longOrNull("createdAt") ?: 0L)
         }
-        if (page == null && marks.isEmpty()) return null
+        val time = times(o)
+        // 읽은 시간만 있는 권(진도 없이 시간만 남은 권)도 담는다 — 버리면 올해 읽은 시간이 새 휴대폰에서 줄어든다.
+        if (page == null && marks.isEmpty() && time.isEmpty()) return null
         return ComicRecord(
             name = name,
             sizeBytes = o.longOrNull("size")?.takeIf { it >= 0 },
@@ -224,14 +256,32 @@ object RecordsCodec {
             updatedAtEpochMs = o.longOrNull("updatedAt") ?: 0L,
             finishedAtEpochMs = o.longOrNull("finishedAt"),
             bookmarks = marks.distinctBy { it.page },
+            time = time,
         )
     }
+
+    /** "time": [{"day": "2026-10-07", "mode": "READ", "ms": 2520000}]. 날은 사람이 읽을 수 있게 글로 적는다. */
+    private fun timeJson(time: List<TimeRecord>) =
+        JSONArray(time.map { JSONObject().put("day", it.day.toString()).put("mode", it.mode).put("ms", it.millis) })
+
+    /**
+     * 날이 깨졌거나 시간이 0 이하인 칸은 버리고, 하루보다 긴 칸은 하루로 자른다 — 손으로 고친 백업의 "99999시간" 이 올해 통계를
+     * 덮지 않게(규칙 6). 같은 (날, 방식)이 두 번 있으면 큰 쪽.
+     */
+    private fun times(o: JSONObject): List<TimeRecord> =
+        (o.optJSONArray("time") ?: JSONArray()).objects().mapNotNull { t ->
+            val day = t.stringOrNull("day")?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() } ?: return@mapNotNull null
+            val mode = t.stringOrNull("mode")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val ms = t.longOrNull("ms")?.takeIf { it > 0 } ?: return@mapNotNull null
+            TimeRecord(day, mode, ms.coerceAtMost(DAY_MS))
+        }.mergedByDay()
 
     private fun workJson(w: WorkRecord) = JSONObject().apply {
         put("key", w.key)
         putOpt("title", w.title)
         putOpt("rightToLeft", w.rightToLeft)
         putOpt("view", w.view)
+        putOpt("shelf", w.shelf)
     }
 
     private fun work(o: JSONObject): WorkRecord? {
@@ -241,8 +291,10 @@ object RecordsCodec {
             title = o.stringOrNull("title")?.trim()?.takeIf { it.isNotEmpty() },
             rightToLeft = o.opt("rightToLeft") as? Boolean,
             view = o.stringOrNull("view"),
+            // 깨진 갈래 글은 버린다 — 옮기면 그 작품이 서재에서 이상한 갈래에 붙박인다(ShelfMark.parse 와 같은 규칙).
+            shelf = o.stringOrNull("shelf")?.takeIf { io.github.kgcaudit.reader.document.comic.ShelfMark.parse(it) != null },
         )
-        return record.takeIf { it.title != null || it.rightToLeft != null || it.view != null }
+        return record.takeIf { it.title != null || it.rightToLeft != null || it.view != null || it.shelf != null }
     }
 
     private fun bookJson(b: BookRecord) = JSONObject().apply {
@@ -265,6 +317,7 @@ object RecordsCodec {
                 },
             ),
         )
+        if (b.time.isNotEmpty()) put("time", timeJson(b.time))
     }
 
     private fun book(o: JSONObject): BookRecord? {
@@ -282,6 +335,7 @@ object RecordsCodec {
                 BookmarkRecord(locator, b.stringOrNull("snippet"), b.longOrNull("createdAt") ?: 0L)
             },
             annotations = (o.optJSONArray("annotations") ?: JSONArray()).objects().mapNotNull(::annotation),
+            time = times(o),
         )
     }
 

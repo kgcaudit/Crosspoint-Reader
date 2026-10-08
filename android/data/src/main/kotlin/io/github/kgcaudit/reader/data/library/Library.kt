@@ -95,6 +95,15 @@ class Library(private val db: ReaderDatabase) {
         rows.mapNotNull { row -> toBook(row.book)?.let { ShelfBook(it, row.finishedAtEpochMs) } }
     }
 
+    /**
+     * 독서 기록(0.51.0)이 쓰는 책 전부와 다 읽은 때. 숨은 책도 넣는다 — 다 읽고 파일을 정리했어도 다 읽은 일 · 읽은 시간은
+     * 지난 기록으로 남아야 한다([shelf] 는 눌러 열 수 있는 책만이라 숨은 책을 뺀다).
+     */
+    suspend fun everyBook(): List<ShelfBook> {
+        val finished = recent.all().associate { it.bookId to it.finishedAtEpochMs }
+        return books.all().mapNotNull { row -> toBook(row)?.let { ShelfBook(it, finished[row.id]) } }
+    }
+
     /** 책장에서 빼 읽을 책으로 되돌린다. 한 번 열어 본 책이 0% 로 "읽는 중" 에 남지 않게. 진도 · 책갈피는 남는다. */
     suspend fun returnToUnread(id: BookId) = recent.delete(id.value)
 
@@ -324,6 +333,9 @@ class ComicLibrary(private val db: ReaderDatabase) {
 
     /** 단위 하나(뷰어가 열 때). 숨긴 것도 준다 — 읽던 권을 되살릴 때 서재 훑기 사이에 잠깐 숨어 있을 수 있다. */
     suspend fun unit(id: String): ComicUnit? = comics.get(id)?.let(::toUnit)
+
+    /** 여러 권을 한 번에(숨은 권도). 독서 기록(0.51.0)이 서재에서 사라진 권의 이름을 찾을 때 쓴다. */
+    suspend fun unitsOf(ids: Collection<String>): List<ComicUnit> = ids.toList().chunked(500).flatMap { comics.unitsOf(it) }.map(::toUnit)
 
     /** 옛 규칙으로 "만화 아님" 이라 적힌 압축을 다시 살필 차례로. */
     suspend fun reprobeRejected(): Int = comics.reprobeRejected()

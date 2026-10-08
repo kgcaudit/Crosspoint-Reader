@@ -50,6 +50,8 @@ class ReaderData(
     val annotations: AnnotationRepository = RoomAnnotationRepository(database.annotations())
     val library: Library = Library(database)
     val comics: ComicLibrary = ComicLibrary(database)
+    /** 독서 기록(0.51.0): 읽은 · 들은 · 자동으로 넘긴 시간의 하루 합. */
+    val readingTime: ReadingTime = ReadingTime(database)
     val folders: LibraryFolders = LibraryFolders(resolver)
     val sources: UriSources = UriSources(resolver, File(context.cacheDir, "spool"))
 

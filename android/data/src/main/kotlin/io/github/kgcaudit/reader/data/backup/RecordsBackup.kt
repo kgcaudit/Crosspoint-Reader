@@ -81,8 +81,9 @@ class RecordsBackup(
         val recent = db.recent().all().associateBy { it.bookId }
         val marks = db.bookmarks().all().groupBy { it.bookId }
         val notes = db.annotations().all().groupBy { it.bookId }
+        val time = timeOf(BOOK_TIME)
         // 책 표에 없는 id(다른 앱이 넘겨 열었던 파일)의 기록은 담지 못한다 — 파일 이름을 모르니 새 휴대폰에서 찾을 길이 없다.
-        val fromDb = db.books().all().mapNotNull { book -> recordOf(book, progress, recent, marks, notes) }
+        val fromDb = db.books().all().mapNotNull { book -> recordOf(book, progress, recent, marks, notes, time) }
         // 기다리는 기록도 담는다. 빼면 "가져오기 → 못 찾음 → 다시 백업" 에서 그 책들의 기록이 조용히 사라진다.
         val waiting = pending()
         return RecordsFile(
@@ -100,9 +101,10 @@ class RecordsBackup(
         recent: Map<String, io.github.kgcaudit.reader.data.db.RecentEntity>,
         marks: Map<String, List<BookmarkEntity>>,
         notes: Map<String, List<AnnotationEntity>>,
+        time: Map<String, List<TimeRecord>>,
     ): BookRecord? {
         val id = book.id
-        if (id !in progress && id !in recent && id !in marks && id !in notes) return null
+        if (id !in progress && id !in recent && id !in marks && id !in notes && id !in time) return null
         return BookRecord(
             displayName = book.displayName,
             sizeBytes = book.sizeBytes,
@@ -113,8 +115,18 @@ class RecordsBackup(
             finishedAtEpochMs = recent[id]?.finishedAtEpochMs,
             bookmarks = marks[id].orEmpty().map { BookmarkRecord(it.locator, it.snippet, it.createdAtEpochMs) },
             annotations = notes[id].orEmpty().map { AnnotationRecord(it.start, it.end, it.color, it.note, it.snippet, it.createdAtEpochMs) },
+            time = time[id].orEmpty(),
         )
     }
+
+    /**
+     * 읽은 시간(0.51.0)을 무엇마다. 책 · 만화 기록처럼 이름 + 크기로 옮겨, 휴대폰을 바꿔도 올해 읽은 시간이 이어진다. 시간만
+     * 있고 진도는 없는 책(진도를 지운 책)도 담는다.
+     */
+    private suspend fun timeOf(kind: String): Map<String, List<TimeRecord>> =
+        db.readingTime().all().filter { it.itemKind == kind && it.millis > 0 }.groupBy { it.itemId }.mapValues { (_, rows) ->
+            rows.mapNotNull { r -> runCatching { java.time.LocalDate.ofEpochDay(r.day) }.getOrNull()?.let { TimeRecord(it, r.mode, r.millis) } }
+        }
 
     /**
      * 만화 권마다 읽은 자리 · 다 읽은 때 · 책갈피(0.49.0). 0.48 까지는 백업에 만화가 없어, 휴대폰을 바꾸면 만화 · 웹툰을 읽던
@@ -124,7 +136,8 @@ class RecordsBackup(
         val comics = db.comics()
         val progress = comics.allProgress().associateBy { it.unitId }
         val marks = comics.allBookmarks().groupBy { it.unitId }
-        val ids = (progress.keys + marks.keys).toList()
+        val time = timeOf(COMIC_TIME)
+        val ids = (progress.keys + marks.keys + time.keys).toList()
         val units = ids.chunked(500).flatMap { comics.unitsOf(it) }
         return units.map { unit ->
             val p = progress[unit.id]
@@ -137,6 +150,7 @@ class RecordsBackup(
                 updatedAtEpochMs = p?.updatedAtEpochMs ?: 0L,
                 finishedAtEpochMs = p?.finishedAtEpochMs,
                 bookmarks = marks[unit.id].orEmpty().map { ComicBookmarkRecord(it.page, it.createdAtEpochMs) },
+                time = time[unit.id].orEmpty(),
             )
         }
     }
@@ -157,8 +171,9 @@ class RecordsBackup(
                 title = value(ComicLibrary.TITLE),
                 rightToLeft = when (value(ComicLibrary.RTL)) { "1" -> true; "0" -> false; else -> null },
                 view = value(ComicLibrary.VIEW),
+                shelf = value(ComicLibrary.SHELF),
             )
-        }.filter { it.title != null || it.rightToLeft != null || it.view != null }
+        }.filter { it.title != null || it.rightToLeft != null || it.view != null || it.shelf != null }
     }
 
     suspend fun summary(): RecordsSummary = collect().summary()
@@ -252,16 +267,18 @@ class RecordsBackup(
         val recent = db.recent().all().associateBy { it.bookId }
         val marks = db.bookmarks().all().groupBy { it.bookId }
         val notes = db.annotations().all().groupBy { it.bookId }
+        val time = timeOf(BOOK_TIME)
         val all = db.books().all()
         val orphans = all.filter { it.missing && it.sizeBytes != null }
-            .mapNotNull { book -> recordOf(book, progress, recent, marks, notes)?.let { book to it } }
+            .mapNotNull { book -> recordOf(book, progress, recent, marks, notes, time)?.let { book to it } }
         val orphanKeys = all.filter { it.missing && it.sizeBytes != null }.groupingBy { it.displayName to it.sizeBytes }.eachCount()
         val books = ArrayList<Pair<String, String>>()
         for ((old, record) in orphans) {
             if (orphanKeys[old.displayName to old.sizeBytes] != 1) continue
             val target = db.books().visibleByFile(old.displayName, old.sizeBytes!!).singleOrNull() ?: continue
-            mergeInto(target.id, record)
+            mergeInto(target.id, record, addTime = true)
             db.progress().delete(old.id)
+            db.readingTime().deleteForItem(BOOK_TIME, old.id)
             db.recent().delete(old.id)
             db.bookmarks().deleteForBook(old.id)
             db.annotations().deleteForBook(old.id)
@@ -276,7 +293,8 @@ class RecordsBackup(
         val comics = db.comics()
         val progress = comics.allProgress().associateBy { it.unitId }
         val marks = comics.allBookmarks().groupBy { it.unitId }
-        val withRecords = (progress.keys + marks.keys).toList().chunked(500).flatMap { comics.unitsOf(it) }
+        val time = timeOf(COMIC_TIME)
+        val withRecords = (progress.keys + marks.keys + time.keys).toList().chunked(500).flatMap { comics.unitsOf(it) }
         val orphans = withRecords.filter { it.missing && matchKey(it) != null }
         if (orphans.isEmpty()) return emptyList()
         val orphanKeys = orphans.groupingBy { matchKey(it) }.eachCount()
@@ -297,9 +315,12 @@ class RecordsBackup(
                     updatedAtEpochMs = p?.updatedAtEpochMs ?: 0L,
                     finishedAtEpochMs = p?.finishedAtEpochMs,
                     bookmarks = marks[old.id].orEmpty().map { ComicBookmarkRecord(it.page, it.createdAtEpochMs) },
+                    time = time[old.id].orEmpty(),
                 ),
+                addTime = true,
             )
             comics.deleteProgress(old.id)
+            db.readingTime().deleteForItem(COMIC_TIME, old.id)
             comics.deleteBookmarks(old.id)
             moveOverrides(old.id, target.id)
             moved += old.id to target.id
@@ -377,7 +398,8 @@ class RecordsBackup(
         return found.map { it.id }
     }
 
-    private suspend fun mergeComicInto(id: String, r: ComicRecord) {
+    private suspend fun mergeComicInto(id: String, r: ComicRecord, addTime: Boolean = false) {
+        mergeTime(COMIC_TIME, id, r.time, addTime)
         val comics = db.comics()
         val old = comics.progress(id)
         if (r.page != null) {
@@ -413,10 +435,29 @@ class RecordsBackup(
                 comics.setOverride(ComicOverrideEntity(ComicLibrary.RTL, w.key, if (w.rightToLeft) "1" else "0"))
             }
             if (w.view != null && (ComicLibrary.VIEW to w.key) !in have) comics.setOverride(ComicOverrideEntity(ComicLibrary.VIEW, w.key, w.view))
+            if (w.shelf != null && (ComicLibrary.SHELF to w.key) !in have) comics.setOverride(ComicOverrideEntity(ComicLibrary.SHELF, w.key, w.shelf))
         }
     }
 
-    private suspend fun mergeInto(id: String, r: BookRecord) {
+    /**
+     * 읽은 시간을 합친다. 백업에서 온 것은 (날, 방식)마다 큰 쪽 — 같은 백업을 두 번 가져와도 시간이 불어나지 않는다. 옮긴
+     * 파일([addTime])은 더한다: 옛 자리와 새 자리에서 읽은 시간은 둘 다 이 휴대폰에서 실제로 읽은 서로 다른 시간이고, 옛 행은
+     * 곧바로 지우므로 두 번 더해질 일이 없다.
+     */
+    private suspend fun mergeTime(kind: String, id: String, time: List<TimeRecord>, addTime: Boolean) {
+        val dao = db.readingTime()
+        for (t in time) {
+            if (t.millis <= 0) continue
+            if (addTime) {
+                dao.add(kind, id, t.day.toEpochDay(), t.mode, t.millis, io.github.kgcaudit.reader.data.ReadingTime.DAY_MS)
+            } else {
+                dao.mergeMax(kind, id, t.day.toEpochDay(), t.mode, t.millis, io.github.kgcaudit.reader.data.ReadingTime.DAY_MS)
+            }
+        }
+    }
+
+    private suspend fun mergeInto(id: String, r: BookRecord, addTime: Boolean = false) {
+        mergeTime(BOOK_TIME, id, r.time, addTime)
         val now = clock()
         r.progress?.let { p ->
             val old = db.progress().get(id)
@@ -483,6 +524,11 @@ class RecordsBackup(
         const val MAX_BYTES = 32 * 1024 * 1024
         // 만화 손 고침 가운데 작품 열쇠로 적는 것만 백업한다 — WORK_OF · PREFERRED 는 이 휴대폰의 문서 주소로 적혀 새 휴대폰에서
         // 맞지 않는다.
-        val WORK_KINDS = setOf(ComicLibrary.TITLE, ComicLibrary.RTL, ComicLibrary.VIEW)
+        // 옮긴 서재 갈래(SHELF)도 작품 열쇠로 적는다 — 0.50 까지 빠져 있어, 종이책으로 다 읽어 옮긴 작품이 새 휴대폰에서 "읽을
+        // 작품" 으로 돌아갔다.
+        val WORK_KINDS = setOf(ComicLibrary.TITLE, ComicLibrary.RTL, ComicLibrary.VIEW, ComicLibrary.SHELF)
+        // 읽은 시간 표의 갈래 이름(TimeItem 과 같은 글). 백업은 :data 의 저장 형식만 안다.
+        val BOOK_TIME = io.github.kgcaudit.reader.data.TimeItem.BOOK.name
+        val COMIC_TIME = io.github.kgcaudit.reader.data.TimeItem.COMIC.name
     }
 }

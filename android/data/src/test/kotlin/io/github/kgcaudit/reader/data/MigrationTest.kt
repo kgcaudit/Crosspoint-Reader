@@ -86,7 +86,7 @@ class MigrationTest {
             val notes = RoomAnnotationRepository(db.annotations())
             notes.add(Annotation(0, book, Locator.Reflow(3, 10), Locator.Reflow(3, 20), HighlightColor.Green, "메모", "칠한 글", 7))
             assertEquals(listOf("칠한 글"), notes.forBook(book).map { it.snippet })
-            assertEquals(6, db.openHelper.readableDatabase.version)
+            assertEquals(7, db.openHelper.readableDatabase.version)
         } finally {
             db.close()
         }
@@ -136,7 +136,7 @@ class MigrationTest {
             )
             comics.applyScan("content://c", io.github.kgcaudit.reader.data.library.ScanResult(emptyList(), true, listOf(unit)), 5)
             assertEquals(listOf("별"), comics.works().first().map { it.title })
-            assertEquals(6, db.openHelper.readableDatabase.version)
+            assertEquals(7, db.openHelper.readableDatabase.version)
         } finally {
             db.close()
         }
@@ -160,7 +160,7 @@ class MigrationTest {
             comics.saveProgress("content://c/a.cbz", 4, 10, 7)
             assertEquals(4, comics.progressOf("content://c/a.cbz")?.page)
             assertEquals(true, comics.toggleBookmark("content://c/a.cbz", 4, 7))
-            assertEquals(6, db.openHelper.readableDatabase.version)
+            assertEquals(7, db.openHelper.readableDatabase.version)
         } finally {
             db.close()
         }
@@ -179,7 +179,28 @@ class MigrationTest {
             assertEquals(null, kept?.offset, "옛 진도에 웹툰 위치가 생겼다")
             comics.saveProgress("content://c/a.cbz", 2, 10, 8, offset = 0.25f)
             assertEquals(0.25f, comics.progressOf("content://c/a.cbz")?.offset)
-            assertEquals(6, db.openHelper.readableDatabase.version)
+            assertEquals(7, db.openHelper.readableDatabase.version)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `upgrading from version 6 keeps every record and starts an empty reading time log`() = runTest {
+        // 0.50 (스키마 6)에는 읽은 시간 표가 없다. 올린 뒤 진도 · 만화 진도는 그대로이고, 읽은 시간을 적고 읽을 수 있어야 한다.
+        writeVersion(6) { db ->
+            db.execSQL("INSERT INTO progress (bookId, locator, percent, updatedAtEpochMs) VALUES ('${book.value}', 'r:3:130', 12.5, 6)")
+            db.execSQL("INSERT INTO comic_progress (unitId, page, pageCount, updatedAtEpochMs, finishedAtEpochMs, offset) VALUES ('content://c/a.cbz', 4, 10, 7, 9, NULL)")
+        }
+        val db = ReaderDatabase.open(context)
+        try {
+            assertEquals(Locator.Reflow(3, 130), RoomProgressRepository(db.progress()).get(book)?.locator)
+            assertEquals(9L, io.github.kgcaudit.reader.data.library.ComicLibrary(db).progressOf("content://c/a.cbz")?.finishedAtEpochMs)
+            val time = ReadingTime(db) { java.time.ZoneId.of("Asia/Seoul") }
+            assertEquals(emptyList(), time.all())
+            time.record(TimeItem.BOOK, book.value, TimeMode.READ, 60_000, 1_790_000_000_000)
+            assertEquals(60_000, time.all().single().millis)
+            assertEquals(7, db.openHelper.readableDatabase.version)
         } finally {
             db.close()
         }

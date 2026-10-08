@@ -292,3 +292,44 @@ interface ComicDao {
     @Query("DELETE FROM comic_bookmarks WHERE unitId = :unitId AND page = :page")
     suspend fun removeBookmark(unitId: String, page: Int): Int
 }
+
+/** 읽은 시간(0.51.0, [ReadingTimeEntity]). 한 행이 하루 합이라 더하기 · 합치기를 SQL 한 줄로 한다. */
+@Dao
+interface ReadingTimeDao {
+
+    @Query("INSERT OR IGNORE INTO reading_time(itemKind, itemId, day, mode, millis) VALUES(:kind, :id, :day, :mode, 0)")
+    suspend fun ensure(kind: String, id: String, day: Long, mode: String)
+
+    @Query("UPDATE reading_time SET millis = MIN(millis + :add, :cap) WHERE itemKind = :kind AND itemId = :id AND day = :day AND mode = :mode")
+    suspend fun addTo(kind: String, id: String, day: Long, mode: String, add: Long, cap: Long)
+
+    @Query("UPDATE reading_time SET millis = MIN(MAX(millis, :millis), :cap) WHERE itemKind = :kind AND itemId = :id AND day = :day AND mode = :mode")
+    suspend fun raiseTo(kind: String, id: String, day: Long, mode: String, millis: Long, cap: Long)
+
+    /** 이 휴대폰에서 읽은 시간을 더한다. 하루 합은 [cap](하루)을 넘지 않는다 — 시계가 뛰어 생긴 터무니없는 값이 쌓이지 않게. */
+    @Transaction
+    suspend fun add(kind: String, id: String, day: Long, mode: String, add: Long, cap: Long) {
+        ensure(kind, id, day, mode)
+        addTo(kind, id, day, mode, add, cap)
+    }
+
+    /** 백업에서 온 하루 합을 합친다: 둘 중 큰 쪽. 더하면 같은 백업을 두 번 가져올 때마다 시간이 불어난다(사용자 결정 1-4). */
+    @Transaction
+    suspend fun mergeMax(kind: String, id: String, day: Long, mode: String, millis: Long, cap: Long) {
+        ensure(kind, id, day, mode)
+        raiseTo(kind, id, day, mode, millis, cap)
+    }
+
+    @Query("SELECT * FROM reading_time")
+    suspend fun all(): List<ReadingTimeEntity>
+
+    @Query("SELECT * FROM reading_time")
+    fun observeAll(): Flow<List<ReadingTimeEntity>>
+
+    @Query("SELECT * FROM reading_time WHERE itemKind = :kind AND itemId = :id")
+    suspend fun forItem(kind: String, id: String): List<ReadingTimeEntity>
+
+    /** 옮긴 파일(0.50.0)의 옛 자리 기록을 비운다 — 새 자리에 합친 뒤. */
+    @Query("DELETE FROM reading_time WHERE itemKind = :kind AND itemId = :id")
+    suspend fun deleteForItem(kind: String, id: String)
+}

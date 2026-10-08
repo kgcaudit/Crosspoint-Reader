@@ -191,3 +191,25 @@ data class ComicBookmarkEntity(
     val page: Int,
     val createdAtEpochMs: Long,
 )
+
+/**
+ * 읽은 시간(0.51.0, 독서 기록). 한 행이 (무엇 · 날 · 방식) 하나의 **하루 합**이다 — 넘긴 쪽마다 한 행을 쌓으면 1년에 수만 행이
+ * 되어 독서 기록을 열 때마다 다시 세는 데 오래 걸린다. 하루 합이면 1년 매일 읽어도 (읽은 책 수 × 날 수) 행 남짓이다.
+ *
+ * 책 · 만화가 서재에서 사라져도(숨겨도) 이 행은 지우지 않는다. 통계는 지난 일의 기록이라, 다 읽고 파일을 정리했다고 올해 읽은
+ * 시간이 줄면 안 된다.
+ *
+ * @param itemKind `BOOK`(책 id — 만화 뷰어로 본 책도 책이다) · `COMIC`(만화 단위 id). 같은 문서 주소가 둘 다에 있을 수 있어
+ *   갈래를 함께 열쇠로 쓴다.
+ * @param day 적은 때의 이 휴대폰 시간대 날짜(epoch day). 시간대를 바꿔도 이미 적은 날은 옮기지 않는다.
+ * @param mode `READ`(손으로 넘기며 읽음) · `LISTEN`(듣기) · `AUTO`(자동 넘김). 한 칸에 더하면 "읽은 시간" 이 기계가 넘긴 시간으로
+ *   부푼다(사용자 결정 1-2).
+ */
+@Entity(tableName = "reading_time", primaryKeys = ["itemKind", "itemId", "day", "mode"])
+data class ReadingTimeEntity(
+    val itemKind: String,
+    val itemId: String,
+    val day: Long,
+    val mode: String,
+    val millis: Long,
+)
