@@ -94,6 +94,8 @@ fun LibraryScreen(
     scanOnStart: Boolean = true,
     onStartScan: () -> Unit = {},
     onAbout: () -> Unit = {},
+    /** 더 보기의 "독서 기록"(0.51.0). */
+    onStats: () -> Unit = {},
     /** 만화 한 권을 연다(단위 id, 시작 쪽 — null 이면 읽던 자리). */
     onOpenComic: (String, Int?) -> Unit = { _, _ -> },
     /** 만화 한 화 · 권을 열어 표지로 쓸 장면을 고른다(0.47.0). */
@@ -500,6 +502,7 @@ fun LibraryScreen(
             onRefresh = { rescan() },
             onFolders = { manageFolders = true },
             onAbout = onAbout,
+            onStats = onStats,
             onDismiss = { moreMenu = false },
         )
     }
@@ -854,11 +857,11 @@ private fun LibraryTools(
 }
 
 /**
- * 더 보기 판: 새로고침 · 책 폴더 · 앱 정보. 오른쪽 위에 떠서 서재를 밀어내지 않는다. 판 밖을 누르거나 뒤로 가기면 닫힌다.
- * 줄마다 이전 머리 단추와 같은 이름을 읽힌다(화면 읽기 · 시험이 같은 이름으로 찾는다).
+ * 더 보기 판: 새로고침 · 책 폴더 · 독서 기록(0.51.0) · 앱 정보. 오른쪽 위에 떠서 서재를 밀어내지 않는다. 판 밖을 누르거나 뒤로
+ * 가기면 닫힌다. 줄마다 이전 머리 단추와 같은 이름을 읽힌다(화면 읽기 · 시험이 같은 이름으로 찾는다).
  */
 @Composable
-private fun MoreMenu(onRefresh: () -> Unit, onFolders: () -> Unit, onAbout: () -> Unit, onDismiss: () -> Unit) {
+private fun MoreMenu(onRefresh: () -> Unit, onFolders: () -> Unit, onAbout: () -> Unit, onStats: () -> Unit, onDismiss: () -> Unit) {
     val c = CpTheme.colors
     androidx.activity.compose.BackHandler(onBack = onDismiss)
     Box(Modifier.fillMaxSize().clickable(indication = null, interactionSource = null, onClick = onDismiss).windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -869,7 +872,12 @@ private fun MoreMenu(onRefresh: () -> Unit, onFolders: () -> Unit, onAbout: () -
                 .clickable(indication = null, interactionSource = null) {}
                 .padding(vertical = 6.dp),
         ) {
-            listOf(Triple(CpIcons.Refresh, "새로고침", onRefresh), Triple(CpIcons.Folder, "책 폴더", onFolders), Triple(CpIcons.Info, "앱 정보", onAbout))
+            listOf(
+                Triple(CpIcons.Refresh, "새로고침", onRefresh),
+                Triple(CpIcons.Folder, "책 폴더", onFolders),
+                Triple(CpIcons.Timer, "독서 기록", onStats),
+                Triple(CpIcons.Info, "앱 정보", onAbout),
+            )
                 .forEach { (icon, label, action) ->
                     Row(
                         Modifier.fillMaxWidth().heightIn(min = CpTheme.metrics.touchTarget)

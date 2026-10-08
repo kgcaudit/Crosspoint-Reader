@@ -93,6 +93,10 @@ import io.github.kgcaudit.reader.ui.design.CpAutoTurnPill
 import io.github.kgcaudit.reader.ui.design.CpBrightnessOverlay
 import io.github.kgcaudit.reader.ui.design.rememberBrightnessDrag
 import io.github.kgcaudit.reader.ui.design.rememberAutoTurn
+import io.github.kgcaudit.reader.ui.design.rememberScrollTime
+import io.github.kgcaudit.reader.ui.design.running
+import io.github.kgcaudit.reader.data.TimeItem
+import io.github.kgcaudit.reader.data.TimeMode
 import io.github.kgcaudit.reader.ui.design.visible
 import io.github.kgcaudit.reader.ui.design.CpButton
 import io.github.kgcaudit.reader.ui.design.CpChoice
@@ -178,6 +182,8 @@ fun ComicReader(
     onView: ((ComicView?) -> Unit)?,
     /** 쪽 크기(머리만 읽은 것). 두 쪽 보기의 짝 · 함께 맞춤에 쓴다. 모르면 빈 목록. */
     sizes: List<ImageSize?>,
+    /** 독서 기록(0.51.0): 손으로 넘기며 본 · 자동 넘김이 넘긴 판의 시간. */
+    onReadTime: (io.github.kgcaudit.reader.ui.design.PageTime) -> Unit = {},
 ) {
     val bookCount = book.pageCount
     // 지금 자리: 책의 쪽 × 2, 펼침면의 둘째 반이면 + 1(0.50.0). 화면이 넘기는 단위(조각)로 적지 않는다 — 펼침면 나누기를 켜고
@@ -499,6 +505,14 @@ fun ComicReader(
         // 자동 넘김(0.42.0 — 책 · PDF 와 같다). 메뉴가 열렸거나 권 끝 판이 떠 있으면 쉰다.
         val autoSuspended = panel != ComicPanel.None || ended
         val autoTurn = rememberAutoTurn(prefs.autoTurn, page, autoSuspended) { advance(true, quiet = true) }
+        // 독서 기록(0.51.0): 책 · PDF 와 같은 쪽 시계. 판(펼침)이 열쇠다 — 다음 판은 보이던 마지막 조각 바로 뒤에서 시작한다.
+        io.github.kgcaudit.reader.ui.design.PageTimeEffect(
+            book = book,
+            key = shown,
+            by = if (autoTurn.running(prefs.autoTurn)) io.github.kgcaudit.reader.ui.design.TurnBy.AUTO else io.github.kgcaudit.reader.ui.design.TurnBy.HAND,
+            isNext = { before: List<Int>, after: List<Int> -> after.first() == before.last() + 1 },
+            onTime = onReadTime,
+        )
         if (autoTurn.visible(prefs.autoTurn, autoSuspended)) {
             CpAutoTurnPill(autoTurn, Modifier.align(Alignment.BottomCenter).padding(bottom = 60.dp))
         }
@@ -905,6 +919,9 @@ fun ComicHost(
     val saveCover: suspend (android.graphics.Bitmap) -> Boolean = { bitmap ->
         work != null && container.covers.setCustom(CoverStore.workId(work.key), bitmap)
     }
+    // 웹툰의 독서 기록(0.51.0): 넘기는 쪽이 없어, 화면이 움직인 사이를 1분까지 센다(ScrollClock). 화면이 움직일 때마다 자리를
+    // 적으므로 그 자리에서 알린다. 시간은 그때 보던 화에 붙는다.
+    val scrolled = rememberScrollTime<String> { id, ms -> container.recordTime(TimeItem.COMIC, id, TimeMode.READ, ms) }
     Box(Modifier.fillMaxSize()) {
         when (view) {
             ComicView.PAGE -> Box(Modifier.fillMaxSize()) { ComicReader(
@@ -927,6 +944,7 @@ fun ComicHost(
                 view = work?.view,
                 onView = onView,
                 sizes = sizes,
+                onReadTime = { container.recordPage(TimeItem.COMIC, unitId, it) },
             )
                 // 쪽 넘김 만화는 장면이 곧 쪽이다 — 보던 쪽을 통째로 표지로(웹툰처럼 틀로 자르면 쪽의 제목 · 그림이 잘린다).
                 if (pickCover) PagePickBar(onBack = onClose) {
@@ -971,6 +989,7 @@ fun ComicHost(
                     onOpen(id)
                 },
                 onPosition = { e, i, f, end ->
+                    scrolled(e.unitId)
                     if (e.unitId == unitId) position = i to f
                     scope.launchWrite(failed) { data.comics.saveProgress(e.unitId, i, e.book.pageCount, now(), offset = f, atEnd = end) }
                 },

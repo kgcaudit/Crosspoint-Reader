@@ -170,5 +170,7 @@ fun BookComicHost(
         view = ComicView.PAGE,
         onView = null,
         sizes = sizes,
+        // 만화 뷰어로 본 책도 책의 독서 기록이다(책 id) — 책 뷰어로 바꿔 읽어도 한 책의 시간으로 모인다.
+        onReadTime = { container.recordPage(io.github.kgcaudit.reader.data.TimeItem.BOOK, bookId, it) },
     )
 }

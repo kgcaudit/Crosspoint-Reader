@@ -31,6 +31,12 @@ import io.github.kgcaudit.reader.ui.design.ReadingSpeed
 import io.github.kgcaudit.reader.ui.design.ScreenPrefs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import java.io.File
 
 /** 연 책. 형식마다 리더가 다르다 — 리플로우(EPUB·TXT)는 조판하고, PDF 는 쪽을 그린다. */
@@ -38,13 +44,18 @@ sealed interface OpenedBook : AutoCloseable {
     /** 듣기가 읽는 쪽. 듣기가 이 책의 것인지 가릴 때 쓴다(`Listening.belongsTo`). */
     val source: ListenSource
 
+    /** 책 id(라이브러리 책이면 그 id, 받은 파일이면 받은 주소). 독서 기록(0.51.0)이 이것으로 적는다. */
+    val id: BookId
+
     class Reflow(val reader: BookReader) : OpenedBook {
         override val source: ListenSource get() = reader
+        override val id: BookId get() = reader.document.meta.id
         override fun close() = reader.close()
     }
 
     class Pdf(val reader: PdfReader) : OpenedBook {
         override val source: ListenSource get() = reader
+        override val id: BookId get() = reader.book.meta.id
         override fun close() = reader.close()
     }
 }
@@ -74,6 +85,7 @@ val Context.container: AppContainer get() = (applicationContext as OloApp).conta
 /**
  * 앱 전체에서 하나뿐인 것들. DI 라이브러리 없이 손으로 묶는다(확정 사항: 수동 DI).
  */
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class AppContainer(private val app: Application) {
     val data = ReaderData(app)
 
@@ -140,6 +152,66 @@ class AppContainer(private val app: Application) {
 
     /** 듣기 엔진(4단계). 테스트가 가짜로 바꾼다 — Robolectric 에는 음성 엔진이 없다. */
     internal var listenKit: ListenKit = ListenKit.android(app)
+
+    /**
+     * 독서 기록(0.51.0)의 시계: 부팅 뒤 흐른 시간(잠든 시간 포함). 벽시계(currentTimeMillis)로 재면 사람이 시계를 고치거나
+     * 시간대가 바뀔 때 읽은 시간이 몇 시간씩 튄다. 시험이 화면 시험 시계로 바꾼다.
+     */
+    internal var readingClock: () -> Long = { android.os.SystemClock.elapsedRealtime() }
+
+    /** 독서 기록 화면의 "오늘". 시험이 날을 정해 둔다(이번 주 · 올해의 경계가 시험을 돌린 날에 따라 달라지지 않게). */
+    internal var today: () -> java.time.LocalDate = { java.time.LocalDate.now() }
+
+    /**
+     * 독서 기록에 더한다. 쓰기가 실패해도(저장 공간이 가득) 읽기를 막지 않는다 — 통계 한 칸 때문에 쪽을 넘기는 손에 앱이 닫히면
+     * 안 된다. 날은 적는 때의 벽시계로 정한다.
+     */
+    fun recordTime(item: io.github.kgcaudit.reader.data.TimeItem, id: String, mode: io.github.kgcaudit.reader.data.TimeMode, millis: Long) {
+        if (millis <= 0) return
+        appScope.launch {
+            try {
+                data.readingTime.record(item, id, mode, millis, System.currentTimeMillis())
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                android.util.Log.w("OloApp", "reading time not saved", e)
+            }
+        }
+    }
+
+    /** 리더의 쪽 시계가 낸 한 칸: 손으로 넘긴 쪽은 읽은 시간, 자동 넘김은 따로. */
+    fun recordPage(item: io.github.kgcaudit.reader.data.TimeItem, id: String, time: io.github.kgcaudit.reader.ui.design.PageTime) =
+        recordTime(
+            item, id,
+            if (time.by == io.github.kgcaudit.reader.ui.design.TurnBy.AUTO) io.github.kgcaudit.reader.data.TimeMode.AUTO else io.github.kgcaudit.reader.data.TimeMode.READ,
+            time.millis,
+        )
+
+    init {
+        // 들은 시간(0.51.0, 사용자 결정 1-2): 화면이 아니라 듣기 상태로 잰다. 화면을 끄고 들어도 들은 시간이고, 그동안 화면의 쪽
+        // 시계는 멈춰 있다. 읽는 중(playing)인 동안을 재고, 멈추거나 끄면 그때까지를 적는다. 1분마다 끊어 적어 앱이 죽어도 잃는
+        // 것은 1분 안이다.
+        appScope.launch {
+            ListenHub.current
+                .flatMapLatest { l -> l?.state?.map { s -> l.takeIf { s.playing } } ?: flowOf(null) }
+                .distinctUntilChanged()
+                .collectLatest { l ->
+                    // 화면에 열린 책의 듣기만 센다(듣기는 늘 열린 책을 읽는다 — 못 찾으면 무엇을 들었는지 모른다).
+                    val id = held?.book?.takeIf { l != null && l.belongsTo(it.source) }?.id?.value ?: return@collectLatest
+                    var since = readingClock()
+                    try {
+                        while (true) {
+                            kotlinx.coroutines.delay(LISTEN_LAP_MS)
+                            val now = readingClock()
+                            recordTime(io.github.kgcaudit.reader.data.TimeItem.BOOK, id, io.github.kgcaudit.reader.data.TimeMode.LISTEN, now - since)
+                            since = now
+                        }
+                    } finally {
+                        // 멈춤 · 끔 · 다른 책: 여기까지 들었다. recordTime 은 따로 띄우므로 취소된 이 자리에서도 적힌다.
+                        recordTime(io.github.kgcaudit.reader.data.TimeItem.BOOK, id, io.github.kgcaudit.reader.data.TimeMode.LISTEN, readingClock() - since)
+                    }
+                }
+        }
+    }
 
     /**
      * 지금 열려 있는 책. 화면이 새로 만들어지면(작업 목록에서 밀어 닫음 · 시스템이 화면만 거둠) 화면의 상태는
@@ -592,3 +664,6 @@ class PrefsStore(context: Context) {
         private const val KEY_LISTEN_VOICE_LABEL = "listenVoiceLabel"
     }
 }
+
+/** 듣는 동안 들은 시간을 끊어 적는 간격. 앱이 죽어도 잃는 것은 이 안이다. */
+private const val LISTEN_LAP_MS = 60_000L

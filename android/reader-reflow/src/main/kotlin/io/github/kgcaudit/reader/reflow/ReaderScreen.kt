@@ -140,6 +140,8 @@ fun ReaderScreen(
     onSpeedChange: (ReadingSpeed) -> Unit = {},
     /** 듣기 엔진(4단계). 앱이 주고, 시험은 가짜 엔진을 준다. null 이면 휴대폰의 음성 엔진. */
     listenKit: ListenKit? = null,
+    /** 독서 기록(0.51.0): 손으로 넘기며 읽은 · 자동 넘김이 넘긴 쪽의 시간. 앱이 하루 합으로 적는다. */
+    onReadTime: (io.github.kgcaudit.reader.ui.design.PageTime) -> Unit = {},
 ) {
     val state by reader.state.collectAsState()
     val scope = rememberCoroutineScope()
@@ -680,6 +682,8 @@ fun ReaderScreen(
             units = listOfNotNull(state.page, state.rightPage).sumOf { it.endCharExclusive - it.startChar }.toDouble(),
             driven = listen.active || autoTurn.running(prefs.screen.autoTurn),
             isNext = ShownPages::isFollowedBy,
+            autoTurning = autoTurn.running(prefs.screen.autoTurn),
+            onTime = onReadTime,
         ) { read ->
             if (speed.record(read.units, read.millis)) {
                 onSpeedChange(speed)

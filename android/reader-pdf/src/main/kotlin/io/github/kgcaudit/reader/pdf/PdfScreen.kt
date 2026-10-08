@@ -156,6 +156,8 @@ fun PdfScreen(
     onListenChange: (ListenPrefs) -> Unit = {},
     /** 음성 엔진. null 이면 휴대폰의 것(시험은 가짜를 준다). */
     listenKit: ListenKit? = null,
+    /** 독서 기록(0.51.0): 손으로 넘기며 읽은 · 자동 넘김이 넘긴 쪽의 시간. */
+    onReadTime: (io.github.kgcaudit.reader.ui.design.PageTime) -> Unit = {},
 ) {
     val state by reader.state.collectAsState()
     val scope = rememberCoroutineScope()
@@ -506,6 +508,8 @@ fun PdfScreen(
             units = state.shown.size.toDouble(),
             driven = heard.active || autoTurn.running(prefs.autoTurn),
             isNext = { before, after -> after.first() == before.last() + 1 },
+            autoTurning = autoTurn.running(prefs.autoTurn),
+            onTime = onReadTime,
         ) { read ->
             if (speed.record(read.units, read.millis)) {
                 onSpeedChange(speed)

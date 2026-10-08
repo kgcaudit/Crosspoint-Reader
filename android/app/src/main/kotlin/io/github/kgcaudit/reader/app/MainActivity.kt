@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import io.github.kgcaudit.reader.data.TimeItem
 import io.github.kgcaudit.reader.document.BookFormat
 import io.github.kgcaudit.reader.document.BookId
 import io.github.kgcaudit.reader.listen.ListenHub
@@ -36,6 +37,7 @@ import io.github.kgcaudit.reader.ui.design.CpPopupButtons
 import io.github.kgcaudit.reader.ui.design.CpReaderTheme
 import io.github.kgcaudit.reader.ui.design.CpTheme
 import io.github.kgcaudit.reader.ui.design.CpToast
+import io.github.kgcaudit.reader.ui.design.LocalReadingClock
 import io.github.kgcaudit.reader.ui.design.LocalVolumeKeys
 import io.github.kgcaudit.reader.ui.design.VolumeKeyRouter
 import io.github.kgcaudit.reader.ui.design.ScreenRotation
@@ -63,7 +65,9 @@ class MainActivity : ComponentActivity() {
         // 책은 rememberSaveable 이 되돌린다 — 처리하면 읽던 자리 대신 처음부터 다시 연다.
         if (savedInstanceState == null && !fromHistory(intent)) incoming.value = intent
         setContent {
-            CompositionLocalProvider(LocalVolumeKeys provides volumeKeys) {
+            // 독서 기록(0.51.0)의 시계는 앱 것을 쓴다 — 시험이 바꿔 끼울 수 있게 부를 때마다 읽는다.
+            val container = applicationContext.container
+            CompositionLocalProvider(LocalVolumeKeys provides volumeKeys, LocalReadingClock provides { container.readingClock() }) {
                 CpTheme { OloApp(incoming, returned, hideSystemBars = ::hideSystemBars, leave = ::leaveToCaller, rotate = ::applyRotation) }
             }
         }
@@ -375,12 +379,18 @@ private fun OloApp(
                 scanOnStart = !scanned,
                 onStartScan = { scanned = true },
                 onAbout = { aboutPage = ABOUT },
+                onStats = { aboutPage = STATS },
                 onOpenComic = { id, page -> comicStart = page; comicPickCover = false; comicId = id },
                 onPickComicCover = { id -> comicStart = null; comicPickCover = true; comicId = id },
             ) }
             ABOUT -> AboutScreen(records, onBack = { aboutPage = null }, onLicense = { aboutPage = it })
-            else -> LicenseScreen(OPEN_LICENSES[shown.coerceIn(OPEN_LICENSES.indices)], onBack = { aboutPage = ABOUT })
-        }
+            // 다 읽은 것을 누르면 연다. 닫으면 독서 기록으로 돌아온다(aboutPage 가 그대로다).
+            STATS -> ReadingStatsScreen(
+                onBack = { aboutPage = null },
+                onOpenBook = { id -> fromOutside = false; openId = id },
+                onOpenComic = { id -> comicStart = null; comicPickCover = false; comicId = id },
+            )
+            else -> LicenseScreen(OPEN_LICENSES[shown.coerceIn(OPEN_LICENSES.indices)], onBack = { aboutPage = ABOUT })        }
         is OpenedBook.Reflow -> {
             LaunchedEffect(current) { hideSystemBars(true) }
             CpReaderTheme(prefs.screen.theme) {
@@ -393,6 +403,7 @@ private fun OloApp(
                     speed = charSpeed,
                     onSpeedChange = { container.prefs.saveSpeed("chars", it) },
                     listenKit = container.listenKit,
+                    onReadTime = { container.recordPage(TimeItem.BOOK, current.id.value, it) },
                 )
             }
         }
@@ -411,6 +422,7 @@ private fun OloApp(
                     listen = prefs.listen,
                     onListenChange = { prefs = prefs.copy(listen = it); container.prefs.save(prefs) },
                     listenKit = container.listenKit,
+                    onReadTime = { container.recordPage(TimeItem.BOOK, current.id.value, it) },
                 )
             }
         }
@@ -444,6 +456,9 @@ private suspend fun openKeepingResult(open: suspend () -> OpenedBook): OpenedBoo
 
 /** [aboutPage] 의 "앱 정보" 표시. 라이선스 번호(0부터)와 겹치지 않는다. */
 private const val ABOUT = -1
+
+/** [aboutPage] 의 "독서 기록"(0.51.0). 서재 위에 뜨고, 뒤로 가면 서재다. */
+private const val STATS = -2
 
 /** 열기 실패 판 제목(책). 만화는 "이 만화를 열지 못했습니다". */
 private const val BOOK_FAILURE = "이 책을 열지 못했습니다"
