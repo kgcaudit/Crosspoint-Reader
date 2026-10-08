@@ -1,7 +1,8 @@
 package io.github.kgcaudit.reader.reflow
 
 import io.github.kgcaudit.reader.ui.design.BOOKMARK_CORNER
-import io.github.kgcaudit.reader.ui.design.CpEmptyMessage
+import io.github.kgcaudit.reader.ui.design.CpTocList
+import io.github.kgcaudit.reader.ui.design.CpTocRow
 import io.github.kgcaudit.reader.ui.design.HANDLE_RADIUS
 import io.github.kgcaudit.reader.ui.design.bounds
 import io.github.kgcaudit.reader.ui.design.go
@@ -51,10 +52,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -86,7 +83,6 @@ import io.github.kgcaudit.reader.ui.design.CpFullScreen
 import io.github.kgcaudit.reader.ui.design.CpHeader
 import io.github.kgcaudit.reader.ui.design.CpIcons
 import io.github.kgcaudit.reader.ui.design.CpLinkRow
-import io.github.kgcaudit.reader.ui.design.CpListRow
 import io.github.kgcaudit.reader.ui.design.CpPopup
 import io.github.kgcaudit.reader.ui.design.CpPopupButtons
 import io.github.kgcaudit.reader.ui.design.CpReaderBar
@@ -159,7 +155,9 @@ fun ReaderScreen(
     var toastCount by remember { mutableIntStateOf(0) }
     // 하단 정보의 "장 제목" · 찾기 결과의 절 이름 · 목차 화면. 목차는 책마다 한 번 읽는다(null = 아직 읽는 중) — 목차
     // 화면이 따로 다시 읽던 때는 열 때마다 큰 NCX 를 또 풀었다.
-    var toc by remember { mutableStateOf<List<TocEntry>?>(null) }
+    // 책을 열쇠로 둔다 — 화면을 그대로 둔 채 다른 책이 들어오면(reader 가 바뀜) 새 목차를 읽는 동안 앞 책의 목차가 목차 화면 ·
+    // 하단 장 제목에 남았다.
+    var toc by remember(reader) { mutableStateOf<List<TocEntry>?>(null) }
     LaunchedEffect(reader) { toc = runCatching { reader.outline() }.getOrDefault(emptyList()) }
     val search = remember(reader) { chapterSearch() }
     // 각주 판(F3) · 브라우저 확인(F6).
@@ -345,7 +343,9 @@ fun ReaderScreen(
         val spec = remember(pageWidthPx, heightPx, margin, prefs, pxPerSp, pxPerDp, fontId, useBookFonts) {
             prefs.toSpec(pageWidthPx, heightPx, margin, pxPerSp, pxPerDp, fontId, useBookFonts)
         }
-        LaunchedEffect(spec, twoPages) {
+        // 책도 열쇠다 — 화면을 그대로 둔 채 다른 책이 들어오면 설정이 같아 효과가 다시 돌지 않아, 새 책을 짜지 않고 "책을 여는
+        // 중…" 에 멈췄다.
+        LaunchedEffect(reader, spec, twoPages) {
             // 실패는 reader.state.error 로 화면에 간다. 여기서는 로그만 — 흔적 없이 삼키면 기기에서 원인을 못 찾는다.
             runCatching { reader.layOut(spec, twoPages) }.onFailure {
                 if (it is kotlinx.coroutines.CancellationException) throw it
@@ -1062,30 +1062,12 @@ private suspend fun readingNotes(reader: BookReader, toc: List<TocEntry>): Readi
     return ReadingNotes(rows.map { it.second }, rows.associate { it.second.key to it.third })
 }
 
+/** 목차 탭. 목록 모양은 PDF 와 한 벌(CpTocList), "지금 장" 만 리플로우의 위치로 정한다. */
 @Composable
 private fun TocList(entries: List<TocEntry>?, state: ReaderState, onOpen: (TocEntry) -> Unit) {
-    when {
-        entries == null -> Unit
-        entries.isEmpty() -> CpEmptyMessage("목차가 없는 책입니다")
-        else -> {
-            val current = currentTocIndex(entries, state.position?.spineIndex ?: 0)
-            val list = rememberLazyListState()
-            // 지금 위치가 화면 위쪽 3분의 1 쯤 오게 연다. 맨 위에 붙이면 앞 항목이 안 보여
-            // "어디쯤인지" 가 안 읽힌다.
-            LaunchedEffect(current) { if (current > 0) list.scrollToItem((current - 3).coerceAtLeast(0)) }
-            LazyColumn(Modifier.fillMaxSize(), state = list) {
-                itemsIndexed(entries) { i, entry ->
-                    CpListRow(
-                        title = entry.label,
-                        onClick = { onOpen(entry) },
-                        modifier = Modifier.padding(start = CpTheme.metrics.levelIndent * entry.depth),
-                        selected = i == current,
-                        compact = true,
-                    )
-                }
-            }
-        }
-    }
+    val rows = remember(entries) { entries?.map { CpTocRow(it.label, it.depth) } }
+    val current = entries?.let { currentTocIndex(it, state.position?.spineIndex ?: 0) } ?: -1
+    CpTocList(rows, current, empty = "목차가 없는 책입니다") { i -> entries?.getOrNull(i)?.let(onOpen) }
 }
 
 /**

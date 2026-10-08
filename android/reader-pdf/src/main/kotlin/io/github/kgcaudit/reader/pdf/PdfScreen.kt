@@ -23,9 +23,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -35,7 +32,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import io.github.kgcaudit.reader.ui.design.BOOKMARK_CORNER
-import io.github.kgcaudit.reader.ui.design.CpEmptyMessage
+import io.github.kgcaudit.reader.ui.design.CpTocList
+import io.github.kgcaudit.reader.ui.design.CpTocRow
 import io.github.kgcaudit.reader.ui.design.PdfFit
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -86,7 +84,6 @@ import io.github.kgcaudit.reader.ui.design.CpChoice
 import io.github.kgcaudit.reader.ui.design.CpFullScreen
 import io.github.kgcaudit.reader.ui.design.CpHeader
 import io.github.kgcaudit.reader.ui.design.CpIcons
-import io.github.kgcaudit.reader.ui.design.CpListRow
 import io.github.kgcaudit.reader.ui.design.CpPopup
 import io.github.kgcaudit.reader.ui.design.CpPopupButtons
 import io.github.kgcaudit.reader.ui.design.CpReaderBar
@@ -1175,32 +1172,15 @@ private fun PdfLists(
     }
 }
 
+/**
+ * 목차 탭. 목록 모양은 EPUB 과 한 벌(CpTocList), "지금 항목" 만 쪽으로 정한다. 줄 끝의 쪽 번호는 책에 인쇄된 번호(쪽 이름표),
+ * 없으면 1부터 센 번호 — 종이책 목차와 같은 숫자다.
+ */
 @Composable
 private fun ContentsList(entries: List<TocEntry>?, page: Int, labelOf: (Int) -> String, onOpen: (TocEntry) -> Unit) {
-    when {
-        entries == null -> Unit
-        entries.isEmpty() -> CpEmptyMessage("목차가 없는 파일입니다. 진행 막대로 원하는 쪽에 갈 수 있습니다.")
-        else -> {
-            val current = currentContentsIndex(entries, page)
-            val list = rememberLazyListState()
-            // 지금 위치가 화면 위쪽 3분의 1 쯤 오게 연다. 맨 위에 붙이면 앞 항목이 안 보여 "어디쯤인지" 가
-            // 안 읽힌다(EPUB 목차와 같다).
-            LaunchedEffect(current) { if (current > 0) list.scrollToItem((current - 3).coerceAtLeast(0)) }
-            LazyColumn(Modifier.fillMaxSize(), state = list) {
-                itemsIndexed(entries) { i, entry ->
-                    CpListRow(
-                        title = entry.label,
-                        onClick = { onOpen(entry) },
-                        modifier = Modifier.padding(start = CpTheme.metrics.levelIndent * entry.depth),
-                        // 쪽 번호는 책에 인쇄된 번호(쪽 이름표), 없으면 1부터 센 번호. 종이책 목차와 같은 숫자다.
-                        value = labelOf(entry.locator.fixedPage),
-                        selected = i == current,
-                        compact = true,
-                    )
-                }
-            }
-        }
-    }
+    val rows = remember(entries) { entries?.map { CpTocRow(it.label, it.depth, labelOf(it.locator.fixedPage)) } }
+    val current = entries?.let { currentContentsIndex(it, page) } ?: -1
+    CpTocList(rows, current, empty = "목차가 없는 파일입니다. 진행 막대로 원하는 쪽에 갈 수 있습니다.") { i -> entries?.getOrNull(i)?.let(onOpen) }
 }
 
 private val io.github.kgcaudit.reader.document.Locator.fixedPage: Int
