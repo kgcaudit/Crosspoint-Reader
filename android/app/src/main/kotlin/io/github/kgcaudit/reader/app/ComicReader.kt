@@ -90,9 +90,8 @@ import io.github.kgcaudit.reader.ui.design.CpTwoPageRows
 import io.github.kgcaudit.reader.ui.design.CpReaderKind
 import io.github.kgcaudit.reader.ui.design.CpAutoTurnPill
 import io.github.kgcaudit.reader.ui.design.CpBrightnessOverlay
-import io.github.kgcaudit.reader.ui.design.brightnessEdge
+import io.github.kgcaudit.reader.ui.design.rememberBrightnessDrag
 import io.github.kgcaudit.reader.ui.design.rememberAutoTurn
-import io.github.kgcaudit.reader.ui.design.systemBrightness
 import io.github.kgcaudit.reader.ui.design.visible
 import io.github.kgcaudit.reader.ui.design.CpButton
 import io.github.kgcaudit.reader.ui.design.CpChoice
@@ -221,10 +220,13 @@ fun ComicReader(
     // 자리는 판의 마지막 쪽으로 적는다 — 끝 판을 보면 다 읽음이고, 다시 열면 그 쪽이 든 판이 나온다.
     LaunchedEffect(shown) { onPage(realOf(shown.last())) }
     LaunchedEffect(panel) { onChrome(panel != ComicPanel.None) }
-    // 왼쪽 끝을 밀어 밝기(0.42.0 — 책과 같다). 미는 동안의 값은 창에만 걸고, 손을 떼면 저장한다.
-    var dragBrightness by remember { mutableStateOf<Float?>(null) }
-    val context = androidx.compose.ui.platform.LocalContext.current
-    ReadingWindow(prefs.copy(brightness = dragBrightness ?: prefs.brightness), activity = page, autoRunning = prefs.autoTurn != io.github.kgcaudit.reader.ui.design.AutoTurn.Off)
+    // 왼쪽 끝을 밀어 밝기(0.42.0 — 책과 같은 부품). 메뉴가 열렸거나 끝 화면이면 막는다.
+    val brightness = rememberBrightnessDrag(
+        saved = prefs.brightness,
+        enabled = prefs.brightnessGesture && panel == ComicPanel.None && !ended,
+        onCommit = { v -> onPrefsChange(latestPrefs.copy(brightness = v)) },
+    )
+    ReadingWindow(brightness.applied(prefs), activity = page, autoRunning = prefs.autoTurn != io.github.kgcaudit.reader.ui.design.AutoTurn.Off)
 
     fun say(message: String) {
         toast = message
@@ -326,18 +328,7 @@ fun ComicReader(
     }
 
     Box(
-        Modifier.fillMaxSize().background(COMIC_BACKDROP).brightnessEdge(
-            enabled = prefs.brightnessGesture && panel == ComicPanel.None && !ended,
-            current = { latestPrefs.brightness ?: systemBrightness(context) },
-            onDrag = { value ->
-                if (value != null) {
-                    dragBrightness = value
-                } else {
-                    dragBrightness?.let { v -> onPrefsChange(latestPrefs.copy(brightness = v)) }
-                    dragBrightness = null
-                }
-            },
-        ),
+        Modifier.fillMaxSize().background(COMIC_BACKDROP).then(brightness.modifier),
     ) {
         Column(Modifier.fillMaxSize()) {
             // 태블릿(폴더블 안쪽 화면)은 상태 줄 높이만큼 위를 비우고 그림을 아래에 붙인다(0.45.1, 사용자 결정). 안쪽 화면의
@@ -510,7 +501,7 @@ fun ComicReader(
         if (autoTurn.visible(prefs.autoTurn, autoSuspended)) {
             CpAutoTurnPill(autoTurn, Modifier.align(Alignment.BottomCenter).padding(bottom = 60.dp))
         }
-        CpBrightnessOverlay(dragBrightness, Modifier.align(Alignment.CenterStart))
+        CpBrightnessOverlay(brightness.value, Modifier.align(Alignment.CenterStart))
         CpToast(toast, onDone = { toast = null }, Modifier.align(Alignment.BottomCenter), key = toastCount)
     }
 

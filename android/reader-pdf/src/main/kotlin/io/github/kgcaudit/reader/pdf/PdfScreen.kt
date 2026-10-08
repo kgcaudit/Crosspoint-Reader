@@ -94,8 +94,7 @@ import io.github.kgcaudit.reader.ui.design.CpBrightnessOverlay
 import io.github.kgcaudit.reader.ui.design.CpBrightnessRow
 import io.github.kgcaudit.reader.ui.design.CpPageTurn
 import io.github.kgcaudit.reader.ui.design.ReadingSpeed
-import io.github.kgcaudit.reader.ui.design.brightnessEdge
-import io.github.kgcaudit.reader.ui.design.systemBrightness
+import io.github.kgcaudit.reader.ui.design.rememberBrightnessDrag
 import io.github.kgcaudit.reader.ui.design.CpLinkRow
 import io.github.kgcaudit.reader.ui.design.CpReadingFooter
 import io.github.kgcaudit.reader.ui.design.CpRibbon
@@ -174,17 +173,10 @@ fun PdfScreen(
     LaunchedEffect(reader) { contents = runCatching { reader.outline() }.getOrDefault(emptyList()) }
     val entries = contents.orEmpty()
 
-    // 왼쪽 끝을 미는 동안의 밝기(E6). 손을 떼면 설정으로 저장한다.
-    var dragBrightness by remember { mutableStateOf<Float?>(null) }
     val latestPrefs by androidx.compose.runtime.rememberUpdatedState(prefs)
     val context = androidx.compose.ui.platform.LocalContext.current
     var speedRevision by remember { mutableIntStateOf(0) }
 
-    ReadingWindow(
-        prefs.copy(brightness = dragBrightness ?: prefs.brightness),
-        activity = state.page,
-        autoRunning = prefs.autoTurn != AutoTurn.Off,
-    )
     // 폭 맞춤(③): 지금 쪽 안을 한 화면씩 내리는 손잡이. 보이는 PageView 가 걸어 둔다.
     val scroller = remember { PageScroller() }
     // 앞 쪽으로 돌아갈 때 그 쪽을 끝에서 보이게 할 쪽. 다른 쪽으로 가면 지운다 — 남겨 두면 나중에 그 쪽에 앞으로
@@ -361,6 +353,16 @@ fun PdfScreen(
         focus = page to box
     }
 
+    // 왼쪽 끝 밝기 밀기(E6). 메모 판 · 듣기 판이 떠 있는 동안은 막는다 — 판의 왼쪽 끝을 끄는 손(메모 칸 고르기 · 판 굴리기)은
+    // 판을 쓰는 것이다. 지금은 두 판이 지면 상자 밖에 그려져 밀기가 닿지 않지만, EPUB 은 판이 상자 안에 있어 같은 조건 없이
+    // 밝기가 바뀌었다(0.28.3) — 판의 자리를 옮겨도 그렇게 되지 않게 조건을 함께 둔다.
+    val brightness = rememberBrightnessDrag(
+        saved = prefs.brightness,
+        enabled = prefs.brightnessGesture && panel == PdfPanel.None && text.memo == null && !(listenSheet && heard.active),
+        onCommit = { v -> onPrefsChange(latestPrefs.copy(brightness = v)) },
+    )
+    ReadingWindow(brightness.applied(prefs), activity = state.page, autoRunning = prefs.autoTurn != AutoTurn.Off)
+
     LaunchedEffect(panel) { onChrome(panel != PdfPanel.None) }
     BackHandler {
         if (panel == PdfPanel.None && (text.selection != null || text.tapped != null)) {
@@ -381,18 +383,7 @@ fun PdfScreen(
     }
 
     Box(
-        Modifier.fillMaxSize().brightnessEdge(
-            enabled = prefs.brightnessGesture && panel == PdfPanel.None,
-            current = { latestPrefs.brightness ?: systemBrightness(context) },
-            onDrag = { value ->
-                if (value != null) {
-                    dragBrightness = value
-                } else {
-                    dragBrightness?.let { v -> onPrefsChange(latestPrefs.copy(brightness = v)) }
-                    dragBrightness = null
-                }
-            },
-        ),
+        Modifier.fillMaxSize().then(brightness.modifier),
     ) {
         Column(Modifier.fillMaxSize().background(colors.paper)) {
             // 상태 막대 자리를 뺀 곳에 쪽을 놓는다. 겹치면 세로로 긴 쪽의 마지막 줄이 막대에 가린다.
@@ -560,7 +551,7 @@ fun PdfScreen(
             }
         }
         CpToast(toast, onDone = { toast = null }, Modifier.align(Alignment.BottomCenter), key = toastCount)
-        CpBrightnessOverlay(dragBrightness, Modifier.align(Alignment.CenterStart))
+        CpBrightnessOverlay(brightness.value, Modifier.align(Alignment.CenterStart))
     }
 
     when (panel) {

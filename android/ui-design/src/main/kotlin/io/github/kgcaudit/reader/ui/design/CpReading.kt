@@ -757,6 +757,55 @@ fun CpBrightnessOverlay(value: Float?, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * 리더 하나의 밝기 밀기 한 벌: 미는 동안의 값([value]) · 지면에 다는 수식어([modifier]) · 창에 줄 설정([applied]).
+ * EPUB · PDF · 만화가 같은 것을 쓴다 — 셋이 사본을 들고 있을 때 아래 판(메모 · 듣기 · 각주)이 열린 동안 막는 조건을 EPUB 만
+ * 고쳤다(0.28.3). 막는 조건은 리더마다 판이 달라 [rememberBrightnessDrag] 의 enabled 로 받는다.
+ */
+class BrightnessDrag internal constructor(
+    private val live: androidx.compose.runtime.MutableState<Float?>,
+    /** 지면(판들의 바깥 상자)에 단다. 꺼져 있으면 아무것도 하지 않는 수식어다. */
+    val modifier: Modifier,
+) {
+    /** 미는 동안의 밝기. 손을 떼면 null — 그때 설정으로 저장했다. [CpBrightnessOverlay] 에 그대로 준다. */
+    val value: Float? get() = live.value
+
+    /** 창([ReadingWindow])에 줄 설정: 미는 중이면 그 밝기, 아니면 저장된 설정 그대로. */
+    fun applied(prefs: ScreenPrefs): ScreenPrefs = live.value?.let { prefs.copy(brightness = it) } ?: prefs
+}
+
+/**
+ * 왼쪽 끝 밝기 밀기를 단다([Modifier.brightnessEdge]). 미는 동안은 창 밝기만 바꾸고, 손을 떼면 [onCommit] 으로 한 번 저장한다 —
+ * 미는 내내 저장하면 설정 쓰기가 프레임마다 쌓인다.
+ *
+ * @param saved 저장된 밝기(null = 휴대폰 밝기를 따름). 밀기를 시작할 때의 값이다.
+ * @param enabled 설정이 켜져 있고, 지면 위에 아무 판도 떠 있지 않을 때만 true. 판의 왼쪽 끝을 끄는 손(메모 칸 고르기 · 판
+ *   굴리기)을 밝기로 읽으면 판 대신 화면이 어두워진다.
+ */
+@Composable
+fun rememberBrightnessDrag(saved: Float?, enabled: Boolean, onCommit: (Float) -> Unit): BrightnessDrag {
+    val live = remember { mutableStateOf<Float?>(null) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    // 수식어는 켜고 끌 때만 새로 단다 — 람다가 옛 값을 쥐지 않게 최신 값을 읽는다.
+    val latestSaved by rememberUpdatedState(saved)
+    val commit by rememberUpdatedState(onCommit)
+    val modifier = Modifier.brightnessEdge(
+        enabled = enabled,
+        current = { latestSaved ?: systemBrightness(context) },
+        onDrag = { value ->
+            if (value != null) {
+                live.value = value
+            } else {
+                live.value?.let(commit)
+                live.value = null
+            }
+        },
+    )
+    // 미는 도중에 판이 떠서 꺼지면(손을 떼는 알림이 오지 않는다) 미던 값을 버린다 — 남기면 창이 그 밝기에 묶인다.
+    LaunchedEffect(enabled) { if (!enabled) live.value = null }
+    return BrightnessDrag(live, modifier)
+}
+
 /** 지금 창의 밝기(0..1). 앱이 정하지 않았으면 휴대폰 밝기 설정을 읽는다 — 읽기에는 권한이 필요 없다. */
 fun systemBrightness(context: Context): Float = runCatching {
     android.provider.Settings.System.getInt(context.contentResolver, android.provider.Settings.System.SCREEN_BRIGHTNESS) / 255f

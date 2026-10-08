@@ -288,6 +288,51 @@ class PdfTextAppTest {
         assertFalse(hasNode(hasContentDescription("고른 글 메뉴")))
     }
 
+    @Test
+    fun `sliding the left edge over the memo or listening sheet does not change the brightness`() {
+        // 아래 판(메모 · 듣기)의 왼쪽 끝을 위아래로 끄는 것은 판을 쓰는 손이다(메모 칸을 끌어 고름 · 판을 굴림). EPUB 은 0.28.3
+        // 에 막았다 — 같은 밝기 밀기를 쓰는 PDF 도 판 위에서는 밝기가 바뀌지 않아야 한다.
+        open()
+        fun slideEdge() = compose.onRoot().performTouchInput {
+            swipe(start = Offset(10 * density, height * 0.97f), end = Offset(10 * density, height * 0.75f), durationMillis = 600)
+        }
+        val word = wordOn(0, "첫")
+        compose.onRoot().performTouchInput { longClick(word.center) }
+        waitFor(hasContentDescription("고른 글 메뉴"))
+        node(hasText("메모")).performClick()
+        waitFor(hasContentDescription("메모 입력"))
+        slideEdge()
+        compose.waitForIdle()
+        assertEquals(null, app.container.prefs.load().screen.brightness, "메모 판을 끌었는데 밝기가 바뀌었다")
+        assertEquals(null, compose.activity.window.attributes.screenBrightness.takeIf { it >= 0f }, "메모 판을 끄는 동안 창 밝기가 바뀌었다")
+        node(hasText("취소")).performClick()
+        compose.waitUntil(5_000) { !hasNode(hasContentDescription("메모 입력")) }
+
+        // 메모를 취소해도 고른 낱말은 남는다 — 한 번 눌러 놓고, 두 번 누르기(확대)로 읽히지 않게 쉬었다가 메뉴를 연다.
+        compose.onRoot().performTouchInput { click(center) }
+        compose.waitUntil(5_000) { !hasNode(hasContentDescription("고른 글 메뉴")) }
+        compose.mainClock.advanceTimeBy(500)
+        compose.onRoot().performTouchInput { click(center) }
+        waitFor(hasContentDescription("듣기"))
+        node(hasContentDescription("듣기")).performClick()
+        waitFor(hasContentDescription("듣기 제어"))
+        node(hasContentDescription("듣기 설정")).performClick()
+        waitFor(hasText("휴대폰 기본"))
+        slideEdge()
+        compose.waitForIdle()
+        assertEquals(null, app.container.prefs.load().screen.brightness, "듣기 판을 끌었는데 밝기가 바뀌었다")
+        node(hasText("닫기")).performClick()
+        compose.waitUntil(5_000) { !hasNode(hasText("휴대폰 기본")) }
+
+        // 판이 없으면 같은 손짓이 밝기를 바꾼다(위 확인이 손짓이 안 먹어서 지나간 것이 아니다).
+        compose.onRoot().performTouchInput {
+            swipe(start = Offset(10 * density, height * 0.6f), end = Offset(10 * density, height * 0.3f), durationMillis = 600)
+        }
+        compose.waitForIdle()
+        val saved = app.container.prefs.load().screen.brightness
+        assertTrue(saved != null && saved > 0.5f, "판을 닫은 지면에서 밀었는데 밝아지지 않았다: $saved")
+    }
+
     // ── 도구 ────────────────────────────────────────────────────────
 
     /** 밝은 지면의 강조색(찾은 곳 칠의 바탕). 회색 지면은 밝은 쪽이다. */

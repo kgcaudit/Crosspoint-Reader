@@ -98,8 +98,7 @@ import io.github.kgcaudit.reader.ui.design.CpPageTurn
 import io.github.kgcaudit.reader.ui.design.PageTurn
 import io.github.kgcaudit.reader.ui.design.rememberPageTurnState
 import io.github.kgcaudit.reader.ui.design.ReadingSpeed
-import io.github.kgcaudit.reader.ui.design.brightnessEdge
-import io.github.kgcaudit.reader.ui.design.systemBrightness
+import io.github.kgcaudit.reader.ui.design.rememberBrightnessDrag
 import io.github.kgcaudit.reader.ui.design.CpReadingFooter
 import io.github.kgcaudit.reader.ui.design.CpRibbon
 import io.github.kgcaudit.reader.ui.design.CpThemeSwatches
@@ -166,8 +165,6 @@ fun ReaderScreen(
     // 각주 판(F3) · 브라우저 확인(F6).
     var note by remember { mutableStateOf<Pair<String, LinkTarget.Footnote>?>(null) }
     var external by remember { mutableStateOf<String?>(null) }
-    // 왼쪽 끝을 미는 동안의 밝기(E6). 손을 떼면 설정으로 저장한다.
-    var dragBrightness by remember { mutableStateOf<Float?>(null) }
     val latestPrefs by androidx.compose.runtime.rememberUpdatedState(prefs)
     val context = androidx.compose.ui.platform.LocalContext.current
     var speedRevision by remember { mutableIntStateOf(0) }
@@ -254,8 +251,16 @@ fun ReaderScreen(
         onDispose { lifecycle.removeObserver(observer) }
     }
 
+    // 왼쪽 끝 밝기 밀기(E6). 아래 판(메모 · 각주 · 듣기)과 링크 팝업도 지면과 같은 상자 안에 떠서 panel 은 None 이다. 따로
+    // 막지 않으면 각주를 왼쪽 끝에서 굴리거나 메모 칸을 끌 때 판 대신 밝기가 바뀌었다(0.28.3).
+    val brightness = rememberBrightnessDrag(
+        saved = prefs.screen.brightness,
+        enabled = prefs.screen.brightnessGesture && panel == Panel.None &&
+            memo == null && note == null && external == null && !(listenSheet && listen.active),
+        onCommit = { v -> onPrefsChange(latestPrefs.copy(screen = latestPrefs.screen.copy(brightness = v))) },
+    )
     ReadingWindow(
-        prefs.screen.copy(brightness = dragBrightness ?: prefs.screen.brightness),
+        brightness.applied(prefs.screen),
         activity = state.position,
         autoRunning = prefs.screen.autoTurn != io.github.kgcaudit.reader.ui.design.AutoTurn.Off,
     )
@@ -311,21 +316,7 @@ fun ReaderScreen(
     }
 
     BoxWithConstraints(
-        Modifier.fillMaxSize().background(colors.paper).brightnessEdge(
-            // 아래 판(메모 · 각주 · 듣기)과 링크 팝업도 같은 상자 안에 떠서 panel 은 None 이다. 따로 막지 않으면 각주를
-            // 왼쪽 끝에서 굴리거나 메모 칸을 끌 때 판 대신 밝기가 바뀌었다(0.28.3).
-            enabled = prefs.screen.brightnessGesture && panel == Panel.None &&
-                memo == null && note == null && external == null && !(listenSheet && listen.active),
-            current = { latestPrefs.screen.brightness ?: systemBrightness(context) },
-            onDrag = { value ->
-                if (value != null) {
-                    dragBrightness = value
-                } else {
-                    dragBrightness?.let { v -> onPrefsChange(latestPrefs.copy(screen = latestPrefs.screen.copy(brightness = v))) }
-                    dragBrightness = null
-                }
-            },
-        ),
+        Modifier.fillMaxSize().background(colors.paper).then(brightness.modifier),
     ) {
         val widthPx = constraints.maxWidth.toFloat()
         val heightPx = constraints.maxHeight.toFloat()
@@ -749,7 +740,7 @@ fun ReaderScreen(
                 ReturnChip({ scope.go { reader.returnBack() } }, Modifier.align(Alignment.BottomCenter).padding(bottom = lift))
             }
         }
-        CpBrightnessOverlay(dragBrightness, Modifier.align(Alignment.CenterStart))
+        CpBrightnessOverlay(brightness.value, Modifier.align(Alignment.CenterStart))
 
         when (panel) {
             // 목소리 화면은 아래에서 듣기 판과 함께 그린다.
