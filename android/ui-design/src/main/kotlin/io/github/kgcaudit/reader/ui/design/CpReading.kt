@@ -452,10 +452,12 @@ enum class CpReaderKind { Book, Pdf, Comic, Webtoon }
  * 두 쪽 보기 두 줄(가로에서 · 세로에서). 책 · PDF · 만화가 같은 줄 · 같은 값을 쓴다(0.42.0) — 만화만 따로 "끔 / 넓은 화면에서 /
  * 가로에서 / 늘" 을 두었을 때는 모든 보기 설정의 이 두 줄을 바꿔도 만화가 따르지 않았다.
  *
- * @param fitWidth PDF 폭 맞춤: 두 쪽이 꺼진다. 줄을 흐리게 하고 까닭을 적는다 — 말없이 꺼지면 고장으로 보인다.
+ * @param onePage 두 쪽이 꺼진 까닭(PDF 폭 맞춤 · 이어서). 주면 줄을 흐리게 하고 그 까닭을 적는다 — 말없이 꺼지면 고장으로
+ *   보인다. 쪽 맞춤 값마다 까닭이 달라 글을 받는다.
  */
 @Composable
-fun CpTwoPageRows(prefs: ScreenPrefs, onChange: (ScreenPrefs) -> Unit, modifier: Modifier = Modifier, fitWidth: Boolean = false) {
+fun CpTwoPageRows(prefs: ScreenPrefs, onChange: (ScreenPrefs) -> Unit, modifier: Modifier = Modifier, onePage: String? = null) {
+    val fitWidth = onePage != null
     // 휴대폰에서는 흐리게 두고 까닭을 적는다. 줄을 빼 버리면 태블릿에서 본 설정을 휴대폰에서 찾아 헤맨다.
     val wide = cpTablet()
     val note = Modifier.padding(start = CpTheme.metrics.gutter, bottom = 6.dp)
@@ -471,11 +473,18 @@ fun CpTwoPageRows(prefs: ScreenPrefs, onChange: (ScreenPrefs) -> Unit, modifier:
             if (wide && !fitWidth) Modifier else Modifier.alpha(0.45f),
         )
         when {
-            fitWidth -> CpText("폭 맞춤에서는 한 쪽씩 보입니다", CpTheme.type.caption, CpTheme.colors.textMuted, note)
+            onePage != null -> CpText(onePage, CpTheme.type.caption, CpTheme.colors.textMuted, note)
             // 세로 줄 바로 아래라 "세로 두 쪽은" 을 붙이지 않는다(0.30.0 부터의 문구 그대로).
             !wide -> CpText("넓은 화면(태블릿 · 폴더블)에서만 쓸 수 있습니다", CpTheme.type.caption, CpTheme.colors.textMuted, note)
         }
     }
+}
+
+/** PDF 쪽 맞춤이 두 쪽 보기를 끄는 까닭. 쪽 전체면 null(두 쪽 보기를 쓴다). */
+fun pdfOnePageNote(fit: PdfFit): String? = when (fit) {
+    PdfFit.Page -> null
+    PdfFit.Width -> "폭 맞춤에서는 한 쪽씩 보입니다"
+    PdfFit.Continuous -> "이어서에서는 두 쪽 보기를 쓰지 않습니다"
 }
 
 /** 두 쪽 보기에서 표지(1쪽)를 따로 둘지. PDF · 만화. */
@@ -583,7 +592,7 @@ fun CpViewSettingsScreen(
                     )
                 }
                 if (reader != CpReaderKind.Webtoon) {
-                    CpTwoPageRows(prefs, onChange, child, fitWidth = reader == CpReaderKind.Pdf && prefs.pdfFit == PdfFit.Width)
+                    CpTwoPageRows(prefs, onChange, child, onePage = if (reader == CpReaderKind.Pdf) pdfOnePageNote(prefs.pdfFit) else null)
                     // 만화도 PDF 처럼 표지(1쪽)를 따로 둔다 — 2쪽부터 짝이 맞아야 펼침면 그림이 이어진다.
                     if (reader == CpReaderKind.Comic) CoverAloneRow(prefs, onChange, child)
                 }

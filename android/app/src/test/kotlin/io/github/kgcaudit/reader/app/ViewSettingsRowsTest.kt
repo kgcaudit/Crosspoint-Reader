@@ -84,4 +84,12 @@ class ViewSettingsRowsTest {
         val shown = rows(CpReaderKind.Pdf, ScreenPrefs(pdfFit = PdfFit.Width))
         assertRows(shown, mapOf("폭 맞춤에서는 한 쪽씩 보입니다" to true, "두 쪽 보기에서 표지" to true))
     }
+
+    @Test
+    fun `pdf continuous also explains why two pages are off`() {
+        // 이어서도 두 쪽을 쓰지 않는다(사용자 결정 5-2). 까닭 없이 흐린 줄은 고장으로 보인다. 폭 맞춤의 글을 그대로 쓰면
+        // 이어서를 고른 사람에게 "폭 맞춤" 을 말해 엉뚱하다.
+        val shown = rows(CpReaderKind.Pdf, ScreenPrefs(pdfFit = PdfFit.Continuous))
+        assertRows(shown, mapOf("이어서에서는 두 쪽 보기를 쓰지 않습니다" to true, "폭 맞춤에서는 한 쪽씩 보입니다" to false))
+    }
 }

@@ -182,6 +182,9 @@ fun PdfScreen(
     var enterBottom by remember { mutableIntStateOf(-1) }
     LaunchedEffect(state.page) { if (state.page != enterBottom) enterBottom = -1 }
     val fitWidth = prefs.pdfFit == PdfFit.Width
+    // 이어서(사용자 결정 5-1 · 5-2): 쪽을 위아래로 이어 붙인 기둥. 한 화면 · 한 쪽 옮기기는 보이는 기둥이 걸어 둔 손잡이로.
+    val continuous = prefs.pdfFit == PdfFit.Continuous
+    val mover = remember { ContinuousMover() }
 
     /**
      * 누름 · 볼륨 키 · 자동 넘김 · 옆으로 밀기의 "앞으로 / 뒤로". 폭 맞춤이면 쪽 안에서 한 화면 옮기고, 쪽 끝이면 넘긴다.
@@ -194,6 +197,11 @@ fun PdfScreen(
     // 사람이 넘길 때만 넘김 효과 · 소리(0.32.0). 목차 · 책갈피로 건너뛴 쪽, 폭 맞춤에서 쪽 안을 내려간 것에는 내지 않는다.
     val turns = rememberPageTurnState()
     fun advance(forward: Boolean, quiet: Boolean = false, withinPage: Boolean = true) {
+        // 이어서: 누름 · 볼륨 키 · 자동 넘김은 한 화면, 옆으로 밀기는 한 쪽. 넘김 효과는 없다 — 쪽이 이어져 있어 넘기는 종이가 없다.
+        if (continuous) {
+            if (withinPage) mover.screen?.invoke(forward) else mover.page?.invoke(forward)
+            return
+        }
         if (withinPage && fitWidth && scroller.scroll?.invoke(forward) == true) return
         turns.request(quiet)
         scope.go {
@@ -383,8 +391,8 @@ fun PdfScreen(
                 val viewH = constraints.maxHeight.toFloat()
                 val density = androidx.compose.ui.platform.LocalDensity.current.density
                 val smallest = androidx.compose.ui.platform.LocalConfiguration.current.smallestScreenWidthDp
-                // 폭 맞춤은 한 쪽씩이다 — 두 쪽을 나란히 폭에 맞추면 쪽 전체와 다를 게 없다.
-                val twoPages = !fitWidth && prefs.twoPages(viewW / density, viewH / density, smallest)
+                // 폭 맞춤은 한 쪽씩이다 — 두 쪽을 나란히 폭에 맞추면 쪽 전체와 다를 게 없다. 이어서도 한 기둥이다.
+                val twoPages = !fitWidth && !continuous && prefs.twoPages(viewW / density, viewH / density, smallest)
                 LaunchedEffect(twoPages, prefs.pdfCoverAlone) { reader.setSpread(if (twoPages) prefs.pdfCoverAlone else null) }
                 val onTap: (Offset, Float) -> Unit = { at, corner ->
                     val note = if (latestPrefs.showHighlights) annotationAt(reader, text, reader.state.value.notes, at) else null
@@ -407,6 +415,26 @@ fun PdfScreen(
                 // 넘김 효과 동안 옛 쪽도 자리를 알리므로, 지금 보이는 쪽의 것만 받는다.
                 val onPlaced: (List<Placed>) -> Unit = { list -> if (list.all { it.page in reader.state.value.shown } && list != text.placed) text.placed = list }
                 val onSwipe: (Boolean) -> Unit = { forward -> advance(forward, withinPage = false) }
+                if (continuous) {
+                    if (state.ready && state.pageCount > 0 && viewW > 0f && viewH > 0f) {
+                        androidx.compose.runtime.CompositionLocalProvider(
+                            LocalPaperImageFilter provides paperImageFilter(colors.paper, prefs.imageBlend),
+                        ) {
+                            ContinuousView(
+                                reader = reader,
+                                viewW = viewW,
+                                viewH = viewH,
+                                onTap = onTap,
+                                onLongPress = ::longPress,
+                                // 여러 쪽이 함께 보인다 — 지금 쪽(가운데)만 받으면 위아래에 걸친 쪽의 칠이 사라진다.
+                                onPlaced = { list -> if (list != text.placed) text.placed = list },
+                                text = text,
+                                focus = focus,
+                                mover = mover,
+                            )
+                        }
+                    }
+                } else
                 // 넘김 효과(E7): 보이는 쪽(들)이 바뀔 때.
                 if (state.ready && state.pageCount > 0 && viewW > 0f && viewH > 0f) CpPageTurn(
                     key = state.shown,
@@ -499,7 +527,8 @@ fun PdfScreen(
         // 자동 넘김(L7). PDF 도 글자 없이 쪽만 넘기면 되므로 같이 쓴다. 메뉴가 열렸거나 듣는 중 · 고르는 중이면 쉰다.
         val autoSuspended = panel != PdfPanel.None || heard.active || text.selection != null || text.memo != null
         // 자동 넘김은 효과만 — 손을 대지 않았는데 소리가 나면 놀란다.
-        val autoTurn = rememberAutoTurn(prefs.autoTurn, state.page, autoSuspended) { advance(true, quiet = true) }
+        // 이어서는 한 화면 내려갈 때마다 새 "쪽" 으로 센다(읽는 자리) — 쪽 번호로 세면 한 번 내려간 뒤 책 끝으로 읽고 멈췄다.
+        val autoTurn = rememberAutoTurn(prefs.autoTurn, if (continuous) mover.spot else state.page, autoSuspended) { advance(true, quiet = true) }
         // 읽는 속도(E5): 사람이 읽고 한 쪽(두쪽이면 펼침) 넘긴 것만 그 쪽 수와 머문 시간으로 잰다. 자동 넘김 · 듣기가 넘긴 쪽,
         // 목차 · 찾기 · 진행 막대로 건너뛴 쪽은 뺀다(TurnSampler). 다음 펼침은 보이던 마지막 쪽 바로 뒤에서 시작한다.
         ReadingDwellEffect(
@@ -572,6 +601,13 @@ fun PdfScreen(
                         CpChoice("화면 회전", rotations.map { it.label }, rotations.indexOf(prefs.rotation), {
                             onPrefsChange(prefs.copy(rotation = rotations[it]))
                         })
+                        // 이어서는 누름 · 두 쪽 보기가 다른 보기와 달라 고른 동안 한 줄로 알린다(구상안 — 회전 줄 아래).
+                        if (continuous) {
+                            CpText(
+                                CONTINUOUS_NOTE, CpTheme.type.caption, colors.textMuted,
+                                Modifier.padding(horizontal = CpTheme.metrics.gutter, vertical = 6.dp), maxLines = 3,
+                            )
+                        }
                         CpLinkRow("모든 보기 설정", "", { panel = PdfPanel.Settings })
                     }
                     Spacer(Modifier.height(4.dp))
@@ -670,6 +706,9 @@ fun PdfScreen(
 }
 
 private enum class PdfPanel { None, Bar, View, Settings, Contents, Notes, Search, Voices }
+
+/** 보기 판에서 이어서를 골랐을 때의 설명(구상안 문구 그대로). */
+internal const val CONTINUOUS_NOTE = "이어서: 쪽을 폭에 맞춰 위아래로 이어 붙입니다. 누르면 한 화면씩 내려가고, 두 쪽 보기는 쓰지 않습니다."
 
 /** 글자가 그림인 PDF 에서 찾기 · 듣기 · 고르기를 누르면(결정 1). */
 internal const val SCANNED = "이 PDF는 글자가 그림으로 되어 있어(스캔본) 찾기 · 듣기 · 형광펜을 쓸 수 없습니다"
@@ -919,7 +958,7 @@ internal fun screenLabel(page: Int, index: Int, total: Int): String {
 }
 
 /** 쪽 안 위치가 보이는 시간. 한 번 흘끗 보기에 충분하고 읽기를 오래 가리지 않는다. */
-private const val POSITION_MS = 1500L
+internal const val POSITION_MS = 1500L
 
 /**
  * 두쪽보기: 펼침의 쪽들을 가운데(책등)에 붙여 나란히 놓는다. 쪽마다 화면 절반 × 전체 높이에 맞춘다. 표지처럼
@@ -1154,7 +1193,7 @@ private val io.github.kgcaudit.reader.document.Locator.fixedPage: Int
     get() = (this as? io.github.kgcaudit.reader.document.Locator.FixedPage)?.page ?: 0
 
 /** 손을 멈춘 뒤 선명하게 다시 그리기까지. 끄는 동안 매 프레임 그리면 렌더가 줄줄이 쌓인다. */
-private const val SETTLE_MS = 150L
+internal const val SETTLE_MS = 150L
 
 /**
  * 바탕 그림의 픽셀 크기. 폭 맞춤에서 세로로 아주 긴 쪽(웹툰형 PDF)은 화면 폭 그대로면 한 장이 100MB 를 넘어, 그리는

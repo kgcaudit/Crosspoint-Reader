@@ -85,6 +85,11 @@ data class PdfState(
     val shown: List<Int> = listOf(page),
     /** 이 책의 형광펜 전부(쪽마다 걸러 그린다). */
     val notes: List<Annotation> = emptyList(),
+    /**
+     * 쪽을 옮긴 횟수(목차 · 찾기 · 책갈피 · 진행 막대 · 듣기 · 다시 열기). 이어서 보기는 손으로 굴려 [page] 가 바뀌는 것과
+     * 이것을 가른다 — 쪽 번호만 보면 지금 쪽을 목차에서 다시 골라도 쪽 머리로 가지 않았다.
+     */
+    val jump: Int = 0,
 ) {
     /** 진도(0~100). 마지막 쪽을 펴면 100 — 두쪽이면 오른쪽 쪽까지 읽은 것으로 센다. */
     val percent: Float get() = if (pageCount <= 0) 0f else ((shown.maxOrNull() ?: page) + 1) * 100f / pageCount
@@ -134,10 +139,20 @@ class PdfReader(
     private var yPermille = 0
 
     /**
-     * [page] 를 폭 맞춤으로 처음 놓을 때 쪽 안 어디서 시작할지(천분율). 지금 쪽이 아니면 0 — 쪽 머리. 다시 연 책 ·
-     * 화면을 돌린 뒤의 쪽이 읽던 자리에서 시작한다.
+     * [yPermille] 이 가리키는 쪽 — 저장하는 자리의 쪽. 대개 지금 쪽([PdfState.page])과 같다. 이어서 보기에서만 다를 수 있다:
+     * 화면 가운데는 다음 쪽인데 화면 맨 위에는 앞 쪽 끝이 남아 있을 때. 지금 쪽(가운데)으로 저장하면 다시 열 때 그 앞 쪽
+     * 끝(아직 읽지 않았을 수 있다)을 건너뛰어, 화면 맨 위의 쪽과 그 쪽 안 자리를 저장한다.
      */
-    fun scrollPermille(page: Int): Int = if (page == _state.value.page) yPermille else 0
+    private var placePage = 0
+
+    /**
+     * [page] 를 폭 맞춤으로 처음 놓을 때 쪽 안 어디서 시작할지(천분율). 저장한 자리의 쪽이 아니면 0 — 쪽 머리. 다시 연
+     * 책 · 화면을 돌린 뒤의 쪽이 읽던 자리에서 시작한다.
+     */
+    fun scrollPermille(page: Int): Int = if (page == placePage) yPermille else 0
+
+    /** 저장하는 자리: (쪽, 그 쪽 안 화면 맨 위의 천분율). 이어서 보기가 이 자리에서 시작한다. */
+    fun place(): Pair<Int, Int> = placePage to yPermille
 
     /**
      * 화면이 폭 맞춤에서 쪽 안을 옮긴 뒤 알린다. 지금 쪽이 아니면(넘김 효과 동안의 옛 쪽) 버린다 — 받으면 새 쪽의
@@ -145,7 +160,30 @@ class PdfReader(
      */
     suspend fun keepScroll(page: Int, permille: Int) {
         val y = permille.coerceIn(0, 1000)
-        if (page != _state.value.page || y == yPermille) return
+        if (page != _state.value.page || (page == placePage && y == yPermille)) return
+        placePage = page
+        yPermille = y
+        saveProgress()
+    }
+
+    /**
+     * 이어서 보기에서 손으로 굴려 화면 가운데의 쪽이 [page] 가 됐다. 쪽 번호 · 책갈피 · 진도만 따라간다 — 저장은 손을 멈춘 뒤
+     * [keepPlace] 가 한다(굴리는 동안 프레임마다 쓰면 쓰기가 쌓인다). [PdfState.jump] 은 늘리지 않는다: 늘리면 화면이 그 쪽
+     * 머리로 다시 뛰어 굴리던 자리를 잃는다.
+     */
+    suspend fun scrolledTo(page: Int) {
+        val s = _state.value
+        if (page == s.page || page !in 0 until book.pageCount) return
+        _state.value = s.copy(page = page, shown = listOf(page))
+        refreshBookmarked()
+    }
+
+    /** 이어서 보기가 손을 멈춘 자리: 화면 맨 위가 걸친 쪽 [top] 과 그 쪽 안 천분율. 같은 자리면 쓰지 않는다. */
+    suspend fun keepPlace(top: Int, permille: Int) {
+        if (top !in 0 until book.pageCount) return
+        val y = permille.coerceIn(0, 1000)
+        if (top == placePage && y == yPermille) return
+        placePage = top
         yPermille = y
         saveProgress()
     }
@@ -283,7 +321,8 @@ class PdfReader(
         if (spread == coverAlone) return
         spread = coverAlone
         // 같은 쪽에 머무르면 세로 자리도 그대로 — 지우면 다시 열 때 쪽 머리로 돌아갔다.
-        if (_state.value.ready) show(_state.value.page, save = false, yPermille = yPermille)
+        // 저장한 자리의 쪽으로 — 이어서 보기에서는 지금 쪽(화면 가운데)과 다를 수 있고, 세로 자리는 그 쪽의 것이다.
+        if (_state.value.ready) show(placePage, save = false, yPermille = yPermille)
     }
 
     suspend fun next() {
@@ -391,13 +430,14 @@ class PdfReader(
         val shown = if (cover != null) spreadPages(target, count, cover) else listOf(target)
         // 저장된 자리가 펼침 · 짧아진 파일 때문에 다른 쪽으로 옮겨졌으면 그 세로 자리는 그 쪽의 것이 아니다.
         this.yPermille = if (target == page) yPermille.coerceIn(0, 1000) else 0
-        _state.value = _state.value.copy(page = target, pageCount = count, ready = true, shown = shown)
+        placePage = target
+        _state.value = _state.value.copy(page = target, pageCount = count, ready = true, shown = shown, jump = _state.value.jump + 1)
         refreshBookmarked()
         if (save) saveProgress()
     }
 
     private suspend fun saveProgress() {
-        val page = _state.value.page
+        val page = placePage
         runCatching {
             progressRepository.save(
                 ReadingProgress(book.meta.id, Locator.FixedPage(page, yPermille = yPermille), _state.value.percent.coerceIn(0f, 100f), clock()),
