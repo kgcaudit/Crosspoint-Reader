@@ -203,6 +203,21 @@ class PdfContinuousTest {
     }
 
     @Test
+    @Config(qualifiers = "w851dp-h393dp-xhdpi")
+    fun `in fit width auto turn also keeps going after scrolling inside a page`() {
+        // 폭 맞춤도 첫 걸음은 쪽 안에서 한 화면 내려갈 뿐 쪽 번호가 그대로다. 쪽 번호만 열쇠로 쓰면 2초 뒤 "책 끝" 으로
+        // 읽고 자동 넘김이 꺼졌다(0.50 까지). 두 번째 걸음도 내려가야 한다.
+        val r = reader()
+        show(r, ScreenPrefs(pdfFit = PdfFit.Width, pageTurn = PageTurn.None, autoTurn = io.github.kgcaudit.reader.ui.design.AutoTurn.S15))
+        waitFor(hasText("1 / 6"))
+        compose.mainClock.advanceTimeBy(16_000)
+        compose.waitUntil(5_000) { compose.waitForIdle(); saved().second > 0 }
+        val first = saved().second
+        compose.mainClock.advanceTimeBy(16_000)
+        compose.waitUntil(5_000) { compose.waitForIdle(); saved().second > first || saved().first > 0 }
+    }
+
+    @Test
     fun `a sideways swipe turns one whole page to its top`() {
         val r = reader()
         show(r)

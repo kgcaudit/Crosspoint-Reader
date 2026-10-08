@@ -196,13 +196,19 @@ fun PdfScreen(
      */
     // 사람이 넘길 때만 넘김 효과 · 소리(0.32.0). 목차 · 책갈피로 건너뛴 쪽, 폭 맞춤에서 쪽 안을 내려간 것에는 내지 않는다.
     val turns = rememberPageTurnState()
+    // 폭 맞춤에서 쪽 안으로 내려간 횟수. 자동 넘김은 "자리가 바뀌었나" 로 넘어간 것을 확인하는데, 쪽 번호만 보면 한 화면
+    // 내려간 첫 걸음이 "그대로" 로 읽혀 2초 뒤 책 끝으로 알고 꺼졌다(0.50 까지).
+    var inPageSteps by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     fun advance(forward: Boolean, quiet: Boolean = false, withinPage: Boolean = true) {
         // 이어서: 누름 · 볼륨 키 · 자동 넘김은 한 화면, 옆으로 밀기는 한 쪽. 넘김 효과는 없다 — 쪽이 이어져 있어 넘기는 종이가 없다.
         if (continuous) {
             if (withinPage) mover.screen?.invoke(forward) else mover.page?.invoke(forward)
             return
         }
-        if (withinPage && fitWidth && scroller.scroll?.invoke(forward) == true) return
+        if (withinPage && fitWidth && scroller.scroll?.invoke(forward) == true) {
+            inPageSteps++
+            return
+        }
         turns.request(quiet)
         scope.go {
             if (forward) {
@@ -528,7 +534,7 @@ fun PdfScreen(
         val autoSuspended = panel != PdfPanel.None || heard.active || text.selection != null || text.memo != null
         // 자동 넘김은 효과만 — 손을 대지 않았는데 소리가 나면 놀란다.
         // 이어서는 한 화면 내려갈 때마다 새 "쪽" 으로 센다(읽는 자리) — 쪽 번호로 세면 한 번 내려간 뒤 책 끝으로 읽고 멈췄다.
-        val autoTurn = rememberAutoTurn(prefs.autoTurn, if (continuous) mover.spot else state.page, autoSuspended) { advance(true, quiet = true) }
+        val autoTurn = rememberAutoTurn(prefs.autoTurn, if (continuous) mover.spot else state.page to inPageSteps, autoSuspended) { advance(true, quiet = true) }
         // 읽는 속도(E5): 사람이 읽고 한 쪽(두쪽이면 펼침) 넘긴 것만 그 쪽 수와 머문 시간으로 잰다. 자동 넘김 · 듣기가 넘긴 쪽,
         // 목차 · 찾기 · 진행 막대로 건너뛴 쪽은 뺀다(TurnSampler). 다음 펼침은 보이던 마지막 쪽 바로 뒤에서 시작한다.
         ReadingDwellEffect(
