@@ -52,7 +52,18 @@ import kotlin.test.assertTrue
 @Config(sdk = [35], qualifiers = "w393dp-h851dp-xhdpi")
 class ReaderSwitchTest {
 
-    @get:Rule
+    /** 부품만 띄우는 빈 화면은 시험용 매니페스트가 디버그에만 있어 릴리스 시험에서는 뜨지 않는다(DesignRulesTest 와 같다). */
+    @get:Rule(order = 0)
+    val debugOnly = org.junit.rules.TestRule { base, _ ->
+        object : org.junit.runners.model.Statement() {
+            override fun evaluate() {
+                org.junit.Assume.assumeTrue(BuildConfig.DEBUG)
+                base.evaluate()
+            }
+        }
+    }
+
+    @get:Rule(order = 1)
     val compose = createComposeRule()
 
     private val app get() = ApplicationProvider.getApplicationContext<OloApp>()
