@@ -48,6 +48,18 @@ class FolderProvider : DocumentsProvider() {
         return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
     }
 
+    // 기기 간 이어 읽기가 책 폴더 안에 `.olo/sync/` 와 기기 파일을 만든다.
+    override fun createDocument(parentDocumentId: String, mimeType: String, displayName: String): String {
+        val id = "$parentDocumentId/$displayName"
+        val file = File(base, id)
+        if (mimeType == Document.MIME_TYPE_DIR) file.mkdirs() else file.createNewFile()
+        return id
+    }
+
+    override fun deleteDocument(documentId: String) {
+        File(base, documentId).deleteRecursively()
+    }
+
     private fun row(cursor: MatrixCursor, id: String) {
         val file = File(base, id)
         cursor.newRow()

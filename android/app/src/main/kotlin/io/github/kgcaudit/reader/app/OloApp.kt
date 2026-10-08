@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.net.Uri
 import io.github.kgcaudit.reader.data.ReaderData
+import io.github.kgcaudit.reader.data.sync.readingSync
 import io.github.kgcaudit.reader.data.library.BookView
 import io.github.kgcaudit.reader.data.library.LibraryBook
 import io.github.kgcaudit.reader.document.BookFormat
@@ -106,8 +107,13 @@ class AppContainer(private val app: Application) {
     val scan = LibraryScan(appScope) {
         val complete = data.rescanAll().values.all { it.complete }
         runCatching { data.probeComics() }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+        // 훑은 뒤 다른 기기가 남긴 책갈피 · 다 읽은 때를 합친다(기기 간 이어 읽기, 꺼져 있으면 아무것도 하지 않는다).
+        runCatching { sync.refreshAll() }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
         complete
     }
+
+    /** 기기 간 이어 읽기(사용자 결정 8). 책 폴더의 `.olo/sync/` 에 쓰고 읽는다. 기본은 꺼짐. */
+    val sync = data.readingSync(app)
 
     /** 책장 표지. 앱 파일 영역 — 캐시 영역이면 사람이 고른 표지까지 시스템이 지운다. */
     val covers = CoverStore(
@@ -116,7 +122,7 @@ class AppContainer(private val app: Application) {
         extract = ::extractCover,
     )
 
-    /** 읽기 기록이 바뀌면 홈 화면 위젯을 고쳐 그린다. 앱이 뒤로 갈 때 [ReadingChanges.flush]. */
+    /** 읽기 기록이 바뀌면 홈 화면 위젯을 고쳐 그리고 이어 읽기 파일을 쓴다. 앱이 뒤로 갈 때 [ReadingChanges.flush]. */
     internal val changes = ReadingChanges(app, this)
 
     init {

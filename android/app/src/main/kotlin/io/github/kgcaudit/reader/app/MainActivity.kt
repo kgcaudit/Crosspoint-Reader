@@ -28,6 +28,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import io.github.kgcaudit.reader.data.TimeItem
 import io.github.kgcaudit.reader.document.BookFormat
 import io.github.kgcaudit.reader.document.BookId
+import io.github.kgcaudit.reader.document.ReadingProgress
 import io.github.kgcaudit.reader.data.readingActivity
 import io.github.kgcaudit.reader.listen.ListenHub
 import io.github.kgcaudit.reader.pdf.PdfScreen
@@ -182,6 +183,11 @@ private fun OloApp(
     var comicPickCover by rememberSaveable { mutableStateOf(false) }
     // 만화 뷰어로 연 책(0.50.0, 그림만 든 EPUB · 만화로 보기를 고른 PDF). 못 열면 [asBook] 에 적고 책 뷰어로 다시 연다.
     var bookComicId by rememberSaveable { mutableStateOf<String?>(null) }
+    // 기기 간 이어 읽기의 "거기로" 로 만화 · 그림책을 그 자리에서 다시 연 횟수. 다시 열 열쇠다.
+    var comicJump by remember { mutableIntStateOf(0) }
+    var bookComicJump by remember { mutableIntStateOf(0) }
+    // 다른 기기 자리를 물어볼 권(서재 · 위젯에서 연 것).
+    var comicPromptFor by remember { mutableStateOf<String?>(null) }
     var asBook by rememberSaveable { mutableStateOf<String?>(null) }
     val libraryState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     /** 라이브러리 위에 뜬 앱 정보([ABOUT]) · 라이선스 본문(그 번호). 화면을 돌려도 남게 저장한다. */
@@ -348,7 +354,10 @@ private fun OloApp(
         }
         when (target) {
             is ContinueTarget.Book -> openId = target.id
-            is ContinueTarget.Comic -> comicId = target.unitId
+            is ContinueTarget.Comic -> {
+                comicPromptFor = target.unitId
+                comicId = target.unitId
+            }
         }
     }
 
@@ -418,7 +427,8 @@ private fun OloApp(
         null -> if (comicId != null) {
             LaunchedEffect(comicId) { hideSystemBars(true) }
             CpReaderTheme(prefs.screen.theme) {
-                ComicHost(
+                // "거기로"(기기 간 이어 읽기)는 적은 자리로 이 권을 다시 연다 — 만화 뷰어에는 밖에서 쪽을 옮기는 길이 없다.
+                androidx.compose.runtime.key(comicJump) { ComicHost(
                     unitId = comicId!!,
                     startAt = comicStart,
                     prefs = prefs.screen,
@@ -428,12 +438,22 @@ private fun OloApp(
                     pickCover = comicPickCover,
                     onChrome = { showing -> hideSystemBars(!showing) },
                     onFail = { message -> failureTitle = "이 만화를 열지 못했습니다"; failure = message; comicId = null; comicStart = null; comicPickCover = false; hideSystemBars(false) },
-                )
+                ) }
+                // 서재 · 위젯에서 연 권에만 묻는다. 웹툰이 이어 붙인 다음 화 · 다음 권으로 넘어간 뒤에 띠가 다시 뜨면 읽는 흐름이 끊긴다.
+                val unit = comicId!!
+                if (comicPromptFor == unit && !comicPickCover) ComicSyncPrompt(unit) { offer ->
+                    withContext(Dispatchers.IO) {
+                        container.data.comics.saveProgress(unit, offer.page, offer.pageCount ?: (offer.page + 1), System.currentTimeMillis(), offer.offset, atEnd = false)
+                    }
+                    // 쪽 넘김은 그 쪽부터 연다(다 읽은 권의 끝 쪽이면 저장된 자리로 열 때 처음으로 돌아간다). 웹툰은 그림 안 자리까지 적은 것으로.
+                    comicStart = if (offer.offset == null) offer.page else null
+                    comicJump++
+                }
             }
         } else if (bookComicId != null) {
             LaunchedEffect(bookComicId) { hideSystemBars(true) }
             CpReaderTheme(prefs.screen.theme) {
-                BookComicHost(
+                androidx.compose.runtime.key(bookComicJump) { BookComicHost(
                     bookId = bookComicId!!,
                     prefs = prefs.screen,
                     onPrefsChange = { prefs = prefs.copy(screen = it); container.prefs.save(prefs) },
@@ -441,7 +461,12 @@ private fun OloApp(
                     onChrome = { showing -> hideSystemBars(!showing) },
                     // 만화로 못 열면 책으로 연다 — 그림책 판정이 틀렸어도 책은 열린다(규칙 6).
                     onFail = { val id = bookComicId; asBook = id; bookComicId = null; openId = id },
-                )
+                ) }
+                val id = bookComicId!!
+                BookComicSyncPrompt(id) { offer ->
+                    container.data.progress.save(ReadingProgress(BookId(id), offer.locator, offer.percent, System.currentTimeMillis()))
+                    bookComicJump++
+                }
             }
         } else when (val shown = aboutPage) {
             // 만화를 닫고 돌아오면 보던 탭 · 작품 화면이 그대로여야 한다. 서재는 만화를 여는 동안 화면에서 빠지므로 그 안의
@@ -452,7 +477,7 @@ private fun OloApp(
                 onStartScan = { scanned = true },
                 onAbout = { aboutPage = ABOUT },
                 onStats = { aboutPage = STATS },
-                onOpenComic = { id, page -> comicStart = page; comicPickCover = false; comicId = id },
+                onOpenComic = { id, page -> comicStart = page; comicPickCover = false; comicPromptFor = id; comicId = id },
                 onPickComicCover = { id -> comicStart = null; comicPickCover = true; comicId = id },
             ) }
             ABOUT -> AboutScreen(records, onBack = { aboutPage = null }, onLicense = { aboutPage = it })
@@ -466,6 +491,7 @@ private fun OloApp(
         is OpenedBook.Reflow -> {
             LaunchedEffect(current) { hideSystemBars(true) }
             CpReaderTheme(prefs.screen.theme) {
+                Box(Modifier.fillMaxSize()) {
                 ReaderScreen(
                     reader = current.reader,
                     prefs = prefs,
@@ -477,12 +503,16 @@ private fun OloApp(
                     listenKit = container.listenKit,
                     onReadTime = { container.recordPage(TimeItem.BOOK, current.id.value, it) },
                 )
+                // 리더 화면은 건드리지 않는다 — 띠는 리더 객체의 상태만 보고 그 위에 뜬다.
+                ReflowSyncPrompt(current.reader)
+                }
             }
         }
         is OpenedBook.Pdf -> {
             LaunchedEffect(current) { hideSystemBars(true) }
             // 배경 · 밝기 · 터치 영역 … 은 EPUB 과 한 벌이다. PDF 에서 고른 배경이 EPUB 을 열 때 풀리면 안 된다.
             CpReaderTheme(prefs.screen.theme) {
+                Box(Modifier.fillMaxSize()) {
                 PdfScreen(
                     reader = current.reader,
                     onClose = ::close,
@@ -496,6 +526,8 @@ private fun OloApp(
                     listenKit = container.listenKit,
                     onReadTime = { container.recordPage(TimeItem.BOOK, current.id.value, it) },
                 )
+                PdfSyncPrompt(current.reader)
+                }
             }
         }
     }

@@ -18,16 +18,33 @@ import android.provider.DocumentsContract
  */
 class LibraryFolders(private val resolver: ContentResolver) {
 
-    /** `ACTION_OPEN_DOCUMENT_TREE` 로 받은 트리를 등록한다. 읽기 권한만 받는다. */
+    /**
+     * `ACTION_OPEN_DOCUMENT_TREE` 로 받은 트리를 등록한다. 읽기와 쓰기를 함께 받는다(기기 간 이어 읽기, 그 폴더 안
+     * `.olo` 에 읽은 자리를 적는다). 0.50 까지는 읽기만 받아, 이어 읽기를 켜면 폴더를 한 번 더 골라야 한다.
+     *
+     * 받을 수 있는 것은 고르는 화면이 준 것의 부분 집합뿐이다. 폴더 고르기는 읽기 · 쓰기를 함께 주지만, 쓰기를 주지 않는
+     * 제공자(읽기 전용 클라우드)도 있다 — 그때 쓰기까지 달라면 SecurityException 이라 폴더 등록 자체가 실패했다. 읽기만이라도
+     * 받는다: 책은 읽히고, 이어 읽기만 그 폴더를 건너뛴다.
+     */
     fun register(treeUri: Uri) {
-        resolver.takePersistableUriPermission(treeUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        try {
+            resolver.takePersistableUriPermission(treeUri, READ_WRITE)
+        } catch (e: SecurityException) {
+            resolver.takePersistableUriPermission(treeUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
     }
 
     fun unregister(treeUri: Uri) {
         // 이미 권한이 없는 폴더(다른 곳에서 풀림, 목록이 오래됨)를 빼면 SecurityException 이 난다. 빼려던
-        // 것이 이미 빠져 있는 것이니 실패가 아니다 — 그대로 두면 앱이 죽는다.
+        // 것이 이미 빠져 있는 것이니 실패가 아니다 — 그대로 두면 앱이 죽는다. 쓰기를 받은 폴더는 쓰기까지 놓는다 — 읽기만
+        // 놓으면 쓰기 허락이 남아 앱당 영속 권한 수를 계속 차지한다.
+        runCatching { resolver.releasePersistableUriPermission(treeUri, READ_WRITE) }
         runCatching { resolver.releasePersistableUriPermission(treeUri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
     }
+
+    /** 이 폴더에 쓸 수 있는가(쓰기 허락을 받아 두었는가). 0.50 까지 등록한 폴더는 읽기만 받았다. */
+    fun canWrite(treeUri: Uri): Boolean =
+        resolver.persistedUriPermissions.any { it.uri == treeUri && it.isWritePermission }
 
     /** 등록된 폴더. 읽기 권한이 살아 있는 트리 URI 만 준다. */
     fun folders(): List<Uri> =
@@ -57,6 +74,10 @@ class LibraryFolders(private val resolver: ContentResolver) {
     }
 
     private fun treeId(uri: Uri): String? = runCatching { DocumentsContract.getTreeDocumentId(uri) }.getOrNull()
+
+    private companion object {
+        const val READ_WRITE = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+    }
 }
 
 enum class TreeRelation { Same, Inside, Contains, Apart }

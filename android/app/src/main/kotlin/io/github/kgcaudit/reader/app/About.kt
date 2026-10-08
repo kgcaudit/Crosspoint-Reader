@@ -110,6 +110,7 @@ internal fun koreanDate(iso: String): String {
 internal fun AboutScreen(records: RecordsUi, onBack: () -> Unit, onLicense: (Int) -> Unit) {
     BackHandler(onBack = onBack)
     val c = CpTheme.colors
+    val sync = rememberSyncUi()
     Box(Modifier.fillMaxSize().background(c.background).windowInsetsPadding(WindowInsets.safeDrawing)) {
     // 라이선스가 늘거나 글자를 키우면 화면을 넘는다 — 기록 행이 그 아래에 묻히지 않게 굴린다.
     Column(Modifier.align(Alignment.TopCenter).then(tabletWidth()).fillMaxSize().verticalScroll(rememberScrollState())) {
@@ -122,7 +123,7 @@ internal fun AboutScreen(records: RecordsUi, onBack: () -> Unit, onLicense: (Int
             CpText("EPUB · TXT · PDF를 간편하게 읽고 책갈피를 꽂는 뷰어입니다.", CpTheme.type.body, c.text, maxLines = Int.MAX_VALUE)
             Spacer(Modifier.height(6.dp))
             CpText(
-                "인터넷을 쓰지 않습니다. 읽은 자리 · 책갈피 · 형광펜은 이 휴대폰에만 남습니다. 휴대폰을 바꿀 때는 백업 파일로 옮기세요.",
+                "인터넷을 쓰지 않습니다. 읽은 자리 · 책갈피 · 형광펜은 이 휴대폰에 남습니다. 휴대폰을 바꿀 때는 백업 파일로 옮기세요.",
                 // 줄 수를 막지 않는다(0.29.0). 3줄이면 큰 글자에서 "백업 파일로 옮기세요" 가 잘렸다.
                 CpTheme.type.subtitle, c.textMuted, maxLines = Int.MAX_VALUE,
             )
@@ -131,13 +132,17 @@ internal fun AboutScreen(records: RecordsUi, onBack: () -> Unit, onLicense: (Int
         CpDivider()
         ReadingRecordsRows(records)
         CpDivider()
+        ReadingSyncRows(sync)
+        CpDivider()
         CpSectionLabel("오픈소스 라이선스")
         OPEN_LICENSES.forEachIndexed { i, license ->
             CpListRow(license.title, { onLicense(i) }, subtitle = license.subtitle, value = license.badge)
         }
     }
     ReadingRecordsPopups(records)
+    ReadingSyncPopups(sync)
     CpToast(records.toast, { records.toast = null }, Modifier.align(Alignment.BottomCenter), durationMs = 2_500)
+    CpToast(sync.toast, { sync.toast = null }, Modifier.align(Alignment.BottomCenter), durationMs = 2_500)
     }
 }
 

@@ -275,11 +275,11 @@ internal object ContinueWidgets {
 }
 
 /**
- * 읽기 기록이 바뀌면 위젯을 다시 그린다. 리더마다 고리를 걸지 않는다 — DB 표가 바뀐 것을 본다
+ * 읽기 기록이 바뀌면 위젯을 다시 그리고, 기기 간 이어 읽기를 켰으면 책 폴더에 이 기기의 기록을 쓴다. 리더마다 고리를 걸지 않는다 — DB 표가 바뀐 것을 본다
  * (Room 의 바뀜 알림). 리더가 늘어도(만화 · 웹툰 · 그림책) 빠뜨릴 자리가 없다.
  *
  * 쪽을 넘길 때마다 그리지 않게 잠깐 기다렸다 한 번 한다. 앱이 뒤로 갈 때는 기다리지 않고 바로 한다([flush]) — 그 뒤에 프로세스가
- * 거둬지면 마지막 자리가 홈 화면에 닿지 않는다.
+ * 거둬지면 마지막 자리가 홈 화면 · 다른 기기에 닿지 않는다.
  */
 internal class ReadingChanges(private val context: Context, private val container: AppContainer) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -306,7 +306,10 @@ internal class ReadingChanges(private val context: Context, private val containe
     }
 
     private suspend fun run() {
+        // 하나가 실패해도 다른 하나는 한다 — 위젯을 못 그렸다고 다른 기기에 읽은 자리가 안 가면 안 된다.
         runCatching { ContinueWidgets.refresh(context) }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; android.util.Log.w("OloWidget", "widget not refreshed", it) }
+        // 기기 간 이어 읽기: 이 기기의 기록을 책 폴더에 적는다(꺼져 있으면 아무것도 하지 않는다).
+        runCatching { container.sync.writeOwn() }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; android.util.Log.w("OloSync", "reading state not written", it) }
     }
 
     private companion object {

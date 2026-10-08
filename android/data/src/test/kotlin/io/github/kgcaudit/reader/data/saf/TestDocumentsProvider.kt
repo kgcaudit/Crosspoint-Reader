@@ -57,8 +57,27 @@ class TestDocumentsProvider : DocumentsProvider() {
         opens++
         onOpen?.invoke()
         val file = fileOf(documentId)
+        // 쓰기(기기 간 이어 읽기의 기록 파일). "wt" 를 받지 않는 제공자도 흉내 낸다 — 그런 제공자에서도 깨진 JSON 이 남지 않는지.
+        if ('w' in mode) {
+            if ('t' in mode && !truncates) throw FileNotFoundException("mode $mode not supported")
+            if (!file.isFile) throw FileNotFoundException(documentId)
+            // 안드로이드 10 부터 많은 제공자가 "w" 를 비우지 않고 덮어쓴다("wt" 가 따로 있는 까닭). 그 모양을 흉내 낸다.
+            val flags = if ('t' in mode) ParcelFileDescriptor.parseMode(mode) else ParcelFileDescriptor.MODE_WRITE_ONLY
+            return ParcelFileDescriptor.open(file, flags)
+        }
         if (!file.isFile) throw FileNotFoundException(documentId)
         return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+    }
+
+    override fun createDocument(parentDocumentId: String, mimeType: String, displayName: String): String {
+        val id = "$parentDocumentId/$displayName"
+        val file = fileOf(id)
+        if (mimeType == Document.MIME_TYPE_DIR) file.mkdirs() else file.createNewFile()
+        return id
+    }
+
+    override fun deleteDocument(documentId: String) {
+        fileOf(documentId).deleteRecursively()
     }
 
     private fun addRow(cursor: MatrixCursor, documentId: String) {
@@ -91,6 +110,9 @@ class TestDocumentsProvider : DocumentsProvider() {
         /** 파일을 연 횟수 — 클라우드 제공자라면 받은 횟수다. */
         var opens: Int = 0
 
+        /** "wt"(비우고 쓰기)를 받는가. 받지 않는 제공자를 흉내 낼 때 끈다. */
+        var truncates: Boolean = true
+
         private val DEFAULT_PROJECTION = arrayOf(
             Document.COLUMN_DOCUMENT_ID,
             Document.COLUMN_DISPLAY_NAME,
@@ -111,6 +133,7 @@ class TestDocumentsProvider : DocumentsProvider() {
             unanswered = emptySet()
             onOpen = null
             opens = 0
+            truncates = true
             val root = File(base, ROOT_ID).apply { mkdirs() }
             val info = ProviderInfo().apply {
                 authority = AUTHORITY
