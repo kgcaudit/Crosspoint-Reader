@@ -315,15 +315,15 @@ R2 에서 구현·검증됨(`PageCodec`). 초안에서 두 가지가 바뀌었�
 ```
 <filesDir>/pages/<bookId>/<specHash>/
    s<N>.txt   챕터 정규화 텍스트 (UTF-8)
-   s<N>.idx   머리말(32B) + 고정 24B 페이지 엔트리
+   s<N>.idx   머리말(32B) + 고정 32B 페이지 엔트리(v7)
    s<N>.run   고정 24B 런 레코드
    s<N>.obj   가변 길이 그림·구분선 덩이
 ```
 
 | 레코드 | 크기 | 필드 |
 |---|---:|---|
-| `.idx` 머리말 | 32B | magic `CPP1` · version u16 (=4) · (옛 pageCount u16, 읽지 않음 — 쪽 수는 색인 길이로 센다) · complete u8 · (예약 3B) · runCount u32 · imageCount u32 · ruleCount u32 · textLength u32 · textBytes u32 (v4, `.txt` 파일 크기 — 텍스트를 풀지 않고 짝을 확인) |
-| `.idx` PageEntry | 24B | runStart u32 · runCount u16 · imageStart u16 · imageCount u8 · ruleCount u8 · ruleStart u16 · charStart u32 · charEnd u32 |
+| `.idx` 머리말 | 32B | magic `CPP1` · version u16 (=7) · (옛 pageCount u16, 읽지 않음 — 쪽 수는 색인 길이로 센다) · complete u8 · (예약 3B) · runCount u32 · imageCount u32 · ruleCount u32 · textLength u32 · textBytes u32 (v4, `.txt` 파일 크기 — 텍스트를 풀지 않고 짝을 확인) |
+| `.idx` PageEntry | 32B (v7) | runStart u32 · runCount u16 · imageCount u16 · ruleCount u16 · (예약 u16) · charStart u32 · charEnd u32 · imageStart u32 · ruleStart u32 · (예약 u32). v6 까지는 24B 에 imageStart u16 · imageCount u8 — 문장 속 그림(그림 글자 이모지)이 쪽마다 수백 개가 되면 넘쳤다 |
 | `.run` Run | 24B | charStart u32 · charEnd u32 · x f32 · baselineY f32 · sizeScale f32 · styleFlags u8 · (예약 u8) · face u16 (v3, 책 글꼴 번호 — 0 = 본문 글꼴) |
 | `.obj` | 가변 | 표식 u8 + (그림: 길이 u16 + href + x,y,w,h f32) / (구분선: x,y,w,thickness f32) |
 
@@ -334,7 +334,7 @@ R2 에서 구현·검증됨(`PageCodec`). 초안에서 두 가지가 바뀌었�
 
 1. **텍스트는 한 번만 저장하고 런은 인덱스만 갖는다.** `.txt` 하나가 조판 · 책갈피
    스니펫 · 진도 오프셋 · (향후) 검색 · 텍스트 선택 · 낭독의 공통 원천이 된다.
-2. **런은 고정 길이** → "페이지 N 읽기" = `.idx` 에서 24B 읽고 `.run` 을 잘라 오기.
+2. **런은 고정 길이** → "페이지 N 읽기" = `.idx` 에서 32B 읽고 `.run` 을 잘라 오기.
    파싱이 없다. 이게 페이지 넘김 16ms 예산의 전제다.
 3. **그림·구분선은 가변 길이 덩이로 분리.** href 길이가 제각각이라 고정 길이에 담을 수
    없고, 챕터당 몇 개뿐이라 한 번에 읽어도 싸다. 이렇게 나눠야 런 배열이 고정 길이를

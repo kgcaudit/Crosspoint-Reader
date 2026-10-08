@@ -64,6 +64,14 @@ sealed interface Block {
          * `<br>` 로 적은 시 · 편지가 줄마다 벌어졌다.
          */
         val continuesLine: Boolean = false,
+        /**
+         * 문장 속 그림(글과 한 문단에 든 `<img>`). 그림마다 [runs] 안의 U+FFFC 한 글자를 차지한다 — 런은 그 글자까지
+         * 빈틈없이 덮으므로 오프셋 · 문단 시작 · 찾기 · 낭독이 그림을 건너 문장을 하나로 본다.
+         *
+         * 줄 안에 둘지 따로 세울지는 조판기가 정한다(크기는 지면과 글자 크기를 알아야 나온다). 파서가 미리 블록으로
+         * 떼면 로고 하나에 문장이 둘로 갈라져, 낭독은 그 자리에서 쉬고 찾기는 그림을 건너는 말을 못 찾았다.
+         */
+        val images: List<InlineImage> = emptyList(),
     ) : Block {
         override val charStart: Int get() = runs.firstOrNull()?.start ?: 0
         override val charEndExclusive: Int get() = runs.lastOrNull()?.endExclusive ?: 0
@@ -98,6 +106,19 @@ sealed interface Block {
         override val style: BlockStyle = BlockStyle.Default,
     ) : Block
 }
+
+/**
+ * 문단 안의 그림 하나. [image] 의 글자 구간이 그 문단 런 안의 U+FFFC 한 칸이다.
+ *
+ * [spaceBefore] · [spaceAfter] 는 원문에서 그림 앞뒤에 공백이 있었는지다. 정규화 텍스트에는 이 공백을 넣지 않는다 —
+ * 문장 속 그림을 블록으로 떼던 판의 글자 위치를 그대로 지켜야 이미 꽂은 책갈피 · 형광펜이 한 칸도 밀리지 않는다. 대신
+ * 조판이 그 자리에 공백 폭을 둔다. 안 두면 "회사 [로고] 는" 이 "회사[로고]는" 으로 붙어 보인다.
+ */
+data class InlineImage(
+    val image: Block.Image,
+    val spaceBefore: Boolean = false,
+    val spaceAfter: Boolean = false,
+)
 
 /**
  * 책이 그림에 지정한 크기. 모두 null 이면 "지정 없음" 이다(0 과 다르다 — 규칙 5).

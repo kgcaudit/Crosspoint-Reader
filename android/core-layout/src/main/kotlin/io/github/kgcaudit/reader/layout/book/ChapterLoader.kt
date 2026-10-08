@@ -75,16 +75,35 @@ class ChapterLoader(
      * 파일이 없거나 머리가 깨졌으면 크기를 모르는 채로 둔다 — 조판은 자리를 잡고 넘어간다.
      */
     private suspend fun withImageSizes(index: Int, chapter: Chapter): Chapter {
-        if (chapter.blocks.none { it is Block.Image && !it.hasIntrinsicSize }) return chapter
+        val unknown = chapter.blocks.any { block ->
+            when (block) {
+                is Block.Image -> !block.hasIntrinsicSize
+                // 문장 속 그림도 파일 크기가 있어야 "줄에 들어가는가" 를 정한다. 빠뜨리면 모두 크기 모름(글자 크기 네모)이 되어
+                // 큰 삽화에 설명이 붙은 문단에서 삽화가 글자만 하게 줄었다.
+                is Block.Paragraph -> block.images.any { !it.image.hasIntrinsicSize }
+                is Block.Rule -> false
+            }
+        }
+        if (!unknown) return chapter
         val directory = document.spine().getOrNull(index)?.href?.substringBeforeLast('/', "").orEmpty()
-        val blocks = chapter.blocks.map { block ->
-            if (block !is Block.Image || block.hasIntrinsicSize) return@map block
+
+        suspend fun sized(image: Block.Image): Block.Image {
+            if (image.hasIntrinsicSize) return image
             // getOrPut 은 null(없는 그림 · 깨진 머리)을 담아 두지 못해 장을 열 때마다 다시 열어 봤다 — 실패도 기억한다.
-            val key = "$directory|${block.href}"
+            val key = "$directory|${image.href}"
             val size = if (key in imageSizeCache) imageSizeCache[key] else
-                runCatching { document.openChapterResource(index, block.href)?.use(ImageHeader::read) }.getOrNull()
+                runCatching { document.openChapterResource(index, image.href)?.use(ImageHeader::read) }.getOrNull()
                     .also { imageSizeCache[key] = it }
-            if (size == null) block else block.copy(intrinsicWidth = size.width, intrinsicHeight = size.height)
+            return if (size == null) image else image.copy(intrinsicWidth = size.width, intrinsicHeight = size.height)
+        }
+
+        val blocks = chapter.blocks.map { block ->
+            when {
+                block is Block.Image -> sized(block)
+                block is Block.Paragraph && block.images.isNotEmpty() ->
+                    block.copy(images = block.images.map { it.copy(image = sized(it.image)) })
+                else -> block
+            }
         }
         return chapter.copy(blocks = blocks)
     }

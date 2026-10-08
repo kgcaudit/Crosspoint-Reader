@@ -13,6 +13,14 @@ class BookLinksTest {
     private fun para(text: String, from: Int, to: Int) = Block.Paragraph(listOf(InlineRun(from, to)), io.github.kgcaudit.reader.layout.BlockStyle.Default)
 
     @Test
+    fun `a footnote with a picture in its sentence shows a space, not a box glyph`() {
+        // 문장 속 그림이 이제 문단 안에 남는다. 각주 판은 글만 그리므로 그림 글자를 그대로 두면 "￼" 가 찍힌다.
+        val text = "1) 회사\uFFFC로고 설명."
+        val note = noteText(text, listOf(para(text, 0, text.length)), listOf(0), 0)
+        assertEquals("1) 회사 로고 설명.", note)
+    }
+
+    @Test
     fun `a note runs until the next note begins`() {
         // "주석" 장: 각주마다 id 가 붙은 문단. 1번을 누르면 1번만 — 2번까지 따라오면 판이 엉뚱하게 길다.
         val text = "주석1) 보아 구렁이: 큰 뱀.둘째 줄 설명.2) 체험한 이야기: 어린이 책."

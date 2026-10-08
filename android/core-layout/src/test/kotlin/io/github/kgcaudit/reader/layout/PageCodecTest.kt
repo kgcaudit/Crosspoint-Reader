@@ -243,7 +243,7 @@ class PageCodecTest {
             ),
             textLength = 2,
         )
-        assertEquals(24, twoPages.index.size - onePage.index.size) // 페이지 엔트리
+        assertEquals(32, twoPages.index.size - onePage.index.size) // 페이지 엔트리(판 7 부터 32바이트)
         assertEquals(24, twoPages.runs.size - onePage.runs.size) // 런 레코드
     }
 
@@ -278,6 +278,21 @@ class PageCodecTest {
             rules = listOf(PlacedRule(0f, 40f, 100f, 1f)),
         )
         assertEquals(page, roundTrip(listOf(page)).single())
+    }
+
+    @Test
+    fun `pictures past the 65536th in a chapter still land on the right page`() {
+        // 그림 글자(이모지)가 빽빽한 큰 장. 장 전체 그림 커서가 u16 이던 때는 65,536번째부터 커서가 0 으로 돌아 뒤쪽 쪽들이
+        // 앞쪽 그림을 그렸다. 쪽당 수도 u8 을 넘는다.
+        fun images(n: Int, tag: String) = List(n) { PlacedImage(tag, it.toFloat(), 0f, 1f, 1f) }
+        val pages = listOf(
+            Page(0, 0, 1, images = images(40_000, "a")),
+            Page(1, 1, 2, images = images(30_000, "b")),
+            Page(2, 2, 3, images = images(3, "c"), rules = listOf(PlacedRule(0f, 1f, 2f, 1f))),
+        )
+        val encoded = PageCodec.encode(pages, textLength = 3)
+        assertEquals(pages[2], PageCodec.decodePage(encoded, 2))
+        assertEquals(pages[0], PageCodec.decodePage(encoded, 0))
     }
 
     @Test

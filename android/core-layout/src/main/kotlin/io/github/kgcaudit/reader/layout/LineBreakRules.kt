@@ -66,6 +66,11 @@ object LineBreakRules {
         // 공백 뒤는 언제나 끊을 수 있다(공백 자체는 앞 토큰에 붙는다).
         if (isSpace(before)) return true
 
+        // 문장 속 그림(U+FFFC) 앞뒤. CJK 설정과 상관없이 끊을 수 있다 — 그림은 낱말의 일부가 아니라 한 덩어리(UAX #14 의
+        // CB)라서, 막으면 영어 문장 속 로고가 앞뒤 낱말과 붙어 한 덩어리가 되고 줄 끝에서 통째로 밀리거나 넘쳤다. 금칙
+        // (여는 괄호 뒤 · 마침표 앞)은 위에서 이미 걸렀다.
+        if (before == OBJECT_REPLACEMENT_CHAR || after == OBJECT_REPLACEMENT_CHAR) return true
+
         // 하이픈 뒤. 다음 글자가 숫자면 끊지 않는다(음수·범위 표기가 갈라진다).
         if ((before == '-' || before == '‐') && !after.isDigit()) return true
 

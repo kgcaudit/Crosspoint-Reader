@@ -5,6 +5,7 @@ import io.github.kgcaudit.reader.document.xml.XmlScanner
 import io.github.kgcaudit.reader.layout.Block
 import io.github.kgcaudit.reader.layout.BlockStyle
 import io.github.kgcaudit.reader.layout.ImageSizing
+import io.github.kgcaudit.reader.layout.InlineImage
 import io.github.kgcaudit.reader.layout.InlineRun
 import io.github.kgcaudit.reader.layout.OBJECT_REPLACEMENT_CHAR
 import io.github.kgcaudit.reader.layout.book.BookFontTable
@@ -90,6 +91,12 @@ class ChapterParser(
 
         /** 지금 쌓고 있는 문단. */
         private val runs = ArrayList<InlineRun>()
+
+        /** 지금 문단에 든 그림. 문단이 닫힐 때 글이 있으면 문장 속 그림으로, 없으면 예전처럼 그림 블록으로 낸다. */
+        private val pictures = ArrayList<InlineImage>()
+
+        /** 마지막 그림 글자 바로 뒤 오프셋. 그 자리에서 공백을 만나면 "그림 뒤에 공백이 있었다" 고 적는다. */
+        private var pictureEnd = -1
         private var paragraphStart = 0
         private var blockStyle: BlockStyle = BlockStyle.Default
 
@@ -362,6 +369,10 @@ class ChapterParser(
             val chunk = StringBuilder(value.length)
             for (ch in value) {
                 if (isCollapsible(ch)) {
+                    // 그림 바로 뒤 공백은 글자로 남지 않는다(아래 paragraphStart). 조판이 그 폭을 둘 수 있게 그림에 적는다.
+                    if (chunk.isEmpty() && text.length == pictureEnd && pictures.isNotEmpty()) {
+                        pictures[pictures.size - 1] = pictures.last().copy(spaceAfter = true)
+                    }
                     pendingSpace = true
                     continue
                 }
@@ -425,31 +436,37 @@ class ChapterParser(
                 ?: return
             if (href.isBlank()) return
 
-            flushParagraph()
+            // 그림 앞뒤 공백은 정규화 텍스트에 넣지 않는다 — 그림마다 문단을 끊던 판과 글자 위치가 한 칸도 달라지지 않아야
+            // 이미 꽂은 책갈피 · 형광펜이 제자리에 남는다. 공백이 있었다는 사실만 적어 조판이 그 폭을 둔다(InlineImage).
+            // 공백이 바로 앞 그림 뒤에 있었다면 그 그림이 이미 spaceAfter 로 적었다 — 두 번 세면 두 칸으로 벌어진다.
+            val spaceBefore = (pendingSpace && text.length > paragraphStart && text.length != pictureEnd) or trimTrailingSpace()
+            pendingSpace = false
             val start = text.length
             // 그림 자리에 글자 한 칸(U+FFFC)을 둔다. 그래야 오프셋이 끊기지 않고,
-            // 그림으로 시작하는 페이지에도 책갈피를 꽂을 수 있다.
-            text.append(OBJECT_REPLACEMENT_CHAR)
-            blocks.add(
-                Block.Image(
-                    href = href,
-                    charStart = start,
-                    charEndExclusive = text.length,
-                    style = blockStyle.copy(pageBreakBefore = takePageBreak()),
-                    // HTML 의 width/height 는 CSS 보다 약한 "표현 힌트" 다. CSS 가 정했으면
-                    // CSS 를 따른다 — Calibre 는 속성과 클래스를 함께 쓰는데 클래스 쪽이 의도다.
-                    sizing = ImageSizing(
-                        width = declarations.width ?: event.attribute("width")?.let(::htmlLength),
-                        height = declarations.height ?: event.attribute("height")?.let(::htmlLength),
-                        maxWidth = declarations.maxWidth,
-                        maxHeight = declarations.maxHeight,
+            // 그림으로 시작하는 페이지에도 책갈피를 꽂을 수 있다. 문단의 런에 넣는다 — 글과 한 문단이면 그 글자가
+            // 문장 속 그림이 되고(조판이 줄 안에 둔다), 그림뿐이면 flushParagraph 가 그림 블록으로 낸다.
+            commit(OBJECT_REPLACEMENT_CHAR.toString())
+            pictures.add(
+                InlineImage(
+                    Block.Image(
+                        href = href,
+                        charStart = start,
+                        charEndExclusive = text.length,
+                        // HTML 의 width/height 는 CSS 보다 약한 "표현 힌트" 다. CSS 가 정했으면
+                        // CSS 를 따른다 — Calibre 는 속성과 클래스를 함께 쓰는데 클래스 쪽이 의도다.
+                        sizing = ImageSizing(
+                            width = declarations.width ?: event.attribute("width")?.let(::htmlLength),
+                            height = declarations.height ?: event.attribute("height")?.let(::htmlLength),
+                            maxWidth = declarations.maxWidth,
+                            maxHeight = declarations.maxHeight,
+                        ),
                     ),
+                    spaceBefore = spaceBefore,
                 ),
             )
+            // 그림 바로 뒤 공백은 글자로 남기지 않는다(문단 첫머리처럼 다룬다) — 예전 판과 글자 위치를 맞춘다.
             paragraphStart = text.length
-            // 문장 안의 그림(외자 · 작은 기호) 뒤 글은 같은 문단이 이어지는 것이다 — 새 문단처럼 들여쓰고 벌리지 않는다.
-            continuation = true
-            blockStyle = blockStyle.copy(firstLineIndentEm = 0f, marginTopEm = 0f)
+            pictureEnd = text.length
         }
 
         private fun rule() {
@@ -473,10 +490,28 @@ class ChapterParser(
             val kept = runs.filter { !it.isEmpty }
             runs.clear()
             paragraphStart = text.length
+            val images: List<InlineImage> = ArrayList(pictures)
+            pictures.clear()
 
+            if (images.isNotEmpty() && kept.fold(0) { n, run -> n + run.length } == images.size) {
+                // 글 없이 그림뿐인 문단(표지 · 삽화 · 빈 면 그림): 예전과 똑같이 그림마다 가운데 블록. 둘째 그림부터와 그
+                // 뒤에 줄만 바꿔 이어지는 글은 들여쓰기 · 위 여백 없이 붙는다 — 그림 하나를 문단 하나로 벌리지 않는다.
+                images.forEachIndexed { i: Int, picture: InlineImage ->
+                    val style = if (i == 0) blockStyle else blockStyle.copy(firstLineIndentEm = 0f, marginTopEm = 0f)
+                    blocks.add(picture.image.copy(style = style.copy(pageBreakBefore = takePageBreak())))
+                }
+                continuation = true
+                blockStyle = blockStyle.copy(firstLineIndentEm = 0f, marginTopEm = 0f)
+                return
+            }
             if (kept.isEmpty()) return
             blocks.add(
-                Block.Paragraph(kept, blockStyle.copy(pageBreakBefore = takePageBreak()), continuesLine = continuation),
+                Block.Paragraph(
+                    kept,
+                    blockStyle.copy(pageBreakBefore = takePageBreak()),
+                    continuesLine = continuation,
+                    images = images,
+                ),
             )
             continuation = false
         }
@@ -487,14 +522,15 @@ class ChapterParser(
          * `<p>글 <em>강조</em> </p>` 처럼 꼬리 공백이 남으면 양쪽정렬이 그 공백까지
          * 늘려 마지막 줄이 어긋난다.
          */
-        private fun trimTrailingSpace() {
-            val last = runs.lastOrNull() ?: return
-            if (last.endExclusive != text.length || text.isEmpty()) return
-            if (text[text.length - 1] != ' ') return
+        private fun trimTrailingSpace(): Boolean {
+            val last = runs.lastOrNull() ?: return false
+            if (last.endExclusive != text.length || text.isEmpty()) return false
+            if (text[text.length - 1] != ' ') return false
 
             text.setLength(text.length - 1)
             val shrunk = last.copy(endExclusive = last.endExclusive - 1)
             if (shrunk.isEmpty) runs.removeAt(runs.size - 1) else runs[runs.size - 1] = shrunk
+            return true
         }
 
         private fun takePageBreak(): Boolean {

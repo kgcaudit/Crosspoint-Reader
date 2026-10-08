@@ -54,6 +54,25 @@ class SelectionTest {
     }
 
     @Test
+    fun `a highlight across an inline picture tints the words around it and does not crash`() {
+        // 문장 속 그림: 그림 글자(2번)는 어떤 조각에도 들지 않는다(조판이 그림으로 따로 둔다). 형광펜 · 고르기가 그 글자를
+        // 넘어가도 앞뒤 낱말만 칠하고, 그림 위를 눌러도 그림 글자를 고르지 않는다 — 고르면 복사한 글에 "￼" 가 섞인다.
+        val text = "회사\uFFFC로고"
+        val page = Page(
+            index = 0, startChar = 0, endCharExclusive = text.length,
+            runs = listOf(
+                PlacedRun(0, 2, TextStyle(), xPx = 0f, baselineYPx = 16f),
+                PlacedRun(3, 5, TextStyle(), xPx = 30f, baselineYPx = 16f),
+            ),
+            images = listOf(io.github.kgcaudit.reader.layout.PlacedImage("g.png", 20f, 6f, 10f, 10f)),
+        )
+        val boxes = rangeBoxes(page, text, Mono, 0, text.length)
+        assertEquals(listOf(0f to 20f, 30f to 50f), boxes.map { it.left to it.right })
+        val picked = charAt(page, text, Mono, 25f, 10f)
+        assertEquals(3, picked)
+    }
+
+    @Test
     fun `an empty page has nothing to pick`() {
         assertNull(charAt(Page(0, 0, 0), text, Mono, 10f, 10f))
     }

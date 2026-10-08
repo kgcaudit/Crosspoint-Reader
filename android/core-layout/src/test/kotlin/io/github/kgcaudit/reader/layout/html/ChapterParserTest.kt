@@ -430,9 +430,10 @@ class ChapterParserTest {
     fun `lines after a br and text after an inline picture continue the paragraph`() {
         val br = parse("<html><body><p>첫 줄<br/>둘째 줄</p><p>다음 문단</p></body></html>").paragraphs()
         assertEquals(listOf(false, true, false), br.map { it.continuesLine })
+        // 문장 속 그림은 문단을 끊지 않는다 — 그림 뒤 글이 같은 문단에 남아 들여쓰기도 문단 간격도 받지 않는다.
         val picture = parse("<html><body><p>외자 <img src=\"g.png\"/> 가 든 문장</p></body></html>").paragraphs()
-        assertTrue(picture.last().continuesLine, "그림 뒤 글이 새 문단이 되었다")
-        assertEquals(0f, picture.last().style.firstLineIndentEm)
+        assertEquals(1, picture.size, "그림 뒤 글이 새 문단이 되었다")
+        assertEquals(listOf("g.png"), picture.single().images.map { it.image.href })
     }
 
     @Test

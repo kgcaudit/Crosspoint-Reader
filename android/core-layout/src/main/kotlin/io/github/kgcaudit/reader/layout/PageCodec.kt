@@ -44,7 +44,7 @@ data class ChapterIndex(
  * [Page] ↔ 바이트 변환.
  *
  * 직렬화 라이브러리를 쓰지 않고 손으로 쓰는 이유: 이 경로가 페이지 넘김의 핵심이다.
- * 고정 길이 레코드면 "페이지 N 읽기" 가 색인에서 24바이트를 읽고 런 배열을 잘라 오는
+ * 고정 길이 레코드면 "페이지 N 읽기" 가 색인에서 32바이트를 읽고 런 배열을 잘라 오는
  * 일로 끝나고, 파싱이 아예 없다. 일반 직렬화는 그 자리에 객체 그래프 복원을 넣는다.
  *
  * 모든 정수는 **리틀엔디안**이고 실수는 IEEE 754 비트 패턴이다. 플랫폼에 무관하게
@@ -68,12 +68,18 @@ object PageCodec {
      * 6: 바이트는 5 와 같다. 조판 고침 — 0.47.1 의 파서 고침(생략된 닫는 태그 · 이름으로 짝 맞추는 닫힘 · `<script>` 본문),
      *    px · pt 여백의 화면 밀도 반영, 제목 · `pre` 가 부모 정렬을 물려받음, 인접 형제 셀렉터(`h2 + p`) — 이 바꾼 본문
      *    글자가 옛 캐시와 어긋나지 않게 한다. 안 올리면 링크 · 찾기 · 목차는 새 글자 위치를, 화면은 옛 쪽을 가리켰다.
+     * 7: 문장 속 그림 — 글과 한 문단에 든 작은 그림이 줄 안에 글자처럼 선다. 그림이 쪽마다 수백 개가 될 수 있어
+     *    (그림 글자로 넣은 이모지) 페이지 엔트리를 32바이트로 넓혔다: 쪽당 그림 · 구분선 수 u8 → u16, 장 전체 그림 ·
+     *    구분선 커서 u16 → u32. u8 이던 때 256번째 그림부터 수가 0 으로 돌아 그 쪽 그림이 통째로 사라졌을 것이다.
      */
-    const val VERSION: Int = 6
+    const val VERSION: Int = 7
+
+    /** 한 쪽에 담을 수 있는 그림(과 구분선) 수 — 페이지 엔트리의 u16 칸. */
+    const val MAX_OBJECTS_PER_PAGE: Int = 0xFFFF
 
     private const val MAGIC = 0x31505043 // "CPP1" 리틀엔디안
     private const val HEADER_SIZE = 32
-    private const val PAGE_ENTRY_SIZE = 24
+    private const val PAGE_ENTRY_SIZE = 32
     private const val RUN_SIZE = 24
 
     /** 페이지 엔트리 안에서 startChar 가 놓인 위치. */
@@ -107,14 +113,20 @@ object PageCodec {
         index.skip(HEADER_SIZE) // 머리말은 개수가 확정된 뒤에 채운다
 
         for (page in pages) {
+            // 칸이 담을 수 있는 수를 넘으면 조용히 잘리는 대신 실패한다 — 잘린 수로 쓴 캐시는 엉뚱한 그림을 엉뚱한 쪽에
+            // 그린다. 조판기가 쪽마다 [MAX_OBJECTS_PER_PAGE] 를 넘기 전에 쪽을 넘기므로 정상 경로에서는 닿지 않는다.
+            require(page.runs.size <= 0xFFFF && page.images.size <= MAX_OBJECTS_PER_PAGE && page.rules.size <= MAX_OBJECTS_PER_PAGE) {
+                "page ${page.index} has too many objects: ${page.runs.size} runs, ${page.images.size} images, ${page.rules.size} rules"
+            }
             index.putU32(runCursor.toLong())
             index.putU16(page.runs.size)
-            index.putU16(imageCursor)
-            index.putU8(page.images.size)
-            index.putU8(page.rules.size)
-            index.putU16(ruleCursor)
+            index.putU16(page.images.size)
+            index.putU16(page.rules.size)
+            index.putU16(0) // 예약
             index.putU32(page.startChar.toLong())
             index.putU32(page.endCharExclusive.toLong())
+            index.putU32(imageCursor.toLong())
+            index.putU32(ruleCursor.toLong())
             index.putU32(0) // 예약
 
             page.runs.forEach { run ->
@@ -214,7 +226,7 @@ object PageCodec {
         val starts = IntArray(header.pageCount)
         for (page in 0 until header.pageCount) {
             // 페이지 엔트리 안에서 startChar 의 자리: runStart(4) + runCount(2) +
-            // imageStart(2) + imageCount(1) + ruleCount(1) + ruleStart(2) = 12바이트째.
+            // imageCount(2) + ruleCount(2) + 예약(2) = 12바이트째.
             starts[page] = ByteReader(index, HEADER_SIZE + page * PAGE_ENTRY_SIZE + START_CHAR_OFFSET)
                 .u32().toInt()
         }
@@ -240,12 +252,14 @@ object PageCodec {
         val entry = ByteReader(encoded.index, HEADER_SIZE + pageIndex * PAGE_ENTRY_SIZE)
         val runStart = entry.u32().toInt()
         val runCount = entry.u16()
-        val imageStart = entry.u16()
-        val imageCount = entry.u8()
-        val ruleCount = entry.u8()
-        val ruleStart = entry.u16()
+        val imageCount = entry.u16()
+        val ruleCount = entry.u16()
+        entry.skip(2)
         val startChar = entry.u32().toInt()
         val endChar = entry.u32().toInt()
+        val imageStart = entry.u32().toInt()
+        val ruleStart = entry.u32().toInt()
+        if (imageStart < 0 || ruleStart < 0) return null
 
         // Long 으로 셈한다 — Int 로 곱하면 넘쳐 음수가 되어 검사를 지나쳤다.
         val runsEnd = (runStart.toLong() + runCount) * RUN_SIZE

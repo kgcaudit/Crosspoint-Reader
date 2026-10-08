@@ -48,7 +48,10 @@ internal fun noteText(text: String, blocks: List<Block>, anchorOffsets: Collecti
         val from = maxOf(start, offset)
         if (from < end) {
             if (out.isNotEmpty()) out.append('\n')
-            out.append(text, from.coerceIn(0, text.length), end.coerceIn(0, text.length))
+            // 문장 속 그림 글자(U+FFFC)는 판에 그릴 수 없다 — 그대로 두면 각주 판에 "￼" 가 찍혔다. 공백 한 칸으로 읽는다.
+            for (i in from.coerceIn(0, text.length) until end.coerceIn(0, text.length)) {
+                out.append(if (text[i] == OBJECT_REPLACEMENT_CHAR) ' ' else text[i])
+            }
             taken++
         }
         if (taken >= MAX_BLOCKS || out.length >= MAX_CHARS) break
@@ -68,7 +71,9 @@ fun findAll(text: String, query: String, spine: Int, paragraphStarts: Collection
     val words = query.trim().split(SPACE_RUN).filter { it.isNotEmpty() }
     if (words.isEmpty()) return emptyList()
     // 어절 사이는 [SPACE_RUN] 으로 잇는다 — `\s+` 로 이으면 NBSP 로 띄운 책에서 "보아 구렁이" 가 한 번도 안 찾혔다.
-    val pattern = Regex(words.joinToString(SPACE_RUN.pattern) { Regex.escape(it) }, RegexOption.IGNORE_CASE)
+    // 문장 속 그림 글자(U+FFFC)도 어절 사이로 친다 — 발췌 · 낭독이 그것을 공백으로 읽듯이. 안 그러면 "외자 [그림] 가" 를
+    // 화면에서 보고 "외자 가" 로 찾아도 0건이다(정규화 텍스트에는 그림 앞뒤 공백 대신 그림 글자 하나만 있다).
+    val pattern = Regex(words.joinToString(WORD_GAP) { Regex.escape(it) }, RegexOption.IGNORE_CASE)
     // 문단을 사이 글자 없이 이어 붙인 글이라, 한 문단의 끝과 다음 문단의 처음이 붙어 가짜로 찾힌다("…삼킨다" + "어른…"
     // = "다어"). 문단 경계를 넘는 자리는 버린다 — 사람이 찾는 말은 한 문단 안에 있다.
     val starts = paragraphStarts as? Set<Int> ?: paragraphStarts.toHashSet()
@@ -84,11 +89,14 @@ fun findAll(text: String, query: String, spine: Int, paragraphStarts: Collection
         for (i in from until to) {
             if (i > from && i in paragraphStarts && body.lastOrNull() != ' ') body.append(' ')
             if (i == m.range.first) matchAt = body.length
-            body.append(if (text[i] == '\n') ' ' else text[i])
+            body.append(if (text[i] == '\n' || text[i] == OBJECT_REPLACEMENT_CHAR) ' ' else text[i])
         }
         SearchHit(spine, m.range.first, m.range.last + 1, lead + body + tail, lead.length + matchAt)
     }.toList()
 }
+
+/** 찾기에서 어절 사이로 치는 것: 공백 종류([SPACE_RUN])와 문장 속 그림 글자가 섞여 하나 이상. */
+private val WORD_GAP: String = "[\\s\\u00A0\\u2007\\u202F\\u3000\\uFFFC]+"
 
 private const val MAX_BLOCKS = 6
 private const val MAX_CHARS = 1500

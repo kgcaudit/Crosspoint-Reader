@@ -17,6 +17,27 @@ data class PlacedPiece(
 )
 
 /**
+ * 줄 안에 글자처럼 놓을 그림 상자(문장 속 그림). 크기는 조판기가 이미 지면에 맞춰 정한 값이다.
+ *
+ * 줄바꿈기가 그림 파일이나 CSS 를 몰라도 되게 상자만 넘긴다 — 크기 규칙은 [Paginator] 한 곳에 있다.
+ */
+data class InlineBox(
+    val widthPx: Float,
+    val heightPx: Float,
+    /** 원문에서 그림 앞뒤에 공백이 있었다. 글자가 없는 자리라 줄바꿈기가 공백 폭을 대신 둔다([InlineImage]). */
+    val spaceBefore: Boolean = false,
+    val spaceAfter: Boolean = false,
+)
+
+/** 줄 안에 놓인 그림 상자. [charIndex] 는 그 그림의 U+FFFC 자리, [xPx] 는 줄 왼쪽 기준이다. */
+data class PlacedBox(
+    val charIndex: Int,
+    val xPx: Float,
+    val widthPx: Float,
+    val heightPx: Float,
+)
+
+/**
  * 배치가 끝난 한 줄.
  *
  * [startChar]/[endCharExclusive] 는 이 줄이 덮는 챕터 텍스트 구간이다. 진도와
@@ -31,6 +52,8 @@ data class LaidLine(
     val ascentPx: Float,
     /** 이 줄이 블록의 마지막 줄인지. 양쪽정렬에서 마지막 줄은 늘리지 않는다. */
     val isLastLine: Boolean,
+    /** 줄 안의 그림(아래 끝이 베이스라인에 선다). 그림 글자는 [pieces] 에 들지 않는다 — 글꼴로 그리면 "￼" 가 찍힌다. */
+    val boxes: List<PlacedBox> = emptyList(),
 )
 
 /**
@@ -49,5 +72,7 @@ interface LineBreaker {
         style: BlockStyle,
         constraints: LineConstraints,
         measurer: TextMeasurer,
+        /** 글자 자리 → 그 자리에 놓을 그림 상자. 그 글자는 재지도 그리지도 않고 상자로 둔다. */
+        boxes: Map<Int, InlineBox> = emptyMap(),
     ): List<LaidLine>
 }

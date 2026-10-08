@@ -36,8 +36,9 @@ class GreedyLineBreaker(
         style: BlockStyle,
         constraints: LineConstraints,
         measurer: TextMeasurer,
+        boxes: Map<Int, InlineBox>,
     ): List<LaidLine> {
-        val tokens = tokenize(text, runs, measurer)
+        val tokens = tokenize(text, runs, measurer, boxes)
         if (tokens.isEmpty()) return emptyList()
 
         val lines = ArrayList<LaidLine>()
@@ -115,21 +116,31 @@ class GreedyLineBreaker(
         val breakableGapBefore: Boolean,
         /** 다음 조각과의 경계가 줄바꿈 기회가 아니다(서식만 바뀌는 자리). 둘을 다른 줄에 두지 않는다. */
         val glueNext: Boolean = false,
+        /** 문장 속 그림. 글자 대신 이 상자를 둔다. */
+        val box: InlineBox? = null,
     )
 
     private fun tokenize(
         text: CharSequence,
         runs: List<InlineRun>,
         measurer: TextMeasurer,
+        boxes: Map<Int, InlineBox>,
     ): ArrayList<Token> {
         val tokens = ArrayList<Token>()
         for (run in runs) {
             if (run.isEmpty) continue
-            val breaks = LineBreakRules.opportunities(text, run.start, run.endExclusive, breakBetweenCjk)
+            var breaks = LineBreakRules.opportunities(text, run.start, run.endExclusive, breakBetweenCjk)
+            if (boxes.isNotEmpty()) {
+                // 그림은 언제나 혼자 한 조각이다. 금칙으로 붙어야 하는 자리(`(` 뒤 · `.` 앞)는 아래 glueNext 가 이어 준다 —
+                // 조각 하나에 글자와 그림을 섞으면 그 그림 글자가 글꼴로 재지고 그려진다.
+                val edges = boxes.keys.filter { it >= run.start && it < run.endExclusive }.flatMap { listOf(it, it + 1) }
+                if (edges.isNotEmpty()) breaks = (breaks + edges).filter { it > run.start && it < run.endExclusive }.distinct().sorted()
+            }
             var from = run.start
             for (at in breaks + listOf(run.endExclusive)) {
                 if (at <= from) continue
-                tokens.add(makeToken(text, from, at, run.style, measurer))
+                val box = boxes[from]?.takeIf { at == from + 1 }
+                tokens.add(if (box != null) boxToken(from, box, run.style, measurer) else makeToken(text, from, at, run.style, measurer))
                 from = at
             }
         }
@@ -142,8 +153,30 @@ class GreedyLineBreaker(
                 tokens[i] = tokens[i].copy(glueNext = true)
             }
         }
+        // 그림 앞뒤의 원문 공백(정규화 텍스트에는 없다)을 실제 공백처럼 다룬다: 앞 조각의 꼬리 공백이 되고, 뒤 조각에는
+        // 양쪽정렬이 벌릴 수 있는 틈이 된다. 줄 끝에 오면 실제 공백처럼 폭이 사라진다.
+        for (i in 0 until tokens.size - 1) {
+            val here = tokens[i]
+            val next = tokens[i + 1]
+            if (here.endExclusive != next.start) continue
+            if (next.box?.spaceBefore == true && here.trailingSpaceAdvance == 0f) {
+                tokens[i] = here.copy(trailingSpaceAdvance = measurer.spaceAdvance(here.style))
+            }
+            if (here.box?.spaceAfter == true) tokens[i + 1] = next.copy(breakableGapBefore = true)
+        }
         return tokens
     }
+
+    private fun boxToken(at: Int, box: InlineBox, style: TextStyle, measurer: TextMeasurer): Token = Token(
+        start = at,
+        endExclusive = at + 1,
+        contentEnd = at + 1,
+        style = style,
+        advance = box.widthPx,
+        trailingSpaceAdvance = if (box.spaceAfter) measurer.spaceAdvance(style) else 0f,
+        breakableGapBefore = box.spaceBefore,
+        box = box,
+    )
 
     private fun makeToken(
         text: CharSequence,
@@ -176,6 +209,8 @@ class GreedyLineBreaker(
         available: Float,
         measurer: TextMeasurer,
     ): Split? {
+        // 그림은 쪼갤 수 없다. 조판기가 줄보다 넓은 그림을 미리 블록으로 돌려 여기 오지 않는다.
+        if (token.box != null) return null
         var cut = token.start + 1
         while (cut < token.contentEnd) {
             if (measurer.advance(text, token.start, cut + 1, token.style) > available) break
@@ -224,6 +259,7 @@ class GreedyLineBreaker(
         // 같고 글자가 이어지며 사이에 벌어진 틈이 없으면(양쪽정렬이 끼워 넣은 여유가
         // 없으면) 한 조각으로 묶어도 그림이 같다.
         val pieces = ArrayList<PlacedPiece>()
+        val placedBoxes = ArrayList<PlacedBox>()
         var pendingStart = -1
         var pendingDrawEnd = -1
         var pendingTokenEnd = -1
@@ -249,7 +285,11 @@ class GreedyLineBreaker(
                 token.style == pendingStyle &&
                 token.start == pendingTokenEnd
 
-            if (continues) {
+            if (token.box != null) {
+                // 그림 글자는 조각에 넣지 않는다 — 넣으면 U+FFFC 가 글꼴의 빈 네모로 찍힌다. 앞 조각도 여기서 닫는다.
+                flushPending()
+                placedBoxes.add(PlacedBox(token.start, x, token.box.widthPx, token.box.heightPx))
+            } else if (continues) {
                 pendingDrawEnd = token.contentEnd
                 pendingTokenEnd = token.endExclusive
             } else {
@@ -268,15 +308,21 @@ class GreedyLineBreaker(
         }
         flushPending()
 
+        // 그림 조각의 서식도 센다 — 그림만 든 줄도 그 문단 글자의 줄 높이(CSS 의 strut)를 갖는다.
         val tallest = tokens.maxOf { measurer.lineHeight(it.style) }
         val deepest = tokens.maxOf { measurer.ascent(it.style) }
+        // 그림은 아래 끝을 베이스라인에 세운다(브라우저의 vertical-align: baseline). 글자 윗선보다 높으면 그만큼 줄을
+        // 위로 늘린다 — 베이스라인을 그대로 두고 그림만 키우면 윗줄 글자를 덮었다.
+        val rise = (placedBoxes.maxOfOrNull { it.heightPx } ?: 0f) - deepest
+        val grow = rise.coerceAtLeast(0f)
         return LaidLine(
             pieces = pieces,
             startChar = tokens.first().start,
             endCharExclusive = tokens.last().endExclusive,
-            heightPx = tallest * lineHeightMultiplier,
-            ascentPx = deepest,
+            heightPx = tallest * lineHeightMultiplier + grow,
+            ascentPx = deepest + grow,
             isLastLine = isLastLine,
+            boxes = placedBoxes,
         )
     }
 

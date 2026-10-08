@@ -168,6 +168,30 @@ class ChapterLoaderTest {
     }
 
     @Test
+    fun `a picture inside a sentence also gets its file size`() = runTest {
+        // 문장 속 그림은 문단 안에 든다. 크기를 못 채우면 "줄에 들어가는가" 를 크기 모름으로 판정해, 설명 글이 붙은 큰
+        // 삽화가 글자만 한 네모로 줄어든다.
+        val bytes = epubBytes(
+            "META-INF/container.xml" to
+                """<container><rootfiles><rootfile full-path="OEBPS/content.opf"/></rootfiles></container>""",
+            "OEBPS/content.opf" to opf,
+            "OEBPS/text/ch1.xhtml" to """
+                <html><body>
+                <p>로고 <img src="../images/logo.png"/> 가 든 문장과 <img src="../images/missing.png"/> 없는 그림</p>
+                </body></html>
+            """.trimIndent(),
+            "OEBPS/text/ch2.xhtml" to "<html><body><p>둘</p></body></html>",
+            "OEBPS/images/logo.png" to image("png", 30, 12),
+        )
+        openEpub(bytes).use { doc ->
+            val paragraph = ChapterLoader(doc, spec).load(0).blocks.single() as Block.Paragraph
+            val (logo, missing) = paragraph.images.map { it.image }
+            assertEquals(30 to 12, logo.intrinsicWidth to logo.intrinsicHeight)
+            assertFalse(missing.hasIntrinsicSize, "없는 파일은 크기 모름으로 남고, 장은 끝까지 읽힌다")
+        }
+    }
+
+    @Test
     fun `an external stylesheet is found relative to the chapter`() = runTest {
         openEpub().use { doc ->
             val chapter = ChapterLoader(doc, spec).load(0)
