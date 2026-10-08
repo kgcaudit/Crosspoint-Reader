@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 화면 글은 코드에 둔다(한국어뿐이다). 홈 화면 위젯은 런처가 읽는 글이라 자원으로 둔다. -->
+    <string name="widget_name">이어 읽기</string>
+    <string name="widget_description">읽던 책 · 만화를 누르면 읽던 자리로 바로 열립니다</string>
+    <string name="widget_continue_label">이어 읽기</string>
+    <string name="widget_open_app">OLO eBook 열기</string>
+    <string name="widget_empty_hint">책을 읽기 시작하면 여기에 보입니다</string>
+</resources>

@@ -116,6 +116,9 @@ class AppContainer(private val app: Application) {
         extract = ::extractCover,
     )
 
+    /** 읽기 기록이 바뀌면 홈 화면 위젯을 고쳐 그린다. 앱이 뒤로 갈 때 [ReadingChanges.flush]. */
+    internal val changes = ReadingChanges(app, this)
+
     init {
         // 옮긴 파일의 기록을 이으면(0.50.0) 고른 표지도 따라간다. 따로 뺀 만화 작품의 표지는 작품 열쇠에 단위 주소가 들어 있어
         // 함께 옮긴다.

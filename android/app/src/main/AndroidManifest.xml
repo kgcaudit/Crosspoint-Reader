@@ -50,5 +50,18 @@
                 <data android:mimeType="application/pdf" />
             </intent-filter>
         </activity>
+
+        <!-- 홈 화면 "이어 읽기" 위젯(사용자 결정 3-1). 그리라는 부름은 시스템(위젯 서비스)만 보낸다 — 밖에 열지 않는다. -->
+        <receiver
+            android:name=".ContinueWidget"
+            android:exported="false"
+            android:label="@string/widget_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/continue_widget_info" />
+        </receiver>
     </application>
 </manifest>

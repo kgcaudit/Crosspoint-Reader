@@ -28,6 +28,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import io.github.kgcaudit.reader.data.TimeItem
 import io.github.kgcaudit.reader.document.BookFormat
 import io.github.kgcaudit.reader.document.BookId
+import io.github.kgcaudit.reader.data.readingActivity
 import io.github.kgcaudit.reader.listen.ListenHub
 import io.github.kgcaudit.reader.pdf.PdfScreen
 import io.github.kgcaudit.reader.reflow.ReaderScreen
@@ -55,6 +56,9 @@ class MainActivity : ComponentActivity() {
      */
     private val returned = mutableIntStateOf(0)
 
+    /** 홈 화면 위젯을 눌러 온 것(이어 읽기). 화면이 처리하면 null 로 되돌린다. */
+    private val continueTarget = mutableStateOf<ContinueTarget?>(null)
+
     /** 음량 단추 → 리더(설정에서 켰을 때만). */
     private val volumeKeys = VolumeKeyRouter()
 
@@ -63,12 +67,15 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // 되살아난 경우(savedInstanceState 있음)에는 같은 인텐트를 다시 처리하지 않는다. 읽던
         // 책은 rememberSaveable 이 되돌린다 — 처리하면 읽던 자리 대신 처음부터 다시 연다.
-        if (savedInstanceState == null && !fromHistory(intent)) incoming.value = intent
+        if (savedInstanceState == null && !fromHistory(intent)) {
+            val target = ContinueWidget.targetOf(intent)
+            if (target != null) continueTarget.value = target else incoming.value = intent
+        }
         setContent {
             // 독서 기록(0.51.0)의 시계는 앱 것을 쓴다 — 시험이 바꿔 끼울 수 있게 부를 때마다 읽는다.
             val container = applicationContext.container
             CompositionLocalProvider(LocalVolumeKeys provides volumeKeys, LocalReadingClock provides { container.readingClock() }) {
-                CpTheme { OloApp(incoming, returned, hideSystemBars = ::hideSystemBars, leave = ::leaveToCaller, rotate = ::applyRotation) }
+                CpTheme { OloApp(incoming, returned, continueTarget, hideSystemBars = ::hideSystemBars, leave = ::leaveToCaller, rotate = ::applyRotation) }
             }
         }
     }
@@ -101,7 +108,22 @@ class MainActivity : ComponentActivity() {
     public override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (carriesFile(intent) && !fromHistory(intent)) incoming.value = intent else returned.intValue++
+        val target = ContinueWidget.targetOf(intent)
+        when {
+            // 앱이 떠 있을 때 위젯을 눌렀다: 보던 것을 닫고 그 책으로(아이콘을 누른 것처럼 보던 화면으로 돌아가면 위젯이 무슨 일을 했는지 모른다).
+            target != null && !fromHistory(intent) -> continueTarget.value = target
+            carriesFile(intent) && !fromHistory(intent) -> incoming.value = intent
+            else -> returned.intValue++
+        }
+    }
+
+    /**
+     * 뒤로 간다(홈 · 다른 앱). 기다리던 위젯 그리기를 지금 한다 — 기다리는 사이 시스템이 앱을 거두면 홈 화면 위젯에 방금 읽은 자리가
+     * 오르지 않는다.
+     */
+    override fun onStop() {
+        super.onStop()
+        container.changes.flush()
     }
 
     private fun carriesFile(intent: Intent) = intent.action == Intent.ACTION_VIEW && intent.data != null
@@ -145,6 +167,7 @@ class MainActivity : ComponentActivity() {
 private fun OloApp(
     incoming: MutableState<Intent?>,
     returned: androidx.compose.runtime.MutableIntState,
+    continueTarget: MutableState<ContinueTarget?>,
     hideSystemBars: (Boolean) -> Unit,
     leave: () -> Unit,
     rotate: (ScreenRotation) -> Unit,
@@ -277,6 +300,55 @@ private fun OloApp(
                 incomingUri = request.file.uri.toString()
                 incomingRequest++
             }
+        }
+    }
+
+    // 홈 화면 위젯을 눌렀다(이어 읽기): 그 책 · 권을 읽던 자리로 연다. 자리는 여는 길이 저장된 진도에서 읽는다(서재에서 누른 것과 같다).
+    LaunchedEffect(continueTarget.value) {
+        val target = continueTarget.value ?: return@LaunchedEffect
+        // 위젯은 마지막으로 그린 때의 책을 가리킨다. 그사이 파일을 옮기거나 지웠으면(서재에서 숨음) 열지 않고 서재와 알림을 보인다 —
+        // 열다 실패한 화면이나 멈춘 "여는 중…" 이 아니라.
+        val exists = withContext(Dispatchers.IO) {
+            val activity = container.data.readingActivity()
+            when (target) {
+                is ContinueTarget.Book -> activity.bookVisible(target.id)
+                is ContinueTarget.Comic -> activity.comicVisible(target.unitId)
+            }
+        }
+        // 다 읽은 **뒤에** 비운다(받은 파일과 같은 까닭 — 먼저 비우면 이 효과가 스스로 취소된다).
+        continueTarget.value = null
+        val showing = when (target) {
+            is ContinueTarget.Book -> (openId == target.id && reader != null) || bookComicId == target.id
+            is ContinueTarget.Comic -> comicId == target.unitId
+        }
+        if (showing && exists) return@LaunchedEffect
+        // 보던 것을 닫는다. 그 책을 듣던 중이면 듣기도 끝내고 알린다(받은 파일과 같은 규칙).
+        reader?.let { r ->
+            ListenHub.current.value?.takeIf { it.belongsTo(r.source) }?.let { l ->
+                notice = "‘${l.title}’ 듣기를 멈췄습니다"
+                ListenHub.detach(l)
+            }
+        }
+        reader?.close()
+        reader = null
+        openId = null
+        incomingUri = null
+        fromOutside = false
+        comicId = null
+        comicStart = null
+        comicPickCover = false
+        bookComicId = null
+        asBook = null
+        aboutPage = null
+        failure = null
+        hideSystemBars(false)
+        if (!exists) {
+            notice = "읽던 책을 찾을 수 없습니다. 옮겨졌거나 지워졌을 수 있습니다."
+            return@LaunchedEffect
+        }
+        when (target) {
+            is ContinueTarget.Book -> openId = target.id
+            is ContinueTarget.Comic -> comicId = target.unitId
         }
     }
 

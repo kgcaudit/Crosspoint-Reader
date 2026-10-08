@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    "이어 읽기" 위젯의 크기 · 갱신. 4×2 칸(사용자 결정 3-1), 넓히고 줄일 수 있다.
+    updatePeriodMillis 는 0 — 정해 둔 때마다 깨어나지 않는다. 읽은 자리가 바뀔 때 앱이 직접 고쳐 그린다(배터리를 쓰지 않게).
+    휴대폰을 켤 때는 시스템이 한 번 그리라고 부른다.
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:description="@string/widget_description"
+    android:initialLayout="@layout/widget_continue_empty"
+    android:minWidth="250dp"
+    android:minHeight="110dp"
+    android:minResizeWidth="180dp"
+    android:minResizeHeight="90dp"
+    android:previewLayout="@layout/widget_continue_empty"
+    android:resizeMode="horizontal|vertical"
+    android:targetCellWidth="4"
+    android:targetCellHeight="2"
+    android:updatePeriodMillis="0"
+    android:widgetCategory="home_screen"
+    tools:targetApi="s" />

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 표지 없는 책의 대신 표지. 서재의 표지처럼 모서리를 조금 둥글린다(CpTheme.metrics.cornerChip). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@color/widget_cover_blank" />
+    <corners android:radius="6dp" />
+</shape>
