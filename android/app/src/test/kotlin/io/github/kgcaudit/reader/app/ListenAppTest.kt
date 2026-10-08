@@ -309,6 +309,18 @@ class ListenAppTest {
     }
 
     @Test
+    fun `coming back after listening with the screen off says the page moved to where the reading is`() {
+        openWith()
+        startListening()
+        compose.activityRule.scenario.moveToState(androidx.lifecycle.Lifecycle.State.CREATED)
+        // 화면이 꺼진 채 첫 장 끝 가까이까지 듣는다 — 첫 쪽에는 이만큼의 문장이 들지 않는다.
+        finish(33)
+        compose.activityRule.scenario.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED)
+        waitFor(hasText("듣던 곳으로 쪽을 옮겼습니다"), timeoutMs = 5_000)
+        assertFalse(hasNode(hasText("1 / ", substring = true)), "듣기가 쪽을 넘기지 않았다")
+    }
+
+    @Test
     fun `without a speech engine it says so and nothing starts`() {
         engineWorks = false
         openWith()

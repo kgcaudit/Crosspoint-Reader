@@ -15,19 +15,16 @@ import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import io.github.kgcaudit.reader.listen.ListenHub
 import io.github.kgcaudit.reader.listen.ListenKit
+import io.github.kgcaudit.reader.listen.ListenPanels
 import io.github.kgcaudit.reader.listen.ListenPlayer
-import io.github.kgcaudit.reader.listen.ListenSheet
-import io.github.kgcaudit.reader.listen.ListenState
-import io.github.kgcaudit.reader.listen.Listening
-import io.github.kgcaudit.reader.listen.VoiceScreen
+import io.github.kgcaudit.reader.listen.ListenSpot
+import io.github.kgcaudit.reader.listen.rememberListenHookup
 import io.github.kgcaudit.reader.ui.design.CpAutoTurnPill
 import io.github.kgcaudit.reader.ui.design.rememberAutoTurn
 import io.github.kgcaudit.reader.ui.design.running
 import io.github.kgcaudit.reader.ui.design.visible
 import io.github.kgcaudit.reader.ui.design.ReadingDwellEffect
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.drag
@@ -117,7 +114,6 @@ import io.github.kgcaudit.reader.ui.design.CpTextButton
 import io.github.kgcaudit.reader.ui.design.CpTheme
 import io.github.kgcaudit.reader.ui.design.CpToolButton
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -198,55 +194,32 @@ fun ReaderScreen(
         if (!latestPrefs.screen.showHighlights) say("형광펜을 숨겨 둔 상태라 보이지 않습니다. 보기 설정에서 켤 수 있습니다.")
     }
 
-    // ── 듣기(4단계) ──
-    val kit = remember(listenKit) { listenKit ?: ListenKit.android(context) }
-    val hub by ListenHub.current.collectAsState()
-    // 이 책의 듣기만 조종판에 보인다(다른 책을 듣던 중에 이 책을 열었으면 그 듣기는 붙이지 않는다).
-    val listening = hub?.takeIf { it.belongsTo(reader) }
-    val listen = listening?.state?.collectAsState()?.value ?: ListenState()
-    var listenSheet by remember { mutableStateOf(false) }
+    // ── 듣기(4단계) ── PDF 와 같은 연결(rememberListenHookup). 시작 자리 · 보이는 쪽 알리기만 여기서 정한다.
+    val hookup = rememberListenHookup(reader, listenKit, onMessage = ::say, shownAt = {
+        reader.state.value.position?.let { it.spineIndex to it.pageIndex }
+    })
+    val listen = hookup.state
+    /** 보이는 쪽의 첫 글자부터(그 쪽에서 시작하는 첫 문장부터 — 쪽 끝을 함께 준다). */
+    fun shownSpot(): ListenSpot? {
+        val position = state.position ?: return null
+        val page = state.page ?: return null
+        return ListenSpot(position.spineIndex, page.startChar, pageEnd = page.endCharExclusive)
+    }
     fun startListening() {
-        val position = state.position ?: return
-        val page = state.page ?: return
-        val l = Listening(reader, kit.speaker(prefs.listen.engine), ListenHub.scope)
-        ListenHub.attach(context, l)
+        val spot = shownSpot() ?: return
         panel = Panel.None
-        ListenHub.scope.launch {
-            l.start(position.spineIndex, page.startChar, prefs.listen.rate, prefs.listen.voice, prefs.listen.join, pageEnd = page.endCharExclusive)
-        }
+        hookup.start(spot, prefs.listen)
     }
     // 책을 닫으면 듣기도 끝낸다. 닫은 책을 화면 없이 계속 읽으면 멈출 곳이 잠금 화면뿐이다.
     val closeBook = {
-        ListenHub.detach(listening)
+        hookup.close()
         onClose()
-    }
-    LaunchedEffect(listen.message) {
-        listen.message?.let { say(it); listening?.consumeMessage() }
     }
     // 사람이 쪽을 옮기면(넘기기 · 목차 · 진행 막대) 듣기도 그 쪽의 첫 문장으로 온다.
     LaunchedEffect(state.position?.spineIndex, state.position?.pageIndex, state.spread) {
         val p = state.position ?: return@LaunchedEffect
         val page = state.page ?: return@LaunchedEffect
-        listening?.onPageShown(p.spineIndex, page.startChar, (state.rightPage ?: page).endCharExclusive)
-    }
-    // 화면을 끈 채 듣는 동안 쪽이 넘어갔으면, 돌아왔을 때 알린다 — 보던 쪽이 바뀐 까닭을 모르면 놀란다.
-    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
-    DisposableEffect(lifecycle, listening) {
-        var left: Pair<Int, Int>? = null
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            val p = reader.state.value.position
-            when (event) {
-                androidx.lifecycle.Lifecycle.Event.ON_STOP -> left = p?.let { it.spineIndex to it.pageIndex }
-                androidx.lifecycle.Lifecycle.Event.ON_START -> {
-                    val now = p?.let { it.spineIndex to it.pageIndex }
-                    if (left != null && now != left && listening?.state?.value?.active == true) say("듣던 곳으로 쪽을 옮겼습니다")
-                    left = null
-                }
-                else -> Unit
-            }
-        }
-        lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer) }
+        hookup.listening?.onPageShown(p.spineIndex, page.startChar, (state.rightPage ?: page).endCharExclusive)
     }
 
     // 왼쪽 끝 밝기 밀기(E6). 아래 판(메모 · 각주 · 듣기)과 링크 팝업도 지면과 같은 상자 안에 떠서 panel 은 None 이다. 따로
@@ -254,7 +227,7 @@ fun ReaderScreen(
     val brightness = rememberBrightnessDrag(
         saved = prefs.screen.brightness,
         enabled = prefs.screen.brightnessGesture && panel == Panel.None &&
-            memo == null && note == null && external == null && !(listenSheet && listen.active),
+            memo == null && note == null && external == null && !hookup.sheetShown,
         onCommit = { v -> onPrefsChange(latestPrefs.copy(screen = latestPrefs.screen.copy(brightness = v))) },
     )
     ReadingWindow(
@@ -714,15 +687,7 @@ fun ReaderScreen(
         val lift = if (listen.active || autoTurn.visible(prefs.screen.autoTurn, autoSuspended)) 124.dp else 64.dp
         if (panel == Panel.None) {
             if (listen.active) {
-                ListenPlayer(
-                    state = listen,
-                    onPrevious = { listening?.previous() },
-                    onToggle = { listening?.toggle() },
-                    onNext = { listening?.next() },
-                    onSettings = { listenSheet = true },
-                    onClose = { ListenHub.detach(listening) },
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 60.dp),
-                )
+                ListenPlayer(hookup, Modifier.align(Alignment.BottomCenter).padding(bottom = 60.dp))
             } else if (autoTurn.visible(prefs.screen.autoTurn, autoSuspended)) {
                 CpAutoTurnPill(autoTurn, Modifier.align(Alignment.BottomCenter).padding(bottom = 60.dp))
             }
@@ -755,7 +720,7 @@ fun ReaderScreen(
                 onPanel = { panel = it },
                 onBookmark = ::toggleBookmark,
                 onSearch = { panel = Panel.Search },
-                onListen = { if (listening?.state?.value?.active == true) { panel = Panel.None; listening.play() } else startListening() },
+                onListen = { if (hookup.resume()) panel = Panel.None else startListening() },
                 scope = scope,
             )
             Panel.Search -> SearchScreen(
@@ -792,43 +757,15 @@ fun ReaderScreen(
             )
         }
 
-        if (listenSheet && listen.active) {
-            ListenSheet(
-                prefs = prefs.listen,
-                timer = listen.timer,
-                onRate = { next -> onPrefsChange(prefs.copy(listen = next)); listening?.setRate(next.rate) },
-                onVoices = { listenSheet = false; panel = Panel.Voices },
-                onTimer = { listening?.setTimer(it) },
-                onClose = { listenSheet = false },
-                onJoin = { level -> onPrefsChange(prefs.copy(listen = prefs.listen.copy(join = level))); listening?.setJoin(level) },
-            )
-        }
-        if (panel == Panel.Voices) {
-            VoiceScreen(
-                kit = kit,
-                current = prefs.listen,
-                onPick = { picked ->
-                    val engineChanged = picked.engine != prefs.listen.engine
-                    onPrefsChange(prefs.copy(listen = picked))
-                    val l = listening
-                    if (l != null && engineChanged) {
-                        // 엔진이 바뀌면 새 엔진으로 다시 연다 — 듣던 문장부터.
-                        val at = l.state.value.sentence?.start
-                        val spine = l.state.value.spine
-                        ListenHub.detach(l)
-                        val position = state.position
-                        if (position != null) {
-                            val next = Listening(reader, kit.speaker(picked.engine), ListenHub.scope)
-                            ListenHub.attach(context, next)
-                            ListenHub.scope.launch { next.start(spine.takeIf { it >= 0 } ?: position.spineIndex, at ?: (state.page?.startChar ?: 0), picked.rate, picked.voice, picked.join) }
-                        }
-                    } else {
-                        l?.setVoice(picked.voice)
-                    }
-                },
-                onBack = { panel = Panel.None; if (listen.active) listenSheet = true },
-            )
-        }
+        // 듣기 판 · 목소리 화면(PDF 와 한 벌). 목소리 화면은 아래 판들과 함께 그린다.
+        ListenPanels(
+            hookup = hookup,
+            prefs = prefs.listen,
+            onPrefsChange = { onPrefsChange(prefs.copy(listen = it)) },
+            voices = panel == Panel.Voices,
+            onVoices = { open -> panel = if (open) Panel.Voices else Panel.None },
+            here = ::shownSpot,
+        )
 
         // 메모 판은 독서노트 목록 위에서도 뜬다("메모 고치기").
         memo?.let { draft ->

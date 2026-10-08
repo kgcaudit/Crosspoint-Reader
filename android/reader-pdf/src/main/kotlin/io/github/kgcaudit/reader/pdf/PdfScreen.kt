@@ -58,14 +58,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.geometry.Rect
 import io.github.kgcaudit.reader.document.Annotation
-import io.github.kgcaudit.reader.listen.ListenHub
 import io.github.kgcaudit.reader.listen.ListenKit
+import io.github.kgcaudit.reader.listen.ListenPanels
 import io.github.kgcaudit.reader.listen.ListenPlayer
+import io.github.kgcaudit.reader.listen.ListenSpot
+import io.github.kgcaudit.reader.listen.rememberListenHookup
 import io.github.kgcaudit.reader.listen.ListenPrefs
-import io.github.kgcaudit.reader.listen.ListenSheet
-import io.github.kgcaudit.reader.listen.ListenState
-import io.github.kgcaudit.reader.listen.Listening
-import io.github.kgcaudit.reader.listen.VoiceScreen
 import io.github.kgcaudit.reader.ui.design.CpMemoSheet
 import io.github.kgcaudit.reader.ui.design.CpSearchResultBar
 import io.github.kgcaudit.reader.ui.design.CpSearchRow
@@ -128,7 +126,6 @@ import io.github.kgcaudit.reader.ui.design.CpToolButton
 import io.github.kgcaudit.reader.ui.design.ScreenRotation
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -314,32 +311,25 @@ fun PdfScreen(
         text.current = null
     }
 
-    // 듣기(4-3). EPUB 과 같은 듣기 — 쪽 하나가 한 단위다.
-    val kit = remember(listenKit) { listenKit ?: ListenKit.android(context) }
-    val hub by ListenHub.current.collectAsState()
-    val listening = hub?.takeIf { it.belongsTo(reader) }
-    val heard = listening?.state?.collectAsState()?.value ?: ListenState()
+    // 듣기(4-3). EPUB 과 같은 연결(rememberListenHookup) — 쪽 하나가 한 단위다. 화면을 끈 채 듣는 동안 쪽이 넘어갔으면 돌아왔을 때
+    // 알린다(EPUB 에만 있었다 — 보던 쪽이 바뀐 까닭을 모르면 놀란다).
+    val hookup = rememberListenHookup(reader, listenKit, onMessage = ::say, shownAt = { reader.state.value.page })
+    val heard = hookup.state
     // 듣는 동안에는 볼륨키를 음량으로 돌려준다(0.28.1, 사용자 결정). 가져가면 목소리를 줄일 수 없고, 누를 때마다 쪽이 넘어가
     // 듣기가 그 쪽 첫 문장으로 건너뛰어 읽던 곳을 놓쳤다.
     VolumeKeyPaging(enabled = prefs.volumeKeys && panel == PdfPanel.None && !heard.active) { forward -> advance(forward) }
-    var listenSheet by remember { mutableStateOf(false) }
     fun startListening() = whenReadable {
-        val l = Listening(reader, kit.speaker(listen.engine), ListenHub.scope)
-        ListenHub.attach(context, l)
         panel = PdfPanel.None
-        ListenHub.scope.launch { l.start(state.page, 0, listen.rate, listen.voice, listen.join) }
+        hookup.start(ListenSpot(state.page, 0), listen)
     }
     // 책을 닫으면 듣기도 끝낸다(EPUB 과 같다).
     val closeBook = {
-        ListenHub.detach(listening)
+        hookup.close()
         onClose()
-    }
-    LaunchedEffect(heard.message) {
-        heard.message?.let { say(it); listening?.consumeMessage() }
     }
     // 사람이 쪽을 옮기면 듣기도 그 쪽의 첫 문장으로. 듣기가 넘긴 것이면 읽는 문장이 이미 보이는 쪽에 있다.
     LaunchedEffect(state.shown) {
-        val l = listening ?: return@LaunchedEffect
+        val l = hookup.listening ?: return@LaunchedEffect
         if (heard.active && heard.spine !in state.shown) l.onPageShown(state.page, 0, Int.MAX_VALUE)
     }
     val sentence = heard.sentence?.takeIf { heard.active && heard.spine in state.shown }?.let { heard.spine to (it.start until it.endExclusive) }
@@ -355,7 +345,7 @@ fun PdfScreen(
     // 밝기가 바뀌었다(0.28.3) — 판의 자리를 옮겨도 그렇게 되지 않게 조건을 함께 둔다.
     val brightness = rememberBrightnessDrag(
         saved = prefs.brightness,
-        enabled = prefs.brightnessGesture && panel == PdfPanel.None && text.memo == null && !(listenSheet && heard.active),
+        enabled = prefs.brightnessGesture && panel == PdfPanel.None && text.memo == null && !hookup.sheetShown,
         onCommit = { v -> onPrefsChange(latestPrefs.copy(brightness = v)) },
     )
     ReadingWindow(brightness.applied(prefs), activity = state.page, autoRunning = prefs.autoTurn != AutoTurn.Off)
@@ -523,15 +513,7 @@ fun PdfScreen(
         val lift = if (heard.active || autoTurn.visible(prefs.autoTurn, autoSuspended)) 124.dp else 64.dp
         if (panel == PdfPanel.None) {
             if (heard.active) {
-                ListenPlayer(
-                    state = heard,
-                    onPrevious = { listening?.previous() },
-                    onToggle = { listening?.toggle() },
-                    onNext = { listening?.next() },
-                    onSettings = { listenSheet = true },
-                    onClose = { ListenHub.detach(listening) },
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 60.dp),
-                )
+                ListenPlayer(hookup, Modifier.align(Alignment.BottomCenter).padding(bottom = 60.dp))
             } else if (autoTurn.visible(prefs.autoTurn, autoSuspended)) {
                 CpAutoTurnPill(autoTurn, Modifier.align(Alignment.BottomCenter).padding(bottom = 60.dp))
             }
@@ -562,7 +544,7 @@ fun PdfScreen(
             onDismiss = { panel = PdfPanel.None },
             // 찾기 · 듣기(4단계 PDF). 글자를 꺼낼 수 없는 휴대폰(안드로이드 14 이하)에서는 단추가 없다.
             onSearch = if (reader.readsText) ({ whenReadable { panel = PdfPanel.Search } }) else null,
-            onListen = if (reader.readsText) ({ if (listening?.state?.value?.active == true) { panel = PdfPanel.None; listening.play() } else startListening() }) else null,
+            onListen = if (reader.readsText) ({ if (hookup.resume()) panel = PdfPanel.None else startListening() }) else null,
             progress = if (state.pageCount > 1) state.page / (state.pageCount - 1f) else 1f,
             progressLabel = { pageAt(it, state.pageCount).let { p -> "${reader.book.pageLabel(p) ?: (p + 1)}쪽" } },
             onSeek = { target -> scope.go { reader.seek(target) } },
@@ -631,42 +613,21 @@ fun PdfScreen(
             onOpen = ::openHit,
             onBack = { panel = PdfPanel.Bar },
         )
-        PdfPanel.Voices -> VoiceScreen(
-            kit = kit,
-            current = listen,
-            onPick = { picked ->
-                val engineChanged = picked.engine != listen.engine
-                onListenChange(picked)
-                val l = listening
-                if (l != null && engineChanged) {
-                    // 엔진이 바뀌면 새 엔진으로 다시 연다 — 듣던 쪽부터.
-                    val page = l.state.value.spine.takeIf { it >= 0 } ?: state.page
-                    val at = l.state.value.sentence?.start ?: 0
-                    ListenHub.detach(l)
-                    val next = Listening(reader, kit.speaker(picked.engine), ListenHub.scope)
-                    ListenHub.attach(context, next)
-                    ListenHub.scope.launch { next.start(page, at, picked.rate, picked.voice, picked.join) }
-                } else {
-                    l?.setVoice(picked.voice)
-                }
-            },
-            onBack = { panel = PdfPanel.None; if (heard.active) listenSheet = true },
-        )
+        // 목소리 화면은 아래에서 듣기 판과 함께 그린다(EPUB 과 한 벌).
+        PdfPanel.Voices -> Unit
     }
 
-    if (listenSheet && heard.active) {
-        ListenSheet(
-            prefs = listen,
-            timer = heard.timer,
-            onRate = { next -> onListenChange(next); listening?.setRate(next.rate) },
-            onVoices = { listenSheet = false; panel = PdfPanel.Voices },
-            onTimer = { listening?.setTimer(it) },
-            onClose = { listenSheet = false },
-            onJoin = { level -> onListenChange(listen.copy(join = level)); listening?.setJoin(level) },
-            // 목차 없는 PDF 는 장이 없다 — "장 끝" 을 고르면 책 끝까지 멈추지 않는다.
-            chapterTimer = entries.isNotEmpty(),
-        )
-    }
+    ListenPanels(
+        hookup = hookup,
+        prefs = listen,
+        onPrefsChange = onListenChange,
+        voices = panel == PdfPanel.Voices,
+        onVoices = { open -> panel = if (open) PdfPanel.Voices else PdfPanel.None },
+        // 듣던 문장이 아직 없으면 보이는 쪽의 머리부터.
+        here = { ListenSpot(state.page, 0) },
+        // 목차 없는 PDF 는 장이 없다 — "장 끝" 을 고르면 책 끝까지 멈추지 않는다.
+        chapterTimer = entries.isNotEmpty(),
+    )
 
     // 메모 판은 독서노트 목록 위에서도 뜬다("메모 고치기").
     text.memo?.let { draft ->

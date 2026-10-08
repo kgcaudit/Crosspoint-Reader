@@ -289,6 +289,31 @@ class PdfTextAppTest {
     }
 
     @Test
+    fun `coming back after listening with the screen off says the page moved to where the reading is`() {
+        // 화면을 끈 채 듣는 동안 듣기가 쪽을 넘겼으면, 돌아왔을 때 보던 쪽이 바뀐 까닭을 알린다(EPUB 과 같다).
+        open()
+        compose.onRoot().performTouchInput { click(center) }
+        waitFor(hasContentDescription("듣기"))
+        node(hasContentDescription("듣기")).performClick()
+        waitFor(hasContentDescription("듣기 제어"))
+        compose.waitUntil(5_000) { speakers.isNotEmpty() && speaker.current != null }
+
+        // 끄고 켜기만 하면(쪽이 그대로) 알리지 않는다.
+        compose.activityRule.scenario.moveToState(androidx.lifecycle.Lifecycle.State.CREATED)
+        compose.activityRule.scenario.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED)
+        compose.waitForIdle()
+        assertFalse(hasNode(hasText("듣던 곳으로 쪽을 옮겼습니다")), "쪽이 그대로인데 옮겼다고 알렸다")
+
+        compose.activityRule.scenario.moveToState(androidx.lifecycle.Lifecycle.State.CREATED)
+        // 1쪽의 세 문장을 다 읽으면 듣기가 2쪽으로 넘긴다(화면은 꺼져 있다).
+        finish(3)
+        compose.waitUntil(5_000) { speaker.current == "제 2 쪽 · 사용 설명서" }
+        compose.activityRule.scenario.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED)
+        waitFor(hasText("2 / 6"))
+        waitFor(hasText("듣던 곳으로 쪽을 옮겼습니다"), timeoutMs = 5_000)
+    }
+
+    @Test
     fun `sliding the left edge over the memo or listening sheet does not change the brightness`() {
         // 아래 판(메모 · 듣기)의 왼쪽 끝을 위아래로 끄는 것은 판을 쓰는 손이다(메모 칸을 끌어 고름 · 판을 굴림). EPUB 은 0.28.3
         // 에 막았다 — 같은 밝기 밀기를 쓰는 PDF 도 판 위에서는 밝기가 바뀌지 않아야 한다.
