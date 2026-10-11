@@ -246,4 +246,59 @@ class ComicLibraryTest {
             assertEquals(WorkShelf.TO_READ, WorkStatuses.of(works().single(), emptyMap()).shelf)
         }
     }
+
+    @Test
+    fun `the cover chosen for a work holds for its volumes only, apart from other works and books`() = runTest {
+        // 표지 따로 · 함께(작품마다). 겉표지 · 속표지가 든 "별" 만 "함께" 로 — "달" 과 책은 기본값(null)을 그대로 따른다.
+        comics.applyScan(phone, ScanResult(emptyList(), true, listOf(cbz("별 01권.cbz", "C"), cbz("별 02권.cbz", "C"), cbz("달 01권.cbz", "C"))), 1)
+        val library = Library(db)
+        val book = io.github.kgcaudit.reader.document.BookId("content://잡지.pdf")
+        assertEquals(listOf(null, null), works().map { it.coverAlone })
+        comics.setCoverAlone(works().single { it.title == "별" }, false)
+        assertEquals(false, works().single { it.title == "별" }.coverAlone, "함께로 고른 것이 \"정하지 않음\" 과 섞였다")
+        assertEquals(null, works().single { it.title == "달" }.coverAlone, "다른 작품까지 바뀌었다")
+        assertEquals(null, library.bookCoverAlone(book))
+        library.setBookCoverAlone(book, true)
+        assertEquals(true, library.bookCoverAlone(book))
+        assertEquals(CoverChoices(works = mapOf(works().single { it.title == "별" }.key to false), books = mapOf(book.value to true)), comics.coverChoices().first())
+        // 하나만 지우면 그것만 기본값으로.
+        comics.setCoverAlone(works().single { it.title == "별" }, null)
+        assertEquals(null, works().single { it.title == "별" }.coverAlone)
+        assertEquals(true, library.bookCoverAlone(book))
+    }
+
+    @Test
+    fun `clearing every cover choice puts works and books back on the default and leaves other settings`() = runTest {
+        comics.applyScan(phone, ScanResult(emptyList(), true, listOf(cbz("별 01권.cbz", "C"), cbz("달 01권.cbz", "C"))), 1)
+        val library = Library(db)
+        val book = io.github.kgcaudit.reader.document.BookId("content://잡지.pdf")
+        comics.setCoverAlone(works().single { it.title == "별" }, false)
+        comics.setCoverAlone(works().single { it.title == "달" }, true)
+        comics.setRightToLeft(works().single { it.title == "별" }, true)
+        library.setBookCoverAlone(book, false)
+        library.setBookRightToLeft(book, true)
+        assertEquals(3, comics.clearCoverChoices())
+        assertEquals(CoverChoices(), comics.coverChoices().first())
+        assertEquals(listOf(null, null), works().map { it.coverAlone })
+        assertEquals(null, library.bookCoverAlone(book))
+        // 표지만 지운다 — 넘기는 방향까지 지우면 "모두 지우기" 한 번에 오→왼 만화가 모두 왼→오로 돌아간다.
+        assertEquals(true, works().single { it.title == "별" }.rightToLeft)
+        assertEquals(true, library.bookRightToLeft(book))
+    }
+
+    @Test
+    fun `a broken cover value is read as not chosen, for a work and for a book`() = runTest {
+        // 망가뜨린 입력: 다음 판이 쓴 값 · 빈 값. 어느 한쪽으로 읽으면 고른 적 없는 값이 기본값을 이긴다.
+        comics.applyScan(phone, ScanResult(emptyList(), true, listOf(cbz("별 01권.cbz", "C"))), 1)
+        val library = Library(db)
+        val book = io.github.kgcaudit.reader.document.BookId("content://잡지.pdf")
+        for (bad in listOf("yes", "", "2")) {
+            db.comics().setOverride(io.github.kgcaudit.reader.data.db.ComicOverrideEntity(ComicLibrary.COVER, works().single().key, bad))
+            db.comics().setOverride(io.github.kgcaudit.reader.data.db.ComicOverrideEntity(Library.BOOK_COVER, book.value, bad))
+            assertEquals(null, works().single().coverAlone, bad)
+            assertEquals(null, library.bookCoverAlone(book), bad)
+            // "바꾼 작품 N개" 에도 세지 않는다 — 지울 것이 없는데 수만 보인다.
+            assertEquals(CoverChoices(), comics.coverChoices().first(), bad)
+        }
+    }
 }

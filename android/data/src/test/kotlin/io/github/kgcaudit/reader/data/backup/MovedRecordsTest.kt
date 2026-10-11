@@ -66,6 +66,7 @@ class MovedRecordsTest {
         scanBooks("A", book("A", "어린 왕자.epub", 9000))
         readTo("A/어린 왕자.epub", 3)
         library.setBookView(BookId("A/어린 왕자.epub"), io.github.kgcaudit.reader.data.library.BookView.COMIC)
+        library.setBookCoverAlone(BookId("A/어린 왕자.epub"), false)
         // 같은 파일을 B 로 옮겼다: A 에서는 사라지고 B 에서 나타났다.
         scanBooks("A")
         scanBooks("B", book("B", "어린 왕자.epub", 9000))
@@ -76,6 +77,8 @@ class MovedRecordsTest {
         assertEquals(1, db.bookmarks().forBook("B/어린 왕자.epub").size)
         // 책마다 고른 보기(만화로 보기, 0.50.0)도 따라온다.
         assertEquals(io.github.kgcaudit.reader.data.library.BookView.COMIC, library.bookView(BookId("B/어린 왕자.epub")))
+        // 두 쪽 보기에서 고른 표지(함께)도 — 남겨 두면 옮긴 책이 다시 한 쪽씩 어긋난 펼침으로 열린다.
+        assertEquals(false, library.bookCoverAlone(BookId("B/어린 왕자.epub")))
         // 책장(읽는 중)에도 새 자리로 선다. 옛 자리는 비었다 — 두 번 잇지 않는다.
         assertEquals(listOf("어린 왕자.epub"), library.shelf().first().map { it.book.displayName })
         assertNull(db.progress().get("A/어린 왕자.epub"))

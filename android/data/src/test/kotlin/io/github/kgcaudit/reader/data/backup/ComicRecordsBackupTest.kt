@@ -144,6 +144,7 @@ class ComicRecordsBackupTest {
         val oldWorks = old.comics.works().first()
         old.comics.setRightToLeft(oldWorks.first { it.title == "별" }, true)
         old.comics.setView(oldWorks.first { it.title == "별" }, ComicView.WEBTOON)
+        old.comics.setCoverAlone(oldWorks.first { it.title == "별" }, false)
         old.comics.rename(oldWorks.first { it.title == "달" }, "달빛 이야기")
         old.comics.setRightToLeft(old.comics.works().first().first { it.title == "달빛 이야기" }, true)
         val text = old.backup()
@@ -156,8 +157,37 @@ class ComicRecordsBackupTest {
         val works = new.comics.works().first()
         val star = works.first { it.title == "별" }
         assertEquals(true to ComicView.WEBTOON, star.rightToLeft to star.view)
+        assertEquals(false, star.coverAlone, "두 쪽 보기에서 고른 표지(함께)가 새 휴대폰으로 오지 않았다")
         val moon = works.first { it.title == "달빛 이야기" }
         assertEquals(false, moon.rightToLeft, "가져오기가 이 휴대폰에서 정한 방향을 덮었다")
+        assertEquals(null, moon.coverAlone, "고르지 않은 표지가 백업에서 값을 얻었다")
+    }
+
+    @Test
+    fun `a cover chosen on this phone is not overwritten by an import, and a cover-only work is still backed up`() = runTest {
+        val old = phone("old", "content://old/tree")
+        old.scan("별 1권.cbz" to 5000L, "달 1권.cbz" to 7000L)
+        // 표지만 고른 작품도 작품 설정이다 — 세지 않으면 백업 단추가 흐려 옮길 길이 없다.
+        old.comics.setCoverAlone(old.comics.works().first().first { it.title == "별" }, false)
+        old.comics.setCoverAlone(old.comics.works().first().first { it.title == "달" }, false)
+        assertEquals(2, old.records.summary().works)
+        val text = old.backup()
+
+        val new = phone("new", "content://new/tree")
+        new.scan("별 1권.cbz" to 5000L, "달 1권.cbz" to 7000L)
+        new.comics.setCoverAlone(new.comics.works().first().first { it.title == "달" }, true)
+        new.bring(text)
+        val works = new.comics.works().first()
+        assertEquals(false, works.first { it.title == "별" }.coverAlone)
+        assertEquals(true, works.first { it.title == "달" }.coverAlone, "가져오기가 이 휴대폰에서 고른 표지를 덮었다")
+    }
+
+    @Test
+    fun `a broken cover value in a backup is dropped and the work follows the new phone's default`() = runTest {
+        // 망가뜨린 입력: 참 · 거짓이 아닌 값. 그 값 하나만 버리고 같은 작품의 다른 설정은 들어온다.
+        val text = """{"format":"olo-ebook-reading-records","version":1,"createdAt":1,"books":[],"works":[{"key":"별","coverAlone":"yes","rightToLeft":true},{"key":"달","coverAlone":1}]}"""
+        val file = assertNotNull(RecordsCodec.decode(text))
+        assertEquals(listOf(WorkRecord("별", rightToLeft = true)), file.works)
     }
 
     @Test
@@ -234,7 +264,7 @@ class ComicRecordsBackupTest {
             7,
             emptyList(),
             listOf(ComicRecord("별 1권.cbz", 5000L, 3, 100, 0.25f, 900, 950, listOf(ComicBookmarkRecord(2, 800)))),
-            listOf(WorkRecord("별", "별빛", true, "WEBTOON")),
+            listOf(WorkRecord("별", "별빛", true, "WEBTOON", coverAlone = false)),
         )
         assertEquals(file, RecordsCodec.decode(RecordsCodec.encode(file)))
     }

@@ -271,6 +271,10 @@ interface ComicDao {
     @Query("DELETE FROM comic_overrides WHERE kind = :kind AND subject = :subject")
     suspend fun clearOverride(kind: String, subject: String)
 
+    /** 한 갈래의 손 고침을 모두 지운다(표지 따로 · 함께를 모두 기본값으로). 지운 줄 수. */
+    @Query("DELETE FROM comic_overrides WHERE kind IN (:kinds)")
+    suspend fun clearKinds(kinds: List<String>): Int
+
     @Query("SELECT value FROM comic_overrides WHERE kind = :kind AND subject = :subject")
     suspend fun override(kind: String, subject: String): String?
 

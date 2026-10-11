@@ -39,6 +39,16 @@ class ComicShelfTest {
     }
 
     @Test
+    fun `a cover choice belongs to its own work only and an unchosen work follows the default`() {
+        // 표지 따로 · 함께(작품마다). 겉표지 · 속표지가 둘 다 든 작품만 "함께" 로 바꿔도 다른 작품은 그대로 기본값(null)을 따라야 한다.
+        val star = ComicName.key("별을 줍는 아이")
+        val works = ComicShelf.group(scattered, ComicOverrides(coverAlone = mapOf(star to false)))
+        assertEquals(false, works.single { it.title == "별을 줍는 아이" }.coverAlone)
+        // 고르지 않은 작품은 "따로" 가 아니라 null — 따로로 굳으면 모든 보기 설정의 기본값을 바꿔도 따르지 않는다(규칙 5).
+        assertEquals(null, works.single { it.title == "바다의 노래" }.coverAlone)
+    }
+
+    @Test
     fun `the same volume in two places shows once with its copies`() {
         val star = ComicShelf.group(scattered).single { it.title == "별을 줍는 아이" }
         val third = star.entries.single { it.label == "3권" }

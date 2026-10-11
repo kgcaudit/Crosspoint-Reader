@@ -172,8 +172,9 @@ class RecordsBackup(
                 rightToLeft = when (value(ComicLibrary.RTL)) { "1" -> true; "0" -> false; else -> null },
                 view = value(ComicLibrary.VIEW),
                 shelf = value(ComicLibrary.SHELF),
+                coverAlone = when (value(ComicLibrary.COVER)) { "1" -> true; "0" -> false; else -> null },
             )
-        }.filter { it.title != null || it.rightToLeft != null || it.view != null || it.shelf != null }
+        }.filter { it.hasAny }
     }
 
     suspend fun summary(): RecordsSummary = collect().summary()
@@ -436,6 +437,9 @@ class RecordsBackup(
             }
             if (w.view != null && (ComicLibrary.VIEW to w.key) !in have) comics.setOverride(ComicOverrideEntity(ComicLibrary.VIEW, w.key, w.view))
             if (w.shelf != null && (ComicLibrary.SHELF to w.key) !in have) comics.setOverride(ComicOverrideEntity(ComicLibrary.SHELF, w.key, w.shelf))
+            if (w.coverAlone != null && (ComicLibrary.COVER to w.key) !in have) {
+                comics.setOverride(ComicOverrideEntity(ComicLibrary.COVER, w.key, if (w.coverAlone) "1" else "0"))
+            }
         }
     }
 
@@ -526,7 +530,8 @@ class RecordsBackup(
         // 맞지 않는다.
         // 옮긴 서재 갈래(SHELF)도 작품 열쇠로 적는다 — 0.50 까지 빠져 있어, 종이책으로 다 읽어 옮긴 작품이 새 휴대폰에서 "읽을
         // 작품" 으로 돌아갔다.
-        val WORK_KINDS = setOf(ComicLibrary.TITLE, ComicLibrary.RTL, ComicLibrary.VIEW, ComicLibrary.SHELF)
+        // 두 쪽 보기의 표지(COVER)도 작품 열쇠로 적는다. 책마다 고른 표지(BOOK_COVER)는 책 id(문서 주소)가 주어라 담지 않는다.
+        val WORK_KINDS = setOf(ComicLibrary.TITLE, ComicLibrary.RTL, ComicLibrary.VIEW, ComicLibrary.SHELF, ComicLibrary.COVER)
         // 읽은 시간 표의 갈래 이름(TimeItem 과 같은 글). 백업은 :data 의 저장 형식만 안다.
         val BOOK_TIME = io.github.kgcaudit.reader.data.TimeItem.BOOK.name
         val COMIC_TIME = io.github.kgcaudit.reader.data.TimeItem.COMIC.name

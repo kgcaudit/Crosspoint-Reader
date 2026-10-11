@@ -200,6 +200,17 @@ class Library(private val db: ReaderDatabase) {
         db.comics().setOverride(ComicOverrideEntity(BOOK_RTL, id.value, if (rightToLeft) "1" else "0"))
 
     /**
+     * 두 쪽 보기에서 이 책의 표지를 따로(true) · 함께(false). null 은 고르지 않음 — 모든 보기 설정의 기본값을 따른다. PDF 와
+     * 만화로 본 책이 같은 값을 쓴다(같은 책의 같은 쪽 짝이다). 깨진 값은 고르지 않은 것으로 읽는다(규칙 6).
+     */
+    suspend fun bookCoverAlone(id: BookId): Boolean? = coverValue(db.comics().override(BOOK_COVER, id.value))
+
+    /** null 이면 고른 것을 지워 기본값으로 돌아간다. */
+    suspend fun setBookCoverAlone(id: BookId, coverAlone: Boolean?) =
+        if (coverAlone == null) db.comics().clearOverride(BOOK_COVER, id.value)
+        else db.comics().setOverride(ComicOverrideEntity(BOOK_COVER, id.value, coverText(coverAlone)))
+
+    /**
      * 그림만 든 책인지 살펴 둔 값(파일 크기와 함께 — 파일이 바뀌면 다시 본다). 표지 판을 열 때마다 장을 모두 훑지 않으려고.
      * 모르면 null.
      */
@@ -227,8 +238,29 @@ class Library(private val db: ReaderDatabase) {
         const val BOOK_VIEW: String = "BOOK_VIEW"
         const val BOOK_RTL: String = "BOOK_RTL"
         const val PICTURES: String = "PICTURES"
+        /** 책마다 고른 두 쪽 보기의 표지(따로 · 함께). 작품의 것은 [ComicLibrary.COVER]. */
+        const val BOOK_COVER: String = "BOOK_COVER"
     }
 }
+
+/** 표지 값의 저장 글: 따로 "1", 함께 "0". */
+internal fun coverText(coverAlone: Boolean): String = if (coverAlone) "1" else "0"
+
+/**
+ * 저장 글 → 표지 값. "1"/"0" 밖(손상 · 다음 버전이 쓴 값)은 null — 고르지 않은 것으로 남아 기본값을 따른다. 어느 한쪽으로
+ * 읽으면 사람이 고른 적 없는 값이 기본값을 이겨, 모든 보기 설정을 바꿔도 그 책만 따르지 않는다(규칙 5 · 6).
+ */
+internal fun coverValue(text: String?): Boolean? = when (text) {
+    "1" -> true
+    "0" -> false
+    else -> null
+}
+
+/**
+ * 작품 · 책마다 고른 두 쪽 보기의 표지(작품 열쇠 · 책 id → 따로/함께). 모든 보기 설정이 "바꾼 작품 N개" 를 세고, 책 뷰어들이
+ * 제 책의 값을 여기서 읽는다. 깨진 값은 들지 않는다.
+ */
+data class CoverChoices(val works: Map<String, Boolean> = emptyMap(), val books: Map<String, Boolean> = emptyMap())
 
 class ComicLibrary(private val db: ReaderDatabase) {
 
@@ -403,6 +435,22 @@ class ComicLibrary(private val db: ReaderDatabase) {
     suspend fun setView(work: Work, view: ComicView?) =
         if (view == null) comics.clearOverride(VIEW, work.key) else comics.setOverride(ComicOverrideEntity(VIEW, work.key, view.name))
 
+    /**
+     * 작품의 두 쪽 보기 표지를 고른다(따로 true · 함께 false). 작품 열쇠에 적어 같은 작품의 다른 권도 같은 짝으로 열린다 — 겉표지
+     * · 속표지는 대개 권마다 같은 모양이다. null 이면 고른 것을 지워 기본값으로 돌아간다.
+     */
+    suspend fun setCoverAlone(work: Work, coverAlone: Boolean?) =
+        if (coverAlone == null) comics.clearOverride(COVER, work.key) else comics.setOverride(ComicOverrideEntity(COVER, work.key, coverText(coverAlone)))
+
+    /** 작품 · 책마다 고른 표지 전부. 고르거나 지우면 다시 흐른다. */
+    fun coverChoices(): Flow<CoverChoices> = comics.observeOverrides().map { rows ->
+        fun of(kind: String) = rows.filter { it.kind == kind }.mapNotNull { r -> coverValue(r.value)?.let { r.subject to it } }.toMap()
+        CoverChoices(works = of(COVER), books = of(Library.BOOK_COVER))
+    }
+
+    /** 작품 · 책마다 고른 표지를 모두 지워 기본값을 따르게 한다(모든 보기 설정의 "모두 지우기"). 지운 수. */
+    suspend fun clearCoverChoices(): Int = comics.clearKinds(listOf(COVER, Library.BOOK_COVER))
+
     /** 작품을 다른 갈래로 옮긴다(길게 눌러). null 이면 표시를 지워 권 진도의 집계로 돌아간다. */
     suspend fun setShelf(work: Work, mark: ShelfMark?) =
         if (mark == null) comics.clearOverride(SHELF, work.key) else comics.setOverride(ComicOverrideEntity(SHELF, work.key, ShelfMark.format(mark)))
@@ -460,6 +508,7 @@ class ComicLibrary(private val db: ReaderDatabase) {
         view = rows.filter { it.kind == VIEW }.mapNotNull { r -> ComicView.entries.firstOrNull { it.name == r.value }?.let { r.subject to it } }.toMap(),
         shelf = rows.filter { it.kind == SHELF }.mapNotNull { r -> ShelfMark.parse(r.value)?.let { r.subject to it } }.toMap(),
         rightToLeft = rows.filter { it.kind == RTL }.mapNotNull { r -> when (r.value) { "1" -> r.subject to true; "0" -> r.subject to false; else -> null } }.toMap(),
+        coverAlone = rows.filter { it.kind == COVER }.mapNotNull { r -> coverValue(r.value)?.let { r.subject to it } }.toMap(),
     )
 
     private fun toUnit(row: ComicUnitEntity): ComicUnit {
@@ -499,6 +548,8 @@ class ComicLibrary(private val db: ReaderDatabase) {
         const val RTL: String = "RTL"
         const val VIEW: String = "VIEW"
         const val SHELF: String = "SHELF"
+        /** 작품마다 고른 두 쪽 보기의 표지(따로 "1" · 함께 "0"). 책의 것은 [Library.BOOK_COVER]. */
+        const val COVER: String = "COVER"
         /** 빼낸 단위의 작품 열쇠 머리. 이름 열쇠(글자 · 숫자뿐)와 겹치지 않게 기호를 넣는다. */
         const val OWN_PREFIX: String = "#own:"
     }

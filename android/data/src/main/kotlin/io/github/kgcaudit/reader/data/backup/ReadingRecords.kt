@@ -142,6 +142,8 @@ data class ComicBookmarkRecord(val page: Int, val createdAtEpochMs: Long)
  *
  * @param shelf 길게 눌러 옮긴 갈래(`ShelfMark.format` 글, 0.38.0). 0.50 까지 백업에서 빠져, 종이책으로 다 읽어 "다 읽음" 으로
  *   옮긴 작품이 새 휴대폰에서 다시 "읽을 작품" 에 섰다.
+ * @param coverAlone 두 쪽 보기의 표지: 따로(true) · 함께(false). 겉표지 · 속표지가 든 작품을 "함께" 로 맞춰 두었는데 새
+ *   휴대폰에서 다시 한 쪽씩 어긋나면, 어느 작품을 고쳤는지 기억해 내야 한다.
  */
 data class WorkRecord(
     val key: String,
@@ -149,6 +151,7 @@ data class WorkRecord(
     val rightToLeft: Boolean? = null,
     val view: String? = null,
     val shelf: String? = null,
+    val coverAlone: Boolean? = null,
 ) {
     /** 같은 작품의 설정 두 벌: 앞(이 휴대폰)이 정한 것을 두고 빈 것만 채운다 — 가져오기가 지금 손으로 고친 것을 덮지 않게. */
     internal fun filledFrom(other: WorkRecord): WorkRecord = copy(
@@ -156,7 +159,11 @@ data class WorkRecord(
         rightToLeft = rightToLeft ?: other.rightToLeft,
         view = view ?: other.view,
         shelf = shelf ?: other.shelf,
+        coverAlone = coverAlone ?: other.coverAlone,
     )
+
+    /** 정한 것이 하나라도 있는가. 없으면 백업에 담지 않는다. */
+    internal val hasAny: Boolean get() = title != null || rightToLeft != null || view != null || shelf != null || coverAlone != null
 }
 
 /** 백업 파일 하나. 만화 · 작품 설정은 0.49.0 부터 — 옛 파일에는 없고, 없으면 빈 목록으로 읽는다. */
@@ -282,6 +289,7 @@ object RecordsCodec {
         putOpt("rightToLeft", w.rightToLeft)
         putOpt("view", w.view)
         putOpt("shelf", w.shelf)
+        putOpt("coverAlone", w.coverAlone)
     }
 
     private fun work(o: JSONObject): WorkRecord? {
@@ -293,8 +301,10 @@ object RecordsCodec {
             view = o.stringOrNull("view"),
             // 깨진 갈래 글은 버린다 — 옮기면 그 작품이 서재에서 이상한 갈래에 붙박인다(ShelfMark.parse 와 같은 규칙).
             shelf = o.stringOrNull("shelf")?.takeIf { io.github.kgcaudit.reader.document.comic.ShelfMark.parse(it) != null },
+            // 참 · 거짓 밖(글 "true" · 숫자)은 버린다 — 정하지 않은 것으로 남아 새 휴대폰의 기본값을 따른다.
+            coverAlone = o.opt("coverAlone") as? Boolean,
         )
-        return record.takeIf { it.title != null || it.rightToLeft != null || it.view != null || it.shelf != null }
+        return record.takeIf { it.hasAny }
     }
 
     private fun bookJson(b: BookRecord) = JSONObject().apply {

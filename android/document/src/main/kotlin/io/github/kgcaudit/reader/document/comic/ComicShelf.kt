@@ -48,6 +48,11 @@ data class ComicOverrides(
     val view: Map<String, ComicView> = emptyMap(),
     /** 작품 열쇠 → 사람이 길게 눌러 옮긴 갈래(0.38.0). */
     val shelf: Map<String, ShelfMark> = emptyMap(),
+    /**
+     * 작품 열쇠 → 두 쪽 보기에서 표지를 따로(true) · 함께(false). 없으면 모든 보기 설정의 기본값을 따른다. 겉표지 · 속표지가
+     * 둘 다 든 작품은 "함께" 여야 본문 펼침이 맞는데, 그런 작품만 바꾸려고 기본값을 뒤집으면 다른 작품이 모두 한 쪽씩 어긋난다.
+     */
+    val coverAlone: Map<String, Boolean> = emptyMap(),
 )
 
 /**
@@ -88,6 +93,8 @@ data class Work(
     val view: ComicView? = null,
     /** 사람이 옮긴 서재 갈래. null 이면 권 진도의 집계만 따른다([WorkStatuses.of]). */
     val shelfMark: ShelfMark? = null,
+    /** 두 쪽 보기의 표지: 이 작품에 고른 따로(true) · 함께(false). null 은 고르지 않음 — 모든 보기 설정의 기본값을 따른다. */
+    val coverAlone: Boolean? = null,
 ) {
     val volumeCount: Int get() = entries.size
 }
@@ -191,6 +198,7 @@ object ComicShelf {
             rightToLeft = overrides.rightToLeft[key] ?: members.firstNotNullOfOrNull { it.unit.info?.rightToLeft },
             view = overrides.view[key],
             shelfMark = overrides.shelf[key],
+            coverAlone = overrides.coverAlone[key],
         )
     }
 
