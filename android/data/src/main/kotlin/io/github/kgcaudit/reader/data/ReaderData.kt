@@ -278,6 +278,27 @@ class ReaderData(
     }
 
     /**
+     * 다른 앱이 "연결 프로그램" 으로 넘긴 압축이 만화인가. 서재의 살피기와 같은 규칙이다([trustExtension]: cbz · cbr 처럼 이름이
+     * 만화라고 말하면 그림 하나로 충분하고, 그냥 zip 이면 그림만 들어야 한다) — 같은 zip 이 서재에서는 "만화 아님" 인데 넘겨받으면
+     * 열리거나 그 반대면, 사람은 어느 쪽이 맞는지 알 수 없다. 목록만 읽는다(쪽은 [openComic] 이 연다).
+     *
+     * 압축이 아니거나 깨졌으면 [java.io.IOException] — "만화 아님" 과 "못 읽음" 을 섞지 않는다(깨진 파일에 "그림이 없습니다" 라고 하면
+     * 멀쩡한 만화를 다시 받을 생각을 못 한다).
+     */
+    fun checkArchive(uri: Uri, trustExtension: Boolean): ArchiveCheck =
+        ComicArchive.open(sources, uri, scratch).use { archive ->
+            val contents = ComicContents.ofArchive(archive.names, trustExtension)
+            when {
+                contents != null -> ArchiveCheck.Comic(
+                    contents.comicInfo?.let { name -> runCatching { archive.entry(name)?.reader(Charsets.UTF_8)?.use { ComicInfo.parse(it) } }.getOrNull() },
+                )
+                // 권 압축만 든 묶음(0.48.0). 서재는 안의 권을 하나씩 펼치지만, 넘겨받은 파일 하나로는 권마다 자리를 둘 곳이 없다.
+                NestedArchives.volumes(archive.names).isNotEmpty() -> ArchiveCheck.Volumes
+                else -> ArchiveCheck.NotComic
+            }
+        }
+
+    /**
      * 만화 한 권을 연다(0.34.0). 쪽 이름은 이때 다시 읽는다 — 서재는 쪽 수만 들고 있다. 압축은 목록만 읽고 쪽은 볼 때
      * 하나씩 꺼낸다(1GB 압축을 통째로 복사하면 느리고 공간을 먹는다). 그림이 하나도 없으면 [java.io.IOException].
      */
@@ -389,4 +410,16 @@ class ReaderData(
         const val VOLUME_FILE = ".olo-volume."
         const val VOLUME_DONE = ".olo-volume-done"
     }
+}
+
+/** 넘겨받은 압축을 살핀 결과([ReaderData.checkArchive]). */
+sealed interface ArchiveCheck {
+    /** 만화다. [info] 는 안에 든 ComicInfo(넘기는 방향 등), 없거나 못 읽으면 null. */
+    data class Comic(val info: ComicInfo?) : ArchiveCheck
+
+    /** 그림 대신 권 압축들만 들었다(여러 권 묶음). */
+    data object Volumes : ArchiveCheck
+
+    /** 그림이 없다(문서 · 음악 묶음). */
+    data object NotComic : ArchiveCheck
 }

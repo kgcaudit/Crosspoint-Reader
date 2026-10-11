@@ -236,6 +236,14 @@ private fun OloApp(
     // 다른 앱에서 열었으면 닫을 때 그 앱으로 돌아간다. 라이브러리가 나오면 "파일을 봤을 뿐인데
     // 왜 다른 앱이 떠 있나" 가 된다.
     var fromOutside by rememberSaveable { mutableStateOf(false) }
+    // 다른 앱이 넘긴 만화(서재 밖). 받은 책처럼 URI · 이름 · 크기를 남겨, 화면이 되살아나도 다시 연다. 서재에 같은 권이 있어 그 권
+    // ([comicId])으로 열었을 때도 남긴다 — 서재 쪽이 열리지 않으면(폴더 허락이 풀림) 받은 파일로 연다(받은 책과 같은 규칙).
+    var incomingComicUri by rememberSaveable { mutableStateOf<String?>(null) }
+    var incomingComicName by rememberSaveable { mutableStateOf<String?>(null) }
+    var incomingComicSize by rememberSaveable { mutableLongStateOf(-1L) }
+    var incomingComicTrusted by rememberSaveable { mutableStateOf(true) }
+    // 받은 횟수. 같은 파일을 또 받으면 URI 가 같아 화면이 다시 열리지 않는다 — 열쇠로 써서 새로 연다(받은 책의 incomingRequest).
+    var incomingComicRequest by rememberSaveable { mutableIntStateOf(0) }
     // 화면 전체에 잠깐 띄우는 안내(책 화면 밖의 일 — 다른 앱에서 파일이 와서 듣기를 멈춘 것).
     var notice by remember { mutableStateOf<String?>(null) }
 
@@ -270,11 +278,41 @@ private fun OloApp(
     // 닫을 때 앱이 뒤로 사라져 홈이나 엉뚱한 앱이 떴다.
     LaunchedEffect(returned.intValue) { if (returned.intValue > 0) fromOutside = false }
 
+    /**
+     * 다른 앱이 파일을 넘겼다: 보던 것을 모두 닫는다(진도는 넘길 때마다 저장돼 있다). 읽던 책을 듣던 중이면 듣기도 끝내고 알린다 —
+     * 책을 닫으면 듣기가 끝나는 것과 같은 규칙. 두면 닫힌 책을 계속 읽어, 멈출 곳이 알림 카드뿐이고 카드를 눌러도 돌아갈 책이
+     * 없다(0.19.0–0.20.1).
+     */
+    fun closeForIncoming() {
+        reader?.let { r ->
+            ListenHub.current.value?.takeIf { it.belongsTo(r.source) }?.let { l ->
+                notice = "‘${l.title}’ 듣기를 멈췄습니다"
+                ListenHub.detach(l)
+            }
+        }
+        reader?.close()
+        reader = null
+        openId = null
+        incomingUri = null
+        // 만화 · 만화로 보던 책 · 받은 만화도 닫는다 — 두면 받은 파일을 닫은 뒤 서재가 아니라 그것이 처음부터 다시 열렸다.
+        comicId = null
+        comicStart = null
+        comicPickCover = false
+        comicPromptFor = null
+        bookComicId = null
+        asBook = null
+        incomingComicUri = null
+        failure = null
+        fromOutside = true
+    }
+
     LaunchedEffect(incoming.value) {
         val intent = incoming.value ?: return@LaunchedEffect
         // 제공자에게 묻는 일(이름·크기)은 입출력이다. 클라우드·메일 첨부는 여기서 파일을 받기도 한다 —
         // 메인 스레드에서 하면 앱이 멈춘다.
         val request = withContext(Dispatchers.IO) { Incoming.from(intent, context.contentResolver) }
+        // 서재에 같은 권이 있는지도 **비우기 전에** 묻는다 — 비운 뒤에 기다리면 이 효과가 스스로 취소된다(아래).
+        val libraryComic = (request as? Incoming.Comic)?.let { container.libraryComicFor(it.file) }
         // 다 읽은 **뒤에** 비운다. 먼저 비우면 이 효과의 열쇠가 바뀌어 효과 자신이 취소된다 — 묻는 동안
         // 기다리던 파일이 열리지 않는다. 그사이 새 파일이 오면 이 효과는 취소되고 새 파일을 연다(맞다).
         incoming.value = null
@@ -282,29 +320,23 @@ private fun OloApp(
             null -> Unit
             is Incoming.Refused -> failure = request.message
             is Incoming.Book -> {
-                // 읽던 책이 있으면 닫고 새 파일을 연다(진도는 넘길 때마다 저장돼 있다). 그 책을 듣던 중이면 듣기도
-                // 끝내고 알린다 — 책을 닫으면 듣기가 끝나는 것과 같은 규칙. 두면 닫힌 책을 계속 읽어, 멈출 곳이 알림
-                // 카드뿐이고 카드를 눌러도 돌아갈 책이 없다(0.19.0–0.20.1).
-                reader?.let { r ->
-                    ListenHub.current.value?.takeIf { it.belongsTo(r.source) }?.let { l ->
-                        notice = "‘${l.title}’ 듣기를 멈췄습니다"
-                        ListenHub.detach(l)
-                    }
-                }
-                reader?.close()
-                reader = null
-                openId = null
-                // 만화를 보던 중이었으면 그것도 닫는다 — 두면 받은 파일을 닫은 뒤 서재가 아니라 그 만화가 처음부터 다시 열렸다.
-                comicId = null
-                comicStart = null
-                comicPickCover = false
-                failure = null
-                fromOutside = true
+                closeForIncoming()
                 incomingFormat = request.file.format.name
                 incomingName = request.file.displayName
                 incomingSize = request.file.sizeBytes ?: -1L
                 incomingUri = request.file.uri.toString()
                 incomingRequest++
+            }
+            is Incoming.Comic -> {
+                closeForIncoming()
+                incomingComicName = request.file.displayName
+                incomingComicSize = request.file.sizeBytes ?: -1L
+                incomingComicTrusted = request.file.trusted
+                incomingComicUri = request.file.uri.toString()
+                incomingComicRequest++
+                // 서재에 같은 권이 있으면 서재의 권으로 연다 — 읽던 자리 · 책갈피 · 작품 설정(방향 · 보는 방식)이 이어진다.
+                // 이어 읽기 띠(다른 기기 자리)는 묻지 않는다: 서재 · 위젯에서 연 권에만 묻는다.
+                if (libraryComic != null) comicId = libraryComic
             }
         }
     }
@@ -339,6 +371,7 @@ private fun OloApp(
         reader = null
         openId = null
         incomingUri = null
+        incomingComicUri = null
         fromOutside = false
         comicId = null
         comicStart = null
@@ -433,11 +466,23 @@ private fun OloApp(
                     startAt = comicStart,
                     prefs = prefs.screen,
                     onPrefsChange = { prefs = prefs.copy(screen = it); container.prefs.save(prefs) },
-                    onOpen = { next -> comicStart = null; comicId = next },
-                    onClose = { comicId = null; comicStart = null; comicPickCover = false; hideSystemBars(false) },
+                    // 다음 권으로 넘어가면 받은 파일로 되돌아갈 일이 없다 — 남겨 두면 다음 권이 열리지 않을 때 받은 첫 권이 대신 열렸다.
+                    onOpen = { next -> comicStart = null; incomingComicUri = null; comicId = next },
+                    onClose = {
+                        comicId = null; comicStart = null; comicPickCover = false; incomingComicUri = null; hideSystemBars(false)
+                        // 다른 앱이 넘긴 파일을 서재의 권으로 열었다: 닫으면 그 앱으로 돌아간다(받은 책과 같다).
+                        if (fromOutside) { fromOutside = false; leave() }
+                    },
                     pickCover = comicPickCover,
                     onChrome = { showing -> hideSystemBars(!showing) },
-                    onFail = { message -> failureTitle = "이 만화를 열지 못했습니다"; failure = message; comicId = null; comicStart = null; comicPickCover = false; hideSystemBars(false) },
+                    onFail = { message ->
+                        comicId = null; comicStart = null; comicPickCover = false
+                        // 넘겨받은 파일의 서재 쪽이 열리지 않았다(폴더 허락이 풀림 · 옮김): 받은 파일로 연다 — 아래의 받은 만화 화면이
+                        // incomingComicUri 로 이어받는다. 받은 파일이 아니면 까닭을 보인다.
+                        if (incomingComicUri == null) {
+                            failureTitle = "이 만화를 열지 못했습니다"; failure = message; hideSystemBars(false)
+                        }
+                    },
                 ) }
                 // 서재 · 위젯에서 연 권에만 묻는다. 웹툰이 이어 붙인 다음 화 · 다음 권으로 넘어간 뒤에 띠가 다시 뜨면 읽는 흐름이 끊긴다.
                 val unit = comicId!!
@@ -468,6 +513,35 @@ private fun OloApp(
                     bookComicJump++
                 }
             }
+        } else if (incomingComicUri != null) {
+            LaunchedEffect(incomingComicUri) { hideSystemBars(true) }
+            val file = IncomingComic(
+                android.net.Uri.parse(incomingComicUri),
+                incomingComicName ?: incomingComicUri!!.substringAfterLast('/'),
+                incomingComicSize.takeIf { it >= 0 },
+                incomingComicTrusted,
+            )
+            CpReaderTheme(prefs.screen.theme) {
+                androidx.compose.runtime.key(incomingComicRequest) { IncomingComicHost(
+                    file = file,
+                    prefs = prefs.screen,
+                    onPrefsChange = { prefs = prefs.copy(screen = it); container.prefs.save(prefs) },
+                    onClose = {
+                        incomingComicUri = null
+                        hideSystemBars(false)
+                        if (fromOutside) { fromOutside = false; leave() }
+                    },
+                    onChrome = { showing -> hideSystemBars(!showing) },
+                    // 못 열면 서재 위에 까닭을 보인다(받은 책과 같다) — 검은 화면에 갇히지 않고, 보낸 앱으로 말없이 돌아가지도 않는다.
+                    onFail = { message ->
+                        failureTitle = "이 만화를 열지 못했습니다"
+                        failure = message
+                        incomingComicUri = null
+                        fromOutside = false
+                        hideSystemBars(false)
+                    },
+                ) }
+            }
         } else when (val shown = aboutPage) {
             // 만화를 닫고 돌아오면 보던 탭 · 작품 화면이 그대로여야 한다. 서재는 만화를 여는 동안 화면에서 빠지므로 그 안의
             // rememberSaveable 이 버려진다 — 상태 보관소에 맡겨 둔다(책장 스크롤도 함께 남는다).
@@ -477,15 +551,15 @@ private fun OloApp(
                 onStartScan = { scanned = true },
                 onAbout = { aboutPage = ABOUT },
                 onStats = { aboutPage = STATS },
-                onOpenComic = { id, page -> comicStart = page; comicPickCover = false; comicPromptFor = id; comicId = id },
-                onPickComicCover = { id -> comicStart = null; comicPickCover = true; comicId = id },
+                onOpenComic = { id, page -> fromOutside = false; comicStart = page; comicPickCover = false; comicPromptFor = id; comicId = id },
+                onPickComicCover = { id -> fromOutside = false; comicStart = null; comicPickCover = true; comicId = id },
             ) }
             ABOUT -> AboutScreen(records, onBack = { aboutPage = null }, onLicense = { aboutPage = it })
             // 다 읽은 것을 누르면 연다. 닫으면 독서 기록으로 돌아온다(aboutPage 가 그대로다).
             STATS -> ReadingStatsScreen(
                 onBack = { aboutPage = null },
                 onOpenBook = { id -> fromOutside = false; openId = id },
-                onOpenComic = { id -> comicStart = null; comicPickCover = false; comicId = id },
+                onOpenComic = { id -> fromOutside = false; comicStart = null; comicPickCover = false; comicId = id },
             )
             else -> LicenseScreen(OPEN_LICENSES[shown.coerceIn(OPEN_LICENSES.indices)], onBack = { aboutPage = ABOUT })        }
         is OpenedBook.Reflow -> {

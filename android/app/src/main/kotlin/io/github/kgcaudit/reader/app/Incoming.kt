@@ -5,6 +5,8 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
 import io.github.kgcaudit.reader.document.BookFormat
+import io.github.kgcaudit.reader.document.comic.ArchiveExtensions
+import io.github.kgcaudit.reader.document.extensionOf
 
 /**
  * 다른 앱이 "연결 프로그램" 으로 넘긴 파일.
@@ -21,8 +23,31 @@ data class IncomingFile(
     val format: BookFormat,
 )
 
+/**
+ * 다른 앱이 넘긴 만화 압축(cbz · cbr · cb7 · cbt, 그리고 그냥 zip · rar · 7z · tar). 책과 같은 까닭으로 서재에 넣지 않고, 읽던 자리 ·
+ * 책갈피는 URI 로 적는다.
+ *
+ * @param trusted 이름(또는 보낸 앱이 준 형식)이 이미 만화라고 말한다. 아니면(그냥 zip) 살펴서 그림만 들었을 때만 연다 — 서재의
+ *   살피기와 같은 규칙([io.github.kgcaudit.reader.data.ReaderData.checkArchive]).
+ */
+data class IncomingComic(
+    val uri: Uri,
+    val displayName: String,
+    val sizeBytes: Long?,
+    val trusted: Boolean,
+)
+
 sealed interface Incoming {
     data class Book(val file: IncomingFile) : Incoming
+
+    /** 만화 압축. 만화인지는 아직 모른다(그냥 zip) — 여는 쪽이 살핀다. */
+    data class Comic(val file: IncomingComic) : Incoming
+
+    /** 넘겨받은 파일을 무엇으로 열까([kindOf]). */
+    sealed interface Kind {
+        data class Book(val format: BookFormat) : Kind
+        data class Comic(val trusted: Boolean) : Kind
+    }
 
     /** 열 수 없는 형식. [message] 를 그대로 보여 준다. */
     data class Refused(val message: String) : Incoming
@@ -32,7 +57,7 @@ sealed interface Incoming {
          * 인텐트가 "이 파일을 열어 줘" 이면 그 파일을, 아니면(런처에서 켬) null.
          *
          * 형식은 **파일 이름을 먼저** 본다. MIME 은 보내는 앱마다 제각각이라(아무 형식 와일드카드,
-         * `application/octet-stream`) 이름보다 믿을 수 없다. 이름에 확장자가 없을 때만 MIME 을 본다.
+         * `application/octet-stream`) 이름보다 믿을 수 없다. 이름으로 모를 때만 MIME 을 본다([kindOf]).
          */
         fun from(intent: Intent?, resolver: ContentResolver): Incoming? {
             if (intent?.action != Intent.ACTION_VIEW) return null
@@ -41,12 +66,53 @@ sealed interface Incoming {
             // 제 권한으로 자기 안쪽 파일(설정 · DB)을 열어 보여 주게 된다.
             if (uri.scheme != ContentResolver.SCHEME_CONTENT) return Refused("다른 앱이 보낸 이 주소는 열 수 없습니다. 파일 앱에서 다시 열어 주세요.")
             val (name, size) = describe(uri, resolver)
-            val format = BookFormat.fromFileName(name) ?: formatOf(intent.type ?: runCatching { resolver.getType(uri) }.getOrNull())
-            return when (format) {
-                null -> Refused("OLO eBook은 EPUB · TXT · PDF 파일을 엽니다. ‘$name’ 파일은 열 수 없는 형식입니다.")
-                else -> Book(IncomingFile(uri, name, size, format))
+            return when (val kind = kindOf(name) { intent.type ?: runCatching { resolver.getType(uri) }.getOrNull() }) {
+                null -> Refused("OLO eBook은 EPUB · TXT · PDF 와 만화(cbz · cbr · cb7 · zip …) 파일을 엽니다. ‘$name’ 은 열 수 없는 형식입니다.")
+                is Kind.Book -> Book(IncomingFile(uri, name, size, kind.format))
+                is Kind.Comic -> Comic(IncomingComic(uri, name, size, kind.trusted))
             }
         }
+
+        /**
+         * 이름을 먼저, 이름으로 모를 때만 보낸 앱이 준 형식([mime])을 본다. 파일 관리자 여럿이 cbz · epub 에도
+         * `application/octet-stream` · `application/zip` 을 붙여 보낸다 — 형식을 먼저 보면 EPUB(속은 zip)이 만화로 열리거나
+         * cbz 가 "열 수 없는 형식" 이 된다. [mime] 은 제공자에게 묻는 일이라 이름으로 정해지면 묻지 않는다.
+         */
+        fun kindOf(name: String, mime: () -> String?): Kind? {
+            BookFormat.fromFileName(name)?.let { return Kind.Book(it) }
+            when (extensionOf(name)) {
+                in ArchiveExtensions.COMIC -> return Kind.Comic(trusted = true)
+                in PLAIN_ARCHIVES -> return Kind.Comic(trusted = false)
+            }
+            val type = mime()?.lowercase()?.substringBefore(';')?.trim()
+            formatOf(type)?.let { return Kind.Book(it) }
+            return when (type) {
+                in COMIC_TYPES -> Kind.Comic(trusted = true)
+                in ARCHIVE_TYPES -> Kind.Comic(trusted = false)
+                else -> null
+            }
+        }
+
+        /**
+         * 이름이 만화라고 말하지 않는 압축. 서재의 목록(zip · rar · 7z)에 tar 를 더한다 — 서재는 tar 를 훑지 않지만(cbt 만), 넘겨받은
+         * 것은 사람이 "이걸로 열어" 하고 고른 파일이다. 빼면 그림을 tar 로 묶은 만화가 "열 수 없는 형식" 이 된다. 속을 살펴 그림만
+         * 들었을 때만 연다.
+         */
+        private val PLAIN_ARCHIVES = ArchiveExtensions.PLAIN + "tar"
+
+        /** 만화라고 말하는 형식. 매니페스트의 선언과 같아야 한다(OpenWithTest 가 맞춰 본다). */
+        internal val COMIC_TYPES = setOf(
+            "application/vnd.comicbook+zip", "application/x-cbz",
+            "application/vnd.comicbook-rar", "application/x-cbr",
+            "application/x-cb7", "application/x-cbt",
+        )
+
+        /** 그냥 압축 형식 — 살펴서 그림만 들었을 때만 만화. */
+        internal val ARCHIVE_TYPES = setOf(
+            "application/zip", "application/x-zip-compressed",
+            "application/vnd.rar", "application/x-rar-compressed",
+            "application/x-7z-compressed", "application/x-tar",
+        )
 
         /**
          * 표시 이름과 크기. 이름을 모르면 URI 의 마지막 조각.

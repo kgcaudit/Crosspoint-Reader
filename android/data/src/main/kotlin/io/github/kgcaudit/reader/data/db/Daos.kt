@@ -186,6 +186,17 @@ interface ComicDao {
     @Query("SELECT * FROM comic_units WHERE folderUri = :folderUri")
     suspend fun inFolder(folderUri: String): List<ComicUnitEntity>
 
+    /**
+     * 다른 앱이 "연결 프로그램" 으로 넘긴 압축과 같은 권: 서재에 보이는([observeVisible] 과 같은 조건) **맨 위 압축**만. 압축 속 권
+     * (`NESTED`)의 이름은 안쪽 이름이라, 넣으면 바깥 묶음 파일과 이름 · 크기가 우연히 같은 안쪽 권으로 열릴 수 있다. 그림 폴더는 파일이
+     * 아니라 넘겨받을 일이 없다.
+     */
+    @Query(
+        "SELECT * FROM comic_units WHERE missing = 0 AND notComic = 0 AND kind = 'ARCHIVE' " +
+            "AND (extension NOT IN ('zip', 'rar', '7z') OR probed = 1) AND name = :name AND sizeBytes = :size ORDER BY id LIMIT 1",
+    )
+    suspend fun visibleArchiveByFile(name: String, size: Long): ComicUnitEntity?
+
     @Query("SELECT * FROM comic_units WHERE id = :id")
     suspend fun get(id: String): ComicUnitEntity?
 

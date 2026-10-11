@@ -366,6 +366,14 @@ class ComicLibrary(private val db: ReaderDatabase) {
     /** 단위 하나(뷰어가 열 때). 숨긴 것도 준다 — 읽던 권을 되살릴 때 서재 훑기 사이에 잠깐 숨어 있을 수 있다. */
     suspend fun unit(id: String): ComicUnit? = comics.get(id)?.let(::toUnit)
 
+    /**
+     * 다른 앱이 넘긴 만화 압축과 같은 권이 서재에 있는가(이름 · 크기가 모두 같아야 한다, 책의 [Library.findByFile] 과 같은 규칙).
+     * 있으면 그 권으로 열어야 읽던 자리 · 책갈피 · 작품 설정(방향 · 보는 방식)이 한 벌로 이어진다. 크기를 모르면 찾지 않는다 — 이름만
+     * 같은 다른 스캔본을 열 수 있다.
+     */
+    suspend fun findByFile(displayName: String, sizeBytes: Long?): ComicUnit? =
+        sizeBytes?.let { comics.visibleArchiveByFile(displayName, it) }?.let(::toUnit)
+
     /** 여러 권을 한 번에(숨은 권도). 독서 기록(0.51.0)이 서재에서 사라진 권의 이름을 찾을 때 쓴다. */
     suspend fun unitsOf(ids: Collection<String>): List<ComicUnit> = ids.toList().chunked(500).flatMap { comics.unitsOf(it) }.map(::toUnit)
 
@@ -441,6 +449,16 @@ class ComicLibrary(private val db: ReaderDatabase) {
      */
     suspend fun setCoverAlone(work: Work, coverAlone: Boolean?) =
         if (coverAlone == null) comics.clearOverride(COVER, work.key) else comics.setOverride(ComicOverrideEntity(COVER, work.key, coverText(coverAlone)))
+
+    /**
+     * 작품 하나에 고른 넘기는 방향 · 보는 방식(고르지 않았으면 null). 서재 밖에서 연 한 권짜리 작품(연결 프로그램으로 받은 만화)이
+     * 쓴다 — 서재의 작품은 [works] 가 이미 담아 흘려 준다. 손상된 값은 "고르지 않음" 이다(규칙 5 · 6).
+     */
+    suspend fun workChoices(key: String): Pair<Boolean?, ComicView?> {
+        val rtl = when (comics.override(RTL, key)) { "1" -> true; "0" -> false; else -> null }
+        val view = comics.override(VIEW, key)?.let { v -> ComicView.entries.firstOrNull { it.name == v } }
+        return rtl to view
+    }
 
     /** 작품 · 책마다 고른 표지 전부. 고르거나 지우면 다시 흐른다. */
     fun coverChoices(): Flow<CoverChoices> = comics.observeOverrides().map { rows ->

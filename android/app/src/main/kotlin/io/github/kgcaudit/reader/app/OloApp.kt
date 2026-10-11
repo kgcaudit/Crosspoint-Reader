@@ -281,6 +281,45 @@ class AppContainer(private val app: Application) {
     }
 
     /**
+     * 다른 앱이 넘긴 만화와 같은 권(이름 · 크기)이 서재에 있으면 그 단위 id. 받은 책([openIncoming])과 같은 규칙 — 따로 열면 읽던
+     * 자리 · 책갈피 · 작품 설정이 두 벌로 갈라진다. 찾다 실패해도(DB) 받은 파일로는 열 수 있으니 null.
+     */
+    suspend fun libraryComicFor(file: IncomingComic): String? = withContext(Dispatchers.IO) {
+        try {
+            data.comics.findByFile(file.displayName, file.sizeBytes)?.id
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("OloApp", "library lookup for ${file.displayName} failed", e)
+            null
+        }
+    }
+
+    /**
+     * 다른 앱이 넘긴 만화 압축을 서재 밖에서 연다([IncomingComicHost]). 먼저 목록을 살펴 만화가 아니면 까닭을 담은
+     * [NotAComicException] — 살피지 않고 열면 문서 zip 이 "그림 하나뿐인 만화" 로 열리거나 빈 검은 화면이 남는다. 쪽은 서재의 권과
+     * 같은 길([io.github.kgcaudit.reader.data.ReaderData.openComic])로 연다: RAR · 7z 는 캐시에 풀어 두고 같은 파일을 다시 열면
+     * 다시 풀지 않는다(풀어 둔 곳의 열쇠가 URI · 크기 · 수정 시각).
+     */
+    suspend fun openIncomingComic(file: IncomingComic): ComicBook = withContext(Dispatchers.IO) {
+        val info = when (val check = data.checkArchive(file.uri, file.trusted)) {
+            is io.github.kgcaudit.reader.data.ArchiveCheck.Comic -> check.info
+            io.github.kgcaudit.reader.data.ArchiveCheck.Volumes ->
+                throw NotAComicException("이 압축 파일은 여러 권을 묶은 것입니다. 이 파일이 든 폴더를 서재에 추가하면 권마다 볼 수 있습니다.")
+            io.github.kgcaudit.reader.data.ArchiveCheck.NotComic -> throw NotAComicException("이 압축 파일에는 만화 그림이 없습니다.")
+        }
+        val unit = io.github.kgcaudit.reader.document.comic.ComicUnit(
+            id = file.uri.toString(),
+            name = file.displayName,
+            folders = emptyList(),
+            kind = io.github.kgcaudit.reader.document.comic.ComicUnitKind.ARCHIVE,
+            sizeBytes = file.sizeBytes,
+            info = info,
+        )
+        ComicBook(unit, data.openComic(unit), regions = comicRegions, stripDelayMs = { comicStripDelayMs })
+    }
+
+    /**
      * 연 것으로 뒷일을 하되, 그 뒷일이 실패하거나 취소되면 연 것을 닫는다. 닫지 않으면 파일 디스크립터와
      * 캐시 사본이 남는다(화면에 넘기지 못했으니 닫을 사람이 없다).
      */

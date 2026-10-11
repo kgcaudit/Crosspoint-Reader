@@ -301,4 +301,27 @@ class ComicLibraryTest {
             assertEquals(CoverChoices(), comics.coverChoices().first(), bad)
         }
     }
+
+    @Test
+    fun `a comic sent from another app is matched only to a top level volume the shelf shows`() = runTest {
+        // 연결 프로그램으로 받은 cbz 를 서재의 같은 권(이름 · 크기)으로 열면 읽던 자리가 한 벌로 이어진다. 그 짝은 서재에 보이는 맨 위
+        // 압축만이어야 한다.
+        comics.applyScan(phone, ScanResult(emptyList(), true, listOf(cbz("별 01권.cbz", "C", size = 300), cbz("묶음.zip", "C", size = 900))), 1)
+        assertEquals("content://별 01권.cbz", comics.findByFile("별 01권.cbz", 300)?.id)
+        // 크기가 다르면 다른 스캔본이다. 크기를 모르면 짝짓지 않는다 — 이름만 같은 다른 판으로 열린다.
+        assertEquals(null, comics.findByFile("별 01권.cbz", 301))
+        assertEquals(null, comics.findByFile("별 01권.cbz", null))
+        // 살피기 전의 그냥 zip 은 서재에 안 보인다 — 짝지으면 서재에 없는 "권" 으로 열린다.
+        assertEquals(null, comics.findByFile("묶음.zip", 900))
+        // 묶음 안의 권은 이름이 안쪽 이름이다. 짝지으면 바깥 파일과 이름 · 크기가 우연히 같은 안쪽 권이 열린다.
+        val outer = comics.needingProbe().single { it.name == "묶음.zip" }
+        comics.saveVolumes(outer, listOf("별 02권.cbz" to 300L), 1)
+        comics.saveProbe(outer, null, null, holdsVolumes = true)
+        comics.saveProbe(comics.needingProbe().single { it.name == "별 02권.cbz" }, ComicContents.ofArchive(listOf("1.jpg"), true), null)
+        assertTrue(comics.units().first().any { it.name == "별 02권.cbz" }, "안쪽 권이 서재에 보여야 이 시험이 뜻이 있다")
+        assertEquals(null, comics.findByFile("별 02권.cbz", 300))
+        // 숨은(사라진) 권과도 짝짓지 않는다.
+        comics.applyScan(phone, ScanResult(emptyList(), true, emptyList()), 2)
+        assertEquals(null, comics.findByFile("별 01권.cbz", 300))
+    }
 }
