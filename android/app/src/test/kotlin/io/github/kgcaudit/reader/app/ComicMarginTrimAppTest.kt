@@ -75,6 +75,8 @@ class ComicMarginTrimAppTest {
             data.rescanAll()
             data.probeComics()
         }
+        // 0.52.2 부터 기본은 끔이다 — 이 시험은 켠 사람이 보는 자르기를 지키므로 켜고 연다.
+        app.container.prefs.save(app.container.prefs.load().let { it.copy(screen = it.screen.copy(comicTrimMargins = true)) })
         compose.activityRule.scenario.recreate()
     }
 

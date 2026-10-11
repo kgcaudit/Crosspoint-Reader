@@ -690,7 +690,11 @@ class PrefsStore(context: Context) {
          */
         private const val KEY_TWO_PAGES_PORTRAIT = "twoPagesPortraitV2"
         private const val KEY_PDF_COVER_ALONE = "pdfCoverAlone"
-        private const val KEY_COMIC_TRIM = "comicTrimMargins"
+        /**
+         * 0.52.2 에서 이름을 바꿨다(기본을 끔으로). 저장할 때마다 모든 설정을 쓰므로 옛 이름에는 거의 모든 사용자에게 옛 기본
+         * "켬" 이 적혀 있다 — 옛 이름을 읽으면 새 기본이 아무에게도 닿지 않는다([KEY_TWO_PAGES_PORTRAIT] 와 같은 사정).
+         */
+        private const val KEY_COMIC_TRIM = "comicTrimMarginsV2"
         private const val KEY_COMIC_SPLIT = "comicSplitSpreads"
         private const val KEY_COMIC_COLOR = "comicColor"
         private const val KEY_PAGE_TURN = "pageTurnV2"
