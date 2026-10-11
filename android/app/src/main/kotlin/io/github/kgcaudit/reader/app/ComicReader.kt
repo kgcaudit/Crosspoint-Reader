@@ -276,7 +276,7 @@ fun ComicReader(
     fun slotOf(index: Int): SpreadSlot {
         val s = spreads.getOrNull(index) ?: return SpreadSlot.Center
         if (!two) return SpreadSlot.Center
-        val single = s.singleOrNull()?.let { pageAspect(pages, partSizes, it, trim) }
+        val single = s.singleOrNull()?.let { pageAspect(pages, partSizes, it, if (trim) ComicTrim.Own else ComicTrim.Off) }
         return SpreadSlot.of(s, first = s.firstOrNull() == 0, wide = single != null && single > 1f, coverAlone = cover)
     }
 
@@ -383,10 +383,15 @@ fun ComicReader(
                     pages.pin((spreadIndex - 1..spreadIndex + 1).flatMap { spreads.getOrNull(it).orEmpty() }.toSet())
                 }
                 LaunchedEffect(shown, w, h, two, cover, trim, pages) {
-                    for (p in shown) pages.page(p, w, h, trim)
+                    // 두 쪽 판은 두 쪽의 여백을 먼저 찾아 함께 쓸 상자를 정한 뒤 그 상자로 푼다 — 그림과 판의 비가 같은 상자를 따른다.
+                    val mode = pages.trimOf(shown, trim)
+                    for (p in shown) pages.page(p, w, h, mode)
                     aspect = aspectOf(spreadIndex)
                     // 앞뒤 판을 미리 풀어 둔다 — 넘길 때 빈 화면이 번쩍이지 않게.
-                    for (near in listOf(spreadIndex + 1, spreadIndex - 1)) spreads.getOrNull(near)?.forEach { pages.page(it, w, h, trim) }
+                    for (near in listOf(spreadIndex + 1, spreadIndex - 1)) spreads.getOrNull(near)?.let { s ->
+                        val nearMode = pages.trimOf(s, trim)
+                        s.forEach { pages.page(it, w, h, nearMode) }
+                    }
                 }
                 if (w > 0 && h > 0 && count > 0 && prefs.pageTurn != PageTurn.Slide) {
                     // 책과 같은 넘김 효과(0.45.0, 2026-10-04 사용자 결정). 오→왼 만화는 효과를 좌우로 뒤집는다 — 말림이 왼쪽 아래
@@ -640,11 +645,17 @@ internal fun ViewChoice(view: ComicView?, onView: (ComicView?) -> Unit) {
  */
 @Composable
 private fun ComicPageImage(book: ComicPageSource, sizes: List<ImageSize?>, pages: List<Int>, w: Int, h: Int, viewport: PageViewport?, rtl: Boolean, bias: Float, slot: SpreadSlot, trim: Boolean, color: ColorFilter?) {
-    val bitmaps = remember(pages, w, h, trim) { androidx.compose.runtime.mutableStateListOf(*pages.map { book.cached(it, w, h, trim) }.toTypedArray()) }
+    // 두 쪽 판은 판이 함께 쓰는 상자로 자른 그림만 쓴다. 상자를 아직 모르면(짝의 여백을 찾기 전) 저장소의 그림도 쓰지 않는다 —
+    // 쪽마다 따로 자른 그림이 잠깐 보였다가 바뀌면 판이 출렁인다.
+    val bitmaps = remember(pages, w, h, trim) {
+        val known = book.knownTrimOf(pages, trim)
+        androidx.compose.runtime.mutableStateListOf(*pages.map { p -> known?.let { book.cached(p, w, h, it) } }.toTypedArray())
+    }
     var broken by remember(pages, w, h, trim) { mutableStateOf(pages.any { book.isBroken(it) }) }
     LaunchedEffect(pages, w, h, trim) {
+        val mode = book.trimOf(pages, trim)
         pages.forEachIndexed { k, p ->
-            if (bitmaps[k] == null && !book.isBroken(p)) bitmaps[k] = book.page(p, w, h, trim)
+            if (bitmaps[k] == null && !book.isBroken(p)) bitmaps[k] = book.page(p, w, h, mode)
         }
         broken = pages.any { book.isBroken(it) }
     }
@@ -716,16 +727,23 @@ internal fun pagesLabel(shown: List<Int>): String =
 
 /**
  * 판의 가로/세로 비: 쪽들을 같은 높이로 나란히 놓은 폭의 합. 크기를 모르는 쪽은 푼 그림의 비, 그것도 모르면 null(아직 기다림).
+ * 여백을 자르면 그려질 그림과 같은 상자(두 쪽이면 판이 함께 쓰는 상자)로 셈한다 — 쪽마다 제 상자로 셈하면 판의 비가 그려진
+ * 그림과 달라 두 쪽이 다른 높이로 놓였다.
  */
 internal fun spreadAspect(book: ComicPageSource, sizes: List<ImageSize?>, pages: List<Int>, trim: Boolean = false): Float? {
+    // 상자를 아직 모르면 자르지 않은 비로 어림한다(여백을 찾으면 바로잡힌다).
+    val mode = book.knownTrimOf(pages, trim) ?: ComicTrim.Off
     var sum = 0f
-    for (p in pages) sum += pageAspect(book, sizes, p, trim) ?: return null
+    for (p in pages) sum += pageAspect(book, sizes, p, mode) ?: return null
     return sum
 }
 
-/** 쪽의 비. 여백을 자르면 자른 그림의 비가 먼저고, 아직 풀지 않았으면 머리의 비로 어림한다(풀리면 바로잡힌다). */
-private fun pageAspect(book: ComicPageSource, sizes: List<ImageSize?>, page: Int, trim: Boolean = false): Float? =
-    (if (trim) book.trimmedAspect(page) else null) ?: sizes.getOrNull(page)?.let { it.width.toFloat() / it.height } ?: book.knownAspect(page)
+/** 쪽의 비: 머리의 비에 [trim] 의 상자를 건 것. 상자를 아직 모르면 머리의 비로 어림한다(찾으면 바로잡힌다). */
+private fun pageAspect(book: ComicPageSource, sizes: List<ImageSize?>, page: Int, trim: ComicTrim = ComicTrim.Off): Float? {
+    val raw = sizes.getOrNull(page)?.let { it.width.toFloat() / it.height } ?: book.knownAspect(page) ?: return null
+    val frame = book.knownFrameFor(page, trim) ?: return raw
+    return raw * frame.width / frame.height
+}
 
 /** 쪽 목록(구상안 ③): 쪽 그림 격자, 지금 쪽 강조. 목차가 없는 만화의 "목차" 다. */
 @Composable

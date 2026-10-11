@@ -14,6 +14,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlin.math.ceil
+import kotlin.math.roundToInt
 
 /**
  * 연 만화 한 권: 쪽 그림을 화면 크기로 줄여 풀고 몇 장을 메모리에 둔다(0.34.0).
@@ -28,10 +29,10 @@ interface ComicPageSource {
     val pageCount: Int
 
     /** 메모리에 있으면 기다리지 않고 준다. */
-    fun cached(index: Int, width: Int, height: Int, trim: Boolean = false): Bitmap?
+    fun cached(index: Int, width: Int, height: Int, trim: ComicTrim = ComicTrim.Off): Bitmap?
 
-    /** [index] 를 [width]×[height] 안에 들어가게 그린다. 그림이 아니면 null. */
-    suspend fun page(index: Int, width: Int, height: Int, trim: Boolean = false): Bitmap?
+    /** [index] 를 [width]×[height] 안에 들어가게 그린다(자르기 전 크기 기준). 그림이 아니면 null. */
+    suspend fun page(index: Int, width: Int, height: Int, trim: ComicTrim = ComicTrim.Off): Bitmap?
 
     fun isBroken(index: Int): Boolean
 
@@ -40,8 +41,55 @@ interface ComicPageSource {
 
     fun knownAspect(index: Int): Float?
 
-    fun trimmedAspect(index: Int): Float?
+    /** 이미 찾아 둔 쪽의 여백 상자(비율). 아직 찾지 않았으면 null, 걷을 것이 없으면 [MarginTrim.Frame.WHOLE]. */
+    fun knownFrame(index: Int): MarginTrim.Frame?
+
+    /** 쪽의 여백 상자를 찾는다(한 번 찾으면 둔다). 그림이 아니면 [MarginTrim.Frame.WHOLE]. */
+    suspend fun frame(index: Int): MarginTrim.Frame
 }
+
+/**
+ * 쪽 그림에 거는 여백 자르기. 한 쪽 보기는 쪽마다 제 여백대로([Own]), 두 쪽 보기는 한 판의 쪽들이 같은 상자로
+ * ([Shared]) 자른다 — 따로 자르면 흰 여백이 있는 쪽과 그림이 끝까지 찬 짝이 다른 크기로 그려져 가운데 이음매의 그림이
+ * 어긋났다(먼작귀 컬러판, 태블릿 두 쪽).
+ */
+sealed interface ComicTrim {
+    data object Off : ComicTrim
+
+    /** 그 쪽에서 찾은 여백대로. */
+    data object Own : ComicTrim
+
+    /** 정해 준 상자대로(판의 쪽들이 함께 쓰는 상자, [MarginTrim.shared]). */
+    data class Shared(val frame: MarginTrim.Frame) : ComicTrim
+}
+
+/** [trim] 이 [index] 쪽에 거는 상자. [ComicTrim.Own] 인데 아직 찾지 않았으면 null. */
+fun ComicPageSource.knownFrameFor(index: Int, trim: ComicTrim): MarginTrim.Frame? = when (trim) {
+    ComicTrim.Off -> MarginTrim.Frame.WHOLE
+    ComicTrim.Own -> knownFrame(index)
+    is ComicTrim.Shared -> trim.frame
+}
+
+/**
+ * 판 [pages] 에 걸 자르기. 쪽 하나면 제 여백대로, 둘 이상(두 쪽 보기)이면 함께 쓰는 상자. 아직 여백을 찾지 않은 쪽이 있으면
+ * null — 그 판은 아직 그리지 않는다(쪽마다 따로 잘린 그림을 먼저 보였다가 바꾸면 판이 한 번 출렁인다).
+ */
+fun ComicPageSource.knownTrimOf(pages: List<Int>, trim: Boolean): ComicTrim? = when {
+    !trim -> ComicTrim.Off
+    pages.size <= 1 -> ComicTrim.Own
+    else -> ComicTrim.Shared(MarginTrim.shared(pages.map { knownFrame(it) ?: return null }))
+}
+
+/** [knownTrimOf] 와 같되 모르는 쪽의 여백은 찾아서 정한다. */
+suspend fun ComicPageSource.trimOf(pages: List<Int>, trim: Boolean): ComicTrim = when {
+    !trim -> ComicTrim.Off
+    pages.size <= 1 -> ComicTrim.Own
+    else -> ComicTrim.Shared(MarginTrim.shared(pages.map { frame(it) }))
+}
+
+/** 상자 [frame] 을 그림 열쇠 꼬리로. 자르지 않으면 빈 꼬리 — 자르지 않은 그림은 자르기 설정과 상관없이 같은 그림이다. */
+internal fun frameKey(frame: MarginTrim.Frame): String =
+    if (frame.whole) "" else "|t${frame.left},${frame.top},${frame.right},${frame.bottom}"
 
 /**
  * 펼침면을 반으로 나눈 조각들(0.50.0, [SpreadSplit]). 반 조각은 펼침면 전체를 화면 폭의 두 배로 풀어(여백 자르기도 펼침면에
@@ -53,24 +101,26 @@ class SplitPages(private val base: ComicBook, private val parts: List<SpreadSpli
     private val halves = object : LruCache<String, Bitmap>(ComicBook.memoryBudget() / 4) {
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
     }
-    private val halfAspects = java.util.concurrent.ConcurrentHashMap<Int, Float>()
 
-    private fun key(index: Int, width: Int, height: Int, trim: Boolean) = "$index|$width|$height|$trim"
+    private fun key(index: Int, width: Int, height: Int, frame: MarginTrim.Frame) = "$index|$width|$height" + frameKey(frame)
 
-    override fun cached(index: Int, width: Int, height: Int, trim: Boolean): Bitmap? {
+    override fun cached(index: Int, width: Int, height: Int, trim: ComicTrim): Bitmap? {
         val part = parts.getOrNull(index) ?: return null
-        return if (part.half == SpreadSplit.Half.WHOLE) base.cached(part.page, width, height, trim) else halves.get(key(index, width, height, trim))
+        if (part.half == SpreadSplit.Half.WHOLE) return base.cached(part.page, width, height, trim)
+        // 반 조각의 자르기는 펼침면 전체에 한 번 건다 — 상자는 펼침면(책의 쪽)의 것.
+        val frame = base.knownFrameFor(part.page, trim) ?: return null
+        return halves.get(key(index, width, height, frame))
     }
 
-    override suspend fun page(index: Int, width: Int, height: Int, trim: Boolean): Bitmap? {
+    override suspend fun page(index: Int, width: Int, height: Int, trim: ComicTrim): Bitmap? {
         val part = parts.getOrNull(index) ?: return null
         if (part.half == SpreadSplit.Half.WHOLE) return base.page(part.page, width, height, trim)
-        halves.get(key(index, width, height, trim))?.let { return it }
+        cached(index, width, height, trim)?.let { return it }
         val full = base.page(part.page, width * 2, height, trim) ?: return null
+        val frame = base.knownFrameFor(part.page, trim) ?: MarginTrim.Frame.WHOLE
         val half = (full.width / 2).coerceAtLeast(1)
         val cut = Bitmap.createBitmap(full, if (part.half == SpreadSplit.Half.LEFT) 0 else full.width - half, 0, half, full.height)
-        halfAspects[index] = cut.width.toFloat() / cut.height
-        halves.put(key(index, width, height, trim), cut)
+        halves.put(key(index, width, height, frame), cut)
         return cut
     }
 
@@ -83,10 +133,9 @@ class SplitPages(private val base: ComicBook, private val parts: List<SpreadSpli
         return base.knownAspect(part.page)?.let { if (part.half == SpreadSplit.Half.WHOLE) it else it / 2 }
     }
 
-    override fun trimmedAspect(index: Int): Float? {
-        val part = parts.getOrNull(index) ?: return null
-        return if (part.half == SpreadSplit.Half.WHOLE) base.trimmedAspect(part.page) else halfAspects[index]
-    }
+    override fun knownFrame(index: Int): MarginTrim.Frame? = parts.getOrNull(index)?.let { base.knownFrame(it.page) }
+
+    override suspend fun frame(index: Int): MarginTrim.Frame = parts.getOrNull(index)?.let { base.frame(it.page) } ?: MarginTrim.Frame.WHOLE
 }
 
 class ComicBook(
@@ -109,7 +158,10 @@ class ComicBook(
     private val aspects = java.util.concurrent.ConcurrentHashMap<Int, Float>()
     private val broken = java.util.concurrent.ConcurrentHashMap.newKeySet<Int>()
 
-    override fun cached(index: Int, width: Int, height: Int, trim: Boolean): Bitmap? = key(index, width, height, trim).let { k -> bitmaps.get(k) ?: pinned[k] }
+    override fun cached(index: Int, width: Int, height: Int, trim: ComicTrim): Bitmap? {
+        val frame = knownFrameFor(index, trim) ?: return null
+        return key(index, width, height, frame).let { k -> bitmaps.get(k) ?: pinned[k] }
+    }
 
     /**
      * 붙잡아 둘 쪽(지금 판과 앞뒤 판). 저장소(LRU)가 내보내도 이 쪽들의 그림은 놓지 않는다 — 넘김 효과가 끝나 화면을 다시
@@ -128,11 +180,42 @@ class ComicBook(
     override fun knownAspect(index: Int): Float? = aspects[index]
 
     /**
-     * 여백을 걷어 낸 쪽의 비(0.49.0). 아직 풀지 않았으면 null. 걷을 것이 없던 쪽은 원래 비와 같다 — 판 배치가 원본 머리의
-     * 비를 쓰면 잘린 그림이 옆으로 늘어나 보인다.
+     * 쪽마다 찾아 둔 여백 상자(비율). 쪽을 어떤 크기로 풀든 같은 상자라 한 번만 찾는다. 판 배치는 이 상자와 머리의 비로
+     * 자른 쪽의 비를 셈한다 — 그림을 다 풀기 전에도 두 쪽 판의 크기가 정해진다.
      */
-    override fun trimmedAspect(index: Int): Float? = trimmedAspects[index]
-    private val trimmedAspects = java.util.concurrent.ConcurrentHashMap<Int, Float>()
+    private val frames = java.util.concurrent.ConcurrentHashMap<Int, MarginTrim.Frame>()
+
+    override fun knownFrame(index: Int): MarginTrim.Frame? = frames[index]
+
+    override suspend fun frame(index: Int): MarginTrim.Frame = withContext(Dispatchers.IO) {
+        frames[index]?.let { return@withContext it }
+        if (index !in 0 until pageCount) return@withContext MarginTrim.Frame.WHOLE
+        lock.withLock {
+            frames[index] ?: probeFrame(index).also { frames[index] = it }
+        }
+    }
+
+    /**
+     * 쪽을 작게(가로 [TRIM_PROBE] 픽셀 남짓) 풀어 여백을 찾는다. 두 쪽 보기는 판의 두 쪽 상자를 다 알아야 어느 쪽이든 자를 수
+     * 있어, 화면 크기로 풀기 전에 이것을 먼저 한다 — 솎아 푸는 작은 그림이라 화면 크기 풀기보다 훨씬 싸다.
+     */
+    private fun probeFrame(index: Int): MarginTrim.Frame = runCatching {
+        val renderer = pages.renderer
+        val probe = if (renderer != null) {
+            renderer.render(index, TRIM_PROBE, TRIM_PROBE * 8)
+        } else {
+            val bytes = pages.read(index) ?: return@runCatching null
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+                null
+            } else {
+                val sample = sampleKeeping(bounds.outWidth, bounds.outHeight, TRIM_PROBE, 0)
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
+            }
+        }
+        probe?.let { frameOf(it).also { _ -> it.recycle() } }
+    }.getOrNull() ?: MarginTrim.Frame.WHOLE
 
     /** 그림으로 읽히지 않는 쪽(깨진 그림 · 사라진 항목). 다시 풀려고 애쓰지 않는다. */
     override fun isBroken(index: Int): Boolean = index in broken
@@ -141,7 +224,7 @@ class ComicBook(
      * [index] 쪽을 [width]×[height] 안에 들어가게 푼다. 그림이 아니면 null — 화면은 "이 쪽을 그리지 못했습니다" 를 보이고
      * 다음 쪽으로 넘어갈 수 있다(깨진 쪽 하나가 권 전체를 막지 않는다, 규칙 6).
      */
-    override suspend fun page(index: Int, width: Int, height: Int, trim: Boolean): Bitmap? = withContext(Dispatchers.IO) {
+    override suspend fun page(index: Int, width: Int, height: Int, trim: ComicTrim): Bitmap? = withContext(Dispatchers.IO) {
         if (index !in 0 until pageCount || width <= 0 || height <= 0) return@withContext null
         cached(index, width, height, trim)?.let { return@withContext it }
         if (index in broken) return@withContext null
@@ -152,7 +235,6 @@ class ComicBook(
             val bitmap = if (renderer != null) {
                 runCatching { renderer.render(index, width, height) }.getOrNull()
                     ?.also { aspects[index] = it.width.toFloat() / it.height }
-                    ?.let { if (trim) trimmed(it, index) else it }
             } else {
                 val bytes = try {
                     pages.read(index)
@@ -162,13 +244,17 @@ class ComicBook(
                 }
                 // 메모리가 모자라 못 푼 것(OutOfMemoryError)도 깨진 쪽처럼 넘긴다 — 쪽 하나 때문에 앱이 닫히면 안 된다.
                 bytes?.let { runCatching { decode(it, width, height, index) }.getOrNull() }
-                    ?.let { if (trim) trimmed(it, index) else it }
             }
-            if (bitmap == null) broken += index else {
-                bitmaps.put(key(index, width, height, trim), bitmap)
-                if (index in pinnedPages) pinned[key(index, width, height, trim)] = bitmap
+            if (bitmap == null) {
+                broken += index
+                return@withLock null
             }
-            bitmap
+            // 제 여백대로 자를 때 아직 상자를 모르면 막 푼 그림에서 찾는다 — 한 쪽 보기는 따로 작게 풀지 않는다.
+            val frame = knownFrameFor(index, trim) ?: frameOf(bitmap).also { frames[index] = it }
+            val result = cropped(bitmap, frame)
+            bitmaps.put(key(index, width, height, frame), result)
+            if (index in pinnedPages) pinned[key(index, width, height, frame)] = result
+            result
         }
     }
 
@@ -184,28 +270,29 @@ class ComicBook(
     }
 
     /**
-     * 바깥 여백을 걷어 낸 그림. 여백은 줄여 본 사본(가로 [TRIM_PROBE] 픽셀)에서 찾는다 — 화면 크기 그림의 화소를 통째로
-     * 꺼내면 쪽마다 수 MB 를 잠깐 더 쓴다. 자를 것이 없거나 찾다가 실패하면 원래 그림 그대로(규칙 6).
+     * [bitmap] 의 여백 상자. 여백은 줄여 본 사본(가로 [TRIM_PROBE] 픽셀)에서 찾는다 — 화면 크기 그림의 화소를 통째로 꺼내면
+     * 쪽마다 수 MB 를 잠깐 더 쓴다. 찾다가 실패하면 자르지 않는다(규칙 6).
      */
-    private fun trimmed(bitmap: Bitmap, index: Int): Bitmap {
-        val cut = runCatching {
-            val scale = minOf(1f, TRIM_PROBE.toFloat() / bitmap.width)
-            val pw = (bitmap.width * scale).toInt().coerceAtLeast(1)
-            val ph = (bitmap.height * scale).toInt().coerceAtLeast(1)
-            val probe = if (scale < 1f) Bitmap.createScaledBitmap(bitmap, pw, ph, true) else bitmap
-            val pixels = IntArray(pw * ph).also { probe.getPixels(it, 0, pw, 0, 0, pw, ph) }
-            if (probe !== bitmap) probe.recycle()
-            MarginTrim.find(pw, ph, pixels)?.let { box ->
-                val l = (box.left / scale).toInt().coerceIn(0, bitmap.width - 1)
-                val t = (box.top / scale).toInt().coerceIn(0, bitmap.height - 1)
-                val r = (box.right / scale).toInt().coerceIn(l + 1, bitmap.width)
-                val b = (box.bottom / scale).toInt().coerceIn(t + 1, bitmap.height)
-                Bitmap.createBitmap(bitmap, l, t, r - l, b - t)
-            }
-        }.getOrNull()
-        val result = cut ?: bitmap
-        trimmedAspects[index] = result.width.toFloat() / result.height
-        return result
+    private fun frameOf(bitmap: Bitmap): MarginTrim.Frame = runCatching {
+        val scale = minOf(1f, TRIM_PROBE.toFloat() / bitmap.width)
+        val pw = (bitmap.width * scale).toInt().coerceAtLeast(1)
+        val ph = (bitmap.height * scale).toInt().coerceAtLeast(1)
+        val probe = if (scale < 1f) Bitmap.createScaledBitmap(bitmap, pw, ph, true) else bitmap
+        val pixels = IntArray(pw * ph).also { probe.getPixels(it, 0, pw, 0, 0, pw, ph) }
+        if (probe !== bitmap) probe.recycle()
+        MarginTrim.Frame.of(MarginTrim.find(pw, ph, pixels), pw, ph)
+    }.getOrNull() ?: MarginTrim.Frame.WHOLE
+
+    /** [frame] 대로 잘라 낸 그림. 자를 것이 없거나 자르다 실패하면 원래 그림 그대로. */
+    private fun cropped(bitmap: Bitmap, frame: MarginTrim.Frame): Bitmap {
+        if (frame.whole) return bitmap
+        return runCatching {
+            val l = (frame.left * bitmap.width).toInt().coerceIn(0, bitmap.width - 1)
+            val t = (frame.top * bitmap.height).toInt().coerceIn(0, bitmap.height - 1)
+            val r = (frame.right * bitmap.width).roundToInt().coerceIn(l + 1, bitmap.width)
+            val b = (frame.bottom * bitmap.height).roundToInt().coerceIn(t + 1, bitmap.height)
+            Bitmap.createBitmap(bitmap, l, t, r - l, b - t)
+        }.getOrNull() ?: bitmap
     }
 
     /** 쪽들의 픽셀 크기(머리만 읽음). 한 번 읽으면 둔다. 깨진 쪽은 null. */
@@ -302,8 +389,9 @@ class ComicBook(
         pages.close()
     }
 
-    // 자른 그림과 원래 그림은 다른 칸에 둔다 — 같은 칸이면 여백 자르기를 끄고 켜도 저장소에 남은 쪽이 그대로 보였다.
-    private fun key(index: Int, width: Int, height: Int, trim: Boolean = false) = "$index|$width|$height" + if (trim) "|t" else ""
+    // 자른 그림과 원래 그림은 다른 칸에 둔다 — 같은 칸이면 여백 자르기를 끄고 켜도 저장소에 남은 쪽이 그대로 보였다. 상자마다
+    // 칸이 다르다: 한 쪽 보기(제 여백)와 두 쪽 보기(판이 함께 쓰는 상자)를 오가면 같은 쪽이 다르게 잘린다.
+    private fun key(index: Int, width: Int, height: Int, frame: MarginTrim.Frame) = "$index|$width|$height" + frameKey(frame)
 
     /** 쪽 그림 열쇠의 쪽 번호. 띠(웹툰) 열쇠는 붙잡지 않는다 — -1. */
     private fun pageOf(key: String): Int = if (key.startsWith("s")) -1 else key.substringBefore('|').toIntOrNull() ?: -1

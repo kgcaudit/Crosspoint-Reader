@@ -2,6 +2,7 @@ package io.github.kgcaudit.reader.document.comic
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -88,5 +89,74 @@ class MarginTrimTest {
         assertNull(MarginTrim.find(200, 300, IntArray(10)))
         assertNull(MarginTrim.find(0, 0, IntArray(0)))
         assertNull(MarginTrim.find(4, 4, IntArray(16)))
+    }
+
+    private fun rgb(r: Int, g: Int, b: Int): Int = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+
+    @Test
+    fun `pale picture backgrounds are never taken for paper`() {
+        // 먼작귀 컬러판에서 뽑은 바탕색들. 하늘(D6EEF2)은 채널 차가 28 이라 옛 기준(40)에서 종이로 쳐져 하늘이 걷혔다.
+        val pictures = mapOf(
+            "하늘" to rgb(214, 238, 242),
+            "연한 파랑" to rgb(160, 209, 242),
+            "연한 풀빛" to rgb(210, 228, 168),
+            "분홍" to rgb(244, 179, 203),
+            "연보라" to rgb(222, 210, 240),
+            "살구" to rgb(250, 215, 205),
+        )
+        for ((name, c) in pictures) assertFalse(MarginTrim.paper(c), "$name 바탕을 종이로 봤다")
+    }
+
+    @Test
+    fun `white, grey, scanner black and yellowed paper still count as paper`() {
+        val papers = mapOf(
+            "흰색" to rgb(255, 255, 255),
+            "JPEG 흰색" to rgb(250, 251, 249),
+            "연회색" to rgb(224, 224, 224),
+            "스캐너 검정" to rgb(20, 19, 17),
+            "바랜 종이" to rgb(233, 221, 188),
+            "옅게 바랜 종이" to rgb(240, 232, 216),
+        )
+        for ((name, c) in papers) assertTrue(MarginTrim.paper(c), "$name 을 종이로 보지 않았다")
+    }
+
+    @Test
+    fun `a full-colour page with a pale sky at the top keeps its sky`() {
+        // 위 1/3 이 연한 하늘, 그 아래 풀밭 — 위 두 모서리가 같은 하늘색이라 옛 판은 위를 15% 걷었다.
+        val sky = rgb(214, 238, 242)
+        val grass = rgb(210, 228, 168)
+        assertNull(MarginTrim.find(200, 300, page(200, 300, 0, 100, 200, 300, background = sky, fill = grass)))
+    }
+
+    @Test
+    fun `a scan on yellowed paper is still trimmed`() {
+        val yellowed = rgb(233, 221, 188)
+        val box = assertNotNull(MarginTrim.find(200, 300, page(200, 300, 20, 30, 180, 270, background = yellowed)))
+        assertEquals(MarginTrim.Box(18, 27, 182, 273), box)
+    }
+
+    @Test
+    fun `pages shown together share the smaller trim on every side`() {
+        // 왼쪽 여백이 넓은 쪽과 위 여백이 넓은 쪽 — 변마다 덜 걷은 쪽을 따른다(어느 쪽도 그림을 잃지 않게).
+        val a = MarginTrim.Frame(0.10f, 0.02f, 0.95f, 0.97f)
+        val b = MarginTrim.Frame(0.04f, 0.08f, 0.90f, 0.99f)
+        assertEquals(MarginTrim.Frame(0.04f, 0.02f, 0.95f, 0.99f), MarginTrim.shared(listOf(a, b)))
+    }
+
+    @Test
+    fun `a full-bleed partner keeps the whole spread untrimmed`() {
+        // 짝이 그림으로 꽉 찬 쪽이면 아무 쪽도 자르지 않는다 — 한 쪽만 커지면 이음매 그림이 어긋난다.
+        val margins = MarginTrim.Frame(0.1f, 0.1f, 0.9f, 0.9f)
+        assertTrue(MarginTrim.shared(listOf(margins, MarginTrim.Frame.WHOLE)).whole)
+        // 합쳐서 2% 도 안 걷히면 자르지 않는다.
+        assertTrue(MarginTrim.shared(listOf(MarginTrim.Frame(0.005f, 0f, 1f, 1f), MarginTrim.Frame(0f, 0.005f, 0.995f, 1f))).whole)
+        assertTrue(MarginTrim.shared(emptyList()).whole)
+    }
+
+    @Test
+    fun `a found box becomes the same fractions at any size`() {
+        val f = MarginTrim.Frame.of(MarginTrim.Box(18, 27, 182, 273), 200, 300)
+        assertEquals(MarginTrim.Frame(0.09f, 0.09f, 0.91f, 0.91f), f)
+        assertTrue(MarginTrim.Frame.of(null, 200, 300).whole)
     }
 }
