@@ -46,7 +46,7 @@ class ViewSettingsRowsTest {
     }
 
     private val turnRows = listOf("넘김 효과", "넘김 소리", "넘김 진동", "자동 넘김")
-    private val twoPageRows = listOf("가로에서 두 쪽 보기", "세로에서 두 쪽 보기", "두 쪽 보기에서 표지")
+    private val twoPageRows = listOf("가로에서 두 쪽 보기", "세로에서 두 쪽 보기", "표지 (처음 여는 책)")
 
     private fun assertRows(shown: Set<String>, expected: Map<String, Boolean>) {
         val wrong = expected.filter { (row, want) -> (row in shown) != want }
@@ -69,7 +69,7 @@ class ViewSettingsRowsTest {
 
     @Test
     fun `books and pdf keep every turning row`() {
-        assertRows(rows(CpReaderKind.Book), (turnRows + "가로에서 두 쪽 보기").associateWith { true } + mapOf("두 쪽 보기에서 표지" to false))
+        assertRows(rows(CpReaderKind.Book), (turnRows + "가로에서 두 쪽 보기").associateWith { true } + mapOf("표지 (처음 여는 책)" to false))
     }
 
     @Test
@@ -82,7 +82,7 @@ class ViewSettingsRowsTest {
     @Test
     fun `pdf fit to width explains why two pages are off`() {
         val shown = rows(CpReaderKind.Pdf, ScreenPrefs(pdfFit = PdfFit.Width))
-        assertRows(shown, mapOf("폭 맞춤에서는 한 쪽씩 보입니다" to true, "두 쪽 보기에서 표지" to true))
+        assertRows(shown, mapOf("폭 맞춤에서는 한 쪽씩 보입니다" to true, "표지 (처음 여는 책)" to true))
     }
 
     @Test

@@ -153,8 +153,8 @@ class TwoPageTest {
         val before = app.container.prefs.load().screen.twoPagesPortrait
         clickInRow("세로에서 두 쪽 보기", if (before) "끔" else "켬")
         assertEquals(before, app.container.prefs.load().screen.twoPagesPortrait)
-        // EPUB 설정에는 PDF 묶음이 없다.
-        assertFalse(hasNode(hasText("두 쪽 보기에서 표지")))
+        // EPUB 설정에는 표지 줄이 없다 — 글을 다시 앉히는 책은 쪽 짝이 표지로 정해지지 않는다.
+        assertFalse(hasNode(hasText("표지 (처음 여는 책)")))
     }
 
     @Test
@@ -195,7 +195,7 @@ class TwoPageTest {
         waitFor(hasText("보기"))
         node(hasText("보기")).performClick()
         node(hasText("모든 보기 설정")).performClick()
-        waitFor(hasText("두 쪽 보기에서 표지"))
+        waitFor(hasText("표지 (처음 여는 책)"))
         // 맨 아래 줄이다 — 줄이 48dp 로 커져(0.29.0) 화면 밖에 있을 수 있다. 누르기 동작으로 고른다(performScrollTo 는
         // 이 시험 환경에서 메모리를 다 썼다).
         compose.onAllNodes(hasText("함께"))[0].performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)

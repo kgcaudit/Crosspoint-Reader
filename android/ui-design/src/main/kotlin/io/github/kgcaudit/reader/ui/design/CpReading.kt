@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -456,7 +457,17 @@ enum class CpReaderKind { Book, Pdf, Comic, Webtoon }
  *   보인다. 쪽 맞춤 값마다 까닭이 달라 글을 받는다.
  */
 @Composable
-fun CpTwoPageRows(prefs: ScreenPrefs, onChange: (ScreenPrefs) -> Unit, modifier: Modifier = Modifier, onePage: String? = null) {
+fun CpTwoPageRows(
+    prefs: ScreenPrefs,
+    onChange: (ScreenPrefs) -> Unit,
+    modifier: Modifier = Modifier,
+    onePage: String? = null,
+    /**
+     * "가로에서 두 쪽 보기" 바로 아래에 들일 표지 줄(구상안 5). 두 쪽 보기에 속한 줄이라 그 아래 한 단 안쪽에 선다 — 같은
+     * 자리에서 시작하면 두 쪽 보기와 같은 급의 선택지로 읽힌다(UI 규칙 1). null 이면 줄이 없다.
+     */
+    cover: (@Composable () -> Unit)? = null,
+) {
     val fitWidth = onePage != null
     // 휴대폰에서는 흐리게 두고 까닭을 적는다. 줄을 빼 버리면 태블릿에서 본 설정을 휴대폰에서 찾아 헤맨다.
     val wide = cpTablet()
@@ -467,6 +478,7 @@ fun CpTwoPageRows(prefs: ScreenPrefs, onChange: (ScreenPrefs) -> Unit, modifier:
             { if (!fitWidth) onChange(prefs.copy(twoPagesLandscape = it == 0)) },
             if (fitWidth) Modifier.alpha(0.45f) else Modifier,
         )
+        cover?.invoke()
         CpChoice(
             "세로에서 두 쪽 보기", listOf("켬", "끔"), if (prefs.twoPagesPortrait) 0 else 1,
             { if (wide && !fitWidth) onChange(prefs.copy(twoPagesPortrait = it == 0)) },
@@ -487,12 +499,87 @@ fun pdfOnePageNote(fit: PdfFit): String? = when (fit) {
     PdfFit.Continuous -> "이어서에서는 두 쪽 보기를 쓰지 않습니다"
 }
 
-/** 두 쪽 보기에서 표지(1쪽)를 따로 둘지. PDF · 만화. */
+/**
+ * 작품 · 책마다 고른 두 쪽 보기의 표지 수와 모두 지우기(구상안 5). 모든 보기 설정은 저장소를 모른다 — 앱이 세어 넘긴다.
+ *
+ * @param works 표지를 고른 작품 수. @param books 표지를 고른 책(PDF · 만화로 본 책) 수.
+ */
+class CpOwnCovers(val works: Int, val books: Int, val onClear: () -> Unit) {
+    val count: Int get() = works + books
+}
+
+/**
+ * "작품마다" · "책마다" · "작품 · 책마다": 실제로 고른 것만 부른다 — PDF 만 고쳤는데 "작품" 이라 하면 무엇을 지우는지 모른다.
+ * 아무것도 고르지 않았으면 연 리더의 말([fallback]: 만화는 작품, PDF 는 책)로.
+ */
+private fun CpOwnCovers.noun(fallback: String): String = when {
+    works > 0 && books > 0 -> "작품 · 책"
+    books > 0 -> "책"
+    works > 0 -> "작품"
+    else -> fallback
+}
+
+/**
+ * 모든 보기 설정의 표지 줄: 처음 여는 책(작품 · 책마다 고르지 않은 것)의 기본값(구상안 5 ④). 보기 판에서 작품 · 책마다 고른 값이
+ * 이보다 먼저라, 그 수와 모두 지우기를 바로 아래에 둔다 — 이 줄을 바꿔도 몇 작품이 그대로인 까닭이 여기서 보여야 한다.
+ */
 @Composable
-private fun CoverAloneRow(prefs: ScreenPrefs, onChange: (ScreenPrefs) -> Unit, modifier: Modifier) {
-    CpChoice("두 쪽 보기에서 표지", listOf("따로", "함께"), if (prefs.pdfCoverAlone) 0 else 1, {
-        onChange(prefs.copy(pdfCoverAlone = it == 0))
-    }, modifier)
+private fun CoverDefaultRows(prefs: ScreenPrefs, onChange: (ScreenPrefs) -> Unit, own: CpOwnCovers?, unit: String, onAskClear: () -> Unit) {
+    val m = CpTheme.metrics
+    // "가로에서 두 쪽 보기"(글자만 있는 줄)에 속한 줄 — 한 단 안쪽(UI 규칙 1).
+    Column(Modifier.padding(start = m.levelIndent)) {
+        CpChoice("표지 (처음 여는 책)", listOf("따로", "함께"), if (prefs.pdfCoverAlone) 0 else 1, {
+            onChange(prefs.copy(pdfCoverAlone = it == 0))
+        })
+        if (own != null) {
+            val noun = own.noun(unit)
+            CpText(
+                "${noun}마다 보기 판에서 바꾼 값이 이보다 먼저입니다." + if (own.count > 0) " 바꾼 $noun ${own.count}개" else "",
+                CpTheme.type.caption, CpTheme.colors.textMuted,
+                Modifier.padding(start = m.gutter, end = m.gutter, bottom = 2.dp),
+                maxLines = 3,
+            )
+            // 지울 것이 없으면 단추를 두지 않는다 — 눌러도 아무 일이 없는 단추는 고장으로 보인다. 글자 단추는 안쪽 여백(12dp)이
+            // 있어 그만큼 당겨 글자가 위 줄 글자와 같은 선에서 시작한다.
+            if (own.count > 0) CpTextButton("${noun}마다 바꾼 값 모두 지우기", onAskClear, Modifier.padding(start = m.gutter - 12.dp))
+        }
+    }
+}
+
+/** 모두 지우기 전에 묻는다 — 작품마다 맞춰 둔 짝을 한 번에 잃으면 어느 작품이었는지 다시 찾아야 한다. */
+@Composable
+private fun ClearCoversPopup(own: CpOwnCovers, onDone: () -> Unit) {
+    CpPopup(
+        title = "바꾼 값 ${own.count}개를 지우고 모두 기본값을 따르게 할까요?",
+        message = "보기 판에서 고른 표지(따로 · 함께)만 지웁니다. 넘기는 방향 같은 다른 설정은 그대로입니다.",
+        onDismiss = onDone,
+    ) {
+        CpPopupButtons {
+            CpButton("취소", onDone, primary = false)
+            CpButton("지우기", { own.onClear(); onDone() })
+        }
+    }
+}
+
+/**
+ * 보기 판의 "표지" 줄(구상안 5 ②): 지금 보는 작품 · 책만의 따로 · 함께. 두 쪽 보기가 켜진 동안만 둔다 — 한 쪽 보기에서는
+ * 바꿔도 화면에 아무 일이 없다.
+ *
+ * @param scope "이 작품만" · "이 책만". 이 줄이 모든 책을 바꾸지 않는다는 것을 먼저 말한다.
+ */
+@Composable
+fun CpCoverRow(coverAlone: Boolean, onChange: (Boolean) -> Unit, scope: String, modifier: Modifier = Modifier) {
+    val m = CpTheme.metrics
+    // 두 쪽 보기 줄(글자만 있는 줄)에 속한다 — 한 단 안쪽에서 시작한다(UI 규칙 1).
+    Column(modifier.padding(start = m.levelIndent)) {
+        CpChoice("표지", listOf("따로", "함께"), if (coverAlone) 0 else 1, { onChange(it == 0) })
+        CpText(
+            "$scope · 겉표지와 속표지가 있으면 \"함께\" 로 두면 본문 펼침이 맞습니다",
+            CpTheme.type.caption, CpTheme.colors.textMuted,
+            Modifier.padding(start = m.gutter, end = m.gutter, bottom = 6.dp),
+            maxLines = 3,
+        )
+    }
 }
 
 /**
@@ -508,7 +595,7 @@ fun CpViewSettingsScreen(
     onChange: (ScreenPrefs) -> Unit,
     onBack: () -> Unit,
     paragraph: (@Composable (child: Modifier) -> Unit)? = null,
-    /** PDF 에서 열었을 때만 "PDF" 묶음(두쪽보기의 표지)을 보인다. EPUB 에서 보이면 무엇을 바꾸는지 알 수 없다. */
+    /** PDF 에서 열었을 때만 PDF 의 줄(두 쪽 보기의 표지 · 폭 맞춤의 까닭)을 보인다. EPUB 에서 보이면 무엇을 바꾸는지 알 수 없다. */
     pdf: Boolean = false,
     /** "형광펜 · 메모" 줄을 보인다. PDF 는 글자를 꺼낼 수 있는 휴대폰(안드로이드 15+)에서만 칠이 있다. */
     highlights: Boolean = !pdf,
@@ -517,11 +604,15 @@ fun CpViewSettingsScreen(
      * 두 쪽 보기 · 넘김 효과 · 자동 넘김 줄이 보였는데, 바꿔도 아무 일이 없었다.
      */
     reader: CpReaderKind = if (pdf) CpReaderKind.Pdf else CpReaderKind.Book,
+    /** 작품 · 책마다 고른 표지의 수와 모두 지우기(구상안 5). null 이면 표지 줄 아래에 그 줄들을 두지 않는다. */
+    ownCovers: CpOwnCovers? = null,
 ) {
     var sub by remember { mutableStateOf(SettingsPage.Main) }
+    // 표지 "모두 지우기" 를 묻는 중. 판은 굴러가는 목록 밖(화면 위)에 띄운다 — 목록 안에 두면 판이 목록 높이에 갇힌다.
+    var askClear by remember { mutableStateOf(false) }
     androidx.activity.compose.BackHandler(enabled = sub != SettingsPage.Main) { sub = SettingsPage.Main }
     when (sub) {
-        SettingsPage.Main -> CpFullScreen {
+        SettingsPage.Main -> Box(Modifier.fillMaxSize()) { CpFullScreen {
             CpHeader(title = "보기 설정", onBack = onBack)
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
                 val child = Modifier.padding(start = CpTheme.metrics.levelIndent)
@@ -592,9 +683,13 @@ fun CpViewSettingsScreen(
                     )
                 }
                 if (reader != CpReaderKind.Webtoon) {
-                    CpTwoPageRows(prefs, onChange, child, onePage = if (reader == CpReaderKind.Pdf) pdfOnePageNote(prefs.pdfFit) else null)
-                    // 만화도 PDF 처럼 표지(1쪽)를 따로 둔다 — 2쪽부터 짝이 맞아야 펼침면 그림이 이어진다.
-                    if (reader == CpReaderKind.Comic) CoverAloneRow(prefs, onChange, child)
+                    // 표지 줄은 PDF · 만화만(두 쪽의 짝이 쪽 그림으로 정해지는 리더). 0.51 까지 PDF 는 맨 아래 "PDF" 묶음에 따로
+                    // 있었는데, 두 쪽 보기에 속한 줄이라 그 아래로 옮겼다(구상안 5 ④) — 떨어져 있으면 무엇의 표지인지 읽히지 않는다.
+                    val cover = reader == CpReaderKind.Pdf || reader == CpReaderKind.Comic
+                    CpTwoPageRows(
+                        prefs, onChange, child, onePage = if (reader == CpReaderKind.Pdf) pdfOnePageNote(prefs.pdfFit) else null,
+                        cover = if (cover) ({ CoverDefaultRows(prefs, onChange, ownCovers, if (reader == CpReaderKind.Pdf) "책" else "작품") { askClear = true } }) else null,
+                    )
                 }
                 val keep = KeepScreenOn.entries
                 CpChoice("화면 켜짐 유지", keep.map { it.label }, keep.indexOf(prefs.keepScreenOn), {
@@ -611,11 +706,9 @@ fun CpViewSettingsScreen(
                         onChange(prefs.copy(brightnessGesture = it == 0))
                     }, child)
                 }
-                if (reader == CpReaderKind.Pdf) {
-                    CpSectionLabel("PDF")
-                    CoverAloneRow(prefs, onChange, child)
-                }
             }
+        }
+            if (askClear && ownCovers != null) ClearCoversPopup(ownCovers) { askClear = false }
         }
         SettingsPage.Touch -> TouchZonePicker(prefs.touch, { onChange(prefs.copy(touch = it)); sub = SettingsPage.Main }) {
             sub = SettingsPage.Main

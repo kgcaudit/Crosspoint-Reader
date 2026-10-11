@@ -129,8 +129,10 @@ fun BookComicHost(
         }
     }
     DisposableEffect(bookId) { onDispose { opened?.close() } }
+    val choices = rememberCoverChoices()
     val c = opened
-    if (c == null) {
+    // 표지 값을 읽기 전에는 그리지 않는다 — 기본값으로 짝지은 판이 한 번 보였다가 이 책의 짝으로 바뀌며 판이 튄다.
+    if (c == null || choices == null) {
         Box(Modifier.fillMaxSize().background(COMIC_BACKDROP))
         return
     }
@@ -172,5 +174,10 @@ fun BookComicHost(
         sizes = sizes,
         // 만화 뷰어로 본 책도 책의 독서 기록이다(책 id) — 책 뷰어로 바꿔 읽어도 한 책의 시간으로 모인다.
         onReadTime = { container.recordPage(io.github.kgcaudit.reader.data.TimeItem.BOOK, bookId, it) },
+        // 표지는 책마다(구상안 5) — 그림책은 한 권짜리 작품이다. PDF 뷰어로 열어도 같은 값이다(같은 책의 같은 짝).
+        coverAlone = choices.books[bookId],
+        onCoverAlone = { v -> scope.launchWrite(failed) { data.library.setBookCoverAlone(id, v) } },
+        coverScope = "이 책만",
+        ownCovers = ownCovers(choices),
     )
 }

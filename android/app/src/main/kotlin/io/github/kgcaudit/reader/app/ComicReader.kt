@@ -187,6 +187,14 @@ fun ComicReader(
     sizes: List<ImageSize?>,
     /** 독서 기록(0.51.0): 손으로 넘기며 본 · 자동 넘김이 넘긴 판의 시간. */
     onReadTime: (io.github.kgcaudit.reader.ui.design.PageTime) -> Unit = {},
+    /** 이 작품(책을 만화로 볼 때는 이 책)에 고른 두 쪽 보기의 표지: 따로 true · 함께 false. null 은 기본값을 따른다(구상안 5). */
+    coverAlone: Boolean? = null,
+    /** 보기 판의 표지 줄에서 고를 때. null 이면 그 줄이 없다. */
+    onCoverAlone: ((Boolean) -> Unit)? = null,
+    /** 표지 줄 풀이의 머리: "이 작품만" · "이 책만". */
+    coverScope: String = "이 작품만",
+    /** 모든 보기 설정의 "바꾼 작품 N개" · 모두 지우기. */
+    ownCovers: io.github.kgcaudit.reader.ui.design.CpOwnCovers? = null,
 ) {
     val bookCount = book.pageCount
     // 지금 자리: 책의 쪽 × 2, 펼침면의 둘째 반이면 + 1(0.50.0). 화면이 넘기는 단위(조각)로 적지 않는다 — 펼침면 나누기를 켜고
@@ -213,6 +221,9 @@ fun ComicReader(
     // 색 보정(사용자 결정 2-1): 그리는 단계의 거르개라 풀어 둔 그림 · 여백 자르기 분석 · 그림 저장소는 그대로 — 켜고 끌 때
     // 다시 풀지 않는다. 끔은 null(거르지 않음).
     val color = prefs.comicColor.colorFilter
+    // 두 쪽의 표지: 이 작품에 고른 값 → 모든 보기 설정의 기본값(구상안 5). 바뀌면 판 목록을 다시 짜되 자리(spot)는 책의 쪽이라
+    // 보던 쪽이 든 판이 그대로 보인다.
+    val cover = coverAlone ?: prefs.pdfCoverAlone
     val parts = remember(split, sizes, rtl, bookCount) {
         if (split) SpreadSplit.parts(List(bookCount) { sizes.getOrNull(it) }, rtl) else SpreadSplit.whole(bookCount)
     }
@@ -223,8 +234,8 @@ fun ComicReader(
     val page = partAt(parts, spot)
     /** 조각이 보이는 책의 쪽. 화면 글자 · 자리 · 책갈피는 책의 쪽으로 — 반쪽마다 쪽 번호가 늘면 책의 쪽 수와 어긋난다. */
     fun realOf(index: Int): Int = parts.getOrNull(index)?.page ?: index
-    val spreads = remember(two, count, partSizes, prefs.pdfCoverAlone) {
-        if (two) ComicSpreads.of(List(count) { partSizes.getOrNull(it) }, coverAlone = prefs.pdfCoverAlone) else List(count) { listOf(it) }
+    val spreads = remember(two, count, partSizes, cover) {
+        if (two) ComicSpreads.of(List(count) { partSizes.getOrNull(it) }, coverAlone = cover) else List(count) { listOf(it) }
     }
     val spreadIndex = ComicSpreads.indexOf(spreads, page)
     val shown = spreads.getOrElse(spreadIndex) { listOf(page) }
@@ -266,7 +277,7 @@ fun ComicReader(
         val s = spreads.getOrNull(index) ?: return SpreadSlot.Center
         if (!two) return SpreadSlot.Center
         val single = s.singleOrNull()?.let { pageAspect(pages, partSizes, it, trim) }
-        return SpreadSlot.of(s, first = s.firstOrNull() == 0, wide = single != null && single > 1f, coverAlone = prefs.pdfCoverAlone)
+        return SpreadSlot.of(s, first = s.firstOrNull() == 0, wide = single != null && single > 1f, coverAlone = cover)
     }
 
     /**
@@ -358,7 +369,7 @@ fun ComicReader(
                 // 지금 판의 확대 · 위치. 판이 바뀌면 다시 전체가 보인다. 두 쪽은 한 그림처럼 함께 맞추고 함께 확대한다.
                 // 두 쪽 여부 · 표지 설정도 열쇠다 — 혼자인 쪽의 비(빈 짝 포함)가 그것으로 바뀐다. 빠뜨리면 화면 크기를 알기 전
                 // (한 쪽으로 판정된 때)의 비로 굳어 표지가 절반 폭으로 그려졌다(0.46.0 개발 중 시험이 찾음).
-                var aspect by remember(shown, two, prefs.pdfCoverAlone, trim) { mutableStateOf(aspectOf(spreadIndex)) }
+                var aspect by remember(shown, two, cover, trim) { mutableStateOf(aspectOf(spreadIndex)) }
                 var viewport by remember(shown, w, h, aspect) { mutableStateOf(aspect?.let { PageViewport.fit(viewW, viewH, it, verticalBias = bias) }) }
                 // 끌기 몸짓(판이 바뀌어도 이어지는 쪽)이 읽고 쓰는 최신 값.
                 val viewportNow = rememberUpdatedState(viewport)
@@ -371,7 +382,7 @@ fun ComicReader(
                 androidx.compose.runtime.SideEffect {
                     pages.pin((spreadIndex - 1..spreadIndex + 1).flatMap { spreads.getOrNull(it).orEmpty() }.toSet())
                 }
-                LaunchedEffect(shown, w, h, two, prefs.pdfCoverAlone, trim, pages) {
+                LaunchedEffect(shown, w, h, two, cover, trim, pages) {
                     for (p in shown) pages.page(p, w, h, trim)
                     aspect = aspectOf(spreadIndex)
                     // 앞뒤 판을 미리 풀어 둔다 — 넘길 때 빈 화면이 번쩍이지 않게.
@@ -553,8 +564,12 @@ fun ComicReader(
                         // 펼침면 나누기(0.50.0) — 여백 자르기와 같은 "쪽 그림 다듬기" 무리라 바로 아래에, 같은 켬 · 끔 차례로.
                         CpChoice("펼침면 나누기", listOf("켬", "끔"), if (prefs.comicSplitSpreads) 0 else 1, { onPrefsChange(prefs.copy(comicSplitSpreads = it == 0)) })
                         ComicColorChoice(prefs, onPrefsChange)
-                        // 책 · PDF 와 같은 두 줄(0.42.0).
-                        CpTwoPageRows(prefs, onPrefsChange)
+                        // 책 · PDF 와 같은 두 줄(0.42.0). 두 쪽으로 보는 동안만 그 아래에 이 작품의 표지 줄(구상안 5) — 한 쪽 보기에서는
+                        // 바꿔도 화면에 아무 일이 없다.
+                        CpTwoPageRows(
+                            prefs, onPrefsChange,
+                            cover = onCoverAlone?.takeIf { two }?.let { pick -> { io.github.kgcaudit.reader.ui.design.CpCoverRow(cover, pick, coverScope) } },
+                        )
                         CpBrightnessRow(prefs.brightness, { onPrefsChange(prefs.copy(brightness = it)) })
                         CpLinkRow("모든 보기 설정", "", { panel = ComicPanel.Settings })
                     }
@@ -566,7 +581,7 @@ fun ComicReader(
             CpToolButton(CpIcons.Bookmark, "책갈피", { panel = ComicPanel.Bookmarks })
             CpToolButton(CpIcons.View, "보기", { panel = if (panel == ComicPanel.View) ComicPanel.Bar else ComicPanel.View }, selected = panel == ComicPanel.View)
         }
-        ComicPanel.Settings -> CpViewSettingsScreen(prefs, onPrefsChange, onBack = { panel = ComicPanel.View }, highlights = false, reader = CpReaderKind.Comic)
+        ComicPanel.Settings -> CpViewSettingsScreen(prefs, onPrefsChange, onBack = { panel = ComicPanel.View }, highlights = false, reader = CpReaderKind.Comic, ownCovers = ownCovers)
         // 쪽 목록 · 책갈피는 책의 쪽으로 보이고 고른다.
         ComicPanel.Pages -> PageGrid(book, title, realOf(page), onBack = { panel = ComicPanel.Bar }) { panel = ComicPanel.None; spot = it * 2 }
         ComicPanel.Bookmarks -> BookmarkList(book, bookmarks, onBack = { panel = ComicPanel.Bar }) { panel = ComicPanel.None; spot = it * 2 }
@@ -963,6 +978,10 @@ fun ComicHost(
                 onView = onView,
                 sizes = sizes,
                 onReadTime = { container.recordPage(TimeItem.COMIC, unitId, it) },
+                // 작품마다 고른 표지(구상안 5). 고르면 작품 목록이 다시 흘러 곧바로 다시 짝짓는다.
+                coverAlone = work?.coverAlone,
+                onCoverAlone = work?.let { w -> { v: Boolean -> scope.launchWrite(failed) { data.comics.setCoverAlone(w, v) } } },
+                ownCovers = ownCovers(rememberCoverChoices()),
             )
                 // 쪽 넘김 만화는 장면이 곧 쪽이다 — 보던 쪽을 통째로 표지로(웹툰처럼 틀로 자르면 쪽의 제목 · 그림이 잘린다).
                 if (pickCover) PagePickBar(onBack = onClose) {
@@ -1052,5 +1071,23 @@ private fun PagePickBar(onBack: () -> Unit, onPick: suspend () -> Boolean) {
                 }
             })
         }
+    }
+}
+
+/** 작품 · 책마다 고른 두 쪽 보기의 표지(구상안 5). 고르거나 지우면 다시 흐른다. 아직 읽기 전이면 null. */
+@Composable
+internal fun rememberCoverChoices(): io.github.kgcaudit.reader.data.library.CoverChoices? {
+    val data = LocalContext.current.container.data
+    return remember { data.comics.coverChoices() }.collectAsState(initial = null).value
+}
+
+/** 모든 보기 설정에 넘길 "바꾼 작품 N개" 와 모두 지우기. 세기 전이면 0개로 — 줄은 그대로 서고 단추만 없다. */
+@Composable
+internal fun ownCovers(choices: io.github.kgcaudit.reader.data.library.CoverChoices?): io.github.kgcaudit.reader.ui.design.CpOwnCovers {
+    val data = LocalContext.current.container.data
+    val scope = rememberCoroutineScope()
+    return io.github.kgcaudit.reader.ui.design.CpOwnCovers(choices?.works?.size ?: 0, choices?.books?.size ?: 0) {
+        // 지우기가 실패해도(저장 공간 · DB) 보던 화면은 그대로 둔다 — 수가 줄지 않은 것으로 실패가 보인다.
+        scope.launchWrite({}) { data.comics.clearCoverChoices() }
     }
 }

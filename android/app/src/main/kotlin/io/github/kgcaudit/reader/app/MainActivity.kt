@@ -510,6 +510,8 @@ private fun OloApp(
         }
         is OpenedBook.Pdf -> {
             LaunchedEffect(current) { hideSystemBars(true) }
+            val covers = rememberCoverChoices()
+            val pdfScope = androidx.compose.runtime.rememberCoroutineScope()
             // 배경 · 밝기 · 터치 영역 … 은 EPUB 과 한 벌이다. PDF 에서 고른 배경이 EPUB 을 열 때 풀리면 안 된다.
             CpReaderTheme(prefs.screen.theme) {
                 Box(Modifier.fillMaxSize()) {
@@ -525,6 +527,10 @@ private fun OloApp(
                     onListenChange = { prefs = prefs.copy(listen = it); container.prefs.save(prefs) },
                     listenKit = container.listenKit,
                     onReadTime = { container.recordPage(TimeItem.BOOK, current.id.value, it) },
+                    // 책마다 고른 두 쪽 보기의 표지(구상안 5). 만화로 볼 때와 같은 값이다(같은 책의 같은 짝).
+                    coverAlone = covers?.books?.get(current.id.value),
+                    onCoverAlone = { v -> pdfScope.launchWrite({}) { container.data.library.setBookCoverAlone(current.id, v) } },
+                    ownCovers = ownCovers(covers),
                 )
                 PdfSyncPrompt(current.reader)
                 }

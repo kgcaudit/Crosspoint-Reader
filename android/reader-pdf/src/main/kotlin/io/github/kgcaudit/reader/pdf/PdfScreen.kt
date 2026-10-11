@@ -158,6 +158,12 @@ fun PdfScreen(
     listenKit: ListenKit? = null,
     /** 독서 기록(0.51.0): 손으로 넘기며 읽은 · 자동 넘김이 넘긴 쪽의 시간. */
     onReadTime: (io.github.kgcaudit.reader.ui.design.PageTime) -> Unit = {},
+    /** 이 책에 고른 두 쪽 보기의 표지: 따로 true · 함께 false. null 은 모든 보기 설정의 기본값을 따른다(구상안 5). */
+    coverAlone: Boolean? = null,
+    /** 보기 판의 표지 줄에서 고를 때. null 이면 그 줄이 없다. */
+    onCoverAlone: ((Boolean) -> Unit)? = null,
+    /** 모든 보기 설정의 "바꾼 책 N개" · 모두 지우기. */
+    ownCovers: io.github.kgcaudit.reader.ui.design.CpOwnCovers? = null,
 ) {
     val state by reader.state.collectAsState()
     val scope = rememberCoroutineScope()
@@ -182,6 +188,10 @@ fun PdfScreen(
     var enterBottom by remember { mutableIntStateOf(-1) }
     LaunchedEffect(state.page) { if (state.page != enterBottom) enterBottom = -1 }
     val fitWidth = prefs.pdfFit == PdfFit.Width
+    // 두 쪽의 표지: 이 책에 고른 값 → 기본값. 지금 두 쪽으로 보는지는 쪽 자리(화면 크기)에서 정해져, 보기 판이 그것을 읽어
+    // 표지 줄을 두 쪽 보기 동안만 보인다.
+    val cover = coverAlone ?: prefs.pdfCoverAlone
+    var twoPagesNow by remember { mutableStateOf(false) }
     // 이어서(사용자 결정 5-1 · 5-2): 쪽을 위아래로 이어 붙인 기둥. 한 화면 · 한 쪽 옮기기는 보이는 기둥이 걸어 둔 손잡이로.
     val continuous = prefs.pdfFit == PdfFit.Continuous
     val mover = remember { ContinuousMover() }
@@ -399,7 +409,9 @@ fun PdfScreen(
                 val smallest = androidx.compose.ui.platform.LocalConfiguration.current.smallestScreenWidthDp
                 // 폭 맞춤은 한 쪽씩이다 — 두 쪽을 나란히 폭에 맞추면 쪽 전체와 다를 게 없다. 이어서도 한 기둥이다.
                 val twoPages = !fitWidth && !continuous && prefs.twoPages(viewW / density, viewH / density, smallest)
-                LaunchedEffect(twoPages, prefs.pdfCoverAlone) { reader.setSpread(if (twoPages) prefs.pdfCoverAlone else null) }
+                // 표지를 바꾸면 곧바로 다시 짝짓는다 — setSpread 는 보던 쪽이 든 펼침으로 간다.
+                LaunchedEffect(twoPages, cover) { reader.setSpread(if (twoPages) cover else null) }
+                androidx.compose.runtime.SideEffect { twoPagesNow = twoPages }
                 val onTap: (Offset, Float) -> Unit = { at, corner ->
                     val note = if (latestPrefs.showHighlights) annotationAt(reader, text, reader.state.value.notes, at) else null
                     when {
@@ -604,6 +616,9 @@ fun PdfScreen(
                         CpChoice("쪽 맞춤", fits.map { it.label }, fits.indexOf(prefs.pdfFit), {
                             onPrefsChange(prefs.copy(pdfFit = fits[it]))
                         })
+                        // 이 책의 표지(구상안 5). PDF 판에는 두 쪽 보기 줄이 없어, 두 쪽을 정하는 "쪽 맞춤"(쪽 전체에서만 두 쪽) 아래에
+                        // 한 단 들인다. 두 쪽으로 보는 동안만 — 한 쪽 보기에서는 바꿔도 화면에 아무 일이 없다.
+                        if (twoPagesNow && onCoverAlone != null) io.github.kgcaudit.reader.ui.design.CpCoverRow(cover, onCoverAlone, "이 책만")
                         CpChoice("화면 회전", rotations.map { it.label }, rotations.indexOf(prefs.rotation), {
                             onPrefsChange(prefs.copy(rotation = rotations[it]))
                         })
@@ -631,7 +646,7 @@ fun PdfScreen(
                 selected = panel == PdfPanel.View,
             )
         }
-        PdfPanel.Settings -> CpViewSettingsScreen(prefs, onPrefsChange, onBack = { panel = PdfPanel.View }, pdf = true, highlights = reader.readsText)
+        PdfPanel.Settings -> CpViewSettingsScreen(prefs, onPrefsChange, onBack = { panel = PdfPanel.View }, pdf = true, highlights = reader.readsText, ownCovers = ownCovers)
         PdfPanel.Contents, PdfPanel.Notes -> PdfLists(
             reader = reader,
             contents = contents,

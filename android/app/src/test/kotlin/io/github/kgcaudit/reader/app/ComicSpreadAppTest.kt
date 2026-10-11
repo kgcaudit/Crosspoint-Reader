@@ -10,6 +10,7 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.flow.first
@@ -196,7 +197,11 @@ class ComicSpreadAppTest {
         next(); waitFor(page("2–3"))
         compose.onRoot().performTouchInput { click(center) }
         click(hasText("보기"))
-        click(hasText("모든 보기 설정"))
+        // 누르기 동작으로 연다 — 두 쪽으로 보는 동안 보기 판에 표지 줄이 더해져(구상안 5) 이 줄이 판을 굴려야 보이는 자리로
+        // 내려갔다. 좌표로 누르면 판 밖(쪽)을 눌러 판이 닫혔다.
+        waitFor(hasText("모든 보기 설정"))
+        compose.onAllNodes(hasText("모든 보기 설정") and androidx.compose.ui.test.hasClickAction())[0]
+            .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
         waitFor(hasText("세로에서 두 쪽 보기"))
         // 만화도 책과 같은 넘김 효과를 따른다(0.45.0). 아래 정보 줄은 없어 그 설정도 없다(줄 구성은 ViewSettingsRowsTest 가 따로 잰다).
         assertTrue(has(hasText("넘김 효과")), "만화의 보기 설정에 넘김 효과 줄이 없다")
