@@ -80,6 +80,12 @@ class EpubDocument private constructor(
         return if (key == null) stream else FontObfuscation.Deobfuscating(stream, key, method.headerBytes)
     }
 
+    /**
+     * OPF 에 적힌 넘기는 방향(오→왼이면 true). null 은 적혀 있지 않음. 만화로 보는 그림책의 표지가 펼침면이면 어느 반이
+     * 앞표지인지 이것으로 정한다 — 그림책 판정([pictureBook])처럼 장을 모두 훑지 않고 안다.
+     */
+    val rightToLeft: Boolean? get() = opf.rightToLeft
+
     /** 표지 이미지. 없으면 null. */
     fun openCoverImage(): InputStream? = opf.coverImageItem?.href?.let(zip::openStream)
 

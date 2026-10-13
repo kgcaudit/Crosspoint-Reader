@@ -249,7 +249,9 @@ internal object ContinueWidgets {
                 val unit = container.data.comics.unit(target.unitId) ?: return null
                 val work = container.data.comics.works().first().firstOrNull { ComicReading.entryOf(it, unit.id) != null }
                 // 사람이 고른 작품 표지가 먼저 — 서재 책장과 같은 그림이어야 홈 화면에서 알아본다.
-                work?.let { container.covers.work(it.key).image } ?: container.covers.comic(unit)
+                // 작품 방향을 넘긴다 — 펼침면 표지는 앞표지 반만 쓰고(0.52.x), 오→왼 작품의 앞표지는 왼쪽 반이다. 넘기지 않으면 서재와
+                // 위젯이 다른 반을 보였다.
+                work?.let { container.covers.work(it.key).image } ?: container.covers.comic(unit, work?.rightToLeft ?: false)
             }
         } ?: return null
         return rounded(image.asAndroidBitmap(), 6f * density)

@@ -92,6 +92,14 @@ fun IncomingComicHost(
     }
     DisposableEffect(file) { onDispose { book?.close() } }
     val bookmarks by remember(id) { data.comics.bookmarks(id) }.collectAsState(initial = emptyList())
+    // 서재에 같은 권(이름 · 크기)이 있는 작품(0.52.x). 서재 쪽이 열리지 않아(폴더 허락이 풀림) 받은 파일로 연 때다 — 두 쪽 보기의
+    // 표지 줄은 그 작품에 적는다. 서재에 없으면 적을 작품이 없어 줄을 두지 않는다(받은 파일의 열쇠는 이 휴대폰의 문서 주소라
+    // 서재 · 백업과 이어지지 않는다).
+    var libraryUnit by remember(file) { mutableStateOf<String?>(null) }
+    LaunchedEffect(file) { libraryUnit = container.libraryComicFor(file) }
+    val works by remember { data.comics.works() }.collectAsState(initial = emptyList())
+    val libraryWork = libraryUnit?.let { u -> works.firstOrNull { io.github.kgcaudit.reader.document.comic.ComicReading.entryOf(it, u) != null } }
+    val coverChoices = rememberCoverChoices()
     val opened = book
     if (opened == null) {
         Box(Modifier.fillMaxSize().background(COMIC_BACKDROP))
@@ -140,6 +148,10 @@ fun IncomingComicHost(
                 onView = onView,
                 sizes = sizes,
                 onReadTime = { container.recordPage(TimeItem.COMIC, id, it) },
+                coverAlone = libraryWork?.coverAlone,
+                onCoverAlone = libraryWork?.let { w -> { v: Boolean -> scope.launchWrite(failed) { data.comics.setCoverAlone(w, v) } } },
+                // "바꾼 작품 N개 · 모두 지우기" 는 이 권과 상관없이 모든 작품의 것이라 늘 둔다 — 서재에서 연 만화와 같은 설정 화면이다.
+                ownCovers = ownCovers(coverChoices),
             )
             ComicView.WEBTOON -> WebtoonReader(
                 first = remember(opened) { WebtoonEpisode(null, opened, sizes) },

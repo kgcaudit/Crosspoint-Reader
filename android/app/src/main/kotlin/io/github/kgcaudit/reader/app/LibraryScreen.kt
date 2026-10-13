@@ -462,6 +462,8 @@ fun LibraryScreen(
                 coverMenu = null
                 scope.launchWrite(writeFailed, then = { toast = if (comic) "‘${book.label}’ — 만화로 봅니다" else "‘${book.label}’ — 책으로 봅니다" }) {
                     data.library.setBookView(book.id, if (comic) io.github.kgcaudit.reader.data.library.BookView.COMIC else io.github.kgcaudit.reader.data.library.BookView.BOOK)
+                    // 만화로 보는 책은 펼침면 표지의 앞표지만 쓴다(0.52.x) — 보기를 바꾸면 책장의 표지도 바로 바뀌어야 한다.
+                    container.covers.facesChanged()
                 }
             },
             onUnread = if (book.id in shelfIds) {

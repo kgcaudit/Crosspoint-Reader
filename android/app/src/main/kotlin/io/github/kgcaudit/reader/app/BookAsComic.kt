@@ -174,7 +174,8 @@ fun BookComicHost(
         },
         onDirection = { r ->
             chosenRtl = r
-            scope.launchWrite(failed) { data.library.setBookRightToLeft(id, r) }
+            // 방향을 바꾸면 펼침면 표지의 앞표지가 다른 반이다(0.52.x) — 서재로 돌아갔을 때 옛 반이 보이지 않게.
+            scope.launchWrite(failed) { data.library.setBookRightToLeft(id, r); container.covers.facesChanged() }
         },
         onNext = {},
         onClose = onClose,

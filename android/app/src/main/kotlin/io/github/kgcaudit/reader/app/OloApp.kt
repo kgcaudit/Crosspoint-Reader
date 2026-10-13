@@ -118,7 +118,8 @@ class AppContainer(private val app: Application) {
     /** 책장 표지. 앱 파일 영역 — 캐시 영역이면 사람이 고른 표지까지 시스템이 지운다. */
     val covers = CoverStore(
         File(app.filesDir, "covers"),
-        extractComic = { unit -> data.comicCover(unit)?.let { CoverStore.decodeComicCover(it, comicRegions) } },
+        extractComic = { unit, rtl -> data.comicCover(unit)?.let { CoverStore.decodeComicCover(it, comicRegions, rtl) } },
+        bookFace = { book -> bookFront(book)?.let { "|front|${it.name}" }.orEmpty() },
         extract = ::extractCover,
     )
 
@@ -461,20 +462,47 @@ class AppContainer(private val app: Application) {
         }
     }
 
-    /** 책에서 표지를 꺼낸다: EPUB 은 표지 그림, PDF 는 첫 쪽, TXT 는 없다. */
-    private fun extractCover(book: LibraryBook): android.graphics.Bitmap? {
+    /** 만화로 보는 책의 표지가 어느 반인가(0.52.x): 사람이 고른 방향 → 책에 적힌 방향(EPUB 의 spine, 꺼낼 때 읽는다). */
+    private enum class BookFront { LTR, RTL, BOOK }
+
+    /**
+     * 이 책의 표지를 앞표지 반만 쓸까. 책으로 보는 책은 null(통째로) — 가로로 긴 슬라이드 PDF 의 첫 쪽을 반으로 자르면 안 된다.
+     * 만화로 보는지는 DB 에 적힌 값만 본다: 고른 보기, 고르지 않았으면 살펴 둔 그림책 판정. 표지를 찾을 때마다 EPUB 을 열어 장을
+     * 훑으면 서재가 느려진다 — 아직 살피지 않은 그림책은 처음 열 때 살핀 뒤부터 반쪽이다.
+     */
+    private suspend fun bookFront(book: LibraryBook): BookFront? {
+        if (book.format == BookFormat.TXT) return null
+        val comic = when (data.library.bookView(book.id)) {
+            BookView.COMIC -> true
+            BookView.BOOK -> false
+            null -> book.format == BookFormat.EPUB && data.library.pictureBook(book.id, book.sizeBytes) == true
+        }
+        if (!comic) return null
+        return when (data.library.bookRightToLeft(book.id)) {
+            true -> BookFront.RTL
+            false -> BookFront.LTR
+            null -> BookFront.BOOK
+        }
+    }
+
+    /** 책에서 표지를 꺼낸다: EPUB 은 표지 그림, PDF 는 첫 쪽, TXT 는 없다. 만화로 보는 책이면 펼침면 표지의 앞표지만. */
+    private suspend fun extractCover(book: LibraryBook): android.graphics.Bitmap? {
         val uri = Uri.parse(book.id.value)
+        val front = bookFront(book)
         return when (book.format) {
             BookFormat.EPUB -> {
                 val doc = EpubDocument.open(book.id, book.displayName, data.sources.seekableSource(uri))
                 try {
-                    doc.openCoverImage()?.use { CoverStore.decodeScaled(it.readBytes()) }
+                    val rtl = when (front) { BookFront.RTL -> true; BookFront.BOOK -> doc.rightToLeft ?: false; else -> false }
+                    doc.openCoverImage()?.use { CoverStore.decodeScaled(it.readBytes()) }?.let { if (front == null) it else CoverStore.front(it, rtl) }
                 } finally {
                     doc.close()
                 }
             }
+            // PDF 에는 넘기는 방향이 적혀 있지 않다 — 고르지 않았으면 왼→오(만화 뷰어가 PDF 를 여는 방향과 같다).
             BookFormat.PDF -> PdfBook.open(book.id, book.displayName, data.sources.seekableDescriptor(uri), pdfEngine)
                 .use { it.coverImage(CoverStore.COVER_HEIGHT) }
+                ?.let { if (front == null) it else CoverStore.front(it, front == BookFront.RTL) }
             BookFormat.TXT -> null
         }
     }

@@ -77,12 +77,15 @@ import io.github.kgcaudit.reader.ui.design.TWO_PANE_LEFT_WIDTH
  * 기억한다: 합치기 · 빼기로 작품이 바뀌면 같은 열쇠로 새로 묶인 작품이 보인다.
  */
 
-/** 만화 단위 하나의 표지. 메모리에 있으면 바로, 없으면 꺼내는 동안 대신 표지. */
+/**
+ * 만화 단위 하나의 표지. 메모리에 있으면 바로, 없으면 꺼내는 동안 대신 표지. [rightToLeft] 는 작품의 넘기는 방향 — 펼침면
+ * 표지는 앞표지 반만 쓰고(0.52.x), 방향을 바꾸면 다른 반이 앞표지라 열쇠에 넣는다.
+ */
 @Composable
-internal fun rememberComicCover(unit: ComicUnit): ImageBitmap? {
+internal fun rememberComicCover(unit: ComicUnit, rightToLeft: Boolean = false): ImageBitmap? {
     val covers = LocalContext.current.container.covers
-    var image by remember(unit) { mutableStateOf(covers.cachedComic(unit)) }
-    LaunchedEffect(unit) { image = covers.comic(unit) }
+    var image by remember(unit, rightToLeft) { mutableStateOf(covers.cachedComic(unit, rightToLeft)) }
+    LaunchedEffect(unit, rightToLeft) { image = covers.comic(unit, rightToLeft) }
     return image
 }
 
@@ -105,9 +108,18 @@ internal fun rememberWorkCover(work: Work): ImageBitmap? {
  * 알 수 없다.
  */
 @Composable
-internal fun ComicCover(unit: ComicUnit, title: String, subtitle: String?, modifier: Modifier = Modifier, small: Boolean = false, work: Work? = null) {
+internal fun ComicCover(
+    unit: ComicUnit,
+    title: String,
+    subtitle: String?,
+    modifier: Modifier = Modifier,
+    small: Boolean = false,
+    work: Work? = null,
+    /** 펼침면 표지의 어느 반이 앞표지인가. 작품을 넘기지 않는 줄(권 · 화 줄)은 그 줄이 든 작품의 방향을 따로 넘긴다. */
+    rightToLeft: Boolean = work?.rightToLeft ?: unit.info?.rightToLeft ?: false,
+) {
     val chosen = work?.let { rememberWorkCover(it) }
-    val own = rememberComicCover(unit)
+    val own = rememberComicCover(unit, rightToLeft)
     CpCover(
         image = chosen ?: own,
         title = title,
@@ -409,14 +421,14 @@ internal fun WorkScreen(
             }
             item { CpSectionLabel("${work.volumeCount}${unitWord(work)}") }
             for (entry in work.entries) {
-                item(key = entry.slot) { EntryRow(entry, work.title, progress[entry.unit.id], { onEntry(it, null) }, onCopies) }
+                item(key = entry.slot) { EntryRow(entry, work.title, progress[entry.unit.id], { onEntry(it, null) }, onCopies, rightToLeft = work.rightToLeft ?: false) }
                 val sections = entry.unit.contents?.sections.orEmpty()
                 entry.sections.forEachIndexed { i, label ->
                     item(key = entry.slot + "#" + i) {
                         val section = sections.getOrNull(i)
                         val pages = section?.let { sectionPages(it.firstPage, it.pageCount) }
                         // 합본 안의 권을 누르면 그 권의 첫 쪽부터.
-                        UnitRow(entry.unit, work.title, label, pages, indent = ENTRY_LEAD, onClick = { onEntry(entry, section?.firstPage) })
+                        UnitRow(entry.unit, work.title, label, pages, indent = ENTRY_LEAD, onClick = { onEntry(entry, section?.firstPage) }, rightToLeft = work.rightToLeft ?: false)
                     }
                 }
             }
@@ -507,7 +519,7 @@ private fun WorkWide(
     val grid: androidx.compose.foundation.lazy.grid.LazyGridScope.() -> Unit = {
         item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) { CpSectionLabel("${work.volumeCount}${unitWord(work)}") }
         items(cells.size, key = { cells[it].let { cell -> cell.entry.slot + "#" + (cell.firstPage ?: -1) + cell.label } }) { i ->
-            WorkGridCell(cells[i], work.title, { onEntry(cells[i].entry, cells[i].firstPage) }, onCopies)
+            WorkGridCell(cells[i], work.title, { onEntry(cells[i].entry, cells[i].firstPage) }, onCopies, rightToLeft = work.rightToLeft ?: false)
         }
     }
     if (twoPane) {
@@ -554,10 +566,10 @@ private fun WorkWide(
 private val WORK_CELL_MIN = 120.dp
 
 @Composable
-private fun WorkGridCell(cell: WorkCell, title: String, onClick: () -> Unit, onCopies: (WorkEntry) -> Unit) {
+private fun WorkGridCell(cell: WorkCell, title: String, onClick: () -> Unit, onCopies: (WorkEntry) -> Unit, rightToLeft: Boolean) {
     val c = CpTheme.colors
     Column(Modifier.clickable(role = Role.Button, onClick = onClick).semantics(mergeDescendants = true) {}) {
-        ComicCover(cell.entry.unit, title, null, Modifier.fillMaxWidth())
+        ComicCover(cell.entry.unit, title, null, Modifier.fillMaxWidth(), rightToLeft = rightToLeft)
         Spacer(Modifier.height(6.dp))
         CpText(cell.label, CpTheme.type.label, c.text)
         cell.inside?.let { CpText(it, CpTheme.type.caption, c.textMuted) }
@@ -581,8 +593,8 @@ internal val ENTRY_COVER = 40.dp
 internal val ENTRY_LEAD = ENTRY_COVER + 14.dp
 
 @Composable
-private fun EntryRow(entry: WorkEntry, title: String, progress: ComicProgress?, onEntry: (WorkEntry) -> Unit, onCopies: (WorkEntry) -> Unit) {
-    UnitRow(entry.unit, title, entryLabel(entry), entrySub(entry, progress), indent = 0.dp, onClick = { onEntry(entry) }, progress = progress?.let { if (it.finished) 1f else it.fraction }) {
+private fun EntryRow(entry: WorkEntry, title: String, progress: ComicProgress?, onEntry: (WorkEntry) -> Unit, onCopies: (WorkEntry) -> Unit, rightToLeft: Boolean) {
+    UnitRow(entry.unit, title, entryLabel(entry), entrySub(entry, progress), indent = 0.dp, onClick = { onEntry(entry) }, progress = progress?.let { if (it.finished) 1f else it.fraction }, rightToLeft = rightToLeft) {
         if (entry.copies.isNotEmpty()) {
             val shape = RoundedCornerShape(CpTheme.metrics.cornerChip)
             Box(
@@ -608,6 +620,8 @@ private fun UnitRow(
     onClick: () -> Unit,
     /** 펼친 권의 진도(0..1). null 이면 막대가 없다. */
     progress: Float? = null,
+    /** 이 줄이 든 작품의 넘기는 방향 — 펼침면 표지의 앞표지 반을 고른다. */
+    rightToLeft: Boolean = false,
     trailing: @Composable () -> Unit = {},
 ) {
     val c = CpTheme.colors
@@ -616,7 +630,7 @@ private fun UnitRow(
             .padding(start = CpTheme.metrics.gutter + indent, end = CpTheme.metrics.gutter, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ComicCover(unit, title, null, Modifier.width(ENTRY_COVER), small = true)
+        ComicCover(unit, title, null, Modifier.width(ENTRY_COVER), small = true, rightToLeft = rightToLeft)
         Spacer(Modifier.width(ENTRY_LEAD - ENTRY_COVER))
         Column(Modifier.weight(1f)) {
             CpText(label, CpTheme.type.body, c.text)

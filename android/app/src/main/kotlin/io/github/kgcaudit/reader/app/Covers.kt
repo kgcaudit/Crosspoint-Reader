@@ -38,8 +38,16 @@ class Cover(val image: ImageBitmap?, val custom: Boolean, val hasOwn: Boolean)
  */
 class CoverStore(
     private val dir: File,
-    /** 만화 단위(압축 · 그림 폴더)에서 표지를 꺼낸다. 규칙은 [extract] 와 같다. 책 꺼내기를 끝에 두어 뒤따르는 람다로 받는다. */
-    private val extractComic: suspend (ComicUnit) -> Bitmap? = { null },
+    /**
+     * 만화 단위(압축 · 그림 폴더)에서 표지를 꺼낸다. 규칙은 [extract] 와 같다. 책 꺼내기를 끝에 두어 뒤따르는 람다로 받는다.
+     * 둘째 값은 작품의 넘기는 방향(오→왼이면 true) — 첫 그림이 펼침면이면 어느 반이 앞표지인지 이것으로 정한다.
+     */
+    private val extractComic: suspend (ComicUnit, Boolean) -> Bitmap? = { _, _ -> null },
+    /**
+     * 책 표지 파일 이름에 덧붙일 꼬리(0.52.x): 만화로 보는 책은 표지를 앞표지 반만 쓰므로 보기 · 방향마다 다른 파일이다. 꼬리를
+     * 이름에 넣지 않으면 방향을 바꿔도 옛 반쪽이 남는다. 책으로 보는 책은 빈 꼬리(옛 파일 그대로).
+     */
+    private val bookFace: suspend (LibraryBook) -> String = { "" },
     /** 책에서 표지를 꺼낸다. 표지가 없으면 null, 파일을 못 읽으면 예외. */
     private val extract: suspend (LibraryBook) -> Bitmap?,
 ) {
@@ -61,7 +69,7 @@ class CoverStore(
             memory.get(key)?.let { return@withLock it }
             val version = _version.value
             val custom = File(dir, "custom/${key(book.id)}.jpg").takeIf { it.isFile }?.let(::decodeFile)
-            val own = ownCover(book.id.value, book.sizeBytes, book.displayName) { extract(book) }
+            val own = ownCover(book.id.value + bookFace(book), book.sizeBytes, book.displayName) { extract(book) }
             val cover = Cover(custom ?: own.image, custom = custom != null, hasOwn = own.image != null)
             // 꺼내는 사이에 표지를 고르거나 되돌렸으면 담지 않는다 — 고르기 전에 읽은 옛 표지가 메모리에 남아, 바꿨다는
             // 알림이 뜬 뒤에도 책장에 옛 표지가 보였다. 못 읽은 책도 담지 않는다 — 저장소가 돌아오면 다시 찾아야 한다.
@@ -100,18 +108,23 @@ class CoverStore(
         true
     }
 
-    /** 만화 단위의 표지(메모리에 있을 때만). 작품의 고른 표지는 [cachedWork] — 화 · 권의 표지는 그림이 곧 표지다. */
-    fun cachedComic(unit: ComicUnit): ImageBitmap? = memory.get(comicKey(unit))?.image
+    /**
+     * 만화 단위의 표지(메모리에 있을 때만). 작품의 고른 표지는 [cachedWork] — 화 · 권의 표지는 그림이 곧 표지다.
+     * [rightToLeft] 는 작품의 넘기는 방향 — 펼침면 표지는 방향마다 다른 반이다.
+     */
+    fun cachedComic(unit: ComicUnit, rightToLeft: Boolean = false): ImageBitmap? = memory.get(comicKey(unit, rightToLeft))?.image
 
     /** 만화 단위의 표지. 없거나 못 읽으면 null(대신 표지). 책 표지와 같은 줄에 서서 한 번에 하나씩 꺼낸다. */
-    suspend fun comic(unit: ComicUnit): ImageBitmap? = withContext(Dispatchers.IO) {
-        val key = comicKey(unit)
+    suspend fun comic(unit: ComicUnit, rightToLeft: Boolean = false): ImageBitmap? = withContext(Dispatchers.IO) {
+        val key = comicKey(unit, rightToLeft)
         memory.get(key)?.let { return@withContext it.image }
         extracting.withLock {
             memory.get(key)?.let { return@withLock it.image }
-            // 표지 항목을 열쇠에 넣는다 — 살피기 전(표지 모름)에 "없음" 으로 굳힌 표시가 살핀 뒤에도 남지 않게. "comic2" 는
-            // 긴 그림 자르기(0.47.0) 뒤의 표지다 — 앞의 열쇠면 저장해 둔 가는 막대 표지가 그대로 나왔다.
-            val own = ownCover("comic2|${unit.id}|${unit.contents?.cover}", unit.sizeBytes, unit.name) { extractComic(unit) }
+            // 표지 항목을 열쇠에 넣는다 — 살피기 전(표지 모름)에 "없음" 으로 굳힌 표시가 살핀 뒤에도 남지 않게. "comic3" 은
+            // 펼침면 표지를 앞표지 반만 쓰는(0.52.x) 표지다 — 앞의 열쇠("comic2", 긴 그림 자르기)면 저장해 둔 두 쪽짜리 띠가
+            // 그대로 나왔다. 오→왼은 꼬리를 달아 따로 둔다: 방향을 바꾸면 다른 반이 앞표지라, 한 파일이면 옛 반이 남는다.
+            val name = "comic3|${unit.id}|${unit.contents?.cover}" + if (rightToLeft) "|rtl" else ""
+            val own = ownCover(name, unit.sizeBytes, unit.name) { extractComic(unit, rightToLeft) }
             if (own.settled) memory.put(key, Cover(own.image, custom = false, hasOwn = own.image != null))
             own.image
         }
@@ -147,6 +160,12 @@ class CoverStore(
         }
         if (any) changed()
     }
+
+    /**
+     * 책을 만화로 · 책으로 보기, 만화로 보는 책의 넘기는 방향을 바꿨다 — 그 책의 표지가 다른 반이 된다. 파일은 꼬리([bookFace])로
+     * 이미 갈리니 메모리만 비우고 책장이 다시 읽게 한다. 비우지 않으면 앱을 다시 켤 때까지 옛 표지가 보였다.
+     */
+    fun facesChanged() = changed()
 
     private fun changed() {
         // 어느 책의 메모리 항목인지는 크기까지 붙은 열쇠라 여기서 모른다. 표지 고르기는 드물어 통째로 비운다.
@@ -232,7 +251,7 @@ class CoverStore(
 
         private fun workMemoryKey(workKey: String) = "work|$workKey"
 
-        private fun comicKey(unit: ComicUnit) = "comic|${unit.id}|${unit.sizeBytes}|${unit.contents?.cover}"
+        private fun comicKey(unit: ComicUnit, rightToLeft: Boolean) = "comic|${unit.id}|${unit.sizeBytes}|${unit.contents?.cover}|$rightToLeft"
 
         /**
          * 그림 바이트를 표지 크기로 읽는다. 먼저 크기만 재고 알맞게 솎아 읽는다 — 폰 사진(4000×3000)을 통째로 풀면
@@ -257,11 +276,14 @@ class CoverStore(
          * 긴 그림을 통째로 풀지 않는다(800×30000 = 96MB). 바탕을 찾을 때는 폭 [PROBE_WIDTH] 로 크게 솎아 풀고, 자른 부분만
          * 띠 풀기로 다시 푼다. [regions] 가 false 거나 띠 풀기가 안 되면 전체를 줄여 풀어 자른다.
          */
-        fun decodeComicCover(bytes: ByteArray, regions: Boolean = true): Bitmap? {
+        fun decodeComicCover(bytes: ByteArray, regions: Boolean = true, rightToLeft: Boolean = false): Bitmap? {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
             if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
             val size = ImageSize(bounds.outWidth, bounds.outHeight)
+            // 펼침면(앞 · 뒤표지 한 장)은 앞표지만(0.52.x). 줄여 푼 그림(폭 [MAX_COVER_WIDTH] 이하)에서 같은 비율로 자른다 — 표지
+            // 칸은 높이 [COVER_HEIGHT] 라 반쪽도 흐리지 않고, 띠 풀기가 없는 기기 · 시험에서도 같은 길이다.
+            if (CoverCrop.front(size.width, size.height, rightToLeft) != 0 until size.width) return decodeScaled(bytes)?.let { front(it, rightToLeft) }
             if (!CoverCrop.isTall(size)) return decodeScaled(bytes)
             val byWidth = sampleKeeping(size.width, size.height, PROBE_WIDTH, 0)
             // 아주 긴 띠는 폭만 보고 솎으면 화소 수가 크다(360×25000 = 36MB) — 화소 수로도 묶는다.
@@ -280,6 +302,16 @@ class CoverStore(
             val y0 = (window.first / scale).toInt().coerceIn(0, probe.height - 1)
             val y1 = ((window.last + 1) / scale).toInt().coerceIn(y0 + 1, probe.height)
             return Bitmap.createBitmap(probe, 0, y0, probe.width, y1 - y0)
+        }
+
+        /**
+         * 펼침면 그림에서 앞표지만 잘라 낸다([CoverCrop.front]). 펼침면이 아니면 그대로. 책(만화로 보는 PDF · 그림책)의 표지도
+         * 이것을 거친다 — 만화와 같은 서재에 서는데 한쪽만 두 쪽짜리 띠면 같은 스캔본이 어디서 열었느냐로 달라 보인다.
+         */
+        fun front(bitmap: Bitmap, rightToLeft: Boolean): Bitmap {
+            val cols = CoverCrop.front(bitmap.width, bitmap.height, rightToLeft)
+            if (cols.isEmpty() || (cols.first == 0 && cols.last == bitmap.width - 1)) return bitmap
+            return Bitmap.createBitmap(bitmap, cols.first, 0, cols.last - cols.first + 1, bitmap.height)
         }
 
         /** 긴 그림에서 바탕을 찾을 때 솎아 푸는 폭. 칸 테두리(2~3px)가 솎아도 남을 만큼. */

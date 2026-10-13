@@ -203,6 +203,58 @@ class OpenWithComicTest {
         assertTrue(!has(hasText("열지 못했습니다", substring = true)))
     }
 
+    private fun node(matcher: SemanticsMatcher) = compose.onAllNodes(matcher, useUnmergedTree = true).let { it[it.fetchSemanticsNodes().size - 1] }
+
+    /** 메뉴 → 보기 판을 연다. 두 쪽 보기(넓은 가로 화면)라 표지 줄이 설 자리다 — 휴대폰 가로는 낮아 줄이 판 아래로 밀린다. */
+    private fun openViewPanel() {
+        compose.mainClock.advanceTimeBy(1_000)
+        compose.onRoot().performTouchInput { click(center) }
+        waitFor(hasText("보기"))
+        compose.onAllNodes(hasText("보기"), useUnmergedTree = true).let { it[it.fetchSemanticsNodes().size - 1] }.performClick()
+        waitFor(hasText("넘기는 방향"))
+    }
+
+    @Test
+    @Config(qualifiers = "w1280dp-h800dp-xhdpi")
+    fun `a sent copy of a library volume keeps the two-page cover choice of that work`() {
+        // 서재 쪽이 열리지 않아(속이 망가짐) 받은 파일로 연 때. 0.52.0 까지는 표지 줄이 없어, 같은 작품을 서재에서 열 때와 보기 판이 달랐다.
+        File(books, "Comics/별").mkdirs()
+        val inLibrary = File(books, "Comics/별/별 01권.cbz").apply { writeBytes(threePages) }
+        download("별 01권.cbz", threePages)
+        val data = app.container.data
+        runBlocking {
+            data.folders.register(FolderProvider.treeUri)
+            data.rescanAll()
+            data.probeComics()
+        }
+        inLibrary.writeBytes(ByteArray(threePages.size) { 7 })
+        launch(view("별 01권.cbz", "application/vnd.comicbook+zip"))
+        waitFor(hasContentDescription("만화", substring = true))
+        openViewPanel()
+        waitFor(hasText("표지"))
+        // "함께" 는 다른 줄(모든 보기 설정의 기본값)에도 있다 — 표지 줄과 같은 높이의 것을 누른다.
+        val y = node(hasText("표지")).fetchSemanticsNode().boundsInRoot.center.y
+        compose.onAllNodes(hasText("함께")).let { nodes ->
+            val k = nodes.fetchSemanticsNodes().indexOfFirst { kotlin.math.abs(it.boundsInRoot.center.y - y) < 60f }
+            assertTrue(k >= 0, "표지 줄에 \"함께\" 가 없다")
+            nodes[k].performClick()
+        }
+        // 고른 값은 서재 작품에 적힌다 — 받은 파일의 열쇠(문서 주소)에 적으면 서재에서 열 때 따르지 않는다.
+        val work = runBlocking { data.comics.works().first().single() }
+        compose.waitUntil(10_000) { runBlocking { data.comics.coverChoices().first().works[work.key] } == false }
+    }
+
+    @Test
+    @Config(qualifiers = "w1280dp-h800dp-xhdpi")
+    fun `a sent comic that is not in the library has no cover row to save into`() {
+        download("별 01권.cbz", threePages)
+        launch(view("별 01권.cbz", "application/vnd.comicbook+zip"))
+        waitFor(hasContentDescription("만화", substring = true))
+        openViewPanel()
+        // 적을 작품이 없다 — 줄을 두면 고른 값이 어디에도 남지 않는다.
+        assertTrue(!has(hasText("표지")), "서재에 없는 받은 만화에 표지 줄이 있다")
+    }
+
     @Test
     fun `a plain zip of pictures opens, and a zip without pictures is explained`() {
         // 만화를 받은 그대로 .zip 으로 두는 사람이 많다 — 그림만 들었으면 만화다(서재의 살피기와 같은 규칙).

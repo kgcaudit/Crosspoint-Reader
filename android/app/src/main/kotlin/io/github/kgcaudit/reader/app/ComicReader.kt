@@ -196,6 +196,13 @@ fun ComicReader(
     coverScope: String = "이 작품만",
     /** 모든 보기 설정의 "바꾼 작품 N개" · 모두 지우기. */
     ownCovers: io.github.kgcaudit.reader.ui.design.CpOwnCovers? = null,
+    /**
+     * 화면에 보이는 조각(책의 쪽 + 펼침면의 어느 반)이 바뀔 때(0.52.x). 표지 고르기가 보이는 반만 자르려고 쓴다 — 쪽 번호만 알면
+     * 반을 보며 골라도 두 쪽이 다 든 표지가 됐다. 두 쪽 보기면 판의 뒤 쪽(자리로 적는 쪽과 같다).
+     */
+    onShownPart: (SpreadSplit.Part) -> Unit = {},
+    /** 표지 고르기에서 통째로 보이는 펼침면의 고른 곳(책의 쪽 + 반, 통째로면 WHOLE). 나머지 반을 어둡게 덮고 고른 곳에 테를 두른다. */
+    coverMark: SpreadSplit.Part? = null,
 ) {
     val bookCount = book.pageCount
     // 지금 자리: 책의 쪽 × 2, 펼침면의 둘째 반이면 + 1(0.50.0). 화면이 넘기는 단위(조각)로 적지 않는다 — 펼침면 나누기를 켜고
@@ -253,6 +260,16 @@ fun ComicReader(
     // 자리는 판의 마지막 쪽으로 적는다 — 끝 판을 보면 다 읽음이고, 다시 열면 그 쪽이 든 판이 나온다. 다 읽음은 책의 마지막
     // 쪽이 아니라 마지막 조각이다: 마지막 쪽이 펼침면이면 그 첫 반은 아직 끝이 아니다(0.52 까지는 첫 반에서 다 읽음이 됐다).
     LaunchedEffect(shown) { onPage(realOf(shown.last()), shown.last() >= count - 1) }
+    // 조각 목록이 바뀌어도(나누기를 켜고 끔) 판 번호는 같을 수 있다 — 조각 자체를 열쇠로.
+    val shownPart = parts.getOrNull(shown.last())
+    LaunchedEffect(shownPart) { shownPart?.let(onShownPart) }
+    /** 강조할 조각(판 안의 순번)과 그 반. 표지 고르기에서만. */
+    val markColor = CpTheme.colors.accent
+    fun markOf(index: Int): Pair<Int, SpreadSplit.Half>? {
+        val m = coverMark ?: return null
+        val k = spreads.getOrNull(index)?.indexOfFirst { parts.getOrNull(it) == SpreadSplit.Part(m.page, SpreadSplit.Half.WHOLE) } ?: return null
+        return if (k < 0) null else k to m.half
+    }
     LaunchedEffect(panel) { onChrome(panel != ComicPanel.None) }
     // 왼쪽 끝을 밀어 밝기(0.42.0 — 책과 같은 부품). 메뉴가 열렸거나 끝 화면이면 막는다.
     val brightness = rememberBrightnessDrag(
@@ -418,7 +435,7 @@ fun ComicReader(
                         mirrored = rtl,
                     ) { index ->
                         Box(Modifier.fillMaxSize().background(COMIC_BACKDROP)) {
-                            spreads.getOrNull(index)?.let { ComicPageImage(pages, partSizes, it, w, h, if (index == spreadIndex) viewport else null, rtl, bias, slotOf(index), trim, color) }
+                            spreads.getOrNull(index)?.let { ComicPageImage(pages, partSizes, it, w, h, if (index == spreadIndex) viewport else null, rtl, bias, slotOf(index), trim, color, markOf(index), markColor) }
                         }
                     }
                 } else if (w > 0 && h > 0 && count > 0) {
@@ -430,7 +447,7 @@ fun ComicReader(
                             val offset = if (k == 0) 0f else k * nextSide * stepTo(spreadIndex + k)
                             key(spreadIndex + k) {
                                 Box(Modifier.fillMaxSize().graphicsLayer { translationX = slide.value + offset; alpha = if (k == 0 || slide.value != 0f) 1f else 0f }) {
-                                    ComicPageImage(pages, partSizes, spread, w, h, if (k == 0) viewport else null, rtl, bias, slotOf(spreadIndex + k), trim, color)
+                                    ComicPageImage(pages, partSizes, spread, w, h, if (k == 0) viewport else null, rtl, bias, slotOf(spreadIndex + k), trim, color, markOf(spreadIndex + k), markColor)
                                 }
                             }
                         }
@@ -651,10 +668,13 @@ internal fun ViewChoice(view: ComicView?, onView: (ComicView?) -> Unit) {
 
 /**
  * 한 판(쪽 하나 · 둘)의 그림. [viewport] 가 없으면(옆에 붙은 판 · 크기를 아직 모름) 화면에 맞춰 가운데. [rtl] 이면 두 쪽의
- * 앞 쪽을 오른쪽에 둔다. [color] 는 색 보정 거르개(끔이면 null).
+ * 앞 쪽을 오른쪽에 둔다. [color] 는 색 보정 거르개(끔이면 null). [mark] 는 표지 고르기의 강조(판 안 순번 · 고른 반).
  */
 @Composable
-private fun ComicPageImage(book: ComicPageSource, sizes: List<ImageSize?>, pages: List<Int>, w: Int, h: Int, viewport: PageViewport?, rtl: Boolean, bias: Float, slot: SpreadSlot, trim: Boolean, color: ColorFilter?) {
+private fun ComicPageImage(
+    book: ComicPageSource, sizes: List<ImageSize?>, pages: List<Int>, w: Int, h: Int, viewport: PageViewport?, rtl: Boolean, bias: Float, slot: SpreadSlot, trim: Boolean, color: ColorFilter?,
+    mark: Pair<Int, SpreadSplit.Half>? = null, markColor: Color = Color.Unspecified,
+) {
     // 두 쪽 판은 판이 함께 쓰는 상자로 자른 그림만 쓴다. 상자를 아직 모르면(짝의 여백을 찾기 전) 저장소의 그림도 쓰지 않는다 —
     // 쪽마다 따로 자른 그림이 잠깐 보였다가 바뀌면 판이 출렁인다.
     // 그림 원천([book])도 열쇠다: 넘기는 방향을 바꾸면 조각 차례가 바뀌어 같은 번호가 펼침면의 다른 반이 된다. 번호만 열쇠면
@@ -706,12 +726,37 @@ private fun ComicPageImage(book: ComicPageSource, sizes: List<ImageSize?>, pages
                         colorFilter = color,
                     )
                 }
+                if (mark?.first == k) drawCoverMark(x, vp.top, pw, vp.height, mark.second, markColor)
                 x += pw
             }
         }
         if (broken) CpText("이 쪽을 그리지 못했습니다", CpTheme.type.subtitle, COMIC_INK_MUTED, Modifier.align(Alignment.Center))
     }
 }
+
+/**
+ * 표지 고르기의 강조(0.52.x): 고르지 않은 반은 검게 덮고(60%), 고른 곳에 3dp 테. 쪽 그림과 같은 캔버스에 그린다 — 화면 위에
+ * 따로 얹으면 확대 · 두 쪽 · 오→왼 배치를 다시 셈해야 하고, 어긋나면 고른 곳과 다른 반이 강조된다.
+ */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCoverMark(left: Float, top: Float, width: Float, height: Float, half: SpreadSplit.Half, color: Color) {
+    val mid = left + width / 2
+    val (from, to) = when (half) {
+        SpreadSplit.Half.LEFT -> left to mid
+        SpreadSplit.Half.RIGHT -> mid to left + width
+        SpreadSplit.Half.WHOLE -> left to left + width
+    }
+    val dim = Color.Black.copy(alpha = COVER_DIM)
+    if (half == SpreadSplit.Half.LEFT) drawRect(dim, Offset(mid, top), androidx.compose.ui.geometry.Size(left + width - mid, height))
+    if (half == SpreadSplit.Half.RIGHT) drawRect(dim, Offset(left, top), androidx.compose.ui.geometry.Size(mid - left, height))
+    val stroke = 3.dp.toPx()
+    drawRect(
+        color, Offset(from + stroke / 2, top + stroke / 2), androidx.compose.ui.geometry.Size(to - from - stroke, height - stroke),
+        style = androidx.compose.ui.graphics.drawscope.Stroke(stroke),
+    )
+}
+
+/** 표지 고르기에서 고르지 않은 반을 덮는 어둠. 반쯤 비쳐야 무엇을 빼는지 보인다. */
+private const val COVER_DIM = 0.6f
 
 /** 태블릿의 그림 자리: 잘림 영역 + 숨긴 상태 줄 높이(위). 둘 중 큰 쪽만큼 위를 비운다. */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
@@ -985,6 +1030,14 @@ fun ComicHost(
     // 웹툰의 독서 기록(0.51.0): 넘기는 쪽이 없어, 화면이 움직인 사이를 1분까지 센다(ScrollClock). 화면이 움직일 때마다 자리를
     // 적으므로 그 자리에서 알린다. 시간은 그때 보던 화에 붙는다.
     val scrolled = rememberScrollTime<String> { id, ms -> container.recordTime(TimeItem.COMIC, id, TimeMode.READ, ms) }
+    // 표지 고르기(0.52.x): 화면에 보이는 조각. 펼침면의 반이 보이면 그 반만, 통째로 보이는 펼침면이면 고른 곳([pickHalf])을 자른다.
+    var shownPart by remember(key, reload) { mutableStateOf<SpreadSplit.Part?>(null) }
+    val pickPart = shownPart ?: SpreadSplit.Part(position.first, SpreadSplit.Half.WHOLE)
+    val pickRtl = ComicReading.rightToLeft(work)
+    val pickWide = pickCover && pickPart.half == SpreadSplit.Half.WHOLE && SpreadSplit.isWide(sizes.getOrNull(pickPart.page))
+    // 처음 고른 곳은 앞표지 쪽: 왼→오 책은 오른쪽, 오→왼 책은 왼쪽(자동 표지와 같은 규칙). 쪽 · 방향이 바뀌면 다시 앞표지 쪽 —
+    // 앞 쪽에서 고른 곳이 남으면 넘길 때마다 엉뚱한 반이 미리 골라져 있다.
+    var pickHalf by remember(pickPart.page, pickRtl) { mutableStateOf(frontHalf(pickRtl)) }
     Box(Modifier.fillMaxSize()) {
         when (view) {
             ComicView.PAGE -> Box(Modifier.fillMaxSize()) { ComicReader(
@@ -1012,11 +1065,19 @@ fun ComicHost(
                 coverAlone = work?.coverAlone,
                 onCoverAlone = work?.let { w -> { v: Boolean -> scope.launchWrite(failed) { data.comics.setCoverAlone(w, v) } } },
                 ownCovers = ownCovers(rememberCoverChoices()),
+                onShownPart = { shownPart = it },
+                coverMark = if (pickWide) SpreadSplit.Part(pickPart.page, pickHalf) else null,
             )
-                // 쪽 넘김 만화는 장면이 곧 쪽이다 — 보던 쪽을 통째로 표지로(웹툰처럼 틀로 자르면 쪽의 제목 · 그림이 잘린다).
-                if (pickCover) PagePickBar(onBack = onClose) {
-                    val size = sizes.getOrNull(position.first) ?: return@PagePickBar false
-                    val bitmap = opened.crop(position.first, android.graphics.Rect(0, 0, size.width, size.height), CoverStore.COVER_HEIGHT) ?: return@PagePickBar false
+                // 쪽 넘김 만화는 장면이 곧 쪽이다 — 보던 쪽을 통째로 표지로(웹툰처럼 틀로 자르면 쪽의 제목 · 그림이 잘린다). 단, 펼침면은
+                // 보이는 반 · 고른 곳만(0.52.x): 두 쪽을 다 넣으면 표지 칸에서 납작한 띠가 된다.
+                if (pickCover) PagePickBar(
+                    subtitle = pickSubtitle(pickPart, pickWide),
+                    choice = if (!pickWide) null else { { CpChoice("표지로 쓸 곳", PICK_HALVES.map { it.second }, PICK_HALVES.indexOfFirst { it.first == pickHalf }, { pickHalf = PICK_HALVES[it].first }) } },
+                    onBack = onClose,
+                ) {
+                    val size = sizes.getOrNull(pickPart.page) ?: return@PagePickBar false
+                    val half = if (pickWide) pickHalf else pickPart.half
+                    val bitmap = opened.crop(pickPart.page, halfRect(size, half), CoverStore.COVER_HEIGHT) ?: return@PagePickBar false
                     saveCover(bitmap).also { if (it) onClose() }
                 }
             }
@@ -1077,21 +1138,52 @@ fun ComicHost(
     }
 }
 
-/** 쪽 넘김 만화에서 표지 고르기: 위에 "표지로 쓸 쪽", 아래에 "이 쪽을 표지로". 넘겨서 쪽을 고른다. */
+/** 표지 고르기의 "표지로 쓸 곳" 선택지: 화면에 보이는 차례(왼쪽 · 오른쪽 · 통째로). */
+private val PICK_HALVES = listOf(SpreadSplit.Half.LEFT to "왼쪽", SpreadSplit.Half.RIGHT to "오른쪽", SpreadSplit.Half.WHOLE to "통째로")
+
+/** 펼침면의 앞표지 쪽 반: 왼→오 책은 오른쪽, 오→왼 책은 왼쪽(CoverCrop.front 와 같다). */
+internal fun frontHalf(rightToLeft: Boolean): SpreadSplit.Half = if (rightToLeft) SpreadSplit.Half.LEFT else SpreadSplit.Half.RIGHT
+
+/** 쪽 그림에서 [half] 가 차지하는 원본 사각형. */
+internal fun halfRect(size: ImageSize, half: SpreadSplit.Half): android.graphics.Rect = when (half) {
+    SpreadSplit.Half.LEFT -> android.graphics.Rect(0, 0, (size.width / 2).coerceAtLeast(1), size.height)
+    SpreadSplit.Half.RIGHT -> android.graphics.Rect((size.width / 2).coerceAtMost(size.width - 1), 0, size.width, size.height)
+    SpreadSplit.Half.WHOLE -> android.graphics.Rect(0, 0, size.width, size.height)
+}
+
+/**
+ * 표지 고르기 머리의 풀이: 펼침면의 반을 보고 있으면 "10쪽 · 오른쪽 반"(그 반만 표지가 된다는 것을 미리 보인다), 통째로 보이는
+ * 펼침면이면 "10쪽 — 표지로 쓸 곳을 고릅니다", 나머지는 넘겨서 고르라는 안내.
+ */
+internal fun pickSubtitle(part: SpreadSplit.Part, wide: Boolean): String = when {
+    part.half == SpreadSplit.Half.LEFT -> "${part.page + 1}쪽 · 왼쪽 반"
+    part.half == SpreadSplit.Half.RIGHT -> "${part.page + 1}쪽 · 오른쪽 반"
+    wide -> "${part.page + 1}쪽 — 표지로 쓸 곳을 고릅니다"
+    else -> "넘겨서 쪽을 고릅니다"
+}
+
+/**
+ * 쪽 넘김 만화에서 표지 고르기: 위에 "표지로 쓸 쪽", 아래에 "이 쪽을 표지로". 넘겨서 쪽을 고른다. [choice] 는 단추 위에 둘
+ * 줄(통째로 보이는 펼침면의 "표지로 쓸 곳") — 없으면 null.
+ */
 @Composable
-private fun PagePickBar(onBack: () -> Unit, onPick: suspend () -> Boolean) {
+private fun PagePickBar(subtitle: String, choice: (@Composable () -> Unit)?, onBack: () -> Unit, onPick: suspend () -> Boolean) {
     val scope = rememberCoroutineScope()
     var saving by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.background(CpTheme.colors.surface).windowInsetsPadding(WindowInsets.statusBars)) {
-            CpHeader("표지로 쓸 쪽", subtitle = if (failed) "이 쪽을 표지로 쓸 수 없습니다" else "넘겨서 쪽을 고릅니다", onBack = onBack)
+            CpHeader("표지로 쓸 쪽", subtitle = if (failed) "이 쪽을 표지로 쓸 수 없습니다" else subtitle, onBack = onBack)
         }
         Spacer(Modifier.weight(1f))
-        Box(
+        Column(
             Modifier.fillMaxWidth().background(CpTheme.colors.surface).windowInsetsPadding(WindowInsets.navigationBars).padding(16.dp),
-            contentAlignment = Alignment.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            choice?.let {
+                Box(Modifier.fillMaxWidth()) { it() }
+                Spacer(Modifier.height(8.dp))
+            }
             CpButton(if (saving) "저장하는 중…" else "이 쪽을 표지로", {
                 if (saving) return@CpButton
                 saving = true
