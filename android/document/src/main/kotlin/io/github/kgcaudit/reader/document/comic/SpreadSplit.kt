@@ -38,6 +38,13 @@ object SpreadSplit {
         }
     }
 
+    /**
+     * [half] 가 읽는 차례로 둘째 반인가([parts] 의 차례와 같다): 왼→오 책은 오른쪽 반, 오→왼 책은 왼쪽 반. 쪽 전체는 둘째가
+     * 아니다. 저장한 반(실제 쪽)을 화면의 자리(첫 반 · 둘째 반)로 옮길 때 쓴다 — 방향을 함께 보지 않으면 방향을 바꾼 책에서
+     * 보던 반의 반대쪽이 떴다.
+     */
+    fun isSecond(half: Half, rightToLeft: Boolean): Boolean = half != Half.WHOLE && (half == Half.RIGHT) != rightToLeft
+
     /** 나누지 않을 때의 조각(쪽 하나에 조각 하나). */
     fun whole(count: Int): List<Part> = List(count) { Part(it, Half.WHOLE) }
 

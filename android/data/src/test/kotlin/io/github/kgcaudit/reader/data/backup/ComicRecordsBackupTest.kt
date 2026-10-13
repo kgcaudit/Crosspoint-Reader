@@ -268,4 +268,68 @@ class ComicRecordsBackupTest {
         )
         assertEquals(file, RecordsCodec.decode(RecordsCodec.encode(file)))
     }
+
+    @Test
+    fun `a work's split choice and the half being read move to a new phone without overwriting this phone's choice`() = runTest {
+        val old = phone("old", "content://old/tree")
+        old.scan("별 1권.cbz" to 5000L, "달 1권.cbz" to 7000L, "해 1권.cbz" to 9000L)
+        val works = old.comics.works().first()
+        old.comics.setSplitSpreads(works.first { it.title == "별" }, true)
+        old.comics.setSplitSpreads(works.first { it.title == "달" }, false)
+        // 나누기만 고른 작품도 작품 설정이다 — 세지 않으면 백업 단추가 흐려 옮길 길이 없다.
+        assertEquals(2, old.records.summary().works)
+        old.comics.saveProgress(old.id("별 1권.cbz"), 9, 120, 900, half = io.github.kgcaudit.reader.document.comic.SpreadSplit.Half.RIGHT)
+        val text = old.backup()
+
+        val new = phone("new", "content://new/tree")
+        new.scan("별 1권.cbz" to 5000L, "달 1권.cbz" to 7000L, "해 1권.cbz" to 9000L)
+        // 이 휴대폰에서 이미 "달" 은 나눔으로 정했다.
+        new.comics.setSplitSpreads(new.comics.works().first().first { it.title == "달" }, true)
+        new.bring(text)
+        val now = new.comics.works().first()
+        assertEquals(true, now.first { it.title == "별" }.splitSpreads, "작품에 고른 나눔이 새 휴대폰으로 오지 않았다")
+        assertEquals(true, now.first { it.title == "달" }.splitSpreads, "가져오기가 이 휴대폰에서 고른 나누기를 덮었다")
+        assertEquals(null, now.first { it.title == "해" }.splitSpreads, "고르지 않은 작품이 백업에서 값을 얻었다")
+        val p = assertNotNull(new.comics.progressOf(new.id("별 1권.cbz")))
+        assertEquals(9 to io.github.kgcaudit.reader.document.comic.SpreadSplit.Half.RIGHT, p.page to p.half, "보던 반이 새 휴대폰으로 오지 않았다")
+    }
+
+    @Test
+    fun `an older backup without the split choice or the half imports as following and the whole page`() = runTest {
+        // 0.52 까지의 백업: splitSpreads · half 칸이 없다.
+        val text = """{"format":"olo-ebook-reading-records","version":1,"createdAt":5,"books":[],
+            "comics":[{"name":"별 1권.cbz","size":5000,"page":9,"pageCount":120,"updatedAt":900,"bookmarks":[]}],
+            "works":[{"key":"별","rightToLeft":true,"coverAlone":false}]}"""
+        val file = assertNotNull(RecordsCodec.decode(text))
+        assertEquals(null, file.comics.single().half)
+        assertEquals(WorkRecord("별", rightToLeft = true, coverAlone = false), file.works.single())
+        val new = phone("new", "content://new/tree")
+        new.scan("별 1권.cbz" to 5000L)
+        new.bring(text)
+        val p = assertNotNull(new.comics.progressOf(new.id("별 1권.cbz")))
+        assertEquals(9 to null, p.page to p.half)
+        assertEquals(null, new.comics.works().first().single().splitSpreads)
+    }
+
+    @Test
+    fun `a broken split choice or half in a backup is dropped and the rest of the entry still imports`() = runTest {
+        // 망가뜨린 입력: 참 · 거짓이 아닌 나누기, 반이 아닌 반. 그 칸만 버리고 자리 · 다른 설정은 들어온다.
+        val text = """{"format":"olo-ebook-reading-records","version":1,"createdAt":5,"books":[],
+            "comics":[{"name":"별 1권.cbz","size":5000,"page":9,"half":"MIDDLE"},{"name":"달 1권.cbz","size":7000,"page":3,"half":"WHOLE"}],
+            "works":[{"key":"별","splitSpreads":"yes","rightToLeft":true},{"key":"달","splitSpreads":1}]}"""
+        val file = assertNotNull(RecordsCodec.decode(text))
+        assertEquals(listOf(9 to null, 3 to null), file.comics.map { it.page to it.half })
+        assertEquals(listOf(WorkRecord("별", rightToLeft = true)), file.works)
+    }
+
+    @Test
+    fun `a backup written and read back keeps the split choice and the half`() = runTest {
+        val file = RecordsFile(
+            7,
+            emptyList(),
+            listOf(ComicRecord("별 1권.cbz", 5000L, 3, 100, null, 900, null, half = io.github.kgcaudit.reader.document.comic.SpreadSplit.Half.LEFT)),
+            listOf(WorkRecord("별", splitSpreads = false), WorkRecord("달", splitSpreads = true)),
+        )
+        assertEquals(file, RecordsCodec.decode(RecordsCodec.encode(file)))
+    }
 }

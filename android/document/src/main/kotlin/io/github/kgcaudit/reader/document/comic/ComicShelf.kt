@@ -53,6 +53,11 @@ data class ComicOverrides(
      * 둘 다 든 작품은 "함께" 여야 본문 펼침이 맞는데, 그런 작품만 바꾸려고 기본값을 뒤집으면 다른 작품이 모두 한 쪽씩 어긋난다.
      */
     val coverAlone: Map<String, Boolean> = emptyMap(),
+    /**
+     * 작품 열쇠 → 이 작품의 펼침면 나누기: 나눔(true) · 통째로(false). 없으면 모든 만화의 설정을 따른다. 펼쳐 스캔한 작품만
+     * 나누려고 모든 만화의 설정을 켜 두면, 넓게 그린 한 장 그림까지 반으로 잘린다.
+     */
+    val splitSpreads: Map<String, Boolean> = emptyMap(),
 )
 
 /**
@@ -95,6 +100,8 @@ data class Work(
     val shelfMark: ShelfMark? = null,
     /** 두 쪽 보기의 표지: 이 작품에 고른 따로(true) · 함께(false). null 은 고르지 않음 — 모든 보기 설정의 기본값을 따른다. */
     val coverAlone: Boolean? = null,
+    /** 펼침면 나누기: 이 작품에 고른 나눔(true) · 통째로(false). null 은 "따름" — 모든 만화의 설정을 따른다. */
+    val splitSpreads: Boolean? = null,
 ) {
     val volumeCount: Int get() = entries.size
 }
@@ -199,6 +206,7 @@ object ComicShelf {
             view = overrides.view[key],
             shelfMark = overrides.shelf[key],
             coverAlone = overrides.coverAlone[key],
+            splitSpreads = overrides.splitSpreads[key],
         )
     }
 

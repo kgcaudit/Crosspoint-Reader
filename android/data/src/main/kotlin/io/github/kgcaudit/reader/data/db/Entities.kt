@@ -182,6 +182,11 @@ data class ComicProgressEntity(
     val finishedAtEpochMs: Long? = null,
     /** 웹툰: 그 그림 안의 비율(0..1, 0.35.0). null 은 쪽 넘김으로 읽음. */
     val offset: Float? = null,
+    /**
+     * 펼침면의 어느 반을 보던 중인가(`LEFT` · `RIGHT`, 스키마 8). 실제 쪽이지 차례가 아니다 — 방향을 바꿔도 같은 반으로 돌아온다.
+     * null 은 쪽 전체. 비어 있는 열을 더하기만 해서 옛 행은 그대로 읽힌다.
+     */
+    val half: String? = null,
 )
 
 /** 만화 책갈피: 권 하나의 쪽 하나. 같은 쪽에 두 번 꽂지 않는다(열쇠). */

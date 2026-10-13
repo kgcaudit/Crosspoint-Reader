@@ -241,6 +241,29 @@ class ReadingSyncTest {
     }
 
     @Test
+    fun `the further place offered by another device carries the half of the spread it was on`() = runTest {
+        // 다른 기기가 펼침면의 오른쪽 반을 보고 있었다. 쪽만 넘기면 "거기로" 를 눌렀을 때 그 쪽의 첫 반이 떴다.
+        put("만화/옛날 만화 1권.cbz", ByteArray(500))
+        val a = Device("폰")
+        val b = Device("탭")
+        a.data.folders.register(tree)
+        a.data.rescan(tree)
+        b.data.rescan(tree)
+        a.sync.enabled = true
+        b.sync.enabled = true
+        val unit = a.data.comics.units().first().single().id
+        a.data.comics.saveProgress(unit, 40, 180, 2_000, half = io.github.kgcaudit.reader.document.comic.SpreadSplit.Half.RIGHT)
+        a.sync.writeOwn()
+        b.data.comics.saveProgress(unit, 3, 180, 9_000)
+        val offer = assertNotNull(b.sync.offerForComic(unit))
+        assertEquals(40 to io.github.kgcaudit.reader.document.comic.SpreadSplit.Half.RIGHT, offer.page to offer.half)
+        // 반을 모르는 옛 기기의 파일: 반 없이 쪽 전체로 제안한다.
+        a.data.comics.saveProgress(unit, 41, 180, 3_000)
+        a.sync.writeOwn()
+        assertEquals(41 to null, assertNotNull(b.sync.offerForComic(unit)).let { it.page to it.half })
+    }
+
+    @Test
     fun `a provider that cannot truncate still leaves a whole json file`() = runTest {
         val (a, b) = twoDevices()
         val id = a.book("데미안.epub")

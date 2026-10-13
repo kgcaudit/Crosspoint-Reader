@@ -40,6 +40,8 @@ class SyncCodecTest {
         ),
         comics = listOf(
             ComicRecord("옛날 만화 1권.cbz", 999, page = 127, pageCount = 180, offset = 0.25f, updatedAtEpochMs = 7, bookmarks = listOf(ComicBookmarkRecord(3, 1))),
+            // 펼침면의 반도 함께 간다 — 다른 기기에서 "거기로" 를 누르면 같은 반이 떠야 한다.
+            ComicRecord("펼침 만화 1권.cbz", 500, page = 40, pageCount = 90, updatedAtEpochMs = 8, half = io.github.kgcaudit.reader.document.comic.SpreadSplit.Half.RIGHT),
         ),
     )
 

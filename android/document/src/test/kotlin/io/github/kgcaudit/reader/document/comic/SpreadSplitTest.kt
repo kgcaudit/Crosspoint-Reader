@@ -61,4 +61,18 @@ class SpreadSplitTest {
         val broken = SpreadSplit.splitFrame(MarginTrim.Frame(0.7f, 0f, 0.3f, 1f))
         assertEquals(true, broken.width > 0f)
     }
+
+    @Test
+    fun `a saved physical half is the second part in the reading order of either direction`() {
+        // 저장한 반은 실제 쪽이다. 왼→오 책의 둘째 반은 오른쪽, 오→왼 책의 둘째 반은 왼쪽 — parts 의 차례와 같아야 다시 열 때 같은 반이 뜬다.
+        val spread = ImageSize(3000, 2100)
+        for (rtl in listOf(false, true)) {
+            val parts = SpreadSplit.parts(listOf(spread), rtl)
+            assertEquals(false, SpreadSplit.isSecond(parts[0].half, rtl), "rtl=$rtl 첫 조각이 둘째로 읽혔다")
+            assertEquals(true, SpreadSplit.isSecond(parts[1].half, rtl), "rtl=$rtl 둘째 조각이 첫째로 읽혔다")
+        }
+        // 쪽 전체는 어느 방향에서도 둘째 반이 아니다 — 둘째로 읽으면 나누지 않은 쪽의 자리가 엉뚱하게 홀수가 된다.
+        assertEquals(false, SpreadSplit.isSecond(Half.WHOLE, false))
+        assertEquals(false, SpreadSplit.isSecond(Half.WHOLE, true))
+    }
 }

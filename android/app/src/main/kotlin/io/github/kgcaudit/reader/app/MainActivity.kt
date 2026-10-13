@@ -488,7 +488,8 @@ private fun OloApp(
                 val unit = comicId!!
                 if (comicPromptFor == unit && !comicPickCover) ComicSyncPrompt(unit) { offer ->
                     withContext(Dispatchers.IO) {
-                        container.data.comics.saveProgress(unit, offer.page, offer.pageCount ?: (offer.page + 1), System.currentTimeMillis(), offer.offset, atEnd = false)
+                        // 그 기기가 보던 반까지 적는다 — 만화 화면은 적힌 쪽에서 열 때 그 반을 잇는다.
+                        container.data.comics.saveProgress(unit, offer.page, offer.pageCount ?: (offer.page + 1), System.currentTimeMillis(), offer.offset, atEnd = false, half = offer.half)
                     }
                     // 쪽 넘김은 그 쪽부터 연다(다 읽은 권의 끝 쪽이면 저장된 자리로 열 때 처음으로 돌아간다). 웹툰은 그림 안 자리까지 적은 것으로.
                     comicStart = if (offer.offset == null) offer.page else null

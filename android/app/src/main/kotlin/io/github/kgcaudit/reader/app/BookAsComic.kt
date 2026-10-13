@@ -159,7 +159,9 @@ fun BookComicHost(
         bookmarks = marks.mapNotNull { c.pageOf(it.locator) }.distinct(),
         prefs = prefs,
         onPrefsChange = onPrefsChange,
-        onPage = { p, end ->
+        // 펼침면의 반(가운데 인자)은 버린다: 책의 자리는 Locator 하나라 반을 담을 칸이 없다 — 칸을 만들면 책으로 보기에서 읽는
+        // 자리 모양이 바뀐다. 다시 열면 그 쪽의 첫 반부터다.
+        onPage = { p, _, end ->
             scope.launchWrite(failed) {
                 data.progress.save(ReadingProgress(id, c.locatorOf(p), BookComic.percentAt(p, c.comic.pageCount, end), now()))
             }
@@ -190,5 +192,7 @@ fun BookComicHost(
         onCoverAlone = { v -> scope.launchWrite(failed) { data.library.setBookCoverAlone(id, v) } },
         coverScope = "이 책만",
         ownCovers = ownCovers(choices),
+        // "이 작품" 나누기 줄은 두지 않는다(onSplitSpreads 없음) — 서재의 만화 작품이 아니라 적어 둘 작품 열쇠가 없다. 모든 만화의
+        // 설정을 따른다.
     )
 }

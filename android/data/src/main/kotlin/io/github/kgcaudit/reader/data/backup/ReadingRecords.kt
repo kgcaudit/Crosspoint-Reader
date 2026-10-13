@@ -100,6 +100,7 @@ data class AnnotationRecord(
  *
  * @param page 마지막으로 본 쪽(0부터). null 은 읽은 자리 없이 책갈피만 있는 권.
  * @param offset 웹툰: 그 그림 안의 비율. null 은 쪽 넘김.
+ * @param half 펼침면의 반을 보던 중이면 그 반(실제 쪽 LEFT · RIGHT). 옛 백업 · 다른 기기의 옛 파일에는 없다 — 쪽 전체로 읽는다.
  */
 data class ComicRecord(
     val name: String,
@@ -112,6 +113,7 @@ data class ComicRecord(
     val bookmarks: List<ComicBookmarkRecord> = emptyList(),
     /** 읽은 시간의 하루 합(0.51.0). */
     val time: List<TimeRecord> = emptyList(),
+    val half: io.github.kgcaudit.reader.document.comic.SpreadSplit.Half? = null,
 ) {
     internal val key: String get() = "$name\u0000${sizeBytes ?: ""}"
 
@@ -144,6 +146,8 @@ data class ComicBookmarkRecord(val page: Int, val createdAtEpochMs: Long)
  *   옮긴 작품이 새 휴대폰에서 다시 "읽을 작품" 에 섰다.
  * @param coverAlone 두 쪽 보기의 표지: 따로(true) · 함께(false). 겉표지 · 속표지가 든 작품을 "함께" 로 맞춰 두었는데 새
  *   휴대폰에서 다시 한 쪽씩 어긋나면, 어느 작품을 고쳤는지 기억해 내야 한다.
+ * @param splitSpreads 펼침면 나누기: 나눔(true) · 통째로(false). 표지와 같은 까닭 — 펼쳐 스캔한 작품을 새 휴대폰에서 다시 찾아
+ *   하나씩 켜야 한다.
  */
 data class WorkRecord(
     val key: String,
@@ -152,6 +156,7 @@ data class WorkRecord(
     val view: String? = null,
     val shelf: String? = null,
     val coverAlone: Boolean? = null,
+    val splitSpreads: Boolean? = null,
 ) {
     /** 같은 작품의 설정 두 벌: 앞(이 휴대폰)이 정한 것을 두고 빈 것만 채운다 — 가져오기가 지금 손으로 고친 것을 덮지 않게. */
     internal fun filledFrom(other: WorkRecord): WorkRecord = copy(
@@ -160,10 +165,11 @@ data class WorkRecord(
         view = view ?: other.view,
         shelf = shelf ?: other.shelf,
         coverAlone = coverAlone ?: other.coverAlone,
+        splitSpreads = splitSpreads ?: other.splitSpreads,
     )
 
     /** 정한 것이 하나라도 있는가. 없으면 백업에 담지 않는다. */
-    internal val hasAny: Boolean get() = title != null || rightToLeft != null || view != null || shelf != null || coverAlone != null
+    internal val hasAny: Boolean get() = title != null || rightToLeft != null || view != null || shelf != null || coverAlone != null || splitSpreads != null
 }
 
 /** 백업 파일 하나. 만화 · 작품 설정은 0.49.0 부터 — 옛 파일에는 없고, 없으면 빈 목록으로 읽는다. */
@@ -236,6 +242,7 @@ object RecordsCodec {
         putOpt("page", c.page)
         putOpt("pageCount", c.pageCount)
         c.offset?.let { put("offset", it.toDouble()) }
+        putOpt("half", io.github.kgcaudit.reader.data.library.halfText(c.half))
         put("updatedAt", c.updatedAtEpochMs)
         putOpt("finishedAt", c.finishedAtEpochMs)
         put("bookmarks", JSONArray(c.bookmarks.map { JSONObject().put("page", it.page).put("createdAt", it.createdAtEpochMs) }))
@@ -260,6 +267,8 @@ object RecordsCodec {
             page = page,
             pageCount = (o.opt("pageCount") as? Number)?.toInt()?.takeIf { it > 0 },
             offset = if (page != null) offset else null,
+            // 모르는 글(손상 · "WHOLE")은 쪽 전체로 — 어느 반으로 읽든 본 적 없는 반에서 열린다.
+            half = if (page != null) io.github.kgcaudit.reader.data.library.halfValue(o.stringOrNull("half")) else null,
             updatedAtEpochMs = o.longOrNull("updatedAt") ?: 0L,
             finishedAtEpochMs = o.longOrNull("finishedAt"),
             bookmarks = marks.distinctBy { it.page },
@@ -290,6 +299,7 @@ object RecordsCodec {
         putOpt("view", w.view)
         putOpt("shelf", w.shelf)
         putOpt("coverAlone", w.coverAlone)
+        putOpt("splitSpreads", w.splitSpreads)
     }
 
     private fun work(o: JSONObject): WorkRecord? {
@@ -303,6 +313,7 @@ object RecordsCodec {
             shelf = o.stringOrNull("shelf")?.takeIf { io.github.kgcaudit.reader.document.comic.ShelfMark.parse(it) != null },
             // 참 · 거짓 밖(글 "true" · 숫자)은 버린다 — 정하지 않은 것으로 남아 새 휴대폰의 기본값을 따른다.
             coverAlone = o.opt("coverAlone") as? Boolean,
+            splitSpreads = o.opt("splitSpreads") as? Boolean,
         )
         return record.takeIf { it.hasAny }
     }

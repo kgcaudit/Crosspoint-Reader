@@ -20,6 +20,7 @@ import io.github.kgcaudit.reader.document.comic.ComicUnitKind
 import io.github.kgcaudit.reader.document.comic.ComicView
 import io.github.kgcaudit.reader.document.comic.NestedArchives
 import io.github.kgcaudit.reader.document.comic.ShelfMark
+import io.github.kgcaudit.reader.document.comic.SpreadSplit
 import io.github.kgcaudit.reader.document.comic.Work
 import io.github.kgcaudit.reader.document.comic.WorkEntry
 import io.github.kgcaudit.reader.document.extensionOf
@@ -256,6 +257,19 @@ internal fun coverValue(text: String?): Boolean? = when (text) {
     else -> null
 }
 
+/** 반의 저장 글: 실제 쪽 이름(`LEFT` · `RIGHT`). 쪽 전체는 적지 않는다(null). */
+internal fun halfText(half: SpreadSplit.Half?): String? = half?.takeIf { it != SpreadSplit.Half.WHOLE }?.name
+
+/**
+ * 저장 글 → 반. `LEFT` · `RIGHT` 밖(손상 · 다음 버전이 쓴 값 · `WHOLE`)은 null — 쪽 전체로 연다(규칙 6). 깨진 값을 어느 한쪽
+ * 반으로 읽으면 사람이 본 적 없는 반에서 열린다.
+ */
+internal fun halfValue(text: String?): SpreadSplit.Half? = when (text) {
+    SpreadSplit.Half.LEFT.name -> SpreadSplit.Half.LEFT
+    SpreadSplit.Half.RIGHT.name -> SpreadSplit.Half.RIGHT
+    else -> null
+}
+
 /**
  * 작품 · 책마다 고른 두 쪽 보기의 표지(작품 열쇠 · 책 id → 따로/함께). 모든 보기 설정이 "바꾼 작품 N개" 를 세고, 책 뷰어들이
  * 제 책의 값을 여기서 읽는다. 깨진 값은 들지 않는다.
@@ -451,6 +465,13 @@ class ComicLibrary(private val db: ReaderDatabase) {
         if (coverAlone == null) comics.clearOverride(COVER, work.key) else comics.setOverride(ComicOverrideEntity(COVER, work.key, coverText(coverAlone)))
 
     /**
+     * 작품의 펼침면 나누기를 고른다: 나눔 true · 통째로 false. null 이면 고른 것을 지워 "따름"(모든 만화의 설정)으로 돌아간다.
+     * 작품 열쇠에 적어 같은 작품의 다른 권도 같이 나뉜다 — 펼쳐 스캔한 작품은 대개 모든 권이 그렇게 스캔돼 있다.
+     */
+    suspend fun setSplitSpreads(work: Work, split: Boolean?) =
+        if (split == null) comics.clearOverride(SPLIT, work.key) else comics.setOverride(ComicOverrideEntity(SPLIT, work.key, coverText(split)))
+
+    /**
      * 작품 하나에 고른 넘기는 방향 · 보는 방식(고르지 않았으면 null). 서재 밖에서 연 한 권짜리 작품(연결 프로그램으로 받은 만화)이
      * 쓴다 — 서재의 작품은 [works] 가 이미 담아 흘려 준다. 손상된 값은 "고르지 않음" 이다(규칙 5 · 6).
      */
@@ -477,11 +498,13 @@ class ComicLibrary(private val db: ReaderDatabase) {
 
     /** 권마다의 읽은 자리. 열쇠는 단위 id. */
     fun progress(): Flow<Map<String, ComicProgress>> = comics.observeProgress().map { rows ->
-        rows.associate { it.unitId to ComicProgress(it.page, it.pageCount, it.updatedAtEpochMs, it.finishedAtEpochMs, it.offset) }
+        rows.associate { it.unitId to toProgress(it) }
     }
 
-    suspend fun progressOf(unitId: String): ComicProgress? =
-        comics.progress(unitId)?.let { ComicProgress(it.page, it.pageCount, it.updatedAtEpochMs, it.finishedAtEpochMs, it.offset) }
+    suspend fun progressOf(unitId: String): ComicProgress? = comics.progress(unitId)?.let(::toProgress)
+
+    private fun toProgress(it: ComicProgressEntity) =
+        ComicProgress(it.page, it.pageCount, it.updatedAtEpochMs, it.finishedAtEpochMs, it.offset, halfValue(it.half))
 
     /**
      * 읽은 자리를 적는다. 마지막 쪽에 닿으면 다 읽은 것으로 — 한 번 다 읽은 권은 앞 쪽을 다시 들춰 봐도 "다 읽음" 이 남는다
@@ -499,10 +522,12 @@ class ComicLibrary(private val db: ReaderDatabase) {
          * 머리만 보였을 수 있어, 화면이 더 내려가지 않을 때 부르는 쪽이 알려 준다.
          */
         atEnd: Boolean = pageCount > 0 && page >= pageCount - 1,
+        /** 펼침면의 반을 보던 중이면 그 반(실제 쪽). 쪽 전체 · 웹툰이면 null — 옛 반이 남지 않게 지운다. */
+        half: SpreadSplit.Half? = null,
     ) {
         val old = comics.progress(unitId)
         val finished = old?.finishedAtEpochMs ?: if (atEnd) nowEpochMs else null
-        comics.saveProgress(ComicProgressEntity(unitId, page.coerceAtLeast(0), pageCount, nowEpochMs, finished, offset?.coerceIn(0f, 1f)))
+        comics.saveProgress(ComicProgressEntity(unitId, page.coerceAtLeast(0), pageCount, nowEpochMs, finished, offset?.coerceIn(0f, 1f), halfText(half)))
     }
 
     fun bookmarks(unitId: String): Flow<List<Int>> = comics.observeBookmarks(unitId).map { rows -> rows.map { it.page } }
@@ -527,6 +552,8 @@ class ComicLibrary(private val db: ReaderDatabase) {
         shelf = rows.filter { it.kind == SHELF }.mapNotNull { r -> ShelfMark.parse(r.value)?.let { r.subject to it } }.toMap(),
         rightToLeft = rows.filter { it.kind == RTL }.mapNotNull { r -> when (r.value) { "1" -> r.subject to true; "0" -> r.subject to false; else -> null } }.toMap(),
         coverAlone = rows.filter { it.kind == COVER }.mapNotNull { r -> coverValue(r.value)?.let { r.subject to it } }.toMap(),
+        // 표지와 같은 "1"/"0" 글. 깨진 값은 "따름" 으로 남는다 — 어느 한쪽으로 읽으면 모든 만화의 설정을 바꿔도 이 작품만 따르지 않는다.
+        splitSpreads = rows.filter { it.kind == SPLIT }.mapNotNull { r -> coverValue(r.value)?.let { r.subject to it } }.toMap(),
     )
 
     private fun toUnit(row: ComicUnitEntity): ComicUnit {
@@ -568,6 +595,8 @@ class ComicLibrary(private val db: ReaderDatabase) {
         const val SHELF: String = "SHELF"
         /** 작품마다 고른 두 쪽 보기의 표지(따로 "1" · 함께 "0"). 책의 것은 [Library.BOOK_COVER]. */
         const val COVER: String = "COVER"
+        /** 작품마다 고른 펼침면 나누기(나눔 "1" · 통째로 "0"). 없으면 "따름" — 모든 만화의 설정. */
+        const val SPLIT: String = "SPLIT"
         /** 빼낸 단위의 작품 열쇠 머리. 이름 열쇠(글자 · 숫자뿐)와 겹치지 않게 기호를 넣는다. */
         const val OWN_PREFIX: String = "#own:"
     }

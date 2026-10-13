@@ -86,7 +86,7 @@ class MigrationTest {
             val notes = RoomAnnotationRepository(db.annotations())
             notes.add(Annotation(0, book, Locator.Reflow(3, 10), Locator.Reflow(3, 20), HighlightColor.Green, "메모", "칠한 글", 7))
             assertEquals(listOf("칠한 글"), notes.forBook(book).map { it.snippet })
-            assertEquals(7, db.openHelper.readableDatabase.version)
+            assertEquals(8, db.openHelper.readableDatabase.version)
         } finally {
             db.close()
         }
@@ -136,7 +136,7 @@ class MigrationTest {
             )
             comics.applyScan("content://c", io.github.kgcaudit.reader.data.library.ScanResult(emptyList(), true, listOf(unit)), 5)
             assertEquals(listOf("별"), comics.works().first().map { it.title })
-            assertEquals(7, db.openHelper.readableDatabase.version)
+            assertEquals(8, db.openHelper.readableDatabase.version)
         } finally {
             db.close()
         }
@@ -160,7 +160,7 @@ class MigrationTest {
             comics.saveProgress("content://c/a.cbz", 4, 10, 7)
             assertEquals(4, comics.progressOf("content://c/a.cbz")?.page)
             assertEquals(true, comics.toggleBookmark("content://c/a.cbz", 4, 7))
-            assertEquals(7, db.openHelper.readableDatabase.version)
+            assertEquals(8, db.openHelper.readableDatabase.version)
         } finally {
             db.close()
         }
@@ -179,7 +179,7 @@ class MigrationTest {
             assertEquals(null, kept?.offset, "옛 진도에 웹툰 위치가 생겼다")
             comics.saveProgress("content://c/a.cbz", 2, 10, 8, offset = 0.25f)
             assertEquals(0.25f, comics.progressOf("content://c/a.cbz")?.offset)
-            assertEquals(7, db.openHelper.readableDatabase.version)
+            assertEquals(8, db.openHelper.readableDatabase.version)
         } finally {
             db.close()
         }
@@ -200,7 +200,29 @@ class MigrationTest {
             assertEquals(emptyList(), time.all())
             time.record(TimeItem.BOOK, book.value, TimeMode.READ, 60_000, 1_790_000_000_000)
             assertEquals(60_000, time.all().single().millis)
-            assertEquals(7, db.openHelper.readableDatabase.version)
+            assertEquals(8, db.openHelper.readableDatabase.version)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `upgrading from version 7 keeps comic reading positions and starts them on the whole page`() = runTest {
+        // 0.52 (스키마 7)의 만화 진도에는 보던 반이 없다. 올린 뒤 자리 · 다 읽은 때 · 웹툰 위치는 그대로, 반은 비어 있고 적을 수 있어야 한다.
+        writeVersion(7) { db ->
+            db.execSQL("INSERT INTO comic_progress (unitId, page, pageCount, updatedAtEpochMs, finishedAtEpochMs, offset) VALUES ('content://c/a.cbz', 4, 10, 7, 9, NULL)")
+            db.execSQL("INSERT INTO comic_progress (unitId, page, pageCount, updatedAtEpochMs, finishedAtEpochMs, offset) VALUES ('content://c/w.cbz', 2, 5, 7, NULL, 0.5)")
+        }
+        val db = ReaderDatabase.open(context)
+        try {
+            val comics = io.github.kgcaudit.reader.data.library.ComicLibrary(db)
+            val kept = comics.progressOf("content://c/a.cbz")
+            assertEquals(4 to 9L, kept?.page to kept?.finishedAtEpochMs)
+            assertEquals(null, kept?.half, "옛 진도에 반이 생겼다")
+            assertEquals(0.5f, comics.progressOf("content://c/w.cbz")?.offset)
+            comics.saveProgress("content://c/a.cbz", 5, 10, 8, half = io.github.kgcaudit.reader.document.comic.SpreadSplit.Half.LEFT)
+            assertEquals(io.github.kgcaudit.reader.document.comic.SpreadSplit.Half.LEFT, comics.progressOf("content://c/a.cbz")?.half)
+            assertEquals(8, db.openHelper.readableDatabase.version)
         } finally {
             db.close()
         }

@@ -324,4 +324,52 @@ class ComicLibraryTest {
         comics.applyScan(phone, ScanResult(emptyList(), true, emptyList()), 2)
         assertEquals(null, comics.findByFile("별 01권.cbz", 300))
     }
+
+    @Test
+    fun `the split chosen for a work holds for that work only and following clears it`() = runTest {
+        // 펼침면 나누기 따름 · 나눔 · 통째로(작품마다). 펼쳐 스캔한 "별" 만 나눈다 — "달" 은 모든 만화의 설정을 따른다(null).
+        comics.applyScan(phone, ScanResult(emptyList(), true, listOf(cbz("별 01권.cbz", "C"), cbz("별 02권.cbz", "C"), cbz("달 01권.cbz", "C"))), 1)
+        assertEquals(listOf(null, null), works().map { it.splitSpreads })
+        comics.setSplitSpreads(works().single { it.title == "별" }, true)
+        assertEquals(true, works().single { it.title == "별" }.splitSpreads)
+        assertEquals(null, works().single { it.title == "달" }.splitSpreads, "다른 작품까지 바뀌었다")
+        // 통째로(false)는 따름(null)과 다르다 — 섞으면 모든 만화를 켠 사람의 "이 작품은 통째로" 가 사라진다.
+        comics.setSplitSpreads(works().single { it.title == "별" }, false)
+        assertEquals(false, works().single { it.title == "별" }.splitSpreads)
+        comics.setSplitSpreads(works().single { it.title == "별" }, null)
+        assertEquals(null, works().single { it.title == "별" }.splitSpreads)
+        // 표지 "모두 지우기" 는 나누기를 건드리지 않는다.
+        comics.setSplitSpreads(works().single { it.title == "별" }, true)
+        comics.clearCoverChoices()
+        assertEquals(true, works().single { it.title == "별" }.splitSpreads)
+    }
+
+    @Test
+    fun `a broken split value is read as following the setting for all comics`() = runTest {
+        // 망가뜨린 입력: 다음 판이 쓴 값 · 빈 값 · "x". 어느 한쪽으로 읽으면 모든 만화의 설정을 바꿔도 이 작품만 따르지 않는다.
+        comics.applyScan(phone, ScanResult(emptyList(), true, listOf(cbz("별 01권.cbz", "C"))), 1)
+        for (bad in listOf("x", "", "2", "true")) {
+            db.comics().setOverride(io.github.kgcaudit.reader.data.db.ComicOverrideEntity(ComicLibrary.SPLIT, works().single().key, bad))
+            assertEquals(null, works().single().splitSpreads, bad)
+        }
+    }
+
+    @Test
+    fun `the half being read is kept as the physical side and a broken one reads as the whole page`() = runTest {
+        val id = "content://c/별 01권.cbz"
+        comics.saveProgress(id, 4, 10, 1, half = io.github.kgcaudit.reader.document.comic.SpreadSplit.Half.RIGHT)
+        assertEquals(io.github.kgcaudit.reader.document.comic.SpreadSplit.Half.RIGHT, comics.progressOf(id)?.half)
+        assertEquals(io.github.kgcaudit.reader.document.comic.SpreadSplit.Half.RIGHT, comics.progress().first()[id]?.half)
+        // 쪽 전체를 적으면 옛 반이 남지 않는다 — 남으면 다른 쪽을 보다 닫아도 그 반 기억이 살아난다.
+        comics.saveProgress(id, 5, 10, 2)
+        assertEquals(null, comics.progressOf(id)?.half)
+        // WHOLE 은 반이 아니다 — 적지 않는다.
+        comics.saveProgress(id, 5, 10, 3, half = io.github.kgcaudit.reader.document.comic.SpreadSplit.Half.WHOLE)
+        assertEquals(null, db.comics().progress(id)?.half)
+        // 망가뜨린 입력: 다음 판이 쓴 값 · 손상. 쪽 전체로 읽고 자리는 그대로.
+        for (bad in listOf("x", "WHOLE", "left", "")) {
+            db.comics().saveProgress(io.github.kgcaudit.reader.data.db.ComicProgressEntity(id, 6, 10, 4, null, null, bad))
+            assertEquals(6 to null, comics.progressOf(id)?.let { it.page to it.half }, bad)
+        }
+    }
 }

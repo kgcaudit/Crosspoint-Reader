@@ -583,6 +583,30 @@ fun CpCoverRow(coverAlone: Boolean, onChange: (Boolean) -> Unit, scope: String, 
 }
 
 /**
+ * 보기 판의 "이 작품" 줄: 펼침면 나누기 켬 · 끔(모든 만화) 아래에서 지금 보는 작품만 따름 · 나눔 · 통째로. 펼쳐 스캔한 작품과
+ * 넓게 그린 한 장 그림이 든 작품이 한 서재에 섞여 있다 — 모든 만화의 설정 하나로는 어느 한쪽이 늘 틀린다.
+ *
+ * 위 줄(글자만 있는 줄)에 속하므로 한 단 안쪽에서 시작하고, 엷은 강조 바탕으로 위 줄의 딸린 줄임을 보인다. 바탕이 없으면 같은 급의
+ * 설정이 하나 더 있는 것처럼 읽혔다(확정 구상안).
+ *
+ * @param split 이 작품에 고른 값: 나눔 true · 통째로 false · 따름 null.
+ */
+@Composable
+fun CpSplitRow(split: Boolean?, onChange: (Boolean?) -> Unit, modifier: Modifier = Modifier) {
+    val m = CpTheme.metrics
+    val options = listOf(null, true, false)
+    Column(modifier.fillMaxWidth().background(CpTheme.colors.accentContainer.copy(alpha = 0.5f)).padding(start = m.levelIndent)) {
+        CpChoice("이 작품", listOf("따름", "나눔", "통째로"), options.indexOf(split), { onChange(options[it]) })
+        CpText(
+            "\"따름\" 이면 위 줄(모든 만화)을 따릅니다 · 펼쳐 스캔한 작품만 \"나눔\"",
+            CpTheme.type.caption, CpTheme.colors.textMuted,
+            Modifier.padding(start = m.gutter, end = m.gutter, bottom = 6.dp),
+            maxLines = 3,
+        )
+    }
+}
+
+/**
  * 모든 보기 설정. 묶음 제목(글자만) 아래 설정 줄은 한 단([CpMetrics.levelIndent]) 안쪽이다(위계 규칙).
  *
  * 터치 영역 · 하단 정보는 이 화면 안에서 한 겹 더 들어간다. 뒤로 가기는 한 겹씩 나온다.

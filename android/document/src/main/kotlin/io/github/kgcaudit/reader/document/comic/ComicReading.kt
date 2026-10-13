@@ -17,6 +17,11 @@ data class ComicProgress(
      * 칸으로 돌아오도록 픽셀이 아니라 비율로 둔다.
      */
     val offset: Float? = null,
+    /**
+     * 펼침면을 반으로 나눠 보던 중이면 그 반(LEFT · RIGHT, 0.52.x). 차례(첫 반 · 둘째 반)가 아니라 **실제 쪽** 이다 — 차례로 적으면
+     * 넘기는 방향을 바꾼 뒤 다시 열 때 보던 반의 반대쪽이 떴다. null 은 쪽 전체(나누지 않음 · 웹툰 · 모름).
+     */
+    val half: SpreadSplit.Half? = null,
 ) {
     val finished: Boolean get() = finishedAtEpochMs != null
 

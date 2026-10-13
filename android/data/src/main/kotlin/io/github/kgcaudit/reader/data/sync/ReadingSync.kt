@@ -11,6 +11,8 @@ import io.github.kgcaudit.reader.data.backup.BookRecord
 import io.github.kgcaudit.reader.data.backup.BookmarkRecord
 import io.github.kgcaudit.reader.data.backup.ComicBookmarkRecord
 import io.github.kgcaudit.reader.data.backup.ComicRecord
+import io.github.kgcaudit.reader.data.library.halfValue
+import io.github.kgcaudit.reader.document.comic.SpreadSplit
 import io.github.kgcaudit.reader.data.backup.ProgressRecord
 import io.github.kgcaudit.reader.data.db.BookEntity
 import io.github.kgcaudit.reader.data.db.BookmarkEntity
@@ -46,6 +48,8 @@ sealed interface SyncOffer {
         val page: Int,
         val offset: Float?,
         val pageCount: Int?,
+        /** 그 기기가 보던 펼침면의 반(실제 쪽). 옛 파일 · 쪽 전체면 null. */
+        val half: SpreadSplit.Half? = null,
     ) : SyncOffer
 }
 
@@ -243,6 +247,7 @@ class ReadingSync(
                 page = p?.page,
                 pageCount = p?.pageCount ?: u.pageCount,
                 offset = p?.offset,
+                half = halfValue(p?.half),
                 updatedAtEpochMs = p?.updatedAtEpochMs ?: 0L,
                 finishedAtEpochMs = p?.finishedAtEpochMs,
                 bookmarks = m.map { ComicBookmarkRecord(it.page, it.createdAtEpochMs) }.sortedBy { it.page },
@@ -435,7 +440,7 @@ class ReadingSync(
             ComicRecord(unit.name, unit.sizeBytes, it.page, it.pageCount, it.offset, it.updatedAtEpochMs, it.finishedAtEpochMs)
         }
         val (file, r) = SyncRules.furthestComic(local, remotes) ?: return@withContext null
-        SyncOffer.Comic(file.deviceName, r.updatedAtEpochMs, r.page ?: return@withContext null, r.offset, r.pageCount)
+        SyncOffer.Comic(file.deviceName, r.updatedAtEpochMs, r.page ?: return@withContext null, r.offset, r.pageCount, r.half)
     }
 
     // ── 받은 것 목록 ─────────────────────────────────────────

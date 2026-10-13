@@ -62,6 +62,8 @@ fun IncomingComicHost(
     var book by remember(file) { mutableStateOf<ComicBook?>(null) }
     var sizes by remember(file) { mutableStateOf<List<ImageSize?>>(emptyList()) }
     var position by remember(file) { mutableStateOf(0 to 0f) }
+    // 보던 펼침면의 반(실제 쪽). 서재의 만화와 같다 — 받은 파일도 다시 열면 보던 반에서 이어진다.
+    var half by remember(file) { mutableStateOf<io.github.kgcaudit.reader.document.comic.SpreadSplit.Half?>(null) }
     // 사람이 고른 넘기는 방향 · 보는 방식. null 은 고르지 않음 — ComicInfo · 쪽 모양을 따른다(규칙 5).
     var chosenRtl by remember(file) { mutableStateOf<Boolean?>(null) }
     var chosenView by remember(file) { mutableStateOf<ComicView?>(null) }
@@ -78,6 +80,7 @@ fun IncomingComicHost(
                     p == null || (p.finished && p.page >= comic.pageCount - 1) -> 0 to 0f
                     else -> p.page.coerceIn(0, (comic.pageCount - 1).coerceAtLeast(0)) to (p.offset ?: 0f)
                 }
+                half = p?.half?.takeIf { p.page == position.first && !(p.finished && p.page >= comic.pageCount - 1) }
                 val (rtl, view) = data.comics.workChoices(key)
                 chosenRtl = rtl
                 chosenView = view
@@ -132,9 +135,10 @@ fun IncomingComicHost(
                 bookmarks = bookmarks,
                 prefs = prefs,
                 onPrefsChange = onPrefsChange,
-                onPage = { p, end ->
+                onPage = { p, h, end ->
                     position = p to 0f
-                    scope.launchWrite(failed) { data.comics.saveProgress(id, p, opened.pageCount, now(), atEnd = end) }
+                    half = h
+                    scope.launchWrite(failed) { data.comics.saveProgress(id, p, opened.pageCount, now(), atEnd = end, half = h) }
                 },
                 onBookmark = { p -> scope.launchWrite(failed) { data.comics.toggleBookmark(id, p, now()) } },
                 onDirection = { r ->
@@ -152,6 +156,11 @@ fun IncomingComicHost(
                 onCoverAlone = libraryWork?.let { w -> { v: Boolean -> scope.launchWrite(failed) { data.comics.setCoverAlone(w, v) } } },
                 // "바꾼 작품 N개 · 모두 지우기" 는 이 권과 상관없이 모든 작품의 것이라 늘 둔다 — 서재에서 연 만화와 같은 설정 화면이다.
                 ownCovers = ownCovers(coverChoices),
+                // 펼침면 나누기도 표지 줄처럼 서재의 같은 권이 든 작품에 적는다. 서재에 없으면 적을 작품이 없어 줄을 두지 않고 모든 만화의
+                // 설정을 따른다.
+                splitSpreads = libraryWork?.splitSpreads,
+                onSplitSpreads = libraryWork?.let { w -> { v: Boolean? -> scope.launchWrite(failed) { data.comics.setSplitSpreads(w, v) } } },
+                startHalf = half,
             )
             ComicView.WEBTOON -> WebtoonReader(
                 first = remember(opened) { WebtoonEpisode(null, opened, sizes) },

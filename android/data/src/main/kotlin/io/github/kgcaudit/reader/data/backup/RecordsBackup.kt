@@ -147,6 +147,7 @@ class RecordsBackup(
                 page = p?.page,
                 pageCount = p?.pageCount ?: unit.pageCount,
                 offset = p?.offset,
+                half = io.github.kgcaudit.reader.data.library.halfValue(p?.half),
                 updatedAtEpochMs = p?.updatedAtEpochMs ?: 0L,
                 finishedAtEpochMs = p?.finishedAtEpochMs,
                 bookmarks = marks[unit.id].orEmpty().map { ComicBookmarkRecord(it.page, it.createdAtEpochMs) },
@@ -173,6 +174,7 @@ class RecordsBackup(
                 view = value(ComicLibrary.VIEW),
                 shelf = value(ComicLibrary.SHELF),
                 coverAlone = when (value(ComicLibrary.COVER)) { "1" -> true; "0" -> false; else -> null },
+                splitSpreads = when (value(ComicLibrary.SPLIT)) { "1" -> true; "0" -> false; else -> null },
             )
         }.filter { it.hasAny }
     }
@@ -313,6 +315,7 @@ class RecordsBackup(
                     page = p?.page,
                     pageCount = p?.pageCount ?: old.pageCount,
                     offset = p?.offset,
+                    half = io.github.kgcaudit.reader.data.library.halfValue(p?.half),
                     updatedAtEpochMs = p?.updatedAtEpochMs ?: 0L,
                     finishedAtEpochMs = p?.finishedAtEpochMs,
                     bookmarks = marks[old.id].orEmpty().map { ComicBookmarkRecord(it.page, it.createdAtEpochMs) },
@@ -415,6 +418,7 @@ class RecordsBackup(
                         // 이 휴대폰에서 다 읽은 때가 있으면 그대로 둔다(끝낸 날이 백업의 날로 바뀌지 않게).
                         finishedAtEpochMs = old?.finishedAtEpochMs ?: r.finishedAtEpochMs,
                         offset = r.offset,
+                        half = io.github.kgcaudit.reader.data.library.halfText(r.half),
                     ),
                 )
             } else if (old.finishedAtEpochMs == null && r.finishedAtEpochMs != null) {
@@ -439,6 +443,9 @@ class RecordsBackup(
             if (w.shelf != null && (ComicLibrary.SHELF to w.key) !in have) comics.setOverride(ComicOverrideEntity(ComicLibrary.SHELF, w.key, w.shelf))
             if (w.coverAlone != null && (ComicLibrary.COVER to w.key) !in have) {
                 comics.setOverride(ComicOverrideEntity(ComicLibrary.COVER, w.key, if (w.coverAlone) "1" else "0"))
+            }
+            if (w.splitSpreads != null && (ComicLibrary.SPLIT to w.key) !in have) {
+                comics.setOverride(ComicOverrideEntity(ComicLibrary.SPLIT, w.key, if (w.splitSpreads) "1" else "0"))
             }
         }
     }
@@ -531,7 +538,7 @@ class RecordsBackup(
         // 옮긴 서재 갈래(SHELF)도 작품 열쇠로 적는다 — 0.50 까지 빠져 있어, 종이책으로 다 읽어 옮긴 작품이 새 휴대폰에서 "읽을
         // 작품" 으로 돌아갔다.
         // 두 쪽 보기의 표지(COVER)도 작품 열쇠로 적는다. 책마다 고른 표지(BOOK_COVER)는 책 id(문서 주소)가 주어라 담지 않는다.
-        val WORK_KINDS = setOf(ComicLibrary.TITLE, ComicLibrary.RTL, ComicLibrary.VIEW, ComicLibrary.SHELF, ComicLibrary.COVER)
+        val WORK_KINDS = setOf(ComicLibrary.TITLE, ComicLibrary.RTL, ComicLibrary.VIEW, ComicLibrary.SHELF, ComicLibrary.COVER, ComicLibrary.SPLIT)
         // 읽은 시간 표의 갈래 이름(TimeItem 과 같은 글). 백업은 :data 의 저장 형식만 안다.
         val BOOK_TIME = io.github.kgcaudit.reader.data.TimeItem.BOOK.name
         val COMIC_TIME = io.github.kgcaudit.reader.data.TimeItem.COMIC.name
