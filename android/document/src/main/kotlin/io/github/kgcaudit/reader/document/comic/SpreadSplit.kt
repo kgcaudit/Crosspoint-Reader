@@ -18,7 +18,8 @@ object SpreadSplit {
 
     /**
      * 가로가 세로의 이만큼보다 길면 펼침면이다. 1 에 가깝게 두면 조금 넓은 표지 · 정사각 그림까지 반으로 잘린다 — 스캔 펼침면은
-     * 1.3~1.5 이다.
+     * 1.3~1.5 이다. 두 쪽 보기의 짝([ComicSpreads])도 이 값 하나를 쓴다 — 둘이 다르면 같은 쪽이 한쪽에서는 펼침면, 다른 쪽에서는
+     * 보통 쪽이 된다.
      */
     const val WIDE: Float = 1.15f
 
@@ -43,6 +44,32 @@ object SpreadSplit {
     /** 책의 [page] 쪽이 시작하는 조각. 없으면 가장 가까운 앞 조각. */
     fun partOf(parts: List<Part>, page: Int): Int =
         parts.indexOfFirst { it.page >= page }.let { if (it < 0) parts.lastIndex.coerceAtLeast(0) else it }
+
+    /**
+     * 펼침면을 반으로 나눌 때 펼침면에 거는 여백 상자: 위아래는 찾은 대로, 바깥 두 변은 **덜 걷힌 변만큼 똑같이** 걷는다.
+     * 그래야 잘린 그림의 가운데가 원래 그림의 가운데(접힌 자리)다.
+     *
+     * 0.52 까지는 펼침면에 찾은 상자를 그대로 걸고 잘린 그림의 가운데를 갈랐다. 바깥 여백이 양쪽에서 다르면(왼쪽 10% · 오른쪽 2%)
+     * 가르는 자리가 접힌 자리에서 밀려, 한쪽 반에 다른 쪽의 띠가 섞이고 다른 반은 가운데 가장자리를 잃었다. 덜 걷힌 변에
+     * 맞추므로 어느 쪽 그림도 잃지 않는다.
+     */
+    fun splitFrame(frame: MarginTrim.Frame): MarginTrim.Frame {
+        if (frame.whole) return frame
+        val side = minOf(frame.left, 1f - frame.right).coerceIn(0f, MarginTrim.MAX_SIDE)
+        val f = MarginTrim.Frame(side, frame.top, 1f - side, frame.bottom)
+        return if (f == MarginTrim.Frame.WHOLE) MarginTrim.Frame.WHOLE else f
+    }
+
+    /** 반 조각의 여백 상자(반 조각 크기에 대한 비율). [splitFrame] 을 건 펼침면의 반이다 — 안쪽(접힌 자리) 변은 걷지 않는다. */
+    fun halfFrame(frame: MarginTrim.Frame, half: Half): MarginTrim.Frame {
+        val s = splitFrame(frame)
+        if (s.whole) return s
+        return when (half) {
+            Half.WHOLE -> s
+            Half.LEFT -> MarginTrim.Frame(s.left * 2, s.top, 1f, s.bottom)
+            Half.RIGHT -> MarginTrim.Frame(0f, s.top, 1f - s.left * 2, s.bottom)
+        }
+    }
 
     /** 조각이 보이는 쪽의 크기(반이면 폭이 반). */
     fun sizeOf(part: Part, size: ImageSize?): ImageSize? = when {

@@ -11,6 +11,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /** 책을 만화로 볼 때(0.50.0) 쪽 번호와 책 자리의 짝 — 책으로 보기와 오가도 같은 곳이어야 한다. */
 @RunWith(RobolectricTestRunner::class)
@@ -49,5 +50,15 @@ class BookComicTest {
         assertEquals(3, c.pageOf(Locator.FixedPage(7)))
         assertEquals(100f, BookComic.percentAt(3, 4))
         assertEquals(50f, BookComic.percentAt(1, 3))
+    }
+
+    @Test
+    fun `the first half of a last spread is not finished, the second half is`() {
+        // 마지막 쪽이 펼침면이면 첫 반은 끝이 아니다 — 진도가 다 읽음 문턱(99.95)에 닿으면 반만 보고 책장이 "다 읽음" 으로 옮겼다.
+        assertTrue(BookComic.percentAt(3, 4, atEnd = false) < 99.95f)
+        assertEquals(100f, BookComic.percentAt(3, 4, atEnd = true))
+        // 한 쪽짜리 펼침면 책: 첫 반은 0, 둘째 반은 100.
+        assertEquals(0f, BookComic.percentAt(0, 1, atEnd = false))
+        assertEquals(100f, BookComic.percentAt(0, 1, atEnd = true))
     }
 }

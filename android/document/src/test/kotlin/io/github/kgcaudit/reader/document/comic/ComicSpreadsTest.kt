@@ -25,6 +25,19 @@ class ComicSpreadsTest {
     }
 
     @Test
+    fun `a nearly square page pairs like a portrait page, with the same threshold as spread splitting`() {
+        // 1.1 배 넓은 쪽(정사각에 가까운 표지 · 그림)은 펼침면이 아니다 — 나누기가 반으로 자르지 않는 쪽을 두 쪽 보기가 혼자
+        // 세우면, 같은 쪽이 보기마다 다른 종류가 된다.
+        val square = ImageSize(1980, 1800)
+        assertEquals(false, SpreadSplit.isWide(square))
+        assertEquals(listOf(listOf(0), listOf(1, 2), listOf(3, 4)), ComicSpreads.of(listOf(p, p, square, p, p)))
+        // 문턱 바로 위(1.16 배)는 펼침면 — 혼자 선다.
+        val justWide = ImageSize(2088, 1800)
+        assertEquals(true, SpreadSplit.isWide(justWide))
+        assertEquals(listOf(listOf(0), listOf(1), listOf(2), listOf(3, 4)), ComicSpreads.of(listOf(p, p, justWide, p, p)))
+    }
+
+    @Test
     fun `unknown sizes pair like portrait pages and nothing is lost`() {
         val sizes = listOf(p, null, p, null, w)
         val spreads = ComicSpreads.of(sizes)

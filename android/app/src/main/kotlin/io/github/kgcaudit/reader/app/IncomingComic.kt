@@ -124,9 +124,9 @@ fun IncomingComicHost(
                 bookmarks = bookmarks,
                 prefs = prefs,
                 onPrefsChange = onPrefsChange,
-                onPage = { p ->
+                onPage = { p, end ->
                     position = p to 0f
-                    scope.launchWrite(failed) { data.comics.saveProgress(id, p, opened.pageCount, now()) }
+                    scope.launchWrite(failed) { data.comics.saveProgress(id, p, opened.pageCount, now(), atEnd = end) }
                 },
                 onBookmark = { p -> scope.launchWrite(failed) { data.comics.toggleBookmark(id, p, now()) } },
                 onDirection = { r ->

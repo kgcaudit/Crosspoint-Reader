@@ -76,8 +76,18 @@ class BookComic private constructor(
         fun ofPdf(comic: ComicBook): BookComic =
             BookComic(comic, locators = { Locator.FixedPage(it) }, pages = { (it as? Locator.FixedPage)?.page }, rightToLeft = null)
 
-        /** 이 쪽까지 읽었을 때의 진도(%). 마지막 쪽이면 100 — 책장이 "다 읽음" 으로 옮긴다. */
-        fun percentAt(page: Int, count: Int): Float = if (count <= 1 || page >= count - 1) 100f else page * 100f / (count - 1)
+        /**
+         * 이 쪽까지 읽었을 때의 진도(%). 끝(마지막 조각)이면 100 — 책장이 "다 읽음" 으로 옮긴다. 마지막 쪽이어도 끝이 아니면
+         * (펼침면 나누기의 첫 반) 100 에 닿지 않는다 — 닿으면 반만 보고도 다 읽은 책이 됐다.
+         */
+        fun percentAt(page: Int, count: Int, atEnd: Boolean = page >= count - 1): Float = when {
+            atEnd -> 100f
+            count <= 1 -> 0f
+            else -> minOf(page * 100f / (count - 1), NOT_YET_FINISHED)
+        }
+
+        /** 끝이 아닌 자리의 진도 한도. 진도 저장소의 다 읽음 문턱(99.95)보다 낮다. */
+        private const val NOT_YET_FINISHED = 99.9f
     }
 }
 
@@ -149,9 +159,9 @@ fun BookComicHost(
         bookmarks = marks.mapNotNull { c.pageOf(it.locator) }.distinct(),
         prefs = prefs,
         onPrefsChange = onPrefsChange,
-        onPage = { p ->
+        onPage = { p, end ->
             scope.launchWrite(failed) {
-                data.progress.save(ReadingProgress(id, c.locatorOf(p), BookComic.percentAt(p, c.comic.pageCount), now()))
+                data.progress.save(ReadingProgress(id, c.locatorOf(p), BookComic.percentAt(p, c.comic.pageCount, end), now()))
             }
         },
         onBookmark = { p ->

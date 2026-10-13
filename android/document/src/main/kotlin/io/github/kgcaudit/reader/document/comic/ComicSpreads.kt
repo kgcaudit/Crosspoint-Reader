@@ -35,5 +35,10 @@ object ComicSpreads {
         return if (i >= 0) i else if (page < 0) 0 else spreads.size - 1
     }
 
-    private fun wide(size: ImageSize?): Boolean = size != null && size.width > size.height
+    /**
+     * 혼자 서는 펼침면 그림은 펼침면 나누기와 같은 문턱([SpreadSplit.isWide])으로 가린다. 0.52 까지는 "가로가 세로보다 조금이라도
+     * 길면" 이었다 — 1.05 쯤의 정사각에 가까운 쪽이 두 쪽 보기에서는 펼침면으로 혼자 서고, 한 쪽 보기에서는 펼침면이 아니라 반으로
+     * 나뉘지 않아, 같은 쪽이 보기마다 다른 종류로 읽혔다.
+     */
+    private fun wide(size: ImageSize?): Boolean = SpreadSplit.isWide(size)
 }

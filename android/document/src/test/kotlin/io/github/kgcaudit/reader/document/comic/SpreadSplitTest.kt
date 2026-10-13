@@ -36,4 +36,29 @@ class SpreadSplitTest {
         assertEquals(ImageSize(1000, 1450), SpreadSplit.sizeOf(parts[1], spread))
         assertEquals(tall, SpreadSplit.sizeOf(parts[0], tall))
     }
+
+    @Test
+    fun `uneven outer margins are trimmed evenly so the fold stays in the middle`() {
+        // 왼쪽 10% · 오른쪽 2% 를 걷은 상자. 그대로 걸고 가운데를 가르면 가르는 자리가 접힌 자리에서 4% 밀린다.
+        val found = MarginTrim.Frame(0.10f, 0.05f, 0.98f, 0.95f)
+        val split = SpreadSplit.splitFrame(found)
+        assertEquals(0.02f, split.left, 1e-5f)
+        assertEquals(0.98f, split.right, 1e-5f)
+        assertEquals(0.05f, split.top)
+        assertEquals(0.95f, split.bottom)
+        // 잘린 그림의 가운데 = 원래 가운데(접힌 자리).
+        assertEquals(0.5f, (split.left + split.right) / 2, 1e-6f)
+        // 반 조각의 상자: 바깥 변만 걷히고 안쪽(접힌 자리) 변은 그대로. 두 반의 폭이 같다.
+        val left = SpreadSplit.halfFrame(found, Half.LEFT)
+        val right = SpreadSplit.halfFrame(found, Half.RIGHT)
+        assertEquals(1f, left.right)
+        assertEquals(0f, right.left)
+        assertEquals(left.width, right.width, 1e-6f)
+        // 걷을 것이 없는 상자는 그대로, 한쪽 바깥 변이 0 이면 좌우는 걷지 않는다(위아래만).
+        assertEquals(MarginTrim.Frame.WHOLE, SpreadSplit.splitFrame(MarginTrim.Frame.WHOLE))
+        assertEquals(MarginTrim.Frame(0f, 0.05f, 1f, 0.95f), SpreadSplit.splitFrame(MarginTrim.Frame(0f, 0.05f, 0.9f, 0.95f)))
+        // 망가뜨린 상자(반을 넘게 걷는다는 값)도 그림을 다 지우지 않는다.
+        val broken = SpreadSplit.splitFrame(MarginTrim.Frame(0.7f, 0f, 0.3f, 1f))
+        assertEquals(true, broken.width > 0f)
+    }
 }

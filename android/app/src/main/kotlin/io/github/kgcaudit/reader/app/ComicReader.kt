@@ -173,7 +173,8 @@ fun ComicReader(
     bookmarks: List<Int>,
     prefs: ScreenPrefs,
     onPrefsChange: (ScreenPrefs) -> Unit,
-    onPage: (Int) -> Unit,
+    /** 보이는 판이 바뀔 때: 책의 쪽과 권 끝(마지막 조각)에 닿았는지. */
+    onPage: (page: Int, atEnd: Boolean) -> Unit,
     onBookmark: (Int) -> Unit,
     onDirection: (Boolean) -> Unit,
     onNext: (WorkEntry) -> Unit,
@@ -229,6 +230,14 @@ fun ComicReader(
     }
     val pages: ComicPageSource = remember(book, parts) { if (parts.size != bookCount) SplitPages(book, parts) else book }
     val partSizes = remember(parts, sizes) { parts.map { SpreadSplit.sizeOf(it, sizes.getOrNull(it.page)) } }
+    // 넘기는 방향을 바꾸면 펼침면의 두 반이 차례를 바꾼다. 자리의 "둘째 반" 은 차례이지 왼쪽 · 오른쪽이 아니라, 그대로 두면
+    // 보던 반의 반대쪽 반으로 건너뛰었다(왼→오에서 오른쪽 반을 보다 오→왼으로 바꾸면 왼쪽 반이 떴다). 나뉜 쪽을 보던 중이면
+    // 둘째 반 표시를 뒤집어 같은 반에 머문다.
+    var spotRtl by rememberSaveable(book.unit.id) { mutableStateOf(rtl) }
+    if (spotRtl != rtl) {
+        spotRtl = rtl
+        if (parts.getOrNull(partAt(parts, spot))?.half?.let { it != SpreadSplit.Half.WHOLE } == true) spot = spot xor 1
+    }
     val partsNow by rememberUpdatedState(parts)
     val count = parts.size
     val page = partAt(parts, spot)
@@ -241,8 +250,9 @@ fun ComicReader(
     val shown = spreads.getOrElse(spreadIndex) { listOf(page) }
     val bookmarked = shown.any { realOf(it) in bookmarks }
 
-    // 자리는 판의 마지막 쪽으로 적는다 — 끝 판을 보면 다 읽음이고, 다시 열면 그 쪽이 든 판이 나온다.
-    LaunchedEffect(shown) { onPage(realOf(shown.last())) }
+    // 자리는 판의 마지막 쪽으로 적는다 — 끝 판을 보면 다 읽음이고, 다시 열면 그 쪽이 든 판이 나온다. 다 읽음은 책의 마지막
+    // 쪽이 아니라 마지막 조각이다: 마지막 쪽이 펼침면이면 그 첫 반은 아직 끝이 아니다(0.52 까지는 첫 반에서 다 읽음이 됐다).
+    LaunchedEffect(shown) { onPage(realOf(shown.last()), shown.last() >= count - 1) }
     LaunchedEffect(panel) { onChrome(panel != ComicPanel.None) }
     // 왼쪽 끝을 밀어 밝기(0.42.0 — 책과 같은 부품). 메뉴가 열렸거나 끝 화면이면 막는다.
     val brightness = rememberBrightnessDrag(
@@ -647,12 +657,14 @@ internal fun ViewChoice(view: ComicView?, onView: (ComicView?) -> Unit) {
 private fun ComicPageImage(book: ComicPageSource, sizes: List<ImageSize?>, pages: List<Int>, w: Int, h: Int, viewport: PageViewport?, rtl: Boolean, bias: Float, slot: SpreadSlot, trim: Boolean, color: ColorFilter?) {
     // 두 쪽 판은 판이 함께 쓰는 상자로 자른 그림만 쓴다. 상자를 아직 모르면(짝의 여백을 찾기 전) 저장소의 그림도 쓰지 않는다 —
     // 쪽마다 따로 자른 그림이 잠깐 보였다가 바뀌면 판이 출렁인다.
-    val bitmaps = remember(pages, w, h, trim) {
+    // 그림 원천([book])도 열쇠다: 넘기는 방향을 바꾸면 조각 차례가 바뀌어 같은 번호가 펼침면의 다른 반이 된다. 번호만 열쇠면
+    // 옛 차례의 반 그림이 남아, 방향을 바꾼 뒤 넘겨도 보던 반이 그대로 보였다.
+    val bitmaps = remember(book, pages, w, h, trim) {
         val known = book.knownTrimOf(pages, trim)
         androidx.compose.runtime.mutableStateListOf(*pages.map { p -> known?.let { book.cached(p, w, h, it) } }.toTypedArray())
     }
-    var broken by remember(pages, w, h, trim) { mutableStateOf(pages.any { book.isBroken(it) }) }
-    LaunchedEffect(pages, w, h, trim) {
+    var broken by remember(book, pages, w, h, trim) { mutableStateOf(pages.any { book.isBroken(it) }) }
+    LaunchedEffect(book, pages, w, h, trim) {
         val mode = book.trimOf(pages, trim)
         pages.forEachIndexed { k, p ->
             if (bitmaps[k] == null && !book.isBroken(p)) bitmaps[k] = book.page(p, w, h, mode)
@@ -904,7 +916,7 @@ fun ComicHost(
                 val unit = data.comics.unit(unitId) ?: throw java.io.FileNotFoundException(unitId)
                 val p = data.comics.progressOf(unitId)
                 val pages = data.openComic(unit)
-                val comic = ComicBook(unit, pages, regions = container.comicRegions, stripDelayMs = { container.comicStripDelayMs }).also { made = it }
+                val comic = ComicBook(unit, pages, regions = container.comicRegions, stripDelayMs = { container.comicStripDelayMs }, pageDelayMs = { container.comicPageDelayMs }).also { made = it }
                 // 크기는 머리만 읽는다 — 웹툰 판별 · 기둥 배치에 쓴다.
                 sizes = comic.sizes()
                 position = when {
@@ -983,9 +995,9 @@ fun ComicHost(
                 bookmarks = bookmarks,
                 prefs = prefs,
                 onPrefsChange = onPrefsChange,
-                onPage = { p ->
+                onPage = { p, end ->
                     position = p to 0f
-                    scope.launchWrite(failed) { data.comics.saveProgress(unitId, p, opened.pageCount, now()) }
+                    scope.launchWrite(failed) { data.comics.saveProgress(unitId, p, opened.pageCount, now(), atEnd = end) }
                 },
                 onBookmark = onBookmark,
                 onDirection = { r -> work?.let { w -> scope.launchWrite(failed) { data.comics.setRightToLeft(w, r) } } },

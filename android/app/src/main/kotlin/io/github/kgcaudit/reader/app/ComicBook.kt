@@ -94,48 +94,95 @@ internal fun frameKey(frame: MarginTrim.Frame): String =
 /**
  * 펼침면을 반으로 나눈 조각들(0.50.0, [SpreadSplit]). 반 조각은 펼침면 전체를 화면 폭의 두 배로 풀어(여백 자르기도 펼침면에
  * 한 번) 반을 잘라 낸다 — 화면 폭으로 풀어 반을 늘리면 글자가 흐려졌다. 나머지 일(풀기 · 깨진 쪽 · 붙잡기)은 책에 맡긴다.
+ *
+ * 여백은 [SpreadSplit.splitFrame] 으로 바깥 두 변을 같게 걷는다 — 잘린 그림의 가운데가 원래의 접힌 자리라, 반으로 가르면
+ * 두 반이 같은 크기이고 이음매가 접힌 자리에 정확히 온다.
  */
-class SplitPages(private val base: ComicBook, private val parts: List<SpreadSplit.Part>) : ComicPageSource {
+class SplitPages(
+    private val base: ComicBook,
+    private val parts: List<SpreadSplit.Part>,
+    /** 반 조각 저장소(LRU) 한도(바이트). 시험이 아주 작게 줘서 반 조각이 밀려난 상황을 만든다. */
+    budget: Int = ComicBook.memoryBudget() / 4,
+) : ComicPageSource {
     override val pageCount: Int get() = parts.size
 
-    private val halves = object : LruCache<String, Bitmap>(ComicBook.memoryBudget() / 4) {
+    private val halves = object : LruCache<String, Bitmap>(budget) {
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
     }
 
+    /**
+     * 지금 조각과 앞뒤 조각의 반 그림. 저장소가 내보내도 놓지 않는다 — 넘김 효과(말림 · 덮기)는 넘기는 순간 앞뒤 조각을 새로
+     * 그리며 [cached] 만 본다. 반 조각은 커서 저장소에 한두 장밖에 들지 않아, 미리 풀어 둔 이웃 반이 지금 반을 밀어내고
+     * 말리는 종이에 아무것도 그려지지 않았다(밀기만 됐다).
+     */
+    private val pinned = java.util.concurrent.ConcurrentHashMap<String, Bitmap>()
+    @Volatile private var pinnedParts: Set<Int> = emptySet()
+
     private fun key(index: Int, width: Int, height: Int, frame: MarginTrim.Frame) = "$index|$width|$height" + frameKey(frame)
+
+    /** 반 조각을 자를 때 펼침면에 거는 상자. 자르기를 켰는데 펼침면의 여백을 아직 모르면 null. */
+    private fun spreadFrame(page: Int, trim: ComicTrim): MarginTrim.Frame? = when (trim) {
+        ComicTrim.Off -> MarginTrim.Frame.WHOLE
+        // 반 조각은 한 쪽 보기에서만 보인다 — 함께 쓰는 상자([ComicTrim.Shared])가 와도 펼침면 제 여백을 따른다.
+        else -> base.knownFrame(page)?.let(SpreadSplit::splitFrame)
+    }
+
+    private fun trimOf(frame: MarginTrim.Frame): ComicTrim = if (frame.whole) ComicTrim.Off else ComicTrim.Shared(frame)
 
     override fun cached(index: Int, width: Int, height: Int, trim: ComicTrim): Bitmap? {
         val part = parts.getOrNull(index) ?: return null
         if (part.half == SpreadSplit.Half.WHOLE) return base.cached(part.page, width, height, trim)
-        // 반 조각의 자르기는 펼침면 전체에 한 번 건다 — 상자는 펼침면(책의 쪽)의 것.
-        val frame = base.knownFrameFor(part.page, trim) ?: return null
-        return halves.get(key(index, width, height, frame))
+        val frame = spreadFrame(part.page, trim) ?: return null
+        val k = key(index, width, height, frame)
+        halves.get(k)?.let { return it }
+        pinned[k]?.let { return it }
+        // 반 저장소에서 밀려났어도 펼침면이 책(붙잡은 쪽 포함)에 있으면 다시 자른다 — 그림 일부를 옮겨 담는 일이라 싸다.
+        val full = base.cached(part.page, width * 2, height, trimOf(frame)) ?: return null
+        return cut(full, part.half)?.also { keep(k, index, it) }
     }
 
     override suspend fun page(index: Int, width: Int, height: Int, trim: ComicTrim): Bitmap? {
         val part = parts.getOrNull(index) ?: return null
         if (part.half == SpreadSplit.Half.WHOLE) return base.page(part.page, width, height, trim)
         cached(index, width, height, trim)?.let { return it }
-        val full = base.page(part.page, width * 2, height, trim) ?: return null
-        val frame = base.knownFrameFor(part.page, trim) ?: MarginTrim.Frame.WHOLE
-        val half = (full.width / 2).coerceAtLeast(1)
-        val cut = Bitmap.createBitmap(full, if (part.half == SpreadSplit.Half.LEFT) 0 else full.width - half, 0, half, full.height)
-        halves.put(key(index, width, height, frame), cut)
-        return cut
+        val frame = if (trim == ComicTrim.Off) MarginTrim.Frame.WHOLE else SpreadSplit.splitFrame(base.frame(part.page))
+        val full = base.page(part.page, width * 2, height, trimOf(frame)) ?: return null
+        return cut(full, part.half)?.also { keep(key(index, width, height, frame), index, it) }
     }
+
+    private fun keep(key: String, index: Int, bitmap: Bitmap) {
+        halves.put(key, bitmap)
+        if (index in pinnedParts) pinned[key] = bitmap
+    }
+
+    /** [full] 의 [half]. 두 반은 같은 폭이다(홀수 폭이면 가운데 한 줄을 버린다). 자르다 실패하면(메모리) null. */
+    private fun cut(full: Bitmap, half: SpreadSplit.Half): Bitmap? = runCatching {
+        val w = (full.width / 2).coerceAtLeast(1)
+        Bitmap.createBitmap(full, if (half == SpreadSplit.Half.LEFT) 0 else full.width - w, 0, w, full.height)
+    }.getOrNull()
 
     override fun isBroken(index: Int): Boolean = parts.getOrNull(index)?.let { base.isBroken(it.page) } ?: false
 
-    override fun pin(indices: Set<Int>) = base.pin(indices.mapNotNullTo(HashSet()) { parts.getOrNull(it)?.page })
+    override fun pin(indices: Set<Int>) {
+        pinnedParts = indices
+        pinned.keys.removeAll { k -> k.substringBefore('|').toIntOrNull() !in indices }
+        halves.snapshot().forEach { (k, v) -> if (k.substringBefore('|').toIntOrNull() in indices) pinned[k] = v }
+        base.pin(indices.mapNotNullTo(HashSet()) { parts.getOrNull(it)?.page })
+    }
 
     override fun knownAspect(index: Int): Float? {
         val part = parts.getOrNull(index) ?: return null
         return base.knownAspect(part.page)?.let { if (part.half == SpreadSplit.Half.WHOLE) it else it / 2 }
     }
 
-    override fun knownFrame(index: Int): MarginTrim.Frame? = parts.getOrNull(index)?.let { base.knownFrame(it.page) }
+    // 반 조각의 상자는 반 조각 크기에 대한 비율이다 — 펼침면의 상자를 반 조각 크기에 걸면 판의 비가 어긋난다.
+    override fun knownFrame(index: Int): MarginTrim.Frame? = parts.getOrNull(index)?.let { part ->
+        base.knownFrame(part.page)?.let { if (part.half == SpreadSplit.Half.WHOLE) it else SpreadSplit.halfFrame(it, part.half) }
+    }
 
-    override suspend fun frame(index: Int): MarginTrim.Frame = parts.getOrNull(index)?.let { base.frame(it.page) } ?: MarginTrim.Frame.WHOLE
+    override suspend fun frame(index: Int): MarginTrim.Frame = parts.getOrNull(index)?.let { part ->
+        base.frame(part.page).let { if (part.half == SpreadSplit.Half.WHOLE) it else SpreadSplit.halfFrame(it, part.half) }
+    } ?: MarginTrim.Frame.WHOLE
 }
 
 class ComicBook(
@@ -147,6 +194,8 @@ class ComicBook(
     budget: Int = memoryBudget(),
     /** 띠를 풀기 전에 기다리는 시간(ms). 시험만 쓴다(`AppContainer.comicStripDelayMs`). */
     private val stripDelayMs: () -> Long = { 0L },
+    /** 쪽을 내주기 전에 기다리는 시간(ms). 시험만 쓴다(`AppContainer.comicPageDelayMs`). */
+    private val pageDelayMs: () -> Long = { 0L },
 ) : AutoCloseable, ComicPageSource {
     override val pageCount: Int get() = pages.count
 
@@ -226,27 +275,30 @@ class ComicBook(
      */
     override suspend fun page(index: Int, width: Int, height: Int, trim: ComicTrim): Bitmap? = withContext(Dispatchers.IO) {
         if (index !in 0 until pageCount || width <= 0 || height <= 0) return@withContext null
+        // 시험이 늦춘다: 저장소에 있어도 기다리는 것은 화면 쪽에서 본 "따로 받아 오는 동안"(입출력 스레드를 오가는 몇 장면)이다.
+        pageDelayMs().takeIf { it > 0 }?.let { kotlinx.coroutines.delay(it) }
         cached(index, width, height, trim)?.let { return@withContext it }
         if (index in broken) return@withContext null
         lock.withLock {
             cached(index, width, height, trim)?.let { return@withLock it }
-            val renderer = pages.renderer
-            // 그려 내는 쪽(스캔 PDF, 0.50.0)은 바이트를 거치지 않고 화면 크기로 바로 그린다.
-            val bitmap = if (renderer != null) {
-                runCatching { renderer.render(index, width, height) }.getOrNull()
-                    ?.also { aspects[index] = it.width.toFloat() / it.height }
-            } else {
-                val bytes = try {
-                    pages.read(index)
-                } catch (e: java.io.IOException) {
-                    android.util.Log.w("OloComic", "page $index of ${unit.name} unreadable", e)
+            var starved = false
+            // 메모리가 모자라면(OutOfMemoryError) 저장소를 비우고 반 크기로 한 번 더 푼다. 그래도 모자라면 이번만 빈손으로
+            // 돌아간다 — 깨진 쪽으로 적지 않는다. 0.52 까지는 깨진 쪽으로 적어, 메모리가 잠깐 빠듯했던 한 번 때문에 그 쪽이 권을
+            // 닫을 때까지 "이 쪽을 그리지 못했습니다" 로 남았다. 쪽 하나 때문에 앱이 닫혀서도 안 된다.
+            val bitmap = try {
+                produce(index, width, height, 1)
+            } catch (e: OutOfMemoryError) {
+                bitmaps.evictAll()
+                try {
+                    produce(index, width, height, 2)
+                } catch (e2: OutOfMemoryError) {
+                    android.util.Log.w("OloComic", "page $index of ${unit.name} does not fit in memory now", e2)
+                    starved = true
                     null
                 }
-                // 메모리가 모자라 못 푼 것(OutOfMemoryError)도 깨진 쪽처럼 넘긴다 — 쪽 하나 때문에 앱이 닫히면 안 된다.
-                bytes?.let { runCatching { decode(it, width, height, index) }.getOrNull() }
             }
             if (bitmap == null) {
-                broken += index
+                if (!starved) broken += index
                 return@withLock null
             }
             // 제 여백대로 자를 때 아직 상자를 모르면 막 푼 그림에서 찾는다 — 한 쪽 보기는 따로 작게 풀지 않는다.
@@ -258,6 +310,39 @@ class ComicBook(
         }
     }
 
+    /**
+     * [index] 쪽 그림을 [width]×[height] 안에 들어가게 만든다. [shrink] 배 작게(메모리가 모자라 다시 할 때 2). 그림이 아니면
+     * null. 메모리가 모자라면 [OutOfMemoryError] 를 그대로 던진다 — 부르는 쪽이 깨진 쪽과 가른다.
+     */
+    private fun produce(index: Int, width: Int, height: Int, shrink: Int): Bitmap? {
+        val w = (width / shrink).coerceAtLeast(1)
+        val h = (height / shrink).coerceAtLeast(1)
+        val renderer = pages.renderer
+        // 그려 내는 쪽(스캔 PDF, 0.50.0)은 바이트를 거치지 않고 화면 크기로 바로 그린다.
+        if (renderer != null) {
+            return try {
+                renderer.render(index, w, h)?.also { aspects[index] = it.width.toFloat() / it.height }
+            } catch (e: OutOfMemoryError) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+        }
+        val bytes = try {
+            pages.read(index)
+        } catch (e: java.io.IOException) {
+            android.util.Log.w("OloComic", "page $index of ${unit.name} unreadable", e)
+            null
+        } ?: return null
+        return try {
+            decode(bytes, w, h, index)
+        } catch (e: OutOfMemoryError) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     private fun decode(bytes: ByteArray, width: Int, height: Int, index: Int): Bitmap? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
@@ -265,8 +350,17 @@ class ComicBook(
         aspects[index] = bounds.outWidth.toFloat() / bounds.outHeight
         // 화면 상자에 맞춘 크기보다 작아지지 않는 만큼만 솎는다(2의 거듭제곱 — 풀기가 가장 싸다).
         val scale = minOf(width.toFloat() / bounds.outWidth, height.toFloat() / bounds.outHeight)
-        val sample = sampleKeeping(bounds.outWidth, bounds.outHeight, ceil(bounds.outWidth * scale).toInt(), ceil(bounds.outHeight * scale).toInt())
-        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
+        val tw = ceil(bounds.outWidth * scale).toInt().coerceAtLeast(1)
+        val th = ceil(bounds.outHeight * scale).toInt().coerceAtLeast(1)
+        val sample = sampleKeeping(bounds.outWidth, bounds.outHeight, tw, th)
+        val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample }) ?: return null
+        // 2의 거듭제곱으로만 솎으면 화면보다 두 배 가까이 큰 채 남는다 — 3000×2100 펼침면을 화면 두 배 폭(2160)에 맞추면 솎지
+        // 못해 통째(25MB)로 남았고, 반 조각마다 12MB 를 또 옮겨 담아 몇 장 만에 메모리가 넘쳤다. 맞춘 크기로 줄인다.
+        // 조금 큰 것(1.25 배까지)은 둔다 — 그만큼 줄이자고 그림을 한 벌 더 만들 값어치가 없다.
+        if (decoded.width <= tw * OVERSIZE || decoded.height <= th * OVERSIZE) return decoded
+        val scaled = Bitmap.createScaledBitmap(decoded, tw, th, true)
+        if (scaled !== decoded) decoded.recycle()
+        return scaled
     }
 
     /**
@@ -399,6 +493,9 @@ class ComicBook(
     private fun stripKey(index: Int, rows: IntRange, width: Int) = "s$index|${rows.first}-${rows.last}|$width"
 
     companion object {
+        /** 솎아 푼 그림이 맞춘 크기의 이 배를 (가로 · 세로 모두) 넘으면 맞춘 크기로 줄인다. */
+        private const val OVERSIZE = 1.25f
+
         /** 띠 풀기가 안 될 때 전체를 풀 최대 높이(픽셀). 텍스처 한도(4096) 안. */
         private const val MAX_WHOLE_HEIGHT = 4096
 

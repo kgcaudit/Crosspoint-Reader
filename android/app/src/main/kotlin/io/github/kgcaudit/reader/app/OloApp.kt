@@ -159,6 +159,13 @@ class AppContainer(private val app: Application) {
      */
     internal var comicStripDelayMs: Long = 0
 
+    /**
+     * 쪽 넘김 만화의 쪽 하나를 내주기 전에 기다리는 시간(ms). 늘 0 — 시험이 늘려, 휴대폰처럼 "곧바로 그리지 못하고 따로 받아
+     * 오는 동안" 을 만든다. Robolectric 에서는 화면을 뜨기 전에 다 받아 와, 넘김 효과가 저장소에 없는 반 조각을 검게 그리는 일이
+     * 드러나지 않았다.
+     */
+    internal var comicPageDelayMs: Long = 0
+
     /** 듣기 엔진(4단계). 테스트가 가짜로 바꾼다 — Robolectric 에는 음성 엔진이 없다. */
     internal var listenKit: ListenKit = ListenKit.android(app)
 
