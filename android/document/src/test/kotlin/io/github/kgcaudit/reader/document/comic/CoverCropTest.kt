@@ -80,16 +80,19 @@ class CoverCropTest {
     }
 
     @Test
-    fun `a jacket with flaps keeps a cover-shaped piece at the front edge`() {
+    fun `a jacket with flaps keeps the cover-shaped piece next to the spine, not the flap`() {
         // 날개까지 펼친 겉싸개(2500×1000). 반으로만 자르면 1250×1000 — 여전히 가로로 길어 표지 칸에서 납작하다.
         val ltr = CoverCrop.front(2500, 1000, rightToLeft = false)
         val rtl = CoverCrop.front(2500, 1000, rightToLeft = true)
         // 표지 칸 비율(세로 ÷ 가로 1.45)이라 세로로 길다.
         assertEquals(690, ltr.last - ltr.first + 1)
         assertEquals(690, rtl.last - rtl.first + 1)
-        // 앞 가장자리에 붙되 가장 바깥 2%(50px, 날개 끝)는 뺀다.
-        assertEquals(2500 - 50 - 1, ltr.last)
-        assertEquals(50, rtl.first)
+        // 앞표지는 책등에 붙어 있다 — 가운데(1250)에서 책등 몫 2%(50px)를 비운 자리부터. 바깥 끝에 붙이면 날개가 담긴다.
+        assertEquals(1250 + 50, ltr.first)
+        assertEquals(1250 - 50 - 1, rtl.last)
+        // 바깥 날개(끝에서 높이의 1/3 남짓, 약 330px)에는 닿지 않는다.
+        assertTrue(ltr.last < 2500 - 330)
+        assertTrue(rtl.first >= 330)
     }
 
     @Test

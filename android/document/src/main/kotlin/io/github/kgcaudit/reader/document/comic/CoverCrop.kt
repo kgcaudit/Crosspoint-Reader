@@ -65,8 +65,9 @@ object CoverCrop {
      * 원본의 열 범위를 준다(높이는 늘 전부). 앞표지는 왼→오 책이면 오른쪽, 오→왼 책이면 왼쪽이다.
      * - 펼침면이 아니면([SpreadSplit.WIDE] 이하) 통째로. 펼침면 나누기와 같은 문턱이라, 나눠 읽는 쪽과 반으로 자르는 표지가 같다.
      * - 펼침면이면 앞쪽 반에서 책등 쪽 [SPINE] 만큼 더 깎는다 — 책등의 글자 · 그림자가 표지 가장자리에 띠로 남는다.
-     * - 아주 넓으면([JACKET] 초과: 날개 · 띠지까지 펼친 겉싸개) 앞 가장자리에 붙여 표지 칸 비율만큼만. 가장 바깥 [SPINE] 은
-     *   날개 끝이라 뺀다. 반으로만 자르면 반이 여전히 가로로 길어 다시 납작해진다.
+     * - 아주 넓으면([JACKET] 초과: 날개까지 펼친 겉싸개) 책등 바로 옆에서 표지 칸 비율만큼만. 반으로만 자르면 반이 여전히
+     *   가로로 길어 다시 납작해진다. 바깥 끝에 붙이면 날개(높이의 1/3 남짓)와 앞표지 절반이 담겼다 — 앞표지는 늘 책등에
+     *   붙어 있고 날개는 바깥에 붙는다(KCC 도 가운데에서 잰다).
      *
      * 크기가 깨졌으면(0 · 음수) 통째로 — 표지 하나 때문에 서재가 멈추면 안 된다(규칙 6). 부르는 쪽은 빈 범위를 "못 자름" 으로 본다.
      * [ImageSize] 가 아니라 정수로 받는 것도 그래서다: 그림 머리에서 읽은 깨진 크기를 그대로 넘겨도 예외가 나지 않는다.
@@ -77,8 +78,8 @@ object CoverCrop {
         if (w <= 0 || h <= 0 || !SpreadSplit.isWide(ImageSize(w, h))) return 0 until w.coerceAtLeast(0)
         val edge = (w * SPINE).roundToInt()
         return if (w > h * JACKET) {
-            val span = (h / ASPECT).roundToInt().coerceIn(1, w - 2 * edge)
-            if (rightToLeft) edge until edge + span else (w - edge - span) until (w - edge)
+            val span = (h / ASPECT).roundToInt().coerceIn(1, w / 2 - edge)
+            if (rightToLeft) (w / 2 - edge - span) until (w / 2 - edge) else (w / 2 + edge) until (w / 2 + edge + span)
         } else if (rightToLeft) {
             0 until (w / 2 - edge).coerceAtLeast(1)
         } else {
@@ -86,7 +87,7 @@ object CoverCrop {
         }
     }
 
-    /** 펼침면 표지에서 책등 쪽(겉싸개면 날개 끝)으로 깎는 폭, 그림 전체 폭의 비율. */
+    /** 펼침면 표지에서 책등 쪽으로 깎는 폭, 그림 전체 폭의 비율. */
     const val SPINE: Float = 0.02f
 
     /** 이보다 넓으면(가로 ÷ 세로) 반이 아니라 표지 칸 비율로 자른다. 앞 · 뒤표지 한 장은 1.3~1.5, 날개까지 펼치면 2 를 넘는다. */
