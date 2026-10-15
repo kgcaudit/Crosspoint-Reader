@@ -22,6 +22,7 @@ import io.github.kgcaudit.reader.document.archive.StoredArchives
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
+import org.junit.After
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -72,6 +73,18 @@ class OpenWithComicTest {
     }.toByteArray()
 
     private val threePages by lazy { zip("001.png" to png(), "002.png" to png(), "003.png" to png()) }
+
+    /**
+     * 연 화면을 닫는다. 닫지 않으면 다음 시험(새 앱 · 새 DB)이 도는 동안 옛 화면이 닫힌 옛 DB 를 붙들고 계속 그려, 다음 시험
+     * 클래스 전체가 "Compose did not get idle" 로 무너졌다(0.53.0 에서 받은 만화의 작품 설정 시험을 더한 뒤 25~75건).
+     */
+    @After
+    fun tearDown() {
+        // ActivityScenario.close() 는 이 화면에서 끝나지 않았다(파괴를 기다리다 멈춤) — 화면이 스스로 닫히게 하고 할 일을 비운다.
+        runCatching { scenario?.onActivity { it.finish() } }
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        scenario = null
+    }
 
     @Before
     fun setUp() {
