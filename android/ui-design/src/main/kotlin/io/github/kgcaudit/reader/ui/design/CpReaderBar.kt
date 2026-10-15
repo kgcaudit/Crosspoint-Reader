@@ -67,9 +67,20 @@ fun CpReaderBar(
      * 서야 "여기까지 왔다" 로 읽힌다. 화면 아래 줄과 같은 방향이어야 위아래가 서로 반대로 차오르지 않는다.
      */
     progressRightToLeft: Boolean = false,
+    /**
+     * 만화 화면이다(쪽 넘김 · 웹툰 · 만화로 보는 책). 읽기 잠금 안내가 "가운데를 눌러 메뉴의 자물쇠" 부터 말한다 — 만화는
+     * 읽는 동안 메뉴가 숨어 있어 "위 자물쇠" 가 화면에 없다.
+     */
+    comic: Boolean = false,
     tools: @Composable RowScope.() -> Unit,
 ) {
     val colors = CpTheme.colors
+    // 메뉴가 떠 있는 동안 통화 뒤 띠를 거두게 알린다(띠가 아래 도구줄을 덮지 않게).
+    val lock = LocalReadLock.current
+    if (lock != null) androidx.compose.runtime.DisposableEffect(lock) {
+        lock.menu(true)
+        onDispose { lock.menu(false) }
+    }
     // 막대를 끄는 동안의 값. 손을 떼기 전까지는 옮기지 않고 숫자만 바꾼다 — 끄는 동안 매번 옮기면
     // 조판·렌더가 줄줄이 쌓여 손을 뗀 뒤에도 한참 페이지가 바뀐다.
     var dragging by remember { mutableStateOf<Float?>(null) }
@@ -91,6 +102,9 @@ fun CpReaderBar(
                     }
                     if (onSearch != null) CpIconButton(CpIcons.Search, "책에서 찾기", onClick = onSearch)
                     if (onListen != null) CpIconButton(CpIcons.Headphones, "듣기", onClick = onListen)
+                    // 읽기 잠금은 책갈피 왼쪽(구상안 1 · 5 · 7). 네 리더가 이 줄을 함께 쓰므로 여기 한 곳에 둔다 — 리더마다 달면
+                    // 어느 하나에서 빠진다. 앱이 잠금을 넣어 주지 않으면(부품 시험) 단추가 없다.
+                    lock?.let { ReadLockButton(it, comic) }
                     CpIconButton(
                         if (bookmarked) CpIcons.BookmarkFilled else CpIcons.Bookmark,
                         if (bookmarked) "책갈피 빼기" else "책갈피 꽂기",

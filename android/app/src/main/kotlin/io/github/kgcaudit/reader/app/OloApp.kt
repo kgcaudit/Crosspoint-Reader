@@ -77,8 +77,11 @@ class HeldBook(
     fun listened(): Boolean = ListenHub.current.value?.belongsTo(book.source) == true
 }
 
-class OloApp : Application() {
+class OloApp : Application(), io.github.kgcaudit.reader.ui.design.ReadLockHost {
     val container: AppContainer by lazy { AppContainer(this) }
+
+    /** 공유 · 사전처럼 Context 만 받는 곳도 읽기 잠금을 찾게 한다(ui-design 의 readLockBlocks). */
+    override val readLock: io.github.kgcaudit.reader.ui.design.ReadLock get() = container.readLock
 }
 
 val Context.container: AppContainer get() = (applicationContext as OloApp).container
@@ -166,6 +169,9 @@ class AppContainer(private val app: Application) {
      * 드러나지 않았다.
      */
     internal var comicPageDelayMs: Long = 0
+
+    /** 읽기 잠금(화면 고정). 앱에 하나 — 화면이 다시 만들어져도 잠금이 이어진다. */
+    internal val readLock: ReadLockController by lazy { ReadLockController(app) }
 
     /** 듣기 엔진(4단계). 테스트가 가짜로 바꾼다 — Robolectric 에는 음성 엔진이 없다. */
     internal var listenKit: ListenKit = ListenKit.android(app)

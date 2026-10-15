@@ -163,13 +163,13 @@ internal fun ReadingRecordsRows(ui: RecordsUi) {
         "백업 파일 만들기",
         // 담을 것이 없으면 빈 파일을 만들게 두지 않는다. 흐린 줄도 눌리므로(CpListRow) 여기서 막고 까닭을 알린다 — 0.49.0 까지는
         // 흐리게만 하고 눌러 빈 백업 파일이 만들어졌다.
-        { if (can) create.launchOr(backupFileName()) { ui.popup = RecordsPopup.Failed(NO_PICKER) } else ui.toast = "아직 담을 읽기 기록이 없습니다" },
+        { if (can) create.launchOr(context, backupFileName()) { ui.popup = RecordsPopup.Failed(NO_PICKER) } else ui.toast = "아직 담을 읽기 기록이 없습니다" },
         subtitle = s?.let(::summaryLine) ?: " ",
         enabled = can,
     )
     CpListRow(
         "백업 파일에서 가져오기",
-        { open.launchOr(arrayOf("*/*")) { ui.popup = RecordsPopup.Failed(NO_PICKER) } },
+        { open.launchOr(context, arrayOf("*/*")) { ui.popup = RecordsPopup.Failed(NO_PICKER) } },
         subtitle = ui.last?.let { "마지막 백업 ${backupDate(it)}" } ?: "다른 휴대폰에서 만든 백업 파일을 고릅니다",
     )
 }

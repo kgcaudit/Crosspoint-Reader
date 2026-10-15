@@ -72,6 +72,12 @@ object CpIcons {
      * 빌려 쓰면 옆의 목록 단추와 구별되지 않는다.
      */
     val Shelf = line("M5 5 V17.5 M5 5 H8.5 V17.5 M10.5 7 V17.5 M10.5 7 H13.5 V17.5 M15.5 8.5 L19 16.5 M3 20 H21")
+    /**
+     * 읽기 잠금(2026-10-15 사용자 결정): 닫힌 자물쇠 · 열린 자물쇠. 열린 쪽은 고리 오른쪽 다리를 들어 올려 그린다 — 몸통이
+     * 같아야 잠금 · 풀림이 한 단추의 두 모습으로 읽힌다. 계열 메뉴 그림에는 자물쇠가 없다.
+     */
+    val Lock = line("M6 11 H18 V20 H6 Z M8.5 11 V8 A3.5 3.5 0 0 1 15.5 8 V11 M12 14.5 V16.5")
+    val Unlock = line("M6 11 H18 V20 H6 Z M8.5 11 V8 A3.5 3.5 0 0 1 15.2 6.6 M12 14.5 V16.5")
 
 
     private fun line(d: String): ImageVector = ImageVector.Builder(

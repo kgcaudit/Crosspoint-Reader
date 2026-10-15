@@ -30,6 +30,7 @@ import io.github.kgcaudit.reader.ui.design.CpPopup
 import io.github.kgcaudit.reader.ui.design.CpPopupButtons
 import io.github.kgcaudit.reader.ui.design.CpRadioRow
 import io.github.kgcaudit.reader.ui.design.CpTheme
+import io.github.kgcaudit.reader.ui.design.readLockBlocks
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -140,7 +141,8 @@ internal fun FontsPanel(
                         title = USER_LABEL,
                         subtitle = "글꼴 파일 넣기 · TTF · OTF · TTC",
                         icon = CpIcons.Plus,
-                        onClick = { picker.launch(arrayOf("*/*")) },
+                        // 글꼴 파일 고르기는 다른 앱의 화면이다 — 읽기 잠금 중에는 열지 않는다.
+                        onClick = { if (!context.readLockBlocks()) picker.launch(arrayOf("*/*")) },
                     )
                 }
             }

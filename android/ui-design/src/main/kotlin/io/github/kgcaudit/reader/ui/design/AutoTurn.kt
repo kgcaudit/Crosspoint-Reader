@@ -50,6 +50,9 @@ fun rememberAutoTurn(setting: AutoTurn, pageKey: Any?, suspended: Boolean, onTur
     val state = remember { AutoTurnState() }
     val latest by rememberUpdatedState(onTurn)
     val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    // 읽기 잠금 중 전화가 오면 멈추고 "다시 잠그기" 로 잇는다. 여기서 걸어야 책 · PDF · 만화 세 리더가 빠짐없이 걸린다 —
+    // 멈추지 않으면 통화하는 사이 쪽이 넘어가 돌아왔을 때 읽던 곳을 잃는다.
+    ReadLockPauses(state.running(setting), pause = { state.paused = true }, resume = { state.paused = false })
     LaunchedEffect(setting) {
         state.stopped = false
         state.paused = false
@@ -106,6 +109,8 @@ fun AutoTurnState.visible(setting: AutoTurn, suspended: Boolean): Boolean = sett
  */
 @Composable
 fun CpAutoTurnPill(state: AutoTurnState, modifier: Modifier = Modifier) {
+    // 통화 뒤 "다시 잠그기" 띠가 같은 자리에 떠 있다(구상안 6). 다시 잠그면 이어 넘긴다.
+    if (LocalReadLock.current?.asksRelock == true) return
     val c = CpTheme.colors
     val shape = RoundedCornerShape(CpTheme.metrics.cornerMedium)
     Row(
@@ -157,6 +162,8 @@ fun CpAutoScrollPill(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // 통화 뒤 "다시 잠그기" 띠가 같은 자리에 떠 있다(구상안 6). 다시 잠그면 이어 흐른다.
+    if (LocalReadLock.current?.asksRelock == true) return
     val c = CpTheme.colors
     val shape = RoundedCornerShape(CpTheme.metrics.cornerMedium)
     Row(

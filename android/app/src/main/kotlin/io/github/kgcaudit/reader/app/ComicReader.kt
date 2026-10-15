@@ -602,7 +602,8 @@ fun ComicReader(
             title = title,
             // 오→왼이면 방향을 붙인다 — 0.44 까지는 아래 정보 줄이 "← 오→왼" 을 늘 보였는데, 줄을 없애면서(0.45.0) 여기로 옮겼다.
             // 반 조각이 보이면 어느 반인지 붙인다(0.52.x) — 쪽 번호만이면 같은 "10 / 120쪽" 이 두 번 이어져 넘김이 안 된 것처럼 보였다.
-            subtitle = "${pagesLabel(shown.map(::realOf).distinct())} / ${bookCount}쪽" + halfLabel(shownHalf) + if (rtl) " · 오→왼" else "",
+            // 잠금 표시는 방향 앞에 둔다(구상안 5 · 7) — 상태가 먼저, 읽는 방향은 그 뒤.
+            subtitle = "${pagesLabel(shown.map(::realOf).distinct())} / ${bookCount}쪽" + halfLabel(shownHalf) + io.github.kgcaudit.reader.ui.design.readLockMark() + if (rtl) " · 오→왼" else "",
             bookmarked = bookmarked,
             onBookmark = ::toggleBookmark,
             onBack = onClose,
@@ -613,6 +614,7 @@ fun ComicReader(
             // 오→왼: 위 막대도 아래 줄처럼 오른쪽에서 차오른다(2026-10-03 사용자 결정 9). 0.40 까지는 위는 왼쪽, 아래는
             // 오른쪽에서 차올라 한 화면에 두 막대가 서로 반대로 갔다.
             progressRightToLeft = rtl,
+            comic = true,
             above = {
                 if (panel == ComicPanel.View) {
                     Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {

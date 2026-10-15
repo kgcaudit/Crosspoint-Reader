@@ -10,6 +10,8 @@ import io.github.kgcaudit.reader.ui.design.bounds
 import io.github.kgcaudit.reader.ui.design.go
 import io.github.kgcaudit.reader.ui.design.handleCentres
 import io.github.kgcaudit.reader.ui.design.lookUp
+import io.github.kgcaudit.reader.ui.design.readLockBlocks
+import io.github.kgcaudit.reader.ui.design.readLockMark
 import io.github.kgcaudit.reader.ui.design.shareOut
 import io.github.kgcaudit.reader.ui.design.copyText
 import io.github.kgcaudit.reader.ui.design.shareText
@@ -812,7 +814,9 @@ fun ReaderScreen(
         }
         external?.let { url ->
             val opener = androidx.compose.ui.platform.LocalUriHandler.current
-            ExternalLinkPopup(url, onOpen = { external = null; runCatching { opener.openUri(url) } }, onDismiss = { external = null })
+            val linkContext = androidx.compose.ui.platform.LocalContext.current
+            // 바깥 링크는 브라우저 · 메일 앱의 화면이다 — 읽기 잠금 중에는 열지 않고 안내만 한다(열면 고정이 깨지거나 막힌다).
+            ExternalLinkPopup(url, onOpen = { external = null; if (!linkContext.readLockBlocks()) runCatching { opener.openUri(url) } }, onDismiss = { external = null })
         }
 
         if (state.busy && state.page == null) CpPopup(title = "책을 여는 중…", progress = null)
@@ -868,7 +872,7 @@ private fun ReaderBar(
     val position = state.position
     CpReaderBar(
         title = reader.title,
-        subtitle = if (position != null) "${position.spineIndex + 1} / ${state.chapterCount}장" else null,
+        subtitle = if (position != null) "${position.spineIndex + 1} / ${state.chapterCount}장" + readLockMark() else null,
         bookmarked = state.bookmarked,
         onBookmark = onBookmark,
         onSearch = onSearch,

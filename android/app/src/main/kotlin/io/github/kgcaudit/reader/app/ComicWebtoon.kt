@@ -403,6 +403,8 @@ fun WebtoonReader(
         var stoppedByTouch by remember { mutableStateOf(false) }
         // 흘러가는 동안은 화면을 켜 둔다(쪽 넘김의 자동 넘김과 같은 자리에서 챙긴다).
         ReadingWindow(prefs, activity = here.unitId to current, autoRunning = autoOn && !autoPaused)
+        // 읽기 잠금 중 전화가 오면 멈추고, "다시 잠그기" 로 잇는다(구상안 6). 멈추지 않으면 통화하는 동안 화 끝까지 흘러간다.
+        io.github.kgcaudit.reader.ui.design.ReadLockPauses(autoOn && !autoPaused, pause = { autoPaused = true }, resume = { autoPaused = false })
         LaunchedEffect(autoOn, autoPaused, panel, prefs.webtoonAutoSpeed, viewH) {
             if (!autoOn || autoPaused || panel != WebtoonPanel.None) return@LaunchedEffect
             val perNano = viewH / (prefs.webtoonAutoSpeed.secondsPerScreen * 1_000_000_000f)
@@ -606,12 +608,13 @@ fun WebtoonReader(
             val (i, o) = itemAt(y)
             scope.launch { list.scrollToItem(i, o) }
         }
-        val subtitle = listOfNotNull(hereLabel, "${(percent * 100).roundToInt()}%").joinToString(" · ")
+        val subtitle = listOfNotNull(hereLabel, "${(percent * 100).roundToInt()}%").joinToString(" · ") + io.github.kgcaudit.reader.ui.design.readLockMark()
         when (panel) {
             WebtoonPanel.None -> Unit
             WebtoonPanel.Bar, WebtoonPanel.View -> CpReaderBar(
                 title = title,
                 subtitle = subtitle,
+                comic = true,
                 bookmarked = bookmarked,
                 onBookmark = ::toggleBookmark,
                 onBack = onClose,

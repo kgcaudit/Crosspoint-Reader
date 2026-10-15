@@ -233,6 +233,8 @@ fun copyText(context: Context, text: String): Boolean {
 }
 
 fun shareOut(context: Context, text: String) {
+    // 읽기 잠금 중에는 공유 창을 열지 않는다 — 고정된 동안 다른 앱 화면은 막히거나 고정을 깬다.
+    if (context.readLockBlocks()) return
     val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
     runCatching { context.startActivity(Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
 }
@@ -242,6 +244,8 @@ fun shareOut(context: Context, text: String) {
  * 사전을 앱에 넣지 않는 이유: 사전 데이터는 책보다 크고, 이미 쓰는 사전 앱이 사용자에게 더 익숙하다.
  */
 fun lookUp(context: Context, word: String): Boolean {
+    // 잠긴 동안은 안내만 한다. true 를 돌려준다 — false 면 "사전 앱이 없습니다" 가 잠금 안내 위에 겹친다.
+    if (context.readLockBlocks()) return true
     val process = Intent(Intent.ACTION_PROCESS_TEXT).setType("text/plain")
         .putExtra(Intent.EXTRA_PROCESS_TEXT, word)
         .putExtra(Intent.EXTRA_PROCESS_TEXT_READONLY, true)

@@ -181,10 +181,11 @@ fun CpNotesExport(
                 Spacer(Modifier.padding(bottom = 8.dp))
             }
             Row(Modifier.fillMaxWidth().padding(CpTheme.metrics.gutter), horizontalArrangement = Arrangement.End) {
-                CpButton("파일로 저장", { save.launch(exportFileName(title, format)) }, primary = false)
+                // 둘 다 다른 앱의 화면(파일 고르기 · 공유 창)이다 — 읽기 잠금 중에는 열지 않고 안내만 한다.
+                CpButton("파일로 저장", { if (!context.readLockBlocks()) save.launch(exportFileName(title, format)) }, primary = false)
                 Spacer(Modifier.width(10.dp))
                 CpButton("공유", {
-                    if (!send(context, title, text)) toast = "노트가 많아 한 번에 보낼 수 없습니다. 파일로 저장해 주세요."
+                    if (!context.readLockBlocks() && !send(context, title, text)) toast = "노트가 많아 한 번에 보낼 수 없습니다. 파일로 저장해 주세요."
                 })
             }
         }

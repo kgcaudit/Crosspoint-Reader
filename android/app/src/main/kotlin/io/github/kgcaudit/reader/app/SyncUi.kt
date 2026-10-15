@@ -3,6 +3,7 @@ package io.github.kgcaudit.reader.app
 import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
+import io.github.kgcaudit.reader.ui.design.readLockBlocks
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -151,6 +152,7 @@ internal fun ReadingSyncPopups(ui: SyncUi) {
     val asked = ui.needWrite.firstOrNull()
     // 고르는 화면은 묻는 폴더에서 열린다(처음 자리) — 사람이 그 폴더를 다시 찾아 들어가지 않게.
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri -> asked?.let { ui.picked(it, uri) } }
+    val context = androidx.compose.ui.platform.LocalContext.current
     if (asked != null) {
         CpPopup(
             title = "폴더를 한 번 더 골라 주세요",
@@ -160,7 +162,7 @@ internal fun ReadingSyncPopups(ui: SyncUi) {
         ) {
             CpPopupButtons {
                 CpButton("나중에", ui::skip, primary = false)
-                CpButton("폴더 고르기", { pick.launch(asked) })
+                CpButton("폴더 고르기", { if (!context.readLockBlocks()) pick.launch(asked) })
             }
         }
     }

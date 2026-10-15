@@ -3,6 +3,7 @@ package io.github.kgcaudit.reader.app
 import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
+import io.github.kgcaudit.reader.ui.design.readLockBlocks
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -276,7 +277,7 @@ fun LibraryScreen(
         }
 
         if (folders.isEmpty()) {
-            EmptyLibrary { pickFolder.launchOr(null) { notice = NO_PICKER to NO_PICKER_HINT } }
+            EmptyLibrary { pickFolder.launchOr(context, null) { notice = NO_PICKER to NO_PICKER_HINT } }
         } else if (comics) {
             androidx.compose.foundation.pager.HorizontalPager(pager, Modifier.fillMaxSize(), verticalAlignment = Alignment.Top) { page ->
                 if (page == 0) bookPage() else ShelfWall(layout) { LazyColumn(Modifier.fillMaxSize()) {
@@ -385,7 +386,7 @@ fun LibraryScreen(
             onPhoto = {
                 workMenu = null
                 coverForId = CoverStore.workId(w.key).value
-                pickCover.launchOr(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) { notice = NO_PICKER to NO_PICKER_HINT }
+                pickCover.launchOr(context, PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) { notice = NO_PICKER to NO_PICKER_HINT }
             },
             onRevert = {
                 workMenu = null
@@ -406,7 +407,7 @@ fun LibraryScreen(
                 title = "폴더 추가",
                 icon = CpIcons.Plus,
                 tile = colors.accent,
-                onClick = { manageFolders = false; pickFolder.launchOr(null) { notice = NO_PICKER to NO_PICKER_HINT } },
+                onClick = { manageFolders = false; pickFolder.launchOr(context, null) { notice = NO_PICKER to NO_PICKER_HINT } },
                 compact = true,
                 inset = 0.dp,
             )
@@ -486,7 +487,7 @@ fun LibraryScreen(
             onPick = {
                 coverMenu = null
                 coverForId = book.id.value
-                pickCover.launchOr(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) { notice = NO_PICKER to NO_PICKER_HINT }
+                pickCover.launchOr(context, PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) { notice = NO_PICKER to NO_PICKER_HINT }
             },
             onRevert = {
                 coverMenu = null
@@ -686,8 +687,12 @@ private fun DoneItem(
 /**
  * 시스템 고르기 창(파일 · 폴더 · 사진)을 연다. 그 창이 없는 기기(일부 Go · TV · 관리 프로필)에서는 열기 자체가 예외라 앱이
  * 닫혔다 — 빈 서재에서 "폴더 추가" 를 누르면 끝이었다. 없으면 [onMissing] 으로 알린다.
+ *
+ * 읽기 잠금 중에는 열지 않고 안내만 한다. 고르기 창은 다른 앱(문서 UI · 사진 선택기)의 화면이라 고정된 동안에는 막히거나
+ * 열리면서 고정이 깨진다 — 서재의 고르기 창은 모두 여기를 지나므로 한 곳에서 막는다.
  */
-internal fun <I> androidx.activity.result.ActivityResultLauncher<I>.launchOr(input: I, onMissing: () -> Unit) {
+internal fun <I> androidx.activity.result.ActivityResultLauncher<I>.launchOr(context: android.content.Context, input: I, onMissing: () -> Unit) {
+    if (context.readLockBlocks()) return
     try {
         launch(input)
     } catch (e: android.content.ActivityNotFoundException) {

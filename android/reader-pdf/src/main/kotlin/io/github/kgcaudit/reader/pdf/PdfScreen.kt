@@ -590,7 +590,7 @@ fun PdfScreen(
         PdfPanel.None -> Unit
         PdfPanel.Bar, PdfPanel.View -> CpReaderBar(
             title = reader.title,
-            subtitle = "${state.page + 1} / ${state.pageCount}쪽",
+            subtitle = "${state.page + 1} / ${state.pageCount}쪽" + io.github.kgcaudit.reader.ui.design.readLockMark(),
             bookmarked = state.bookmarked,
             onBookmark = ::toggleBookmark,
             onBack = closeBook,

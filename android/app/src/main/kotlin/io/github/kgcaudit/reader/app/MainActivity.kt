@@ -72,10 +72,16 @@ class MainActivity : ComponentActivity() {
             val target = ContinueWidget.targetOf(intent)
             if (target != null) continueTarget.value = target else incoming.value = intent
         }
+        container.readLock.attach(this)
         setContent {
             // 독서 기록(0.51.0)의 시계는 앱 것을 쓴다 — 시험이 바꿔 끼울 수 있게 부를 때마다 읽는다.
             val container = applicationContext.container
-            CompositionLocalProvider(LocalVolumeKeys provides volumeKeys, LocalReadingClock provides { container.readingClock() }) {
+            CompositionLocalProvider(
+                LocalVolumeKeys provides volumeKeys,
+                LocalReadingClock provides { container.readingClock() },
+                // 읽기 잠금: 네 리더의 윗줄 자물쇠 · 부제 · 자동 진행 멈춤이 이것을 본다.
+                io.github.kgcaudit.reader.ui.design.LocalReadLock provides container.readLock,
+            ) {
                 CpTheme { OloApp(incoming, returned, continueTarget, hideSystemBars = ::hideSystemBars, leave = ::leaveToCaller, rotate = ::applyRotation) }
             }
         }
@@ -85,6 +91,26 @@ class MainActivity : ComponentActivity() {
      * 리더가 볼륨키 넘김을 켜 두었으면 음량 단추를 가져간다. 화면(컴포즈)이 먹지 않은 키가 여기로 온다 — 지면에는
      * 초점을 가진 곳이 없어 컴포즈의 키 처리로는 받을 수 없다. 떼는 것도 먹어야 시스템 음량 판이 뜨지 않는다.
      */
+    /**
+     * 읽기 잠금은 안드로이드 확인 창의 답을 여기서 확인한다 — 창이 닫히면 초점이 돌아오고, 그때 고정 상태를 본다. 거절했으면
+     * 아무것도 잠기지 않았다. 시스템 동작(뒤로 + 최근 앱 길게)으로 풀린 것도 앞으로 돌아오거나 초점을 얻을 때 알아챈다.
+     */
+    override fun onResume() {
+        super.onResume()
+        container.readLock.resumed()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        container.readLock.focus(hasFocus)
+    }
+
+    /** 앱을 닫으면 고정 · 방해 금지를 남기지 않는다. 다시 만들어지는 것(설정 변경)이면 잠금을 이어 간다. */
+    override fun onDestroy() {
+        container.readLock.detach(this, finishing = isFinishing && !isChangingConfigurations)
+        super.onDestroy()
+    }
+
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean =
         volumeKeys.dispatch(event) || super.onKeyDown(keyCode, event)
 
@@ -613,6 +639,10 @@ private fun OloApp(
         }
     }
 
+    // 읽기 잠금: 리더를 닫으면 통화 뒤 띠를 거둔다(읽던 책에 붙은 것). 다음 권 · 다음 화로 넘어가는 것은 닫는 것이 아니다.
+    val reading = reader != null || comicId != null || bookComicId != null || incomingComicUri != null
+    LaunchedEffect(reading) { if (!reading) container.readLock.leftReader() }
+
     Box(Modifier.fillMaxSize()) { CpToast(notice, { notice = null }, Modifier.align(Alignment.BottomCenter)) }
     failure?.let { message ->
         CpPopup(title = failureTitle, message = message, onDismiss = { failure = null; failureTitle = BOOK_FAILURE }) {
@@ -622,6 +652,8 @@ private fun OloApp(
     if ((openId != null || incomingUri != null) && reader == null && failure == null) {
         Box(Modifier.fillMaxSize().background(CpTheme.colors.background)) { CpPopup(title = "책을 여는 중…") }
     }
+    // 맨 위: 설명 판 · 통화 뒤 띠 · 잠금 안내. 리더 · 서재 어느 화면 위에서도 같은 자리에.
+    ReadLockLayer(container.readLock)
 }
 
 /**
