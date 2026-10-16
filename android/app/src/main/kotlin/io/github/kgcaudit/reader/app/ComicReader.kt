@@ -665,6 +665,7 @@ fun ComicReader(
             next = next,
             onNext = { n -> ended = false; onNext(n) },
             onLibrary = onClose,
+            rightToLeft = work?.rightToLeft,
         )
     }
 }
@@ -725,6 +726,14 @@ private fun ComicPageImage(
         val mode = book.trimOf(pages, trim)
         pages.forEachIndexed { k, p ->
             if (bitmaps[k] == null && !book.isBroken(p)) bitmaps[k] = book.page(p, w, h, mode)
+        }
+        // 메모리가 모자라 이번에 못 푼 쪽(깨진 쪽은 아니다)은 잠시 뒤 한 번 더 — 그사이 다른 쪽 그림이 비워진다. 0.54.1 까지는 그
+        // 쪽을 떠났다 돌아올 때까지 검은 화면에 아무 말도 없었다.
+        if (pages.indices.any { bitmaps[it] == null && !book.isBroken(pages[it]) }) {
+            kotlinx.coroutines.delay(STARVED_RETRY_MS)
+            pages.forEachIndexed { k, p ->
+                if (bitmaps[k] == null && !book.isBroken(p)) bitmaps[k] = book.page(p, w, h, mode)
+            }
         }
         broken = pages.any { book.isBroken(it) }
     }
@@ -974,13 +983,13 @@ internal fun BookmarkList(book: ComicBook, pages: List<Int>, onBack: () -> Unit,
 
 /** 권 끝(구상안 ④): "1권을 다 읽었습니다" + 다음 권 표지 · 이어서 보기 · 서재로. 마지막 권이면 서재로만. */
 @Composable
-private fun VolumeEnd(entryLabel: String, workTitle: String?, unit: String, next: WorkEntry?, onNext: (WorkEntry) -> Unit, onLibrary: () -> Unit) {
+private fun VolumeEnd(entryLabel: String, workTitle: String?, unit: String, next: WorkEntry?, onNext: (WorkEntry) -> Unit, onLibrary: () -> Unit, rightToLeft: Boolean? = null) {
     Column(
         Modifier.fillMaxSize().background(COMIC_BACKDROP).clickable(indication = null, interactionSource = null) {}
             .padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
-    ) { EndCard(entryLabel, workTitle, unit, next, onNext, onLibrary) }
+    ) { EndCard(entryLabel, workTitle, unit, next, onNext, onLibrary, rightToLeft) }
 }
 
 /**
@@ -999,12 +1008,16 @@ internal fun endUnit(entryLabel: String, work: Work?): String = when {
  * ([endUnit]).
  */
 @Composable
-internal fun EndCard(entryLabel: String, workTitle: String?, unit: String, next: WorkEntry?, onNext: (WorkEntry) -> Unit, onLibrary: () -> Unit) {
+internal fun EndCard(
+    entryLabel: String, workTitle: String?, unit: String, next: WorkEntry?, onNext: (WorkEntry) -> Unit, onLibrary: () -> Unit,
+    /** 작품에서 고른 넘김 방향. 펼침면 표지의 앞표지 반이 이것을 따른다 — 없으면 권의 ComicInfo, 그것도 없으면 왼→오. */
+    rightToLeft: Boolean? = null,
+) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         CpText("${entryLabel}${objectParticle(entryLabel)} 다 읽었습니다", CpTheme.type.title, Color.White)
         Spacer(Modifier.height(24.dp))
         if (next != null) {
-            ComicCover(next.unit, workTitle ?: next.label, next.label, Modifier.width(150.dp))
+            ComicCover(next.unit, workTitle ?: next.label, next.label, Modifier.width(150.dp), rightToLeft = rightToLeft ?: next.unit.info?.rightToLeft ?: false)
             Spacer(Modifier.height(16.dp))
             CpText("다음: ${listOfNotNull(workTitle, next.label).joinToString(" ")}", CpTheme.type.subtitle, COMIC_INK_MUTED)
             Spacer(Modifier.height(20.dp))
@@ -1326,3 +1339,6 @@ internal fun ownCovers(choices: io.github.kgcaudit.reader.data.library.CoverChoi
         scope.launchWrite({}) { data.comics.clearCoverChoices() }
     }
 }
+
+/** 메모리가 모자라 못 푼 쪽을 다시 풀기까지 기다리는 시간. */
+private const val STARVED_RETRY_MS = 1_200L

@@ -28,14 +28,15 @@ internal class ReadLockController(private val context: Context) : ReadLock {
 
     /** 고정을 거는 길. 시험이 확인 창의 "거절" 을 흉내 내려고 바꿔 끼운다(Robolectric 은 부르는 즉시 고정한다). */
     internal interface Pinner {
-        fun start(activity: Activity)
+        /** 고정을 청했다. 안드로이드가 바로 거절했으면(예외) false — 확인 창도 뜨지 않는다. */
+        fun start(activity: Activity): Boolean
         fun stop(activity: Activity)
         fun pinned(activity: Activity): Boolean
     }
 
     internal object PlatformPinner : Pinner {
         // 화면이 앞에 서지 않았거나 이미 고정돼 있으면 예외가 날 수 있다 — 잠금 실패로 앱이 닫히면 안 된다.
-        override fun start(activity: Activity) { runCatching { activity.startLockTask() } }
+        override fun start(activity: Activity): Boolean = runCatching { activity.startLockTask() }.isSuccess
         override fun stop(activity: Activity) { runCatching { activity.stopLockTask() } }
 
         /**
@@ -49,10 +50,18 @@ internal class ReadLockController(private val context: Context) : ReadLock {
     internal var pinner: Pinner = PlatformPinner
     internal val quiet = ReadLockQuiet(context)
     private val machine = ReadLockMachine()
-    private val calls = ReadLockCalls(context) { active -> act(if (active) machine.callStarted() else machine.callEnded()) }
+    private val calls = ReadLockCalls(context) { active ->
+        act(if (active) machine.callStarted() else machine.callEnded())
+        // 통화가 끝났는데 화면이 멈춰 있다(통화 중 전원 단추로 껐다). 통화 동안 두었던 잠금 화면 위 표시를 거둔다 — 남기면 그 뒤
+        // 켠 화면에서 PIN 없이 책이 보인다. 화면이 서 있으면(통화 화면에서 돌아옴) 그대로 둔다: 읽던 책으로 바로 돌아와야 한다.
+        if (!active && !visible) overKeyguard(false)
+    }
     private val main = Handler(Looper.getMainLooper())
     private var activity: Activity? = null
     private var firstResume = true
+
+    /** 화면이 앞에 서 있다(onResume ~ onStop). */
+    private var visible = false
 
     // 화면이 읽는 값은 컴포즈 상태로 비춘다(기계는 플랫폼 · 컴포즈를 모른다).
     private var phase by mutableStateOf(Phase.Off)
@@ -118,6 +127,7 @@ internal class ReadLockController(private val context: Context) : ReadLock {
 
     fun resumed() {
         val a = activity ?: return
+        visible = true
         if (firstResume) {
             firstResume = false
             // 새로 뜬 앱은 풀린 채로 시작한다. 지난번 잠금이 남긴 것(앱이 거둬진 사이의 고정 · 방해 금지)을 되돌린다.
@@ -177,6 +187,7 @@ internal class ReadLockController(private val context: Context) : ReadLock {
      * 한다.
      */
     fun stopped() {
+        visible = false
         if (phase == Phase.CallFreed && machine.inCall) return
         overKeyguard(false)
     }
@@ -204,6 +215,8 @@ internal class ReadLockController(private val context: Context) : ReadLock {
         val active = calls.start()
         act(if (active) machine.callStarted() else machine.callEnded())
         act(machine.request())
+        // 통화 중이라 잠그지 않았다 — 막 켠 듣기를 끈다. 0.54.1 까지는 풀림에서 풀림으로(바뀌지 않음) 남아 앱이 사는 내내 들었다.
+        if (phase == Phase.Off) calls.stop()
     }
 
     /**
@@ -242,7 +255,8 @@ internal class ReadLockController(private val context: Context) : ReadLock {
     private fun act(effects: List<Effect>) {
         val was = phase
         for (effect in effects) when (effect) {
-            Effect.Pin -> activity?.let(pinner::start)
+            // 걸지 못했으면 다음 차례에 "묻는 중" 에서 빼낸다(이 순회 안에서 기계를 다시 움직이지 않는다).
+            Effect.Pin -> activity?.let { if (!pinner.start(it)) main.post { act(machine.pinFailed()) } }
             Effect.Unpin -> activity?.let(pinner::stop)
             Effect.QuietOn -> if (quietNow) quiet.on()
             Effect.QuietOff -> quiet.off()

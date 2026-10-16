@@ -542,6 +542,7 @@ fun WebtoonReader(
                                     next = nextEntry,
                                     onNext = { failedNext = null; onJump(it) },
                                     onLibrary = onClose,
+                                    rightToLeft = work?.rightToLeft,
                                 )
                             }
                         }
@@ -719,7 +720,7 @@ private fun EpisodeList(work: Work, currentId: String, progress: Map<String, Com
                     },
                     selected = isHere(e),
                     compact = true,
-                    leading = { EpisodeThumb(e) },
+                    leading = { EpisodeThumb(e, work.rightToLeft) },
                 )
             }
         }
@@ -728,10 +729,11 @@ private fun EpisodeList(work: Work, currentId: String, progress: Map<String, Com
 
 /** 회차의 작은 그림: 표지(첫 칸을 자른 것)의 위쪽. 그림이 없으면 바탕만. */
 @Composable
-private fun EpisodeThumb(entry: WorkEntry) {
+private fun EpisodeThumb(entry: WorkEntry, rightToLeft: Boolean?) {
     val shape = RoundedCornerShape(4.dp)
     Box(Modifier.size(40.dp, 30.dp).clip(shape).background(CpTheme.colors.tiles.archive).border(1.dp, CpTheme.colors.divider, shape)) {
-        rememberComicCover(entry.unit)?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alignment = Alignment.TopCenter) }
+        // 펼침면 표지면 작품의 넘김 방향으로 앞표지 반을 고른다(서재 · 위젯과 같은 그림).
+        rememberComicCover(entry.unit, rightToLeft ?: entry.unit.info?.rightToLeft ?: false)?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alignment = Alignment.TopCenter) }
     }
 }
 

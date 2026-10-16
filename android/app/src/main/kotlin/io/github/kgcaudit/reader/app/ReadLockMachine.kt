@@ -59,9 +59,26 @@ internal class ReadLockMachine {
                 sawDialog = false
                 listOf(Effect.Pin)
             }
-            // 이미 묻는 중 · 잠긴 중에 또 누르면(두 번 누름) 확인 창을 겹쳐 띄우지 않는다.
-            Phase.Asking, Phase.On -> emptyList()
+            // 묻는 중에 또 "잠그기" 를 눌렀다 — 앞의 확인 창은 이미 닫혔다(설명 판을 다시 거쳐야 이 줄에 온다). 다시 묻는다.
+            // 0.54.1 까지는 무시해서, 확인 창이 초점을 가져가지 않는 기기에서 "취소" 를 누르면 [Phase.Asking] 에 갇혀 자물쇠를
+            // 다시 눌러도 아무 일이 없었다(초점이 오가지 않으니 거절을 알아챌 길이 없다).
+            Phase.Asking -> {
+                sawDialog = false
+                listOf(Effect.Pin)
+            }
+            // 잠긴 중에 또 누르면 할 일이 없다.
+            Phase.On -> emptyList()
         }
+    }
+
+    /**
+     * 고정을 걸지 못했다(화면이 앞에 서지 않아 안드로이드가 거절 — 확인 창도 뜨지 않는다). 묻는 중에서 빠져나간다: 두면 "묻는 중" 에
+     * 머물러 다시 눌러도 아무 일이 없다.
+     */
+    fun pinFailed(): List<Effect> {
+        if (phase != Phase.Asking) return emptyList()
+        phase = if (relocking) Phase.CallFreed else Phase.Off
+        return emptyList()
     }
 
     /** 창 초점이 바뀌었다. [pinned] 는 그때 안드로이드가 말하는 고정 상태. */

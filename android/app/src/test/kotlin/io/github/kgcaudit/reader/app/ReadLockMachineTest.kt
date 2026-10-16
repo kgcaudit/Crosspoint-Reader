@@ -149,10 +149,39 @@ class ReadLockMachineTest {
     }
 
     @Test
-    fun `tapping lock twice does not stack dialogs`() {
+    fun `a decline the app never saw does not leave the lock stuck`() {
+        // 확인 창이 초점을 가져가지 않는 기기에서 "취소": 초점이 오가지 않아 거절을 알 길이 없다. 0.54.1 까지는 "묻는 중" 에 갇혀
+        // 자물쇠를 다시 눌러도 아무 일이 없었다. 다시 "잠그기"(설명 판을 거쳐야 오므로 앞 창은 이미 닫혔다)면 다시 묻는다.
         val m = ReadLockMachine()
         m.request()
+        assertEquals(emptyList(), m.observed(pinned = false))
+        assertEquals(Phase.Asking, m.phase)
+        assertEquals(listOf(Effect.Pin), m.request(), "묻는 중에 다시 잠그기를 눌렀는데 다시 묻지 않았다")
+        m.focus(has = false, pinned = false)
+        m.focus(has = true, pinned = true)
+        assertEquals(Phase.On, m.phase)
+        // 잠긴 중에 또 누르면 할 일이 없다.
         assertEquals(emptyList(), m.request())
+    }
+
+    @Test
+    fun `a pin android refused at once goes back to where it was`() {
+        // 화면이 앞에 서지 않아 startLockTask 가 거절됐다 — 확인 창도 뜨지 않는다. "묻는 중" 에 머물면 안 된다.
+        val m = ReadLockMachine()
+        m.request()
+        m.pinFailed()
+        assertEquals(Phase.Off, m.phase)
+        // 통화 뒤 다시 잠그기가 거절되면 띠로 돌아간다(멈춘 자동 진행을 아직 기억한다).
+        val r = locked()
+        r.callStarted(); r.callEnded()
+        r.request()
+        r.pinFailed()
+        assertEquals(Phase.CallFreed, r.phase)
+        assertTrue(r.showsBanner)
+        // 묻는 중이 아니면 아무 일도 없다(늦게 온 실패 알림).
+        val on = locked()
+        assertEquals(emptyList(), on.pinFailed())
+        assertEquals(Phase.On, on.phase)
     }
 
     @Test

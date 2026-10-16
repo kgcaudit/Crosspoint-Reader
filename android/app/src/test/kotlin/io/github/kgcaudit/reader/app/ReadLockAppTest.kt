@@ -336,11 +336,41 @@ class ReadLockAppTest {
     }
 
     @Test
+    fun `a call that ends with the screen off takes the book off the lock screen`() {
+        // 통화로 풀린 채 통화 중 전원 단추로 화면을 껐다(화면은 이미 멈춤). 그 사이 통화가 끝나면 잠금 화면 위 표시를 거둔다 —
+        // 0.54.1 까지는 남아, 그 뒤 켠 화면에서 PIN 없이 책이 보였다.
+        launch()
+        openBook()
+        menu()
+        lockFromMenu()
+        waitFor(unlockButton)
+        val audio = app.getSystemService(AudioManager::class.java)
+        try {
+            audio.mode = AudioManager.MODE_RINGTONE
+            compose.waitForIdle()
+            assertFalse(pinned())
+            audio.mode = AudioManager.MODE_IN_CALL
+            compose.waitForIdle()
+            // 통화 화면이 위에 서서 책 화면이 멈췄다 — 통화 중에는 둔다(끊으면 책으로 바로 돌아와야 한다).
+            scenario!!.moveToState(androidx.lifecycle.Lifecycle.State.CREATED)
+            onActivity { assertTrue(shadowOf(it).showWhenLocked, "통화 중에 잠금 화면 위 표시를 거뒀다 — 끊으면 PIN 화면이 뜬다") }
+            // 화면이 꺼진 채 통화가 끝났다.
+            audio.mode = AudioManager.MODE_NORMAL
+            shadowOf(android.os.Looper.getMainLooper()).idle()
+            onActivity { assertFalse(shadowOf(it).showWhenLocked, "화면이 멈춘 채 통화가 끝났는데 잠금 화면 위 표시가 남았다") }
+        } finally {
+            audio.mode = AudioManager.MODE_NORMAL
+            scenario!!.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED)
+        }
+    }
+
+    @Test
     fun `declining the android dialog leaves the book unlocked`() {
         launch()
         // 확인 창에서 "취소": 고정이 걸리지 않는다.
         app.container.readLock.pinner = object : ReadLockController.Pinner by ReadLockController.PlatformPinner {
-            override fun start(activity: android.app.Activity) = Unit
+            // 확인 창은 떴지만 "취소" 를 눌렀다 — 청하기는 받아들여졌다.
+            override fun start(activity: android.app.Activity) = true
         }
         openBook()
         menu()
