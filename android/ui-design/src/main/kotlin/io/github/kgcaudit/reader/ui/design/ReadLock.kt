@@ -138,7 +138,7 @@ internal fun ReadLockButton(lock: ReadLock, comic: Boolean) {
             .size(CpTheme.metrics.touchTarget)
             .semantics {
                 role = Role.Button
-                contentDescription = if (locked) "잠금 풀기 (2초 누르기)" else "읽기 잠금"
+                contentDescription = if (locked) "잠금 풀기 (길게 누르기)" else "읽기 잠금"
                 onClick { lock.tap(comicNow); true }
                 // 화면 읽기 사용자는 두 번 눌러 길게 누르기로 푼다 — 2초를 손으로 재기 어렵다.
                 if (locked) onLongClick("잠금 풀기") { lock.release(); true }

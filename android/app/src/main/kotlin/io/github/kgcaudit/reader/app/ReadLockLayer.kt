@@ -1,9 +1,7 @@
 package io.github.kgcaudit.reader.app
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -48,25 +46,16 @@ internal fun ReadLockLayer(lock: ReadLockController) {
 }
 
 /**
- * 설명 판(구상안 1). 매번 같은 판을 보인다 — 짧고, "알림도 끄기" 는 지난번 고른 것이 그대로 골라져 있다. 판을 건너뛰고 바로
- * 확인 창을 띄우면 처음 보는 사람이 안드로이드 창의 "앱 고정" 이 무엇인지 모른 채 답하게 된다.
+ * 설명 판(구상안 8, 0.54.1 사용자 결정 1). 두 줄과 "알림 끄기" 하나 — 0.54.0 의 다섯 줄 설명이 장황하다는 말을 들었다. 푸는 법은
+ * 잠근 뒤의 안내가, 안드로이드 확인 창은 그 창이 스스로 말한다. 매번 같은 판을 보인다 — 판을 건너뛰고 바로 확인 창을 띄우면
+ * 처음 보는 사람이 "앱 고정" 이 무엇인지 모른 채 답하게 된다. "알림 끄기" 는 지난번 고른 것이 그대로 골라져 있다.
  */
 @Composable
 internal fun ReadLockExplainer(quietChosen: Boolean, onLock: (Boolean) -> Unit, onCancel: () -> Unit) {
-    val c = CpTheme.colors
     // 0 = 켬, 1 = 끔. 처음은 끔(사용자 결정 3).
     var quiet by remember { mutableIntStateOf(if (quietChosen) 0 else 1) }
-    CpPopup("읽기 잠금", message = "이 책에서 다른 앱 · 홈 · 최근 앱으로 나가지 않게 막습니다.", onDismiss = onCancel) {
-        Column(Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(
-                "알림 창이 내려오지 않습니다. 소리 · 밝기 · 넘기기는 그대로입니다.",
-                "전화가 오면 잠금이 저절로 풀려 평소처럼 받습니다.",
-                "풀 때: 위 자물쇠를 2초 누릅니다.",
-            ).forEach { CpText("· $it", CpTheme.type.body, c.text, maxLines = 3) }
-            CpChoice("알림도 끄기", listOf("켬", "끔"), quiet, { quiet = it }, Modifier.padding(top = 4.dp))
-            CpText("켜면 방해 금지로 — 전화는 울립니다", CpTheme.type.caption, c.textMuted, maxLines = 2)
-            CpText("다음에 안드로이드 확인 창이 한 번 뜹니다. \"확인\" 을 누르세요.", CpTheme.type.caption, c.textMuted, maxLines = 2)
-        }
+    CpPopup("읽기 잠금", message = "다른 앱으로 나가지 않게 잠급니다.\n전화는 그대로 받습니다.", onDismiss = onCancel) {
+        CpChoice("알림 끄기", listOf("켬", "끔"), quiet, { quiet = it }, Modifier.padding(top = 12.dp))
         CpPopupButtons {
             CpTextButton("취소", onCancel)
             CpButton("잠그기", { onLock(quiet == 0) })

@@ -146,9 +146,10 @@ class MainActivity : ComponentActivity() {
 
     /**
      * 뒤로 간다(홈 · 다른 앱). 기다리던 위젯 그리기를 지금 한다 — 기다리는 사이 시스템이 앱을 거두면 홈 화면 위젯에 방금 읽은 자리가
-     * 오르지 않는다.
+     * 오르지 않는다. 읽기 잠금이 휴대폰 잠금 화면 위에 책을 두던 것도 거둔다(홈 · 화면 꺼짐) — [ReadLockController.stopped].
      */
     override fun onStop() {
+        container.readLock.stopped()
         super.onStop()
         container.changes.flush()
     }

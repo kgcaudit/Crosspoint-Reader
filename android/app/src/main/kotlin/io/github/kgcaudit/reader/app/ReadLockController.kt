@@ -86,8 +86,8 @@ internal class ReadLockController(private val context: Context) : ReadLock {
     val bannerText: String?
         get() = when {
             !banner || menus > 0 -> null
-            pausedAuto -> "통화로 잠금을 풀고 자동 스크롤을 멈췄습니다"
-            else -> "통화 때문에 잠금을 풀었습니다"
+            // 한 말로(0.54.1 사용자 결정 1). 자동 진행이 멈춘 것은 "다시 잠그기" 를 누르면 저절로 이어지므로 따로 말하지 않는다.
+            else -> "통화로 잠금이 풀렸습니다"
         }
 
     /** 이번 잠금에서 고른 "알림도 끄기". 띠의 "다시 잠그기" 도 이것을 따른다. */
@@ -104,6 +104,9 @@ internal class ReadLockController(private val context: Context) : ReadLock {
 
     fun attach(activity: Activity) {
         this.activity = activity
+        // 새 화면(설정 변경으로 다시 만들어짐)은 잠금 화면 위 표시를 모른다 — 잠긴 채면 다시 건다.
+        shownOverKeyguard = false
+        if (phase == Phase.On) overKeyguard(true)
     }
 
     /** 화면이 사라진다. 끝나는 것이면(앱을 닫음) 고정 · 방해 금지 · 전화 듣기를 모두 거둔다. */
@@ -124,7 +127,7 @@ internal class ReadLockController(private val context: Context) : ReadLock {
         if (awaitingAccess) {
             awaitingAccess = false
             // 허락 화면에서 돌아왔다. 다 그려진 뒤에 고정한다 — 앞에 막 선 화면에서 부르면 거절되는 기기가 있다.
-            if (quiet.granted()) main.post { begin() } else say("방해 금지 허락이 없어 잠그지 않았습니다")
+            if (quiet.granted()) main.post { begin() } else say("알림 끄기 권한이 없어 잠그지 않았습니다")
             return
         }
         act(machine.observed(pinner.pinned(a)))
@@ -162,7 +165,21 @@ internal class ReadLockController(private val context: Context) : ReadLock {
     /** 띠의 "다시 잠그기". 고른 방해 금지도 다시 걸고, 멈춘 자동 진행은 고정이 확인되면 잇는다. */
     fun relock() = begin()
 
-    override fun release() = act(machine.release())
+    override fun release() {
+        val was = phase
+        act(machine.release())
+        if (was == Phase.On && phase == Phase.Off) say("잠금을 풀었습니다")
+    }
+
+    /**
+     * 화면이 멈췄다(홈 · 다른 앱으로 나감, 화면 꺼짐). 휴대폰 잠금 화면 위에 책을 두던 것을 거둔다 — 그대로 두면 꺼졌다 켜진 화면에서
+     * 잠금 화면 없이 책이 보인다. 통화로 푼 채 통화 중이면 둔다: 통화 화면이 위에 서서 멈춘 것이고, 끊으면 읽던 책으로 바로 돌아와야
+     * 한다.
+     */
+    fun stopped() {
+        if (phase == Phase.CallFreed && machine.inCall) return
+        overKeyguard(false)
+    }
 
     override fun blocks(): Boolean {
         if (!locked) return false
@@ -189,8 +206,33 @@ internal class ReadLockController(private val context: Context) : ReadLock {
         act(machine.request())
     }
 
-    private fun lockedHint() =
-        if (comic) "잠금 중입니다 · 가운데를 눌러 메뉴의 자물쇠를 2초 누르면 풀립니다" else "잠금 중입니다 · 위 자물쇠를 2초 누르면 풀립니다"
+    /**
+     * 잠근 뒤 · 잠긴 채 자물쇠를 짧게 누를 때의 안내. 책 · 만화가 한 말이다(0.54.1 사용자 결정 1) — 0.54.0 은 만화에서 "가운데를
+     * 눌러 메뉴의 …" 까지 풀어 써서 길다는 말을 들었다. "메뉴의 자물쇠" 면 메뉴가 닫힌 만화에서도 어디를 볼지 안다.
+     */
+    private fun lockedHint() = "잠겼습니다 · 메뉴의 자물쇠를 길게 누르면 풀립니다"
+
+    /** 지금 책 화면을 휴대폰 잠금 화면 위에 두고 있다. 같은 값을 거듭 거는 일을 줄인다. */
+    private var shownOverKeyguard = false
+
+    /**
+     * 휴대폰 잠금 화면 위에 책을 둔다 · 거둔다(0.54.1 사용자 결정 2). 안드로이드는 고정을 풀 때 "고정 해제 때 잠금 화면"(화면 잠금을
+     * 쓰는 폰은 기본 켬, 앱이 읽거나 바꿀 수 없는 설정)에 따라 휴대폰을 잠근다 — 0.54.0 은 자물쇠를 풀자마자 PIN 화면이 떠 읽던
+     * 책이 사라졌다. 잠긴 동안 미리 걸어 두면 풀린 뒤에도 책이 잠금 화면 위에 그대로 있고, 홈 · 다른 앱으로 나갈 때에만 잠금 화면이
+     * 나온다 — 고정을 풀 때 PIN 을 묻는 까닭(남이 다른 앱을 열지 못하게)은 그대로 지켜진다. 거두는 것은 [stopped].
+     */
+    private fun overKeyguard(on: Boolean) {
+        val a = activity ?: return
+        if (shownOverKeyguard == on) return
+        shownOverKeyguard = on
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
+            a.setShowWhenLocked(on)
+        } else {
+            @Suppress("DEPRECATION")
+            val flag = android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+            if (on) a.window.addFlags(flag) else a.window.clearFlags(flag)
+        }
+    }
 
     private fun say(message: String) {
         toast = message
@@ -224,6 +266,7 @@ internal class ReadLockController(private val context: Context) : ReadLock {
         }
         phase = machine.phase
         banner = machine.showsBanner
+        if (phase == Phase.On) overKeyguard(true)
         // 풀린 뒤에는 전화를 듣지 않는다 — 잠그지 않은 사람의 통화를 지켜볼 까닭이 없다. 풀림으로 **바뀔 때만** 끈다: 잠그기
         // 직전(풀린 채) 통화 상태를 알리는 일에서 끄면, 막 켠 듣기가 꺼져 벨을 놓친다.
         if (phase == Phase.Off && was != Phase.Off) calls.stop()
