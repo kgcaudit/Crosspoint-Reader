@@ -158,12 +158,10 @@ class ReadLockAppTest {
         waitFor(hasContentDescription("지금 위치"))
     }
 
-    /** 설명 판을 열어 (고르면 알림도 끄고) 잠근다 — 확인 창에서 "확인". */
+    /** (고르면 알림도 끄고) 자물쇠를 눌러 잠근다 — 확인 창에서 "확인". "알림 끄기" 는 모든 보기 설정의 줄이 고른다. */
     private fun lockFromMenu(quiet: Boolean = false) {
+        app.container.readLock.quietChosen = quiet
         click(lockButton)
-        waitFor(hasText("알림 끄기"))
-        if (quiet) click(hasText("켬"))
-        click(hasText("잠그기"))
         androidDialog()
     }
 
@@ -247,35 +245,51 @@ class ReadLockAppTest {
     }
 
     @Test
-    fun `locking explains first, pins after android confirms and marks the subtitle`() {
+    fun `the lock asks android at once and adds nothing of its own`() {
         launch()
         openBook()
         menu()
         click(lockButton)
-        waitFor(hasText("다른 앱으로 나가지 않게 잠급니다.\n전화는 그대로 받습니다."))
-        for (t in listOf("알림 끄기", "취소", "잠그기")) assertTrue(has(hasText(t)), "설명 판에 \"$t\" 가 없다")
-        // 두 줄과 고르기 하나뿐이다(0.54.1) — 0.54.0 의 다섯 줄 설명이 장황하다는 말을 들었다.
-        for (t in listOf("2초", "방해 금지", "안드로이드 확인 창")) assertFalse(has(hasText(t, substring = true)), "설명 판에 \"$t\" 설명이 돌아왔다")
-        // 처음 "알림 끄기" 는 끔.
-        assertTrue(compose.onAllNodes(hasText("끔") and isSelected()).fetchSemanticsNodes().isNotEmpty(), "알림 끄기가 처음부터 켜져 있다")
-        assertFalse(pinned(), "설명 판만 열었는데 고정됐다")
-        shot("explainer")
-
-        click(hasText("잠그기"))
+        // 우리 설명 판 없이 곧바로 안드로이드 확인 창(0.54.3 사용자 결정 1) — 그 창이 매번 뜨는데 우리 판까지 두 번 물었다.
+        assertTrue(pinned(), "자물쇠가 startLockTask 를 부르지 않았다")
+        for (t in listOf("다른 앱으로 나가지 않게", "잠그기", "취소")) assertFalse(has(hasText(t, substring = true)), "우리 설명 판이 남아 있다(\"$t\")")
         // 확인 창이 떠 있는 동안은 아직 잠금 중이 아니다.
-        assertTrue(pinned(), "잠그기가 startLockTask 를 부르지 않았다")
         assertFalse(has(hasText("1 / 3장 · 잠금 중")), "확인 창의 답을 듣기 전에 잠금 중이라고 했다")
         androidDialog()
         waitFor(hasText("1 / 3장 · 잠금 중"))
         assertTrue(has(unlockButton), "잠긴 자물쇠가 아니다")
-        waitFor(hasText("잠겼습니다 · 메뉴의 자물쇠를 길게 누르면 풀립니다"))
+        // 잠긴 순간의 안내는 안드로이드가 띄운다("앱을 고정했어요") — 우리 안내를 겹치지 않는다.
+        compose.mainClock.advanceTimeBy(300)
+        assertFalse(has(hasText("풀립니다", substring = true)), "안드로이드 안내와 겹치는 우리 안내를 띄웠다")
         shot("book-locked")
 
-        // 짧게 누르면 푸는 법만 다시 알린다.
-        compose.waitUntil(10_000) { !has(hasText("잠겼습니다", substring = true)) }
+        // 짧게 누르면 푸는 법만 짧게.
         click(unlockButton)
-        waitFor(hasText("잠겼습니다 · 메뉴의 자물쇠를 길게 누르면 풀립니다"))
+        waitFor(hasText("자물쇠를 길게 누르면 풀립니다"))
         assertTrue(pinned(), "짧게 눌렀는데 풀렸다")
+    }
+
+    @Test
+    // 설정 목록 맨 아래 줄이다 — 긴 화면이라야 굴리지 않고 보인다(굴리기는 이 화면에서 시험의 메모리를 다 썼다).
+    @Config(qualifiers = "w400dp-h1600dp-xhdpi")
+    fun `quiet mode is chosen in all view settings and remembered`() {
+        launch()
+        openBook()
+        menu()
+        click(hasText("보기"))
+        click(hasText("모든 보기 설정"))
+        waitFor(hasText("잠긴 동안 알림 끄기"))
+        // 처음은 끔. 켜면 잠금이 그 값을 쓰고, 앱을 다시 켜도 남는다.
+        assertFalse(app.container.readLock.quietChosen, "알림 끄기가 처음부터 켜져 있다")
+        val y = node(hasText("잠긴 동안 알림 끄기")).fetchSemanticsNode().boundsInRoot.center.y
+        compose.onAllNodes(hasText("켬")).let { nodes ->
+            val k = nodes.fetchSemanticsNodes().indexOfFirst { kotlin.math.abs(it.boundsInRoot.center.y - y) < 60f }
+            assertTrue(k >= 0, "알림 끄기 줄에 \"켬\" 이 없다")
+            nodes[k].performClick()
+        }
+        compose.waitForIdle()
+        assertTrue(app.container.readLock.quietChosen, "켬을 눌렀는데 잠금이 모른다")
+        assertTrue(ReadLockQuiet(app).chosen, "알림 끄기를 저장하지 않았다 — 다시 켜면 끔으로 돌아간다")
     }
 
     @Test
@@ -288,10 +302,17 @@ class ReadLockAppTest {
         compose.mainClock.autoAdvance = false
         try {
             node(unlockButton).performTouchInput { down(center) }
-            compose.mainClock.advanceTimeBy(1_500)
+            compose.mainClock.advanceTimeBy(1_000)
+            // 누르는 동안 손가락에 가리지 않는 자리(윗줄 아래)에 진행이 보인다(0.54.3 사용자 결정 2).
+            assertTrue(has(hasText("잠금 푸는 중 · 떼면 그대로")), "누르는 동안 진행을 보이지 않았다")
+            val bar = node(hasText("잠금 푸는 중 · 떼면 그대로")).fetchSemanticsNode().boundsInRoot
+            val lockAt = node(unlockButton).fetchSemanticsNode().boundsInRoot
+            assertTrue(bar.top >= lockAt.bottom, "진행 표시가 자물쇠(누르는 손가락) 아래가 아니라 겹친다")
+            compose.mainClock.advanceTimeBy(500)
             node(unlockButton).performTouchInput { up() }
             compose.mainClock.advanceTimeBy(500)
             assertTrue(pinned(), "1.5초 만에 떼었는데 풀렸다")
+            assertFalse(has(hasText("잠금 푸는 중 · 떼면 그대로")), "떼었는데 진행 표시가 남았다")
             assertTrue(has(unlockButton))
 
             node(unlockButton).performTouchInput { down(center) }
@@ -327,7 +348,8 @@ class ReadLockAppTest {
             compose.mainClock.autoAdvance = true
         }
         assertFalse(pinned())
-        waitFor(hasText("잠금을 풀었습니다"))
+        // 푼 순간의 안내도 안드로이드가 띄운다("앱 고정을 해제했어요") — 우리 것은 없다.
+        assertFalse(has(hasText("잠금을 풀었습니다")), "안드로이드 안내와 겹치는 우리 안내를 띄웠다")
         onActivity { assertTrue(shadowOf(it).showWhenLocked, "풀자마자 잠금 화면 위 표시를 거뒀다 — 휴대폰 잠금 화면이 책을 덮는다") }
         // 홈으로 나가거나 화면이 꺼지면(화면이 멈춤) 거둔다 — 남기면 꺼졌다 켜진 화면에서 PIN 없이 책이 보인다.
         scenario!!.moveToState(androidx.lifecycle.Lifecycle.State.CREATED)
@@ -427,7 +449,6 @@ class ReadLockAppTest {
             assertFalse(has(hasContentDescription("자동 스크롤 이어 하기")), "띠와 자동 스크롤 알약이 겹쳤다")
             // 잠글 때의 안내가 사라진 뒤에 찍는다.
             compose.mainClock.advanceTimeBy(3_000)
-            ticking { !has(hasText("잠겼습니다", substring = true)) }
             shot("webtoon-banner")
 
             click(hasText("다시 잠그기"))
@@ -437,7 +458,7 @@ class ReadLockAppTest {
             onActivity { it.onWindowFocusChanged(true) }
             ticking { has(hasContentDescription("자동 스크롤 멈춤")) }
             ticking { !has(hasText("다시 잠그기")) }
-            assertTrue(has(hasText("잠겼습니다 · 메뉴의 자물쇠를 길게 누르면 풀립니다")), "다시 잠근 뒤 안내가 없다")
+            assertFalse(has(hasText("풀립니다", substring = true)), "다시 잠근 뒤 안드로이드 안내와 겹치는 우리 안내를 띄웠다")
             node(hasContentDescription("자동 스크롤 끄기")).performClick()
             frames(100)
         } finally {
@@ -484,7 +505,6 @@ class ReadLockAppTest {
         menu()
         lockFromMenu()
         waitFor(hasText("1 / 4쪽 · 잠금 중 · 오→왼"))
-        waitFor(hasText("잠겼습니다 · 메뉴의 자물쇠를 길게 누르면 풀립니다"))
         compose.mainClock.advanceTimeBy(300)
         shot("comic-locked")
     }

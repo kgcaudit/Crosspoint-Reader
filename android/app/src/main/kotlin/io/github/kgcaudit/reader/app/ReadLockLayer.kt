@@ -12,20 +12,12 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
-import io.github.kgcaudit.reader.ui.design.CpButton
-import io.github.kgcaudit.reader.ui.design.CpChoice
 import io.github.kgcaudit.reader.ui.design.CpIcon
 import io.github.kgcaudit.reader.ui.design.CpIcons
-import io.github.kgcaudit.reader.ui.design.CpPopup
-import io.github.kgcaudit.reader.ui.design.CpPopupButtons
 import io.github.kgcaudit.reader.ui.design.CpText
 import io.github.kgcaudit.reader.ui.design.CpTextButton
 import io.github.kgcaudit.reader.ui.design.CpTheme
@@ -33,7 +25,7 @@ import io.github.kgcaudit.reader.ui.design.CpToast
 import io.github.kgcaudit.reader.ui.design.blockTouches
 
 /**
- * 읽기 잠금이 화면 맨 위에 띄우는 것: 설명 판 · 통화 뒤 띠 · 안내. 리더 · 서재 어느 화면 위에서도 같은 자리에 뜨도록 앱의 맨 위
+ * 읽기 잠금이 화면 맨 위에 띄우는 것: 통화 뒤 띠 · 안내. 리더 · 서재 어느 화면 위에서도 같은 자리에 뜨도록 앱의 맨 위
  * 한 곳에서 그린다(잠금은 서재 ↔ 리더를 오가도 이어진다).
  */
 @Composable
@@ -41,25 +33,6 @@ internal fun ReadLockLayer(lock: ReadLockController) {
     Box(Modifier.fillMaxSize()) {
         lock.bannerText?.let { text -> ReadLockBanner(text, lock::relock, Modifier.align(Alignment.BottomCenter)) }
         CpToast(lock.toast, lock::toastShown, Modifier.align(Alignment.BottomCenter), key = lock.toastKey, durationMs = 2_500)
-        if (lock.explaining) ReadLockExplainer(lock.quiet.chosen, onLock = lock::confirm, onCancel = lock::dismiss)
-    }
-}
-
-/**
- * 설명 판(구상안 8, 0.54.1 사용자 결정 1). 두 줄과 "알림 끄기" 하나 — 0.54.0 의 다섯 줄 설명이 장황하다는 말을 들었다. 푸는 법은
- * 잠근 뒤의 안내가, 안드로이드 확인 창은 그 창이 스스로 말한다. 매번 같은 판을 보인다 — 판을 건너뛰고 바로 확인 창을 띄우면
- * 처음 보는 사람이 "앱 고정" 이 무엇인지 모른 채 답하게 된다. "알림 끄기" 는 지난번 고른 것이 그대로 골라져 있다.
- */
-@Composable
-internal fun ReadLockExplainer(quietChosen: Boolean, onLock: (Boolean) -> Unit, onCancel: () -> Unit) {
-    // 0 = 켬, 1 = 끔. 처음은 끔(사용자 결정 3).
-    var quiet by remember { mutableIntStateOf(if (quietChosen) 0 else 1) }
-    CpPopup("읽기 잠금", message = "다른 앱으로 나가지 않게 잠급니다.\n전화는 그대로 받습니다.", onDismiss = onCancel) {
-        CpChoice("알림 끄기", listOf("켬", "끔"), quiet, { quiet = it }, Modifier.padding(top = 12.dp))
-        CpPopupButtons {
-            CpTextButton("취소", onCancel)
-            CpButton("잠그기", { onLock(quiet == 0) })
-        }
     }
 }
 

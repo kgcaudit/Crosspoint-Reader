@@ -4,12 +4,15 @@ import android.content.Context
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
@@ -22,8 +25,6 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -45,10 +46,16 @@ interface ReadLock {
     val locked: Boolean
 
     /**
-     * 자물쇠를 짧게 눌렀다(잠긴 동안 2초를 못 채우고 뗀 것도). 풀려 있으면 설명 판, 잠겨 있으면 푸는 법 안내.
-     * [comic] 은 만화 화면이다 — 읽는 동안 메뉴가 숨어 있어 안내가 "가운데를 눌러" 부터 말해야 한다.
+     * 자물쇠를 짧게 눌렀다(잠긴 동안 2초를 못 채우고 뗀 것도). 풀려 있으면 잠근다(안드로이드 확인 창), 잠겨 있으면 푸는 법 안내.
+     * [comic] 은 만화 화면이다.
      */
     fun tap(comic: Boolean)
+
+    /**
+     * 잠긴 동안 알림을 끈다(방해 금지, 전화는 울림). "모든 보기 설정" 의 한 줄이 고른다(0.54.3) — 잠글 때마다 묻던 설명 판을
+     * 없앴다. 컴포즈 상태로 읽혀야 한다.
+     */
+    var quietChosen: Boolean
 
     /** 자물쇠를 2초 눌러 고리가 다 찼다: 푼다. */
     fun release()
@@ -121,18 +128,21 @@ fun ReadLockPauses(running: Boolean, pause: () -> Unit, resume: () -> Unit) {
 const val READ_LOCK_HOLD_MS = 2_000
 
 /**
- * 윗줄 자물쇠(책갈피 왼쪽). 풀려 있으면 열린 자물쇠 — 누르면 설명 판. 잠겨 있으면 38dp 동그라미 위 닫힌 자물쇠 — 2초 누르면
- * 둘레 고리가 차오르고 다 차면 풀린다. 일찍 떼면 고리가 비고 잠금은 그대로다(푸는 법 안내만).
+ * 윗줄 자물쇠(책갈피 왼쪽). 풀려 있으면 열린 자물쇠 — 누르면 잠근다. 잠겨 있으면 38dp 동그라미 위 닫힌 자물쇠 — 2초 누르면
+ * 풀린다. 누르는 동안의 진행은 [onHold](0~1, 누르지 않으면 0)로 알린다 — 그리는 것은 윗줄 아래 가로 막대([ReadLockHoldBar]).
+ * 0.54.2 까지는 자물쇠 둘레의 고리였는데, 누르는 손가락이 고리를 덮어 얼마나 찼는지 보이지 않았다(사용자 보고).
  *
  * 누르기를 손으로 읽는다(clickable 의 길게 누르기는 시간이 0.5초로 정해져 있고 차오르는 모습을 그릴 수 없다).
  */
 @Composable
-internal fun ReadLockButton(lock: ReadLock, comic: Boolean) {
+internal fun ReadLockButton(lock: ReadLock, comic: Boolean, onHold: (Float) -> Unit) {
     val c = CpTheme.colors
     val locked = lock.locked
     val ring = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
     val comicNow by rememberUpdatedState(comic)
+    val report by rememberUpdatedState(onHold)
+    androidx.compose.runtime.LaunchedEffect(ring) { androidx.compose.runtime.snapshotFlow { ring.value }.collect { report(it) } }
     Box(
         Modifier
             .size(CpTheme.metrics.touchTarget)
@@ -170,12 +180,25 @@ internal fun ReadLockButton(lock: ReadLock, comic: Boolean) {
         contentAlignment = Alignment.Center,
     ) {
         if (locked) Box(Modifier.size(38.dp).clip(CircleShape).background(c.accentContainer))
-        val filled = ring.value
-        if (filled > 0f) {
-            Canvas(Modifier.size(42.dp)) {
-                drawArc(c.accent, -90f, 360f * filled, useCenter = false, style = Stroke(3.dp.toPx(), cap = StrokeCap.Round))
-            }
-        }
         CpIcon(if (locked) CpIcons.Lock else CpIcons.Unlock, if (locked) c.accentText else c.text)
+    }
+}
+
+/**
+ * 잠금을 푸는 동안의 진행(구상안 12 가). 윗줄 바로 아래 폭 가득 차오르는 막대와 그 아래 "잠금 푸는 중 · 떼면 그대로" —
+ * 자물쇠를 누른 손가락에 가리지 않는 자리다. [progress] 가 0 이면 그리지 않는다.
+ */
+@Composable
+internal fun ReadLockHoldBar(progress: Float, modifier: Modifier = Modifier) {
+    if (progress <= 0f) return
+    val c = CpTheme.colors
+    androidx.compose.foundation.layout.Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(Modifier.fillMaxWidth().height(4.dp).background(c.progressTrack)) {
+            Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).fillMaxHeight().background(c.accent))
+        }
+        Box(
+            Modifier.padding(top = 10.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+                .background(androidx.compose.ui.graphics.Color(0xE6302C28)).padding(horizontal = 14.dp, vertical = 6.dp),
+        ) { CpText("잠금 푸는 중 · 떼면 그대로", CpTheme.type.label, androidx.compose.ui.graphics.Color.White) }
     }
 }

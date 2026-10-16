@@ -84,6 +84,8 @@ fun CpReaderBar(
     // 막대를 끄는 동안의 값. 손을 떼기 전까지는 옮기지 않고 숫자만 바꾼다 — 끄는 동안 매번 옮기면
     // 조판·렌더가 줄줄이 쌓여 손을 뗀 뒤에도 한참 페이지가 바뀐다.
     var dragging by remember { mutableStateOf<Float?>(null) }
+    // 자물쇠를 길게 누르는 동안의 진행(0~1). 윗줄 아래 막대가 그린다.
+    var holding by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
 
     androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
         val maxPanel = maxHeight * 0.55f
@@ -104,7 +106,7 @@ fun CpReaderBar(
                     if (onListen != null) CpIconButton(CpIcons.Headphones, "듣기", onClick = onListen)
                     // 읽기 잠금은 책갈피 왼쪽(구상안 1 · 5 · 7). 네 리더가 이 줄을 함께 쓰므로 여기 한 곳에 둔다 — 리더마다 달면
                     // 어느 하나에서 빠진다. 앱이 잠금을 넣어 주지 않으면(부품 시험) 단추가 없다.
-                    lock?.let { ReadLockButton(it, comic) }
+                    lock?.let { ReadLockButton(it, comic) { p -> holding = p } }
                     CpIconButton(
                         if (bookmarked) CpIcons.BookmarkFilled else CpIcons.Bookmark,
                         if (bookmarked) "책갈피 빼기" else "책갈피 꽂기",
@@ -113,11 +115,11 @@ fun CpReaderBar(
                     )
                 }
             }
-            // 가운데: 지면이 보이는 곳. 누르면 닫힌다.
+            // 가운데: 지면이 보이는 곳. 누르면 닫힌다. 잠금을 푸는 동안은 맨 위에 진행 막대.
             Box(
                 Modifier.weight(1f).fillMaxWidth()
                     .clickable(indication = null, interactionSource = null, onClick = onDismiss),
-            )
+            ) { ReadLockHoldBar(holding, Modifier.align(Alignment.TopCenter)) }
             Column(
                 Modifier
                     .fillMaxWidth()

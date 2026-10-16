@@ -730,6 +730,18 @@ fun CpViewSettingsScreen(
                         onChange(prefs.copy(brightnessGesture = it == 0))
                     }, child)
                 }
+                // 읽기 잠금의 "알림 끄기"(구상안 13, 0.54.3) — 잠글 때마다 묻던 설명 판을 없애며 여기로 옮겼다. 앱이 잠금을 넣어
+                // 주지 않으면(부품 시험) 묶음이 없다.
+                LocalReadLock.current?.let { lock ->
+                    CpSectionLabel("읽기 잠금")
+                    CpChoice("잠긴 동안 알림 끄기", listOf("켬", "끔"), if (lock.quietChosen) 0 else 1, { lock.quietChosen = it == 0 }, child)
+                    CpText(
+                        "켜면 방해 금지로 — 전화는 울립니다",
+                        CpTheme.type.caption, CpTheme.colors.textMuted,
+                        Modifier.padding(start = CpTheme.metrics.gutter + CpTheme.metrics.levelIndent, end = CpTheme.metrics.gutter, top = 4.dp, bottom = 4.dp),
+                        maxLines = 2,
+                    )
+                }
             }
         }
             if (askClear && ownCovers != null) ClearCoversPopup(ownCovers) { askClear = false }

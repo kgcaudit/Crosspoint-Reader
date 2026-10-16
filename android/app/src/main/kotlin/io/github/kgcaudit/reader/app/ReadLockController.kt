@@ -68,10 +68,6 @@ internal class ReadLockController(private val context: Context) : ReadLock {
     private var banner by mutableStateOf(false)
     override val locked: Boolean get() = phase == Phase.On
 
-    /** 설명 판이 떠 있다. */
-    var explaining by mutableStateOf(false)
-        private set
-
     /** 잠깐 뜨는 안내. 같은 말을 또 띄울 때 [toastKey] 가 바뀐다. */
     var toast by mutableStateOf<String?>(null)
         private set
@@ -148,19 +144,24 @@ internal class ReadLockController(private val context: Context) : ReadLock {
         act(machine.focus(has, pinner.pinned(a)))
     }
 
+    /**
+     * 풀려 있으면 바로 잠근다 — 안드로이드 확인 창이 곧 뜬다(0.54.3 사용자 결정 1: 그 앞의 우리 설명 판을 없앴다. 안드로이드
+     * 창이 매번 뜨는데 우리 판까지 겹쳐 두 번 묻는 꼴이었다). 잠겨 있으면 푸는 법만 짧게.
+     */
     override fun tap(comic: Boolean) {
         this.comic = comic
-        if (locked) say(lockedHint()) else explaining = true
+        if (locked) say(lockedHint()) else confirm(quiet.chosen)
     }
 
-    fun dismiss() {
-        explaining = false
-    }
+    override var quietChosen: Boolean
+        get() = quietChoice
+        set(value) { quietChoice = value; quiet.chosen = value }
 
-    /** 설명 판의 "잠그기". [quiet] 는 그 판에서 고른 "알림도 끄기". */
-    fun confirm(quiet: Boolean) {
-        explaining = false
-        this.quiet.chosen = quiet
+    /** "알림 끄기" 를 컴포즈 상태로 비춘다(설정 화면이 따라 바뀐다). 저장은 [ReadLockQuiet.chosen]. */
+    private var quietChoice by mutableStateOf(quiet.chosen)
+
+    /** 잠근다. [quiet] 는 "알림 끄기". */
+    private fun confirm(quiet: Boolean) {
         quietNow = quiet
         if (quiet && !this.quiet.granted()) {
             // 허락 화면을 **고정보다 먼저** 연다. 고정된 뒤에는 설정 화면이 열리지 않는다.
@@ -176,9 +177,7 @@ internal class ReadLockController(private val context: Context) : ReadLock {
     fun relock() = begin()
 
     override fun release() {
-        val was = phase
         act(machine.release())
-        if (was == Phase.On && phase == Phase.Off) say("잠금을 풀었습니다")
     }
 
     /**
@@ -219,11 +218,8 @@ internal class ReadLockController(private val context: Context) : ReadLock {
         if (phase == Phase.Off) calls.stop()
     }
 
-    /**
-     * 잠근 뒤 · 잠긴 채 자물쇠를 짧게 누를 때의 안내. 책 · 만화가 한 말이다(0.54.1 사용자 결정 1) — 0.54.0 은 만화에서 "가운데를
-     * 눌러 메뉴의 …" 까지 풀어 써서 길다는 말을 들었다. "메뉴의 자물쇠" 면 메뉴가 닫힌 만화에서도 어디를 볼지 안다.
-     */
-    private fun lockedHint() = "잠겼습니다 · 메뉴의 자물쇠를 길게 누르면 풀립니다"
+    /** 잠긴 채 자물쇠를 짧게 누를 때의 안내. 잠근 · 푼 순간에는 띄우지 않는다 — 안드로이드가 제 안내를 띄워 겹쳤다(0.54.3). */
+    private fun lockedHint() = "자물쇠를 길게 누르면 풀립니다"
 
     /** 지금 책 화면을 휴대폰 잠금 화면 위에 두고 있다. 같은 값을 거듭 거는 일을 줄인다. */
     private var shownOverKeyguard = false
@@ -275,7 +271,8 @@ internal class ReadLockController(private val context: Context) : ReadLock {
                 paused = emptyList()
                 pausedAuto = false
             }
-            Effect.ShowLocked -> say(lockedHint())
+            // 잠긴 순간의 안내는 안드로이드가 띄운다("앱을 고정했어요") — 우리 것을 겹치지 않는다(0.54.3 사용자 결정).
+            Effect.ShowLocked -> Unit
             Effect.RefuseInCall -> say("통화 중에는 잠글 수 없습니다")
         }
         phase = machine.phase
