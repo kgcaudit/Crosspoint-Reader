@@ -128,7 +128,7 @@ internal class ReadLockController(private val context: Context) : ReadLock {
             firstResume = false
             // 새로 뜬 앱은 풀린 채로 시작한다. 지난번 잠금이 남긴 것(앱이 거둬진 사이의 고정 · 방해 금지)을 되돌린다.
             quiet.recover()
-            if (pinner.pinned(a)) pinner.stop(a)
+            if (pinner.pinned(a)) act(machine.leftover())
         }
         if (awaitingAccess) {
             awaitingAccess = false
@@ -136,12 +136,28 @@ internal class ReadLockController(private val context: Context) : ReadLock {
             if (quiet.granted()) main.post { begin() } else say("알림 끄기 권한이 없어 잠그지 않았습니다")
             return
         }
-        act(machine.observed(pinner.pinned(a)))
+        observe(pinner.pinned(a)) { machine.observed(it) }
     }
 
     fun focus(has: Boolean) {
         val a = activity ?: return
-        act(machine.focus(has, pinner.pinned(a)))
+        observe(pinner.pinned(a)) { machine.focus(has, it) }
+    }
+
+    /**
+     * 고정 상태를 기계에 알린다. 풀린 채 고정이 보이면 사람이 최근 앱 화면에서 건 것일 수 있다(0.54.4) — 그러면 기계가 잠금으로
+     * 받기 **전에** 전화 듣기를 켜고 지금 통화 중인지 알린다: 늦게 켜면 통화 중에 걸린 고정을 풀지 못해 통화 화면이 막히고, 아예
+     * 안 켜면 잠긴 동안 벨이 울려도 풀지 않는다. 받지 않았으면(우리가 막 푼 고정의 옛 상태 · 통화 중) 다시 끈다.
+     */
+    private fun observe(pinned: Boolean, read: (Boolean) -> List<Effect>) {
+        val adopting = pinned && phase == Phase.Off
+        if (adopting) {
+            // 자물쇠를 거치지 않았으니 이번 잠금의 "알림 끄기" 는 보기 설정에 고른 것을 따른다.
+            quietNow = quiet.chosen
+            act(if (calls.start()) machine.callStarted() else machine.callEnded())
+        }
+        act(read(pinned))
+        if (adopting && phase == Phase.Off) calls.stop()
     }
 
     /**
@@ -291,7 +307,7 @@ internal class ReadLockController(private val context: Context) : ReadLock {
     private val check = object : Runnable {
         override fun run() {
             val a = activity ?: return
-            act(machine.observed(pinner.pinned(a)))
+            observe(pinner.pinned(a)) { machine.observed(it) }
         }
     }
 

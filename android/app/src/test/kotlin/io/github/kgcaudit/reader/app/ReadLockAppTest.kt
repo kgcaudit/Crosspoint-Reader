@@ -386,6 +386,75 @@ class ReadLockAppTest {
         }
     }
 
+    /** 최근 앱 화면을 열어 "이 앱 고정" 을 눌렀다 — 우리 자물쇠를 거치지 않고 고정되고, 돌아오며 초점을 되찾는다. */
+    private fun pinFromRecents() {
+        onActivity { it.onWindowFocusChanged(false) }
+        onActivity { it.startLockTask() }
+        compose.waitForIdle()
+        onActivity { it.onWindowFocusChanged(true) }
+        compose.waitForIdle()
+    }
+
+    @Test
+    fun `a pin from the recents screen reads locked and a ring still unlocks it`() {
+        launch()
+        openBook()
+        menu()
+        pinFromRecents()
+        // 0.54.3 까지는 고정된 채 "잠금 중" 도 아니고 자물쇠도 열린 모양이었다 — 길게 눌러 풀 수도, 벨에 풀리지도 않았다.
+        waitFor(hasText("1 / 3장 · 잠금 중"))
+        assertTrue(has(unlockButton), "최근 앱에서 건 고정인데 자물쇠가 열린 모양이다")
+        val audio = app.getSystemService(AudioManager::class.java)
+        try {
+            audio.mode = AudioManager.MODE_RINGTONE
+            compose.waitForIdle()
+            assertFalse(pinned(), "최근 앱에서 건 고정을 벨이 풀지 않았다 — 전화 화면이 막힌다")
+        } finally {
+            audio.mode = AudioManager.MODE_NORMAL
+        }
+        // 메뉴가 열린 동안은 띠를 거둔다 — 닫고 본다.
+        back()
+        waitFor(hasText("통화로 잠금이 풀렸습니다"))
+    }
+
+    @Test
+    fun `a pin from the recents screen unlocks with a long press like our own`() {
+        launch()
+        openBook()
+        menu()
+        pinFromRecents()
+        waitFor(unlockButton)
+        compose.mainClock.autoAdvance = false
+        try {
+            node(unlockButton).performTouchInput { down(center) }
+            compose.mainClock.advanceTimeBy(2_100)
+            assertFalse(pinned(), "길게 눌렀는데 최근 앱에서 건 고정이 남았다")
+            node(anyLock).performTouchInput { up() }
+            compose.mainClock.advanceTimeBy(500)
+        } finally {
+            compose.mainClock.autoAdvance = true
+        }
+        waitFor(lockButton)
+        // 푼 뒤 초점이 오가도(안드로이드 안내) 다시 잠기지 않는다.
+        androidDialog()
+        assertFalse(has(hasText("잠금 중", substring = true)), "풀자마자 다시 잠금 중이 됐다")
+    }
+
+    @Test
+    fun `a pin from the recents screen during a call is undone`() {
+        launch()
+        openBook()
+        val audio = app.getSystemService(AudioManager::class.java)
+        try {
+            audio.mode = AudioManager.MODE_IN_CALL
+            pinFromRecents()
+            assertFalse(pinned(), "통화 중에 걸린 고정을 두었다 — 통화 화면으로 돌아갈 길이 막힌다")
+            assertFalse(has(hasText("잠금 중", substring = true)))
+        } finally {
+            audio.mode = AudioManager.MODE_NORMAL
+        }
+    }
+
     @Test
     fun `declining the android dialog leaves the book unlocked`() {
         launch()

@@ -185,6 +185,47 @@ class ReadLockMachineTest {
     }
 
     @Test
+    fun `a pin made from the recents screen is taken as our lock`() {
+        // 최근 앱 화면의 "이 앱 고정"(0.54.4): 우리 자물쇠를 거치지 않았다. 받지 않으면 벨이 울려도 풀지 않는다.
+        val m = ReadLockMachine()
+        assertEquals(listOf(Effect.QuietOn), m.focus(has = true, pinned = true))
+        assertEquals(Phase.On, m.phase)
+        assertEquals(listOf(Effect.Unpin, Effect.QuietOff, Effect.PauseAuto), m.callStarted(), "사람이 건 고정을 벨이 풀지 않았다")
+        // 통화 뒤 띠가 떠 있는 사이 다시 최근 앱에서 고정했다 — "다시 잠그기" 와 같다.
+        m.callEnded()
+        assertTrue(m.showsBanner)
+        assertEquals(listOf(Effect.QuietOn, Effect.ResumeAuto), m.observed(pinned = false).let { m.observed(pinned = true) })
+        assertEquals(Phase.On, m.phase)
+        assertFalse(m.showsBanner)
+    }
+
+    @Test
+    fun `the pin we just released is not taken back as a new lock`() {
+        // 자물쇠를 2초 눌러 풀었는데 안드로이드의 고정 상태가 아직 따라오지 않았다. 그 옛 상태를 사람이 건 고정으로 받으면 풀자마자
+        // 다시 잠금 중이 된다.
+        val m = locked()
+        m.release()
+        assertEquals(emptyList(), m.focus(has = true, pinned = true), "막 푼 고정의 옛 상태를 새 잠금으로 받았다")
+        assertEquals(Phase.Off, m.phase)
+        // 풀린 것을 한 번 보고 나면, 그 뒤의 고정은 사람이 건 것이다.
+        m.observed(pinned = false)
+        assertEquals(listOf(Effect.QuietOn), m.observed(pinned = true))
+        // 새로 뜬 앱이 지난번 고정을 푼 직후도 같다.
+        val fresh = ReadLockMachine()
+        assertEquals(listOf(Effect.Unpin), fresh.leftover())
+        assertEquals(emptyList(), fresh.observed(pinned = true))
+        assertEquals(Phase.Off, fresh.phase)
+    }
+
+    @Test
+    fun `a recents pin during a call is undone at once`() {
+        val m = ReadLockMachine()
+        m.callStarted()
+        assertEquals(listOf(Effect.Unpin), m.observed(pinned = true), "통화 중에 걸린 고정을 두어 통화 화면이 막힌다")
+        assertEquals(Phase.Off, m.phase)
+    }
+
+    @Test
     fun `closing the app undoes the pin and quiet`() {
         val m = locked()
         assertEquals(listOf(Effect.Unpin, Effect.QuietOff, Effect.ForgetAuto), m.ended())

@@ -8,7 +8,7 @@ package io.github.kgcaudit.reader.app
  * - [Phase.Off] 풀림.
  * - [Phase.Asking] startLockTask 를 불렀고 안드로이드 확인 창의 답을 기다린다. 아직 "잠금 중" 이 아니다 — 거절하면 아무것도
  *   잠기지 않았는데 잠금 중이라고 말하게 된다.
- * - [Phase.On] 고정이 확인됐다.
+ * - [Phase.On] 고정이 확인됐다. 사람이 최근 앱 화면의 "이 앱 고정" 으로 건 고정도 보이면 여기로 온다(0.54.4).
  * - [Phase.CallFreed] 전화 때문에 풀었다. 통화가 끝나면 "다시 잠그기" 띠가 뜬다.
  */
 internal class ReadLockMachine {
@@ -48,6 +48,17 @@ internal class ReadLockMachine {
     /** [Phase.Asking] 에 들어온 뒤 창 초점을 잃었다(확인 창이 떴다). 다시 얻으면 창이 닫힌 것이다. */
     private var sawDialog = false
 
+    /**
+     * 우리가 고정을 풀었는데([Effect.Unpin]) 아직 풀린 것을 보지 못했다. 그사이 보이는 "고정됨" 은 늦게 따라오는 옛 상태라 사람이
+     * 건 고정으로 받지 않는다 — 받으면 자물쇠를 2초 눌러 풀자마자 다시 "잠금 중" 이 되고 방해 금지가 다시 걸린다.
+     */
+    private var unpinning = false
+
+    private fun unpin(vararg rest: Effect): List<Effect> {
+        unpinning = true
+        return listOf(Effect.Unpin, *rest)
+    }
+
     /** 자물쇠의 "잠그기"(또는 띠의 "다시 잠그기"). */
     fun request(): List<Effect> {
         // 통화 중에 고정하면 통화 화면으로 돌아갈 길이 막힌다.
@@ -57,6 +68,8 @@ internal class ReadLockMachine {
                 relocking = phase == Phase.CallFreed
                 phase = Phase.Asking
                 sawDialog = false
+                // 이제부터 보이는 고정은 이번 청에 대한 답이다.
+                unpinning = false
                 listOf(Effect.Pin)
             }
             // 묻는 중에 또 "잠그기" 를 눌렀다 — 앞의 확인 창은 이미 닫혔다(설명 판을 다시 거쳐야 이 줄에 온다). 다시 묻는다.
@@ -96,7 +109,8 @@ internal class ReadLockMachine {
      */
     fun observed(pinned: Boolean, settled: Boolean = false): List<Effect> {
         // 통화 중에 걸린 고정(벨이 울리는 사이 확인 창에서 "확인" 을 누름)은 곧바로 푼다 — 두면 전화 화면이 막힌다.
-        if (pinned && inCall) return listOf(Effect.Unpin)
+        if (pinned && inCall) return unpin()
+        if (!pinned) unpinning = false
         return when (phase) {
             Phase.Asking -> when {
                 pinned -> {
@@ -117,7 +131,15 @@ internal class ReadLockMachine {
             }
             // 시스템 동작(뒤로 + 최근 앱 길게)으로 풀렸다. 방해 금지도 함께 되돌린다.
             Phase.On -> if (!pinned) { phase = Phase.Off; listOf(Effect.QuietOff) } else emptyList()
-            Phase.Off, Phase.CallFreed -> emptyList()
+            // 사람이 최근 앱 화면에서 "이 앱 고정" 으로 걸었다(0.54.4 사용자 결정 — 우리 자물쇠를 거치지 않는 길). 우리 잠금으로
+            // 받는다: 안 받으면 고정된 채 "잠금 중" 도 아니고, 벨이 울려도 풀지 않아 전화 화면이 막히고, 자물쇠로 풀 수도 없다.
+            // 안내는 띄우지 않는다 — 안드로이드가 제 안내를 띄운다.
+            Phase.Off, Phase.CallFreed -> if (pinned && !unpinning) {
+                val after = phase == Phase.CallFreed
+                phase = Phase.On
+                // 통화 뒤 띠에서 왔으면 "다시 잠그기" 와 같다 — 멈춘 자동 진행을 잇는다.
+                if (after) listOf(Effect.QuietOn, Effect.ResumeAuto) else listOf(Effect.QuietOn)
+            } else emptyList()
         }
     }
 
@@ -126,10 +148,10 @@ internal class ReadLockMachine {
         inCall = true
         return when (phase) {
             // 고정을 먼저 푼다 — 그래야 전화 알림 · 통화 화면이 뜬다.
-            Phase.On -> { phase = Phase.CallFreed; listOf(Effect.Unpin, Effect.QuietOff, Effect.PauseAuto) }
+            Phase.On -> { phase = Phase.CallFreed; unpin(Effect.QuietOff, Effect.PauseAuto) }
             // 확인 창이 떠 있는 사이 벨: 나중에 "확인" 을 눌러도 풀리게 지금 풀어 둔다. 다시 잠그던 중이었으면 띠로 돌아간다
             // (멈춘 자동 진행을 아직 기억한다).
-            Phase.Asking -> { phase = if (relocking) Phase.CallFreed else Phase.Off; listOf(Effect.Unpin) }
+            Phase.Asking -> { phase = if (relocking) Phase.CallFreed else Phase.Off; unpin() }
             // 이미 풀었다(두 번째 벨 · 통화 중 또 울림) · 잠그지 않았다: 할 일이 없다.
             Phase.Off, Phase.CallFreed -> emptyList()
         }
@@ -143,7 +165,7 @@ internal class ReadLockMachine {
 
     /** 자물쇠를 2초 눌렀다. */
     fun release(): List<Effect> = when (phase) {
-        Phase.On -> { phase = Phase.Off; listOf(Effect.Unpin, Effect.QuietOff) }
+        Phase.On -> { phase = Phase.Off; unpin(Effect.QuietOff) }
         else -> emptyList()
     }
 
@@ -158,12 +180,15 @@ internal class ReadLockMachine {
         val was = phase
         phase = Phase.Off
         return when (was) {
-            Phase.On -> listOf(Effect.Unpin, Effect.QuietOff, Effect.ForgetAuto)
-            Phase.Asking -> listOf(Effect.Unpin, Effect.ForgetAuto)
+            Phase.On -> unpin(Effect.QuietOff, Effect.ForgetAuto)
+            Phase.Asking -> unpin(Effect.ForgetAuto)
             Phase.CallFreed -> listOf(Effect.ForgetAuto)
             Phase.Off -> emptyList()
         }
     }
+
+    /** 새로 뜬 앱이 지난번 잠금이 남긴 고정을 봤다. 푼다 — 늦게 따라오는 "고정됨" 을 사람이 건 고정으로 받지 않게 기계를 거친다. */
+    fun leftover(): List<Effect> = unpin()
 
     /** 통화 뒤 띠를 보일 때: 전화 때문에 풀었고, 통화가 끝났다. 통화 중에 띠의 "다시 잠그기" 를 누르면 통화 화면이 막힌다. */
     val showsBanner: Boolean get() = phase == Phase.CallFreed && !inCall
