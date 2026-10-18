@@ -293,7 +293,7 @@ class ReadLockAppTest {
     }
 
     @Test
-    fun `a hold shorter than two seconds keeps the lock and a full hold unlocks`() {
+    fun `a hold shorter than one second keeps the lock and a full hold unlocks`() {
         launch()
         openBook()
         menu()
@@ -302,22 +302,22 @@ class ReadLockAppTest {
         compose.mainClock.autoAdvance = false
         try {
             node(unlockButton).performTouchInput { down(center) }
-            compose.mainClock.advanceTimeBy(1_000)
+            compose.mainClock.advanceTimeBy(500)
             // 누르는 동안 손가락에 가리지 않는 자리(윗줄 아래)에 진행이 보인다(0.54.3 사용자 결정 2).
             assertTrue(has(hasText("잠금 푸는 중 · 떼면 그대로")), "누르는 동안 진행을 보이지 않았다")
             val bar = node(hasText("잠금 푸는 중 · 떼면 그대로")).fetchSemanticsNode().boundsInRoot
             val lockAt = node(unlockButton).fetchSemanticsNode().boundsInRoot
             assertTrue(bar.top >= lockAt.bottom, "진행 표시가 자물쇠(누르는 손가락) 아래가 아니라 겹친다")
-            compose.mainClock.advanceTimeBy(500)
+            compose.mainClock.advanceTimeBy(300)
             node(unlockButton).performTouchInput { up() }
             compose.mainClock.advanceTimeBy(500)
-            assertTrue(pinned(), "1.5초 만에 떼었는데 풀렸다")
+            assertTrue(pinned(), "0.8초 만에 떼었는데 풀렸다")
             assertFalse(has(hasText("잠금 푸는 중 · 떼면 그대로")), "떼었는데 진행 표시가 남았다")
             assertTrue(has(unlockButton))
 
             node(unlockButton).performTouchInput { down(center) }
-            compose.mainClock.advanceTimeBy(2_100)
-            assertFalse(pinned(), "2초를 눌렀는데 풀리지 않았다")
+            compose.mainClock.advanceTimeBy(1_100)
+            assertFalse(pinned(), "1초를 눌렀는데 풀리지 않았다")
             node(anyLock).performTouchInput { up() }
             compose.mainClock.advanceTimeBy(500)
         } finally {
@@ -341,7 +341,7 @@ class ReadLockAppTest {
         compose.mainClock.autoAdvance = false
         try {
             node(unlockButton).performTouchInput { down(center) }
-            compose.mainClock.advanceTimeBy(2_100)
+            compose.mainClock.advanceTimeBy(1_100)
             node(anyLock).performTouchInput { up() }
             compose.mainClock.advanceTimeBy(300)
         } finally {
@@ -427,7 +427,7 @@ class ReadLockAppTest {
         compose.mainClock.autoAdvance = false
         try {
             node(unlockButton).performTouchInput { down(center) }
-            compose.mainClock.advanceTimeBy(2_100)
+            compose.mainClock.advanceTimeBy(1_100)
             assertFalse(pinned(), "길게 눌렀는데 최근 앱에서 건 고정이 남았다")
             node(anyLock).performTouchInput { up() }
             compose.mainClock.advanceTimeBy(500)
@@ -619,11 +619,11 @@ class ReadLockAppTest {
         val on = nm.notificationPolicy
         assertEquals(ReadLockQuiet.QUIET_CATEGORIES, on.priorityCategories)
         assertEquals(NotificationManager.Policy.PRIORITY_SENDERS_ANY, on.priorityCallSenders)
-        // 2초 눌러 푼다: 처음 것으로 돌아간다.
+        // 1초 눌러 푼다: 처음 것으로 돌아간다.
         compose.mainClock.autoAdvance = false
         try {
             node(unlockButton).performTouchInput { down(center) }
-            compose.mainClock.advanceTimeBy(2_100)
+            compose.mainClock.advanceTimeBy(1_100)
             node(anyLock).performTouchInput { up() }
             compose.mainClock.advanceTimeBy(300)
         } finally {

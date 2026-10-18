@@ -46,7 +46,7 @@ interface ReadLock {
     val locked: Boolean
 
     /**
-     * 자물쇠를 짧게 눌렀다(잠긴 동안 2초를 못 채우고 뗀 것도). 풀려 있으면 잠근다(안드로이드 확인 창), 잠겨 있으면 푸는 법 안내.
+     * 자물쇠를 짧게 눌렀다(잠긴 동안 다 채우지 못하고 뗀 것도). 풀려 있으면 잠근다(안드로이드 확인 창), 잠겨 있으면 푸는 법 안내.
      * [comic] 은 만화 화면이다.
      */
     fun tap(comic: Boolean)
@@ -57,7 +57,7 @@ interface ReadLock {
      */
     var quietChosen: Boolean
 
-    /** 자물쇠를 2초 눌러 고리가 다 찼다: 푼다. */
+    /** 자물쇠를 [READ_LOCK_HOLD_MS] 동안 눌러 진행이 다 찼다: 푼다. */
     fun release()
 
     /**
@@ -124,11 +124,14 @@ fun ReadLockPauses(running: Boolean, pause: () -> Unit, resume: () -> Unit) {
     }
 }
 
-/** 잠금을 푸는 데 눌러야 하는 시간. 실수로 스친 손에 풀리지 않을 만큼, 기다리다 지치지 않을 만큼. */
-const val READ_LOCK_HOLD_MS = 2_000
+/**
+ * 잠금을 푸는 데 눌러야 하는 시간. 실수로 스친 손에 풀리지 않을 만큼, 기다리다 지치지 않을 만큼. 0.54.4 까지 2초 — 길다는
+ * 사용자 보고로 1초(0.54.5). 스친 손 · 넘기려던 손은 0.3초 안에 떨어지므로 1초로도 막힌다.
+ */
+const val READ_LOCK_HOLD_MS = 1_000
 
 /**
- * 윗줄 자물쇠(책갈피 왼쪽). 풀려 있으면 열린 자물쇠 — 누르면 잠근다. 잠겨 있으면 38dp 동그라미 위 닫힌 자물쇠 — 2초 누르면
+ * 윗줄 자물쇠(책갈피 왼쪽). 풀려 있으면 열린 자물쇠 — 누르면 잠근다. 잠겨 있으면 38dp 동그라미 위 닫힌 자물쇠 — 1초 누르면
  * 풀린다. 누르는 동안의 진행은 [onHold](0~1, 누르지 않으면 0)로 알린다 — 그리는 것은 윗줄 아래 가로 막대([ReadLockHoldBar]).
  * 0.54.2 까지는 자물쇠 둘레의 고리였는데, 누르는 손가락이 고리를 덮어 얼마나 찼는지 보이지 않았다(사용자 보고).
  *
@@ -150,7 +153,7 @@ internal fun ReadLockButton(lock: ReadLock, comic: Boolean, onHold: (Float) -> U
                 role = Role.Button
                 contentDescription = if (locked) "잠금 풀기 (길게 누르기)" else "읽기 잠금"
                 onClick { lock.tap(comicNow); true }
-                // 화면 읽기 사용자는 두 번 눌러 길게 누르기로 푼다 — 2초를 손으로 재기 어렵다.
+                // 화면 읽기 사용자는 두 번 눌러 길게 누르기로 푼다 — 1초를 손으로 재기 어렵다.
                 if (locked) onLongClick("잠금 풀기") { lock.release(); true }
             }
             .pointerInput(locked) {

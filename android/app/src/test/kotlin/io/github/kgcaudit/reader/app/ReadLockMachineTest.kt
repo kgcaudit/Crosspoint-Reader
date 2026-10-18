@@ -201,7 +201,7 @@ class ReadLockMachineTest {
 
     @Test
     fun `the pin we just released is not taken back as a new lock`() {
-        // 자물쇠를 2초 눌러 풀었는데 안드로이드의 고정 상태가 아직 따라오지 않았다. 그 옛 상태를 사람이 건 고정으로 받으면 풀자마자
+        // 자물쇠를 길게 눌러 풀었는데 안드로이드의 고정 상태가 아직 따라오지 않았다. 그 옛 상태를 사람이 건 고정으로 받으면 풀자마자
         // 다시 잠금 중이 된다.
         val m = locked()
         m.release()

@@ -50,7 +50,7 @@ internal class ReadLockMachine {
 
     /**
      * 우리가 고정을 풀었는데([Effect.Unpin]) 아직 풀린 것을 보지 못했다. 그사이 보이는 "고정됨" 은 늦게 따라오는 옛 상태라 사람이
-     * 건 고정으로 받지 않는다 — 받으면 자물쇠를 2초 눌러 풀자마자 다시 "잠금 중" 이 되고 방해 금지가 다시 걸린다.
+     * 건 고정으로 받지 않는다 — 받으면 자물쇠를 길게 눌러 풀자마자 다시 "잠금 중" 이 되고 방해 금지가 다시 걸린다.
      */
     private var unpinning = false
 
@@ -163,7 +163,7 @@ internal class ReadLockMachine {
         return emptyList()
     }
 
-    /** 자물쇠를 2초 눌렀다. */
+    /** 자물쇠를 길게 눌렀다([io.github.kgcaudit.reader.ui.design.READ_LOCK_HOLD_MS]). */
     fun release(): List<Effect> = when (phase) {
         Phase.On -> { phase = Phase.Off; unpin(Effect.QuietOff) }
         else -> emptyList()
