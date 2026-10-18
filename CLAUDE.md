@@ -17,11 +17,14 @@ ESP32 제약 때문에 존재하는 코드다.
 | `docs/ANDROID_ARCHITECTURE_DECISION.md` | 왜 네이티브 Canvas + 디스크 캐시인가 |
 | `docs/design-handoff/README.md` | 디자인 시스템 인계 묶음(아이콘 · 색 · 글자 · 치수 · 부품 · 규칙). 다른 앱 세션에 넘길 때 |
 | `docs/LOCAL_SETUP.md` | 윈도우 PC 에서 돌리는 법(프록시 · JDK 버전 등 실제로 걸린 것들) |
+| `docs/PLATFORM_PARITY.md` | **안드로이드 ↔ iOS 대조표 · 변경 기록.** 두 앱을 잇는 유일한 문서 |
+| `docs/IOS_KICKOFF.md` | iOS 세션(맥북)을 처음 열 때 붙여 넣는 지시문 |
 
 ## 빌드
 
 ```bash
 cd android && ./gradlew check          # SDK 없으면 :document + :core-layout 만
+./gradlew :document:check :core-layout:check   # 공통 코어: JVM 시험 + iOS 에서도 컴파일되는지(commonMain)
 ./gradlew :app:assembleRelease         # APK (OLO eBook). 화면 확인은 :app:testDebugUnitTest 의 스크린샷
 ```
 
@@ -33,6 +36,9 @@ cd android && ./gradlew check          # SDK 없으면 :document + :core-layout 
 1. **`:document` 와 `:core-layout` 에 `android.*` / `androidx.*` 를 넣지 않는다.**
    두 겹으로 막혀 있다 — SDK 없이 구성되는 것 자체, 그리고 `checkNoPlatformImports`.
    이 순수성 덕분에 파일 바이트부터 픽셀 좌표까지 기기 없이 검증된다.
+   두 모듈은 **안드로이드 · iOS 공통**(Kotlin Multiplatform, 2026-10-18)이다. 코드는 `src/commonMain` 에 두고
+   `java.*` 도 쓰지 않는다 — `check` 가 부르는 `compileCommonMainKotlinMetadata` 가 막는다. 플랫폼마다 다른 것은
+   `document/.../io/` 의 `expect` 로 선언하고 `jvmMain` 이 채운다(iOS 는 `iosMain`).
 2. **플랫폼 경계는 `TextMeasurer` 하나다.** 새 플랫폼 의존을 코어에 끌어들이기 전에
    이 경계로 표현할 수 없는지 먼저 본다.
 3. **저장하는 위치는 언제나 `Locator`(글자 오프셋)다.** 페이지 번호를 저장하면 글자
@@ -81,6 +87,15 @@ cd android && ./gradlew check          # SDK 없으면 :document + :core-layout 
 3. **소리는 움직임이 일어난 자리에서 난다** (2026-10-05 사용자 결정). 움직이는 것(누른 자리가 아니라)이 있는 쪽에서 시작해
    움직임을 따라 쓸려 간다(+0.7 → −0.3). 이어폰 · 가로 · 폭 600dp 이상에서만, 따로 설정을 두지 않는다. 자세한 값은
    `docs/design-handoff/README.md` §6-7. 새 소리를 넣을 때마다 적용한다.
+
+## iOS 연동 (2026-10-18 사용자 결정)
+
+안드로이드가 중심이고 iOS 는 따라간다. iOS 는 맥북의 별도 세션이 브랜치 `claude/ios-viewer` 에서 만든다.
+
+1. **기능을 넣거나 버그를 고치면 같은 커밋에서 `docs/PLATFORM_PARITY.md` 변경 기록에 한 줄을 더한다**
+   (판 · 무엇 · 공통/화면 · `iOS: 대기`). 공통 코어만 바꾼 것도 적는다 — iOS 화면에서 확인할 것이 생긴다.
+2. 새 기능의 구상안을 만들 때 iOS 에서 같게 만들 수 없는 점(시스템 제약)이 있으면 대조표의 iOS 메모에 적는다.
+3. iOS 세션이 "안드로이드에 요청" 으로 적은 공통 코드 문제는 이 세션이 고친다(공통 코드는 이 세션만 고친다).
 
 ## 코드 규칙
 

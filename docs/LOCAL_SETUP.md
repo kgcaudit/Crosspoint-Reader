@@ -175,7 +175,7 @@ notepad core-layout\src\test\kotlin\io\github\kgcaudit\reader\layout\GoldenPagin
 파일 아래쪽 `GOLDEN_LINE_COUNTS = listOf(6, 6)` 을 `listOf(5, 5)` 로 바꿔 저장하고:
 
 ```powershell
-.\gradlew.bat :core-layout:test --tests "*GoldenPagination*"
+.\gradlew.bat :core-layout:jvmTest --tests "*GoldenPagination*"
 ```
 
 실패 메시지에 이런 게 나온다:

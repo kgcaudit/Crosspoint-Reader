@@ -122,7 +122,7 @@ dependencies {
     implementation(libs.coroutines.android)
 
     testImplementation(libs.junit4)
-    testImplementation(testFixtures(project(":document")))
+    testImplementation(project(":document-testing"))
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.kotlin.test)

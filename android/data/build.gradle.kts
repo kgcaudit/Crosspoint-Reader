@@ -32,7 +32,7 @@ dependencies {
     ksp(libs.room.compiler)
     implementation(libs.coroutines.android)
 
-    testImplementation(testFixtures(project(":document")))
+    testImplementation(project(":document-testing"))
     testImplementation(libs.junit4)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)

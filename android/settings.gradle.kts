@@ -13,6 +13,8 @@ rootProject.name = "reader"
 // :document / :core-layout 에 android.* 가 들어오면 여기서부터 빌드가 깨진다.
 include(":document")
 include(":core-layout")
+// 시험 도구(시험에서만 쓴다). :document 가 멀티플랫폼이 되며 test fixtures 에서 옮겼다.
+include(":document-testing")
 
 // ── Android 모듈 ────────────────────────────────────────────────────────
 // SDK가 있을 때만 포함한다. 없으면 JVM 코어만 빌드하는 모드로 동작하므로,

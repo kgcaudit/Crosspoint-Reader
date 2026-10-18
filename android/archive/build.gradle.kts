@@ -31,7 +31,7 @@ android {
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
 
 dependencies {
-    testImplementation(testFixtures(project(":document")))
+    testImplementation(project(":document-testing"))
     testImplementation(libs.junit4)
     testImplementation(libs.kotlin.test)
 }

@@ -96,4 +96,11 @@ subprojects {
     }
 
     tasks.matching { it.name == "check" }.configureEach { dependsOn(checkNoPlatformImports) }
+
+    // 공통 코드(commonMain)가 iOS 에서도 컴파일되는지 — java.* 를 쓰면 여기서 깨진다. 리눅스(CI · 클라우드 세션)에서도 돈다.
+    // check 는 시험만 돌리고 이 컴파일은 부르지 않으므로 따로 묶는다. 안 묶으면 안드로이드는 멀쩡한데 iOS 빌드만 깨진 채
+    // 맥에서 처음 알게 된다.
+    tasks.matching { it.name == "check" }.configureEach {
+        dependsOn(tasks.matching { it.name == "compileCommonMainKotlinMetadata" })
+    }
 }

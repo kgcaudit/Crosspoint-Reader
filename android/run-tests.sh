@@ -39,7 +39,7 @@ status=$?
 echo
 if [ $status -eq 0 ]; then
   echo "[OK] 성공! 모든 테스트가 통과했습니다."
-  echo "  보고서: document/build/reports/tests/test/index.html"
+  echo "  보고서: document/build/reports/tests/jvmTest/index.html"
 else
   echo "[FAIL] 실패했습니다. 위 메시지를 그대로 알려주세요."
 fi

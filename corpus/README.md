@@ -24,5 +24,5 @@ corpus/
 ## 채우는 방법
 
 1. 보유한 EPUB/TXT/PDF를 위 폴더에 넣는다
-2. `./gradlew :document:test -Pcorpus=../corpus` 로 골든을 생성한다 (R1.10에서 구현)
+2. `./gradlew :document:jvmTest -Pcorpus=../corpus` 로 골든을 생성한다 (R1.10에서 구현)
 3. 생성된 골든을 눈으로 검수한 뒤 커밋한다

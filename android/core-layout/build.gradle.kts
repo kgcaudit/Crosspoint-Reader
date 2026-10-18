@@ -1,16 +1,23 @@
-plugins { id("org.jetbrains.kotlin.jvm") }
+plugins { id("org.jetbrains.kotlin.multiplatform") }
 
-// 조판 코어. R2에서 채운다(블록 모델 · TextMeasurer · LineBreaker · Paginator ·
-// PageStore 포맷). :document 와 마찬가지로 순수 Kotlin을 유지한다.
-dependencies {
-    implementation(project(":document"))
-    testImplementation(libs.junit.jupiter)
-    testRuntimeOnly(libs.junit.platform.launcher)
-    testImplementation(libs.kotlin.test)
-    // 테스트 전용. main 은 stdlib 만 쓴다 — suspend 선언 자체는 언어 기능이라
-    // 코루틴 라이브러리가 필요 없고, 그걸 호출하는 테스트에만 필요하다.
-    testImplementation(libs.coroutines.test)
+// 조판 코어(블록 모델 · TextMeasurer · LineBreaker · Paginator · PageStore 포맷). :document 와 같이 순수 Kotlin 이고
+// 안드로이드와 iOS 가 함께 쓴다 — 플랫폼 경계는 TextMeasurer 하나다.
+kotlin {
+    jvmToolchain(21)
+    jvm()
+    // iOS 는 맥에서만 컴파일 · 링크된다. 리눅스(이 저장소의 클라우드 세션)에서는 꺼진 채로 두고, 공통 코드(commonMain)가
+    // iOS 에서도 통하는지는 compileCommonMainKotlinMetadata 가 검사한다 — java.* 를 쓰면 여기서 깨진다.
+    iosArm64()
+    iosSimulatorArm64()
+    sourceSets {
+        commonMain.dependencies { implementation(project(":document")) }
+        jvmTest.dependencies {
+            implementation(libs.junit.jupiter)
+            implementation(libs.kotlin.test)
+            implementation(libs.coroutines.test)
+        }
+    }
 }
 
-kotlin { jvmToolchain(21) }
-tasks.test { useJUnitPlatform() }
+dependencies { "jvmTestRuntimeOnly"(libs.junit.platform.launcher) }
+tasks.named<Test>("jvmTest") { useJUnitPlatform() }
