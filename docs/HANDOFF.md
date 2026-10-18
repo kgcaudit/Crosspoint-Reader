@@ -309,7 +309,8 @@ SwiftUI · 맥북 보유. 화면 · 동작 변화 없음)
 - 연동: `docs/PLATFORM_PARITY.md`(기능 대조표 · iOS 가 채울 `expect` 표 · 변경 기록), `docs/IOS_KICKOFF.md`(맥 세션 첫 지시문),
   CLAUDE.md "iOS 연동" — **안드로이드를 바꿀 때마다 변경 기록에 한 줄**.
 - 시험: `CommonIoTest` 6개(UTF-16/Latin-1/ASCII · `%` 풀기 · 압축 풀기와 잘린 압축 · 공백 글자 · 버퍼 · 엄격한 인코딩).
-  망가뜨리기 3건(깨진 `%` 통과 · 잘린 압축을 조용히 끝냄 · 문단 구분자 빠뜨림) 모두 걸린다.
+  망가뜨리기 3건(깨진 `%` 통과 · 잘린 압축을 조용히 끝냄 · 문단 구분자 빠뜨림) 모두 걸린다. 전체 시험: 앱 425 · document 315 ·
+  core-layout 332 · data 155 · ui-design 81 · reader-pdf 102 · text-platform 36 · reader-reflow 18 · listen 8 · archive 7 → 실패 0.
 
 **0.54.6 — 밝기는 언제나 휴대폰 밝기로 연다** (2026-10-18, 사용자 보고 · 권고안 확정. 구상안 `bright/01-brightness.png`)
 
