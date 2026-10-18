@@ -10,6 +10,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 
 @RunWith(RobolectricTestRunner::class)
@@ -74,7 +75,6 @@ class PrefsStoreTest {
             paragraphSpacing = ReaderPrefs.ParagraphSpacing.Loose,
             screen = io.github.kgcaudit.reader.ui.design.ScreenPrefs(
                 theme = io.github.kgcaudit.reader.ui.design.PaperTheme.Ivory,
-                brightness = 0.4f,
                 keepScreenOn = io.github.kgcaudit.reader.ui.design.KeepScreenOn.Always,
                 volumeKeys = true,
                 touch = io.github.kgcaudit.reader.ui.design.TouchZones.OneHand,
@@ -96,10 +96,29 @@ class PrefsStoreTest {
         )
         PrefsStore(context).save(chosen)
         assertEquals(chosen, PrefsStore(context).load())
+    }
 
-        // "휴대폰 설정 밝기" 로 돌리면 저장된 값도 지운다 — 남기면 다음에 열 때 어두운 채로 뜬다.
-        PrefsStore(context).save(chosen.copy(screen = chosen.screen.copy(brightness = null)))
+    @Test
+    fun `a chosen brightness lasts only while the app runs and never reaches the disk`() {
+        // 0.54.6 사용자 결정: 밝기는 휴대폰을 따른다. 저장하면 낮에 고른 밝기가 밤에도 떠 어두운 곳에서 눈부시다.
+        val store = PrefsStore(context)
+        store.save(ReaderPrefs(screen = io.github.kgcaudit.reader.ui.design.ScreenPrefs(brightness = 0.7f)))
+        // 같은 앱 안(지금 읽는 책)에서는 고른 밝기가 남는다 — 설정 하나를 바꿀 때마다 밝기가 풀리면 안 된다.
+        assertEquals(0.7f, store.load().screen.brightness)
+        assertFalse(context.getSharedPreferences("reader", Context.MODE_PRIVATE).contains("brightness"), "밝기를 디스크에 적었다")
+        // 앱을 다시 켜면 휴대폰 밝기.
         assertNull(PrefsStore(context).load().screen.brightness)
+        // 책을 닫으면 같은 앱 안에서도 휴대폰 밝기.
+        store.forgetBrightness()
+        assertNull(store.load().screen.brightness)
+    }
+
+    @Test
+    fun `a brightness saved by an older version is wiped and not used`() {
+        // 0.54.5 까지 저장된 값 — 그대로 쓰면 올린 뒤에도 그 밝기로 떠 고친 것이 보이지 않는다.
+        context.getSharedPreferences("reader", Context.MODE_PRIVATE).edit().putFloat("brightness", 0.8f).commit()
+        assertNull(PrefsStore(context).load().screen.brightness)
+        assertFalse(context.getSharedPreferences("reader", Context.MODE_PRIVATE).contains("brightness"), "옛 밝기 값이 남았다")
     }
 
     @Test

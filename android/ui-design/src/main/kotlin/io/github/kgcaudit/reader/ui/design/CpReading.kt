@@ -304,16 +304,22 @@ fun CpThemeSwatches(selected: PaperTheme, onSelect: (PaperTheme) -> Unit, modifi
 /**
  * 밝기: 막대 + "휴대폰". 막대를 움직이면 앱 안에서만 그 밝기가 되고(권한 불필요), "휴대폰" 을 누르면
  * 휴대폰 밝기(자동 밝기 포함)로 돌아간다. 배경 바로 아래 둔다 — 둘 다 화면이 얼마나 눈부신가를 정한다.
+ *
+ * 움직인 밝기는 지금 책에서만 쓴다(0.54.6 사용자 결정) — 아래 한 줄로 알린다. 모르면 다음 책에서 밝기가 "풀린" 것을 고장으로
+ * 본다. 휴대폰 밝기를 따르는 동안 막대는 휴대폰 밝기 자리에 둔다: 0.54.5 까지는 늘 가운데라, 막대를 살짝 대기만 해도 밤에
+ * 50% 로 튀었다.
  */
 @Composable
 fun CpBrightnessRow(value: Float?, onChange: (Float?) -> Unit, modifier: Modifier = Modifier) {
     val c = CpTheme.colors
+    val context = androidx.compose.ui.platform.LocalContext.current
+    Column(modifier.fillMaxWidth()) {
     Row(
-        modifier.fillMaxWidth().padding(horizontal = CpTheme.metrics.gutter, vertical = 4.dp),
+        Modifier.fillMaxWidth().padding(horizontal = CpTheme.metrics.gutter, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         CpText("밝기", CpTheme.type.body, c.text, Modifier.width(72.dp))
-        CpSlider(value ?: 0.5f, onChange = { onChange(it) }, onCommit = { onChange(it) }, Modifier.weight(1f), description = "밝기")
+        CpSlider(value ?: remember { systemBrightness(context) }, onChange = { onChange(it) }, onCommit = { onChange(it) }, Modifier.weight(1f), description = "밝기")
         CpTextButton(
             "휴대폰",
             { onChange(null) },
@@ -321,6 +327,13 @@ fun CpBrightnessRow(value: Float?, onChange: (Float?) -> Unit, modifier: Modifie
             Modifier.padding(start = 4.dp).semantics { contentDescription = "휴대폰 설정 밝기" },
             color = if (value == null) c.accentText else c.textMuted,
         )
+    }
+    CpText(
+        "움직인 밝기는 이 책을 닫으면 휴대폰 밝기로 돌아갑니다",
+        CpTheme.type.caption, c.textMuted,
+        Modifier.padding(horizontal = CpTheme.metrics.gutter),
+        maxLines = 2,
+    )
     }
 }
 

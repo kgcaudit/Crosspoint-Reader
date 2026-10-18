@@ -642,7 +642,14 @@ private fun OloApp(
 
     // 읽기 잠금: 리더를 닫으면 통화 뒤 띠를 거둔다(읽던 책에 붙은 것). 다음 권 · 다음 화로 넘어가는 것은 닫는 것이 아니다.
     val reading = reader != null || comicId != null || bookComicId != null || incomingComicUri != null
-    LaunchedEffect(reading) { if (!reading) container.readLock.leftReader() }
+    // 밝기도 책에 붙은 것이다 — 닫으면 휴대폰 밝기로 돌아가 다음 책을 그것으로 연다(0.54.6 사용자 결정).
+    LaunchedEffect(reading) {
+        if (!reading) {
+            container.readLock.leftReader()
+            container.prefs.forgetBrightness()
+            if (prefs.screen.brightness != null) prefs = prefs.copy(screen = prefs.screen.copy(brightness = null))
+        }
+    }
 
     Box(Modifier.fillMaxSize()) { CpToast(notice, { notice = null }, Modifier.align(Alignment.BottomCenter)) }
     failure?.let { message ->

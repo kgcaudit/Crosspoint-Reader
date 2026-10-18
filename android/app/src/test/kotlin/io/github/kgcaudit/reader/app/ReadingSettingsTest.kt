@@ -298,22 +298,35 @@ class ReadingSettingsTest {
     }
 
     @Test
-    fun `brightness applies only while reading and system hands it back`() {
-        openWith(ReaderPrefs(screen = ScreenPrefs(brightness = 0.3f)))
-        compose.waitUntil(5_000) { brightness() == 0.3f }
+    fun `a book always opens at the phone brightness and a chosen one ends with the book`() {
+        // 0.54.6 사용자 결정: 어두운 곳에서 휴대폰을 어둡게 했는데 뷰어가 낮에 고른 밝기로 떠 눈부셨다.
+        openWith()
+        assertTrue(brightness() < 0f, "책을 열었는데 휴대폰 밝기가 아니다")
         openView()
+        // 움직인 밝기는 이 책에서만 — 막대 아래에 알린다.
+        waitFor(hasText("움직인 밝기는 이 책을 닫으면 휴대폰 밝기로 돌아갑니다"))
+        // 막대 왼쪽 끝을 누르면 어둡게.
+        compose.onAllNodes(hasContentDescription("밝기"), useUnmergedTree = true)[0].performTouchInput { click(centerLeft) }
+        compose.waitUntil(5_000) { brightness() in 0f..0.2f }
+        // "휴대폰" 을 누르면 바로 휴대폰 밝기.
         node(hasContentDescription("휴대폰 설정 밝기")).performClick()
         compose.waitUntil(5_000) { brightness() < 0f }
-        assertEquals(null, app.container.prefs.load().screen.brightness)
 
-        // 리더를 떠나면 라이브러리는 휴대폰 밝기다 — 앱 전체가 어두우면 고장 난 것처럼 보인다.
-        // 막대 왼쪽 끝을 누르면 어둡게. 그 채로 책을 닫는다.
+        // 다시 어둡게 한 채 책을 닫는다. 라이브러리는 휴대폰 밝기 — 앱 전체가 어두우면 고장 난 것처럼 보인다.
         compose.onAllNodes(hasContentDescription("밝기"), useUnmergedTree = true)[0].performTouchInput { click(centerLeft) }
         compose.waitUntil(5_000) { brightness() in 0f..0.2f }
         backToPage()
         back()
         compose.waitUntil(5_000) { !hasNode(hasText("1 / ", substring = true)) }
         compose.waitUntil(5_000) { brightness() < 0f }
+        // 다시 열어도 휴대폰 밝기다 — 앞 책에서 고른 밝기가 따라오지 않는다.
+        // 닫은 뒤 서재는 "읽는 중" 칸이 앞에 온다 — 이름이 파일 이름이 아니라 책 제목이다.
+        waitFor(hasText("어린 왕자", substring = true))
+        compose.onAllNodes(hasText("어린 왕자", substring = true))[0].performClick()
+        waitFor(hasText("1 / ", substring = true))
+        compose.waitForIdle()
+        assertTrue(brightness() < 0f, "앞 책에서 고른 밝기로 열었다: ${brightness()}")
+        assertEquals(null, app.container.prefs.load().screen.brightness)
     }
 
     @Test

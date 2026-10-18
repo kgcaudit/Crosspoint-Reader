@@ -550,6 +550,23 @@ class PrefsStore(context: Context) {
     private val sp = context.getSharedPreferences("reader", Context.MODE_PRIVATE)
 
     /**
+     * 지금 읽는 책에서 막대 · 왼쪽 끝 밀기로 고른 밝기. 디스크에 저장하지 않는다(0.54.6 사용자 결정) — 0.54.5 까지는 저장해서,
+     * 낮에 한 번 정한 밝기(왼쪽 끝을 스친 것까지)가 밤에 휴대폰을 어둡게 해도 그대로 떠 어두운 곳에서 화면이 눈부셨다. 책을
+     * 닫으면 [forgetBrightness] 로 지워 다음 책은 언제나 휴대폰 밝기(자동 밝기 포함)로 연다.
+     */
+    private var sessionBrightness: Float? = null
+
+    init {
+        // 0.54.5 까지 저장된 밝기를 한 번 지운다. 남기면 쓰지 않는 값이 백업 · 기기 옮기기에 실려 다닌다.
+        if (sp.contains(KEY_BRIGHTNESS)) sp.edit().remove(KEY_BRIGHTNESS).apply()
+    }
+
+    /** 리더를 닫았다 — 이번 책에서 고른 밝기를 버린다. */
+    fun forgetBrightness() {
+        sessionBrightness = null
+    }
+
+    /**
      * 저장한 설정. 값의 꼴이 어긋나 읽다 무너지면(ClassCastException — 손으로 고친 백업 · 옛 판의 다른 꼴) 기본값으로 연다 —
      * 설정 하나 때문에 켤 때마다 앱이 닫히면 되돌릴 길이 없다.
      */
@@ -575,8 +592,7 @@ class PrefsStore(context: Context) {
         paragraphSpacing = enumOf(KEY_PARAGRAPH_SPACING, ReaderPrefs.ParagraphSpacing.Tight),
         screen = DEFAULT_SCREEN.let { d -> ScreenPrefs(
             theme = enumOf(KEY_THEME, d.theme),
-            // 음수는 "시스템 밝기"(저장하지 않은 것과 같다).
-            brightness = sp.getFloat(KEY_BRIGHTNESS, -1f).takeIf { it >= 0f }?.coerceAtMost(1f),
+            brightness = sessionBrightness,
             keepScreenOn = enumOf(KEY_KEEP_ON, d.keepScreenOn),
             volumeKeys = sp.getBoolean(KEY_VOLUME_KEYS, d.volumeKeys),
             touch = enumOf(KEY_TOUCH, d.touch),
@@ -632,6 +648,7 @@ class PrefsStore(context: Context) {
         enumValues<E>().firstOrNull { it.name == sp.getString(key, null) } ?: default
 
     fun save(prefs: ReaderPrefs) {
+        sessionBrightness = prefs.screen.brightness
         sp.edit()
             .putInt(KEY_SIZE, prefs.fontSizeSp)
             .putString(KEY_FONT, prefs.font)
@@ -642,7 +659,6 @@ class PrefsStore(context: Context) {
             .putString(KEY_INDENT, prefs.indent.name)
             .putString(KEY_PARAGRAPH_SPACING, prefs.paragraphSpacing.name)
             .putString(KEY_THEME, prefs.screen.theme.name)
-            .putFloat(KEY_BRIGHTNESS, prefs.screen.brightness ?: -1f)
             .putString(KEY_KEEP_ON, prefs.screen.keepScreenOn.name)
             .putBoolean(KEY_VOLUME_KEYS, prefs.screen.volumeKeys)
             .putString(KEY_TOUCH, prefs.screen.touch.name)
@@ -717,6 +733,7 @@ class PrefsStore(context: Context) {
         private const val KEY_INDENT = "indent"
         private const val KEY_PARAGRAPH_SPACING = "paragraphSpacing"
         private const val KEY_THEME = "theme"
+        /** 0.54.5 까지 밝기를 저장하던 열쇠. 이제 지우기만 한다. */
         private const val KEY_BRIGHTNESS = "brightness"
         private const val KEY_KEEP_ON = "keepScreenOn"
         private const val KEY_VOLUME_KEYS = "volumeKeys"
