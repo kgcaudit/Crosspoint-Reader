@@ -16,6 +16,11 @@ include(":core-layout")
 // 시험 도구(시험에서만 쓴다). :document 가 멀티플랫폼이 되며 test fixtures 에서 옮겼다.
 include(":document-testing")
 
+// ── iOS 프레임워크(OloCore) ──────────────────────────────────────────────
+// 공통 두 모듈을 묶어 Xcode 에 내보낸다. 맥에서만 넣는다 — 리눅스 · 윈도우(안드로이드 세션)에서는 iOS 를 링크할 수 없어
+// 경고만 늘고 할 일이 없다. iOS 세션이 맡는 모듈이다(docs/PLATFORM_PARITY.md).
+if (System.getProperty("os.name").startsWith("Mac")) include(":shared-ios")
+
 // ── Android 모듈 ────────────────────────────────────────────────────────
 // SDK가 있을 때만 포함한다. 없으면 JVM 코어만 빌드하는 모드로 동작하므로,
 // CI의 빠른 게이트(단위 테스트·골든)는 SDK 설치 없이 돌릴 수 있다.

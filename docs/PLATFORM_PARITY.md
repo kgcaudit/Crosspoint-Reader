@@ -43,6 +43,12 @@
 iOS 쪽 actual 은 `document/src/iosTest` · `core-layout/src/iosTest` 가 시뮬레이터에서 시험한다(맥에서 `check` 가 돌린다).
 기대값은 JVM · 파이썬 · NIST 시험 벡터로 박아 두었다 — iOS 가 iOS 자신과 대조하면 같이 틀려도 모른다.
 
+### iOS 프레임워크 OloCore (`android/shared-ios`, 맥에서만 구성)
+
+공통 두 모듈을 그대로 내보내고(export) iOS 에만 있는 것(CoreText 측정기 · 쪽 그리기 · 파일 바이트)을 더한다. 정적 프레임워크.
+`cd android && ./gradlew :shared-ios:assembleXCFramework` → `android/shared-ios/build/XCFrameworks/{debug,release}/OloCore.xcframework`.
+`settings.gradle.kts` 는 맥에서만 이 모듈을 넣는다 — 안드로이드 세션(리눅스 · 윈도우)의 빌드에는 영향이 없다.
+
 공통 코드가 iOS 에서도 컴파일되는지는 리눅스에서도 검사된다: `./gradlew :document:check :core-layout:check`
 (`compileCommonMainKotlinMetadata` 포함). `commonMain` 에 `java.*` 를 쓰면 여기서 깨진다.
 
