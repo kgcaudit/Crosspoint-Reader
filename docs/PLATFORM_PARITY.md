@@ -45,6 +45,12 @@
 
 공통 바이트 ↔ 글자 변환(`io/Text.kt` · `io/Buffers.kt`)은 JVM 결과와 똑같이 읽도록 `CommonIoTest` 가 대조한다.
 
+### 맥 빌드 환경 (iOS 세션, 2026-10-19 확인)
+
+macOS 26.6 (Apple Silicon) · Xcode 27.1 · iOS 시뮬레이터 27.0/27.1 · JDK Temurin 21 · Kotlin/Native 2.1.21.
+`./gradlew :document:jvmTest :core-layout:jvmTest :document:compileCommonMainKotlinMetadata :core-layout:compileCommonMainKotlinMetadata`
+통과(시험 315 + 332개, 실패 0).
+
 ---
 
 ## 2. 기능 대조표
