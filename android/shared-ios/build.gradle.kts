@@ -24,7 +24,11 @@ kotlin {
             api(project(":document"))
             api(project(":core-layout"))
         }
-        iosTest.dependencies { implementation(libs.kotlin.test) }
+        iosTest.dependencies {
+            implementation(libs.kotlin.test)
+            // 시험에서 suspend 를 부르는 데만 쓴다(runTest). 프레임워크에는 들어가지 않는다.
+            implementation(libs.coroutines.test)
+        }
     }
 }
 

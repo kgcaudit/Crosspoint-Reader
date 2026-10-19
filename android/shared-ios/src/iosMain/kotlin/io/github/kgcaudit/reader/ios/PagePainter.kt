@@ -5,6 +5,7 @@ package io.github.kgcaudit.reader.ios
 import io.github.kgcaudit.reader.layout.Page
 import io.github.kgcaudit.reader.layout.VerticalAlign
 import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.useContents
 import platform.CoreFoundation.CFRelease
 import platform.CoreGraphics.CGAffineTransformMake
 import platform.CoreGraphics.CGContextFillRect
@@ -27,7 +28,7 @@ import platform.UIKit.UIImage
  * 들어 있다 — 그대로 그린다.
  *
  * 비트맵으로 내는 까닭: 넘김 효과(말림 · 덮기)는 앞뒤 쪽을 그림으로 들고 움직인다. 화면에 바로 그리면 효과를 넣을 때 다시
- * 짜야 한다. 그림은 아직 그리지 않는다(TXT 첫 쪽까지가 이번 범위).
+ * 짜야 한다.
  */
 object PagePainter {
     /**
@@ -42,6 +43,7 @@ object PagePainter {
         heightPt: Double,
         paper: Int,
         ink: Int,
+        pictures: Map<String, UIImage>,
     ): UIImage {
         val format = UIGraphicsImageRendererFormat.preferredFormat().apply { opaque = true }
         val renderer = UIGraphicsImageRenderer(size = CGSizeMake(widthPt, heightPt), format = format)
@@ -50,6 +52,35 @@ object PagePainter {
             fill(cg, paper, 1.0)
             CGContextFillRect(cg, CGRectMake(0.0, 0.0, widthPt, heightPt))
             draw(cg, page, text, measurer, ink)
+            drawPictures(page, pictures)
+        }
+    }
+
+    /** 글자 없는 쪽(읽을 수 없는 장 등). */
+    fun blank(widthPt: Double, heightPt: Double, paper: Int): UIImage {
+        val format = UIGraphicsImageRendererFormat.preferredFormat().apply { opaque = true }
+        return UIGraphicsImageRenderer(size = CGSizeMake(widthPt, heightPt), format = format).imageWithActions { context ->
+            val cg = context?.CGContext ?: return@imageWithActions
+            fill(cg, paper, 1.0)
+            CGContextFillRect(cg, CGRectMake(0.0, 0.0, widthPt, heightPt))
+        }
+    }
+
+    /**
+     * 그림은 칸 안에 원래 비율로 가장 크게, 가운데에(디자인 인계 6-2 "그림은 자르지 않는다"). 조판기가 비율대로 칸을 잡지만
+     * 그림 머리의 크기와 실제 그림이 다른 책이 있어, 늘여 채우면 찌그러진다.
+     */
+    private fun drawPictures(page: Page, pictures: Map<String, UIImage>) {
+        for (placed in page.images) {
+            val image = pictures[placed.href] ?: continue
+            val (iw, ih) = image.size.useContents { width to height }
+            if (iw <= 0.0 || ih <= 0.0) continue
+            val boxW = placed.widthPx.toDouble()
+            val boxH = placed.heightPx.toDouble()
+            val scale = minOf(boxW / iw, boxH / ih)
+            val w = iw * scale
+            val h = ih * scale
+            image.drawInRect(CGRectMake(placed.xPx + (boxW - w) / 2, placed.yPx + (boxH - h) / 2, w, h))
         }
     }
 
