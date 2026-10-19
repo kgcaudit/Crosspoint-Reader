@@ -1,0 +1,261 @@
+import Foundation
+import OloCore
+import UIKit
+
+/// 서재의 책 한 권.
+struct LibraryBook: Identifiable, Hashable {
+    /// 바뀌지 않는 이름. 앱 폴더는 `app:상대경로`, 연결한 폴더는 `link:<폴더 id>:상대경로`. 절대 경로를 쓰지 않는다 —
+    /// 앱을 고쳐 깔면 앱 폴더의 절대 경로가 바뀌어 읽던 자리 · 책갈피를 모두 잃는다.
+    let id: String
+    let url: URL
+    let displayName: String
+    let format: Format
+    let sizeBytes: Int64
+    let modified: Date
+    let added: Date
+    /// 연결한 폴더의 책이면 그 폴더(읽는 동안 접근을 열어 둬야 한다).
+    let folderId: String?
+
+    enum Format: String { case epub = "EPUB", txt = "TXT" }
+
+    /// 조판 캐시 키의 판. 같은 이름으로 고친 책에 옛 쪽이 보이지 않게.
+    var edition: String { "\(sizeBytes)-\(Int64(modified.timeIntervalSince1970))" }
+}
+
+/// 서재 한 줄 = 책 + 읽기 기록.
+struct ShelfItem: Identifiable, Hashable {
+    let book: LibraryBook
+    let openedAt: Date?
+    let finishedAt: Date?
+    let percent: Double?
+    let bookmarkCount: Int
+    var id: String { book.id }
+}
+
+/// 연결한 폴더. 보안 범위 북마크로 다시 열 때도 접근할 수 있다.
+struct LinkedFolder: Codable, Identifiable, Hashable {
+    let id: String
+    var name: String
+    let bookmark: Data
+}
+
+enum LibrarySort: String, CaseIterable, Identifiable {
+    case recent = "최근 읽은 순", name = "이름순", added = "추가한 순", size = "크기순"
+    var id: String { rawValue }
+}
+
+enum LibraryLayout: String { case grid, list }
+
+/// 서재. 안드로이드의 폴더 등록(SAF) 대신 세 길로 책을 들인다(2026-10-20 사용자 결정, 구상안 3A):
+/// 앱 자기 폴더(파일 앱 › 나의 iPhone › OLO eBook), 연결한 폴더, 다른 앱에서 열기(받은 파일 폴더로 복사).
+@MainActor
+final class Library: ObservableObject {
+    @Published private(set) var reading: [ShelfItem] = []
+    @Published private(set) var toRead: [ShelfItem] = []
+    @Published private(set) var finished: [ShelfItem] = []
+    @Published private(set) var folders: [LinkedFolder] = []
+    @Published private(set) var scanning = false
+    @Published var sort: LibrarySort { didSet { save(sort.rawValue, "library.sort"); arrange() } }
+    @Published var layout: LibraryLayout { didSet { save(layout.rawValue, "library.layout") } }
+
+    let store: ReadingStore
+    let pageCache: String
+    private var books: [LibraryBook] = []
+    private var records: [String: ShelfRecord] = [:]
+
+    static let appFolder = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    /// 다른 앱에서 받은 책을 두는 곳. 앱 폴더 안에 두어 파일 앱에서도 보이고 지울 수 있다.
+    static let incomingFolder = appFolder.appendingPathComponent("받은 파일", isDirectory: true)
+
+    var bookCount: Int { books.count }
+    var isEmpty: Bool { books.isEmpty }
+
+    init() {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        store = ReadingStore(path: support.appendingPathComponent("reading.tsv").path)
+        pageCache = caches.appendingPathComponent("pages", isDirectory: true).path
+        let defaults = UserDefaults.standard
+        sort = LibrarySort(rawValue: defaults.string(forKey: "library.sort") ?? "") ?? .recent
+        layout = LibraryLayout(rawValue: defaults.string(forKey: "library.layout") ?? "") ?? .grid
+        if let data = defaults.data(forKey: "library.folders"),
+           let saved = try? JSONDecoder().decode([LinkedFolder].self, from: data) {
+            folders = saved
+        }
+    }
+
+    private func save(_ value: String, _ key: String) { UserDefaults.standard.set(value, forKey: key) }
+
+    // MARK: 훑기
+
+    func refresh() async {
+        scanning = true
+        let folders = self.folders
+        let found = await Task.detached(priority: .userInitiated) { Library.scan(folders: folders) }.value
+        books = found
+        reloadRecords()
+        scanning = false
+    }
+
+    /// 읽고 돌아왔을 때 — 파일은 그대로고 기록만 바뀌었다.
+    func reloadRecords() {
+        let rows = store.shelf(ids: books.map(\.id))
+        records = Dictionary(rows.map { ($0.bookId, $0) }, uniquingKeysWith: { a, _ in a })
+        arrange()
+    }
+
+    private nonisolated static func scan(folders: [LinkedFolder]) -> [LibraryBook] {
+        var out = scan(root: appFolder, prefix: "app:", folderId: nil)
+        for folder in folders {
+            var stale = false
+            guard let url = try? URL(resolvingBookmarkData: folder.bookmark, bookmarkDataIsStale: &stale) else { continue }
+            let access = url.startAccessingSecurityScopedResource()
+            defer { if access { url.stopAccessingSecurityScopedResource() } }
+            out += scan(root: url, prefix: "link:\(folder.id):", folderId: folder.id)
+        }
+        return out
+    }
+
+    private nonisolated static func scan(root: URL, prefix: String, folderId: String?) -> [LibraryBook] {
+        let keys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey, .creationDateKey]
+        guard let walker = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys,
+                                                          options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return [] }
+        let rootPath = root.standardizedFileURL.path
+        var out: [LibraryBook] = []
+        for case let url as URL in walker {
+            // PDF 는 리더(PDFKit)를 만든 뒤에 서재에 올린다 — 보이는데 열리지 않는 책이 가장 나쁘다.
+            let format: LibraryBook.Format
+            switch url.pathExtension.lowercased() {
+            case "epub": format = .epub
+            case "txt": format = .txt
+            default: continue
+            }
+            guard let values = try? url.resourceValues(forKeys: Set(keys)), values.isRegularFile == true else { continue }
+            let path = url.standardizedFileURL.path
+            let relative = path.hasPrefix(rootPath) ? String(path.dropFirst(rootPath.count).drop(while: { $0 == "/" })) : url.lastPathComponent
+            out.append(LibraryBook(
+                id: prefix + relative,
+                url: url,
+                displayName: url.lastPathComponent,
+                format: format,
+                sizeBytes: Int64(values.fileSize ?? 0),
+                modified: values.contentModificationDate ?? .distantPast,
+                added: values.creationDate ?? values.contentModificationDate ?? .distantPast,
+                folderId: folderId
+            ))
+        }
+        return out
+    }
+
+    // MARK: 갈래
+
+    private func arrange() {
+        let items = books.map { book -> ShelfItem in
+            let r = records[book.id]
+            return ShelfItem(
+                book: book,
+                openedAt: r?.openedAtEpochMs.map { Date(timeIntervalSince1970: Double($0.int64Value) / 1000) },
+                finishedAt: r?.finishedAtEpochMs.map { Date(timeIntervalSince1970: Double($0.int64Value) / 1000) },
+                percent: r?.percent.map { Double($0.floatValue) },
+                bookmarkCount: Int(r?.bookmarkCount ?? 0)
+            )
+        }
+        // 안드로이드와 같은 갈래: 연 적 있고 다 읽지 않음 = 읽는 중, 다 읽음 = 읽은 책, 연 적 없음 = 읽을 책.
+        reading = sorted(items.filter { $0.openedAt != nil && $0.finishedAt == nil }) { ($0.openedAt ?? .distantPast) > ($1.openedAt ?? .distantPast) }
+        finished = sorted(items.filter { $0.finishedAt != nil }) { ($0.finishedAt ?? .distantPast) > ($1.finishedAt ?? .distantPast) }
+        // "최근 읽은 순" 은 연 적 없는 책에 뜻이 없어 이름순으로 내려간다(안드로이드와 같다).
+        toRead = sorted(items.filter { $0.openedAt == nil }, recent: nil)
+    }
+
+    private func sorted(_ items: [ShelfItem], recent: ((ShelfItem, ShelfItem) -> Bool)?) -> [ShelfItem] {
+        let byName: (ShelfItem, ShelfItem) -> Bool = {
+            $0.book.displayName.compare($1.book.displayName, options: [.numeric, .caseInsensitive], locale: Locale(identifier: "ko_KR")) == .orderedAscending
+        }
+        switch sort {
+        case .recent: return items.sorted(by: recent ?? byName)
+        case .name: return items.sorted(by: byName)
+        case .added: return items.sorted { $0.book.added != $1.book.added ? $0.book.added > $1.book.added : byName($0, $1) }
+        case .size: return items.sorted { $0.book.sizeBytes != $1.book.sizeBytes ? $0.book.sizeBytes > $1.book.sizeBytes : byName($0, $1) }
+        }
+    }
+
+    // MARK: 폴더
+
+    func link(folder url: URL) async {
+        let access = url.startAccessingSecurityScopedResource()
+        defer { if access { url.stopAccessingSecurityScopedResource() } }
+        guard let data = try? url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil) else { return }
+        // 같은 폴더를 두 번 연결하면 책이 두 번 보인다.
+        if folders.contains(where: { $0.name == url.lastPathComponent && $0.bookmark == data }) { return }
+        folders.append(LinkedFolder(id: UUID().uuidString, name: url.lastPathComponent, bookmark: data))
+        persistFolders()
+        await refresh()
+    }
+
+    func unlink(_ folder: LinkedFolder) async {
+        folders.removeAll { $0.id == folder.id }
+        persistFolders()
+        await refresh()
+    }
+
+    private func persistFolders() {
+        if let data = try? JSONEncoder().encode(folders) { UserDefaults.standard.set(data, forKey: "library.folders") }
+    }
+
+    /// 연결한 폴더의 책을 읽는 동안 접근을 열어 둔다. 닫을 때 돌려받은 것을 부른다.
+    func beginAccess(_ book: LibraryBook) -> () -> Void {
+        guard let folderId = book.folderId, let folder = folders.first(where: { $0.id == folderId }) else { return {} }
+        var stale = false
+        guard let url = try? URL(resolvingBookmarkData: folder.bookmark, bookmarkDataIsStale: &stale) else { return {} }
+        let access = url.startAccessingSecurityScopedResource()
+        return { if access { url.stopAccessingSecurityScopedResource() } }
+    }
+
+    // MARK: 다른 앱에서 열기
+
+    /// 다른 앱이 넘긴 파일을 받은 파일 폴더로 들여와 그 책을 돌려준다. 같은 이름 · 같은 크기면 다시 복사하지 않는다 —
+    /// 같은 책을 두 번 열 때마다 사본이 생기면 서재가 같은 책으로 찬다.
+    func receive(_ url: URL) async -> LibraryBook? {
+        let ext = url.pathExtension.lowercased()
+        guard ext == "epub" || ext == "txt" else { return nil }
+        let access = url.startAccessingSecurityScopedResource()
+        defer { if access { url.stopAccessingSecurityScopedResource() } }
+        let fm = FileManager.default
+        try? fm.createDirectory(at: Library.incomingFolder, withIntermediateDirectories: true)
+        let target = Library.incomingFolder.appendingPathComponent(url.lastPathComponent)
+        let size = { (u: URL) in (try? fm.attributesOfItem(atPath: u.path)[.size] as? Int64) ?? nil }
+        if url.standardizedFileURL != target.standardizedFileURL {
+            if fm.fileExists(atPath: target.path), size(target) == size(url) {
+                // 이미 들였다.
+            } else {
+                try? fm.removeItem(at: target)
+                do { try fm.copyItem(at: url, to: target) } catch { return nil }
+            }
+        }
+        await refresh()
+        return (reading + toRead + finished).first { $0.book.url.standardizedFileURL == target.standardizedFileURL }?.book
+    }
+}
+
+/// EPUB 표지 그림. 서재를 넘길 때마다 zip 을 다시 열지 않게 기억한다.
+final class Covers: @unchecked Sendable {
+    static let shared = Covers()
+    private let cache = NSCache<NSString, UIImage>()
+    private let missing = NSCache<NSString, NSNumber>()
+
+    func cached(_ book: LibraryBook) -> UIImage? { cache.object(forKey: key(book)) }
+
+    func load(_ book: LibraryBook, library: Library) async -> UIImage? {
+        let key = key(book)
+        if let image = cache.object(forKey: key) { return image }
+        if missing.object(forKey: key) != nil || book.format != .epub { return nil }
+        let end = await library.beginAccess(book)
+        defer { end() }
+        let path = book.url.path
+        let image = await Task.detached(priority: .utility) { IosBookReader.companion.cover(path: path) }.value
+        if let image { cache.setObject(image, forKey: key) } else { missing.setObject(1, forKey: key) }
+        return image
+    }
+
+    private func key(_ book: LibraryBook) -> NSString { "\(book.id)|\(book.edition)" as NSString }
+}
