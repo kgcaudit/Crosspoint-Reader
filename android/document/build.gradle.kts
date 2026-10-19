@@ -5,6 +5,8 @@ plugins { id("org.jetbrains.kotlin.multiplatform") }
 // 정규화)은 expect 로 선언하고 jvmMain / iosMain 이 채운다. android.* 는 어느 쪽에도 넣지 않는다(checkNoPlatformImports).
 kotlin {
     jvmToolchain(21)
+    // expect/actual 클래스(io/ 의 InputStream · Inflater …)는 아직 베타라 컴파일할 때마다 경고가 난다. 쓰기로 정했으니 끈다.
+    compilerOptions { freeCompilerArgs.add("-Xexpect-actual-classes") }
     jvm()
     // iOS 는 맥에서만 컴파일 · 링크된다. 리눅스(이 저장소의 클라우드 세션)에서는 꺼진 채로 두고, 공통 코드(commonMain)가
     // iOS 에서도 통하는지는 compileCommonMainKotlinMetadata 가 검사한다 — java.* 를 쓰면 여기서 깨진다.

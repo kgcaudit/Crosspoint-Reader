@@ -8,7 +8,11 @@
 1. Xcode(앱 스토어) — 한 번 열어 추가 구성 요소 설치까지 마친다.
 2. JDK 21 — `brew install --cask temurin@21` (Kotlin/Native 빌드에 Gradle 이 쓴다).
 3. Claude Code — 터미널에서 `claude`.
-4. 저장소: `git clone https://github.com/kgcaudit/Crosspoint-Reader.git` 후 그 폴더에서 `claude` 를 연다.
+4. 저장소: `git clone https://github.com/kgcaudit/Crosspoint-Reader.git` → `cd Crosspoint-Reader` →
+   `git checkout claude/android-epub-viewer-text-measurer-oqy6rq` 후 그 폴더에서 `claude` 를 연다.
+
+맥에서 `./gradlew :document:check` 가 `compileKotlinIosSimulatorArm64` 에서 실패하는 것은 **정상**이다(iosMain 이 아직 없다).
+iOS 세션의 첫 일이 그것을 채우는 것이다.
 
 ## 보낼 글
 
@@ -25,7 +29,10 @@ OLO eBook 의 iOS 앱을 만든다. 저장소 루트의 CLAUDE.md 와 docs/PLATF
   미리보기(시뮬레이터 스크린샷)로 그린다.
 
 첫 일(순서대로, 단계마다 커밋):
-1. 빌드 환경 확인: android 폴더에서 ./gradlew :document:check :core-layout:check 가 맥에서도 통과하는지.
+1. 빌드 환경 확인: android 폴더에서
+   ./gradlew :document:jvmTest :core-layout:jvmTest :document:compileCommonMainKotlinMetadata :core-layout:compileCommonMainKotlinMetadata
+   가 맥에서도 통과하는지. (:document:check 는 아직 실패한다 — 맥에서는 iOS 컴파일까지 하는데 iosMain 이 비어 있다.
+   2단계를 마치면 check 가 통과해야 한다. 그것이 2단계의 끝 조건이다.)
 2. iosMain 채우기: docs/PLATFORM_PARITY.md §1 의 "iOS 가 채울 것" 표. android/document/src/iosMain 과
    android/core-layout/src/iosMain 에 actual 을 쓰고, 공통 시험(jvmTest 에 있는 것 중 플랫폼과 무관한 것)을 iOS 에서도
    돌 수 있게 commonTest 로 옮길 수 있는지 검토해 제안한다(옮기는 것은 안드로이드 세션과 겹치므로 먼저 묻는다).
