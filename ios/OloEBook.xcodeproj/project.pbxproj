@@ -1,0 +1,342 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXAggregateTarget section */
+		0C10000000000000000000T2 /* OloCore */ = {
+			isa = PBXAggregateTarget;
+			buildConfigurationList = 0C10000000000000000000L3 /* Build configuration list for PBXAggregateTarget "OloCore" */;
+			buildPhases = (
+				0C10000000000000000000B0 /* Build OloCore */,
+			);
+			dependencies = (
+			);
+			name = OloCore;
+			productName = OloCore;
+		};
+/* End PBXAggregateTarget section */
+
+/* Begin PBXContainerItemProxy section */
+		0C10000000000000000000X1 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 0C10000000000000000000P0 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 0C10000000000000000000T2;
+			remoteInfo = OloCore;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		0C10000000000000000000F0 /* OloEBook.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OloEBook.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		0C10000000000000000000S1 /* OloEBook */ = {isa = PBXFileSystemSynchronizedRootGroup; path = OloEBook; sourceTree = "<group>"; };
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		0C10000000000000000000B2 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		0C10000000000000000000G0 = {
+			isa = PBXGroup;
+			children = (
+				0C10000000000000000000S1 /* OloEBook */,
+				0C10000000000000000000G1 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		0C10000000000000000000G1 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				0C10000000000000000000F0 /* OloEBook.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		0C10000000000000000000T1 /* OloEBook */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0C10000000000000000000L2 /* Build configuration list for PBXNativeTarget "OloEBook" */;
+			buildPhases = (
+				0C10000000000000000000B1 /* Sources */,
+				0C10000000000000000000B2 /* Frameworks */,
+				0C10000000000000000000B3 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				0C10000000000000000000D1 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				0C10000000000000000000S1 /* OloEBook */,
+			);
+			name = OloEBook;
+			productName = OloEBook;
+			productReference = 0C10000000000000000000F0 /* OloEBook.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		0C10000000000000000000P0 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2710;
+				LastUpgradeCheck = 2710;
+				TargetAttributes = {
+					0C10000000000000000000T1 = {
+						CreatedOnToolsVersion = 27.1;
+					};
+				};
+			};
+			buildConfigurationList = 0C10000000000000000000L1 /* Build configuration list for PBXProject "OloEBook" */;
+			developmentRegion = ko;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				ko,
+				Base,
+			);
+			mainGroup = 0C10000000000000000000G0;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 0C10000000000000000000G1 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				0C10000000000000000000T1 /* OloEBook */,
+				0C10000000000000000000T2 /* OloCore */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		0C10000000000000000000B3 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		0C10000000000000000000B0 /* Build OloCore */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build OloCore";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# 공통 코어(Kotlin)를 고친 것이 앱에 들어가게, 빌드할 때마다 지금 빌드하는 칩 · 구성의 OloCore.framework 하나를 최신으로 만든다.\n# 바뀐 것이 없으면 Gradle 이 몇 초 안에 끝낸다. 앱 대상과 따로 둔 까닭: XCFramework 를 앱에 직접 붙이면 Xcode 가 이 단계보다 먼저\n# 옛 프레임워크를 복사해 가서, Kotlin 을 고친 뒤 두 번 빌드해야 반영됐다. 앱은 검색 경로(FRAMEWORK_SEARCH_PATHS)로 읽는다.\n# 배포용 XCFramework 는 따로: android 폴더에서 ./gradlew :shared-ios:assembleXCFramework\nset -e\nif [ -n \"$OLO_SKIP_GRADLE\" ]; then exit 0; fi\ncase \"$PLATFORM_NAME\" in iphonesimulator) target=IosSimulatorArm64 ;; iphoneos) target=IosArm64 ;; *) echo \"error: unsupported platform $PLATFORM_NAME\"; exit 1 ;; esac\ncase \"$CONFIGURATION\" in Release) build=Release ;; *) build=Debug ;; esac\nexport JAVA_HOME=\"$(/usr/libexec/java_home -v 21)\"\ncd \"$SRCROOT/../android\"\n./gradlew \":shared-ios:link${build}Framework${target}\" --console=plain -q\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		0C10000000000000000000B1 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		0C10000000000000000000D1 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 0C10000000000000000000T2 /* OloCore */;
+			targetProxy = 0C10000000000000000000X1 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		0C10000000000000000000C1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				OLO_KOTLIN_BUILD = debug;
+				"OLO_KOTLIN_TARGET[sdk=iphoneos*]" = iosArm64;
+				"OLO_KOTLIN_TARGET[sdk=iphonesimulator*]" = iosSimulatorArm64;
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		0C10000000000000000000C2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				OLO_KOTLIN_BUILD = release;
+				"OLO_KOTLIN_TARGET[sdk=iphoneos*]" = iosArm64;
+				"OLO_KOTLIN_TARGET[sdk=iphonesimulator*]" = iosSimulatorArm64;
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		0C10000000000000000000C3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../android/shared-ios/build/bin/$(OLO_KOTLIN_TARGET)/$(OLO_KOTLIN_BUILD)Framework",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-framework",
+					OloCore,
+				);
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "OLO eBook";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.kgcaudit.oloebook;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		0C10000000000000000000C4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../android/shared-ios/build/bin/$(OLO_KOTLIN_TARGET)/$(OLO_KOTLIN_BUILD)Framework",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-framework",
+					OloCore,
+				);
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "OLO eBook";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.kgcaudit.oloebook;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		0C10000000000000000000C5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+			};
+			name = Debug;
+		};
+		0C10000000000000000000C6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		0C10000000000000000000L1 /* Build configuration list for PBXProject "OloEBook" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0C10000000000000000000C1 /* Debug */,
+				0C10000000000000000000C2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		0C10000000000000000000L2 /* Build configuration list for PBXNativeTarget "OloEBook" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0C10000000000000000000C3 /* Debug */,
+				0C10000000000000000000C4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		0C10000000000000000000L3 /* Build configuration list for PBXAggregateTarget "OloCore" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0C10000000000000000000C5 /* Debug */,
+				0C10000000000000000000C6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 0C10000000000000000000P0 /* Project object */;
+}

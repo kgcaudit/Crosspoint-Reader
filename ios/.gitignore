@@ -1,0 +1,8 @@
+# Xcode 사용자별 상태(창 배치 · 중단점). 사람마다 달라 올리면 매번 부딪친다.
+xcuserdata/
+*.xcuserstate
+# 빌드 산출물. OloCore 프레임워크는 android/shared-ios/build 에 생긴다.
+build/
+DerivedData/
+# 맥 Finder 의 폴더 상태 파일
+.DS_Store

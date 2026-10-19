@@ -38,7 +38,7 @@
 | `ControlFlowException` | `io/Platform.kt` | 스택 기록 없는 `RuntimeException` | `RuntimeException`(Kotlin/Native 는 스택 기록을 끌 수 없다) | ✅ |
 | `currentTimeMillis()` | `io/Platform.kt` | `System.currentTimeMillis` | `NSDate().timeIntervalSince1970 * 1000` | ✅ |
 | `CacheDir` (인터페이스) | `core-layout/.../cache/CacheDir.kt` | `FileCacheDir` | `NSFileCacheDir`(바꿔 넣기는 `writeToFile(atomically = true)`) · `PageStore(rootPath)` | ✅ |
-| `TextMeasurer` (인터페이스) | `core-layout/.../TextMeasurer.kt` | `:text-platform` 의 `AndroidTextMeasurer` | CoreText. **`MeasurerConformance` 를 통과해야 한다** | ⬜ |
+| `TextMeasurer` (인터페이스) | `core-layout/.../TextMeasurer.kt` | `:text-platform` 의 `AndroidTextMeasurer` | `shared-ios` 의 `CoreTextMeasurer`(Kotlin 으로 쓴 CoreText — Swift 로 쓰면 호출마다 장 문자열이 NSString 으로 복사될 수 있다). `MeasurerConformance` 통과(16 · 42pt) | ✅ |
 
 iOS 쪽 actual 은 `document/src/iosTest` · `core-layout/src/iosTest` 가 시뮬레이터에서 시험한다(맥에서 `check` 가 돌린다).
 기대값은 JVM · 파이썬 · NIST 시험 벡터로 박아 두었다 — iOS 가 iOS 자신과 대조하면 같이 틀려도 모른다.
@@ -48,6 +48,20 @@ iOS 쪽 actual 은 `document/src/iosTest` · `core-layout/src/iosTest` 가 시�
 공통 두 모듈을 그대로 내보내고(export) iOS 에만 있는 것(CoreText 측정기 · 쪽 그리기 · 파일 바이트)을 더한다. 정적 프레임워크.
 `cd android && ./gradlew :shared-ios:assembleXCFramework` → `android/shared-ios/build/XCFrameworks/{debug,release}/OloCore.xcframework`.
 `settings.gradle.kts` 는 맥에서만 이 모듈을 넣는다 — 안드로이드 세션(리눅스 · 윈도우)의 빌드에는 영향이 없다.
+
+| iOS 전용(`shared-ios/src/iosMain`) | 하는 일 · 안드로이드와 맞춘 것 |
+|---|---|
+| `CoreTextMeasurer` | 시스템 글꼴(한국어 우선, 한글은 Apple SD Gothic Neo 로 이어짐). 줄 높이 1em · 위 높이 = "가漢Hbdhklt" 의 실제 윗선 · 기울임 합성 · 굵게는 굵은 시스템 글꼴(특성을 달면 Semibold 가 나와 안드로이드보다 옅다) |
+| `PagePainter` | `Page` → `UIImage`. 위첨자 −0.35em · 아래첨자 +0.2em · 밑줄 +0.12em · 취소선 −0.3em · 가로줄 반투명(안드로이드 `PagePainter`) |
+| `ReadingSpec` | 안드로이드 기본 읽기 설정(18 · 줄 간격 1.65 · 여백 36/34/56 + 안전 영역). Swift 는 Kotlin 기본 매개변수를 못 써서 `LayoutSpec` · `Paginator` 를 여기서 만든다 |
+| `FileBytes` | 파일 경로 · `NSData` → `ByteSource` |
+
+### iOS 앱 (`ios/OloEBook.xcodeproj`, SwiftUI · 최소 iOS 17)
+
+번들 식별자 `io.github.kgcaudit.oloebook`(안드로이드와 같다). 묶음 대상 `OloCore` 가 빌드마다 지금 칩 · 구성의 프레임워크 하나를
+Gradle 로 링크하고, 앱은 검색 경로로 읽는다 — XCFramework 를 앱에 직접 붙이면 Xcode 가 Gradle 보다 먼저 옛 것을 복사해 가서
+Kotlin 을 고친 뒤 두 번 빌드해야 반영됐다. 처음 한 번은 `android` 폴더에서 `./gradlew :shared-ios:linkDebugFrameworkIosSimulatorArm64`.
+지금은 번들의 시험용 TXT(CP949 · CRLF)를 열어 첫 쪽만 그린다 — 디버그 빌드에서 조판 111ms · 그리기 31ms.
 
 공통 코드가 iOS 에서도 컴파일되는지는 리눅스에서도 검사된다: `./gradlew :document:check :core-layout:check`
 (`compileCommonMainKotlinMetadata` 포함). `commonMain` 에 `java.*` 를 쓰면 여기서 깨진다.
