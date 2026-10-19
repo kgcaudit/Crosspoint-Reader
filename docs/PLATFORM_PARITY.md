@@ -1,6 +1,6 @@
 # 안드로이드 ↔ iOS 대조표
 
-마지막 갱신: 2026-10-18 · 기준 안드로이드 판 **0.54.7**
+마지막 갱신: 2026-10-19 · 기준 안드로이드 판 **0.54.7**
 
 **안드로이드가 중심이다**(2026-10-18 사용자 결정). 기능은 안드로이드에서 먼저 정하고 만든다. iOS 는 이 표를 보고 따라간다.
 두 세션은 기억을 나누지 않으므로, 이 문서와 저장소가 유일한 연결 고리다.
@@ -28,17 +28,20 @@
 
 공통 코드에 선언만 있고(`expect`), 안드로이드는 `jvmMain` 이 채운다. iOS 는 맥에서 같은 이름으로 채운다.
 
-| 선언 | 파일 | 안드로이드(jvmMain) | iOS 에서 쓸 것 |
-|---|---|---|---|
-| `InputStream` · `Reader` · `Closeable` · `IOException` · `EOFException` | `document/.../io/Streams.kt` | `java.io` 그 자체 | 같은 모양의 추상 클래스 · 인터페이스 |
-| `Inflater` · `DataFormatException` | `io/Platform.kt` | `java.util.zip` | `platform.zlib`(raw deflate 는 windowBits −15) |
-| `NamedCharsets` | `io/Platform.kt` | `java.nio.charset` | `NSString` + `CFStringConvertIANACharSetNameToEncoding`(CP949 = `kCFStringEncodingDOSKorean`) |
-| `Crypto` (MD5 · SHA-1/256/384/512 · AES-CBC) | `io/Platform.kt` | `MessageDigest` · `Cipher` | CommonCrypto(`CC_MD5` · `CC_SHA*` · `CCCrypt`) |
-| `Unicode` (NFC · NFKC) | `io/Platform.kt` | `java.text.Normalizer` | `precomposedStringWithCanonicalMapping` · `…CompatibilityMapping` |
-| `ControlFlowException` | `io/Platform.kt` | 스택 기록 없는 `RuntimeException` | `RuntimeException` |
-| `currentTimeMillis()` | `io/Platform.kt` | `System.currentTimeMillis` | `NSDate().timeIntervalSince1970 * 1000` |
-| `CacheDir` (인터페이스) | `core-layout/.../cache/CacheDir.kt` | `FileCacheDir` | `NSFileManager`(바꿔 넣기는 `replaceItemAt`) |
-| `TextMeasurer` (인터페이스) | `core-layout/.../TextMeasurer.kt` | `:text-platform` 의 `AndroidTextMeasurer` | CoreText. **`MeasurerConformance` 를 통과해야 한다** |
+| 선언 | 파일 | 안드로이드(jvmMain) | iOS | 상태 |
+|---|---|---|---|---|
+| `InputStream` · `Reader` · `Closeable` · `IOException` · `EOFException` | `document/.../io/Streams.kt` | `java.io` 그 자체 | `iosMain/.../Streams.ios.kt` — JDK 의 기본 구현을 그대로 옮김 | ✅ |
+| `Inflater` · `DataFormatException` | `io/Platform.kt` | `java.util.zip` | `Platform.ios.kt` — `platform.zlib`, Z_PARTIAL_FLUSH, raw 는 windowBits −15. 입력은 네이티브 메모리에 복사 | ✅ |
+| `NamedCharsets` | `io/Platform.kt` | `java.nio.charset` | `NamedCharsets.ios.kt` — UTF-8/16 은 공통 `Text`, 나머지(CP949 …)는 **iconv**. CoreFoundation 은 깨진 바이트가 하나라도 있으면 통째로 실패해서 대체 문자를 낼 수 없다 | ✅ |
+| `Crypto` (MD5 · SHA-1/256/384/512 · AES-CBC) | `io/Platform.kt` | `MessageDigest` · `Cipher` | CommonCrypto(`CC_MD5` · `CC_SHA*` · `CCCrypt`) | ✅ |
+| `Unicode` (NFC · NFKC) | `io/Platform.kt` | `java.text.Normalizer` | `precomposedStringWithCanonicalMapping` · `…CompatibilityMapping` | ✅ |
+| `ControlFlowException` | `io/Platform.kt` | 스택 기록 없는 `RuntimeException` | `RuntimeException`(Kotlin/Native 는 스택 기록을 끌 수 없다) | ✅ |
+| `currentTimeMillis()` | `io/Platform.kt` | `System.currentTimeMillis` | `NSDate().timeIntervalSince1970 * 1000` | ✅ |
+| `CacheDir` (인터페이스) | `core-layout/.../cache/CacheDir.kt` | `FileCacheDir` | `NSFileCacheDir`(바꿔 넣기는 `writeToFile(atomically = true)`) · `PageStore(rootPath)` | ✅ |
+| `TextMeasurer` (인터페이스) | `core-layout/.../TextMeasurer.kt` | `:text-platform` 의 `AndroidTextMeasurer` | CoreText. **`MeasurerConformance` 를 통과해야 한다** | ⬜ |
+
+iOS 쪽 actual 은 `document/src/iosTest` · `core-layout/src/iosTest` 가 시뮬레이터에서 시험한다(맥에서 `check` 가 돌린다).
+기대값은 JVM · 파이썬 · NIST 시험 벡터로 박아 두었다 — iOS 가 iOS 자신과 대조하면 같이 틀려도 모른다.
 
 공통 코드가 iOS 에서도 컴파일되는지는 리눅스에서도 검사된다: `./gradlew :document:check :core-layout:check`
 (`compileCommonMainKotlinMetadata` 포함). `commonMain` 에 `java.*` 를 쓰면 여기서 깨진다.
@@ -126,4 +129,4 @@ iOS 세션이 공통 코드의 문제를 찾으면 판 칸에 `iOS→안` 이라
 
 | 판 | 날짜 | 무엇 | 범위 | iOS |
 |---|---|---|---|---|
-| 0.54.7 | 2026-10-18 | 공통 코어를 Kotlin Multiplatform 으로(동작 같음). iOS 시작점 | 공통 | 대기 — `iosMain` 채우기부터(§1) |
+| 0.54.7 | 2026-10-18 | 공통 코어를 Kotlin Multiplatform 으로(동작 같음). iOS 시작점 | 공통 | 반영 — `iosMain` 채움(§1), 맥에서 `:document:check` · `:core-layout:check` 통과 |

@@ -13,6 +13,8 @@ kotlin {
     iosArm64()
     iosSimulatorArm64()
     sourceSets {
+        // iOS 의 actual(zlib · iconv · CommonCrypto · NSFileManager)을 시뮬레이터에서 시험한다. 맥에서만 돈다.
+        iosTest.dependencies { implementation(libs.kotlin.test) }
         jvmTest.dependencies {
             implementation(libs.junit.jupiter)
             implementation(libs.kotlin.test)
