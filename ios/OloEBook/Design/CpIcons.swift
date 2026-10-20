@@ -21,6 +21,7 @@ struct CpIcon: Equatable {
     static let back = line("M15 5 L8 12 L15 19")
     static let forward = line("M9 5 L16 12 L9 19")
     static let plus = line("M12 5 V19 M5 12 H19")
+    static let minus = line("M5 12 H19")
     static let folder = line("M3.5 7.5 V18 A1.5 1.5 0 0 0 5 19.5 H19 A1.5 1.5 0 0 0 20.5 18 V9.5 A1.5 1.5 0 0 0 19 8 H11.5 L9.5 5.5 H5 A1.5 1.5 0 0 0 3.5 7 Z")
     static let book = line("M4 5.5 C6.5 4.5 9.5 4.5 12 6 C14.5 4.5 17.5 4.5 20 5.5 V18.5 C17.5 17.5 14.5 17.5 12 19 C9.5 17.5 6.5 17.5 4 18.5 Z M12 6 V19")
     static let text = line("M6 3.5 H14.5 L18.5 7.5 V20.5 H6 Z M14.5 3.5 V7.5 H18.5 M9 11 H15.5 M9 14 H15.5 M9 17 H13")

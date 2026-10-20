@@ -35,14 +35,44 @@ enum CpColor {
     }
 }
 
-/// 리더 지면. "시스템" 테마는 앱 테마를 따른다(디자인 인계 §2 리더 지면 테마). 다른 테마는 보기 판을 만들 때 더한다.
+/// 리더 지면(안드로이드 `PaperTheme`). "휴대폰" 은 휴대폰의 다크 모드를 따른다. 메뉴도 지면의 밝기를 따른다 — 검은 지면
+/// 위에 밝은 메뉴가 뜨면 눈이 부시다.
+enum PaperTheme: String, CaseIterable, Identifiable {
+    case system, white, ivory, sepia, gray, black
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .system: "휴대폰"
+        case .white: "흰색"
+        case .ivory: "아이보리"
+        case .sepia: "세피아"
+        case .gray: "회색"
+        case .black: "검은색"
+        }
+    }
+
+    func paper(_ scheme: ColorScheme) -> Paper {
+        switch self {
+        case .system: scheme == .dark ? .dark : .light
+        case .white: Paper(paper: 0xFFFFFF, ink: 0x1D1A16, inkMuted: 0x6B625A, dark: false)
+        case .ivory: Paper(paper: 0xF4ECD8, ink: 0x3A2E22, inkMuted: 0x6E5F4E, dark: false)
+        case .sepia: Paper(paper: 0xE9DCC0, ink: 0x3B2A1A, inkMuted: 0x6C5842, dark: false)
+        case .gray: Paper(paper: 0xDAD8D3, ink: 0x1F1D1A, inkMuted: 0x55504A, dark: false)
+        case .black: Paper(paper: 0x121110, ink: 0xD9D3C9, inkMuted: 0x9C948A, dark: true)
+        }
+    }
+}
+
+/// 지면 색 한 벌.
 struct Paper: Equatable {
     let paper: UInt32
     let ink: UInt32
     let inkMuted: UInt32
+    var dark = false
 
-    static let light = Paper(paper: 0xFBF9F5, ink: 0x1D1A16, inkMuted: 0x574D45)
-    static let dark = Paper(paper: 0x181613, ink: 0xE8E3DA, inkMuted: 0xCFC5B9)
+    static let light = Paper(paper: 0xFBF9F5, ink: 0x1D1A16, inkMuted: 0x574D45, dark: false)
+    static let dark = Paper(paper: 0x181613, ink: 0xE8E3DA, inkMuted: 0xCFC5B9, dark: true)
 
     static func system(_ scheme: ColorScheme) -> Paper { scheme == .dark ? .dark : .light }
 
