@@ -271,6 +271,8 @@ struct CpRadioRow<Trailing: View>: View {
     let selected: Bool
     var subtitle: String?
     var titleFont: Font = CpFont.body
+    /// 왼쪽 안쪽 여백. 팝업 안에서는 0 — 팝업이 이미 여백을 두므로, 두 겹이면 동그라미가 제목 시작선보다 들어간다.
+    var inset: CGFloat = CpMetrics.gutter
     let action: () -> Void
     @ViewBuilder var trailing: Trailing
 
@@ -290,7 +292,7 @@ struct CpRadioRow<Trailing: View>: View {
                     }
                     Spacer(minLength: 0)
                 }
-                .padding(.leading, CpMetrics.gutter).padding(.vertical, 8)
+                .padding(.leading, inset).padding(.vertical, 8)
                 .frame(minHeight: CpMetrics.rowHeight)
                 .contentShape(Rectangle())
             }
@@ -302,8 +304,9 @@ struct CpRadioRow<Trailing: View>: View {
 }
 
 extension CpRadioRow where Trailing == EmptyView {
-    init(title: String, selected: Bool, subtitle: String? = nil, titleFont: Font = CpFont.body, action: @escaping () -> Void) {
-        self.init(title: title, selected: selected, subtitle: subtitle, titleFont: titleFont, action: action) { EmptyView() }
+    init(title: String, selected: Bool, subtitle: String? = nil, titleFont: Font = CpFont.body, inset: CGFloat = CpMetrics.gutter,
+         action: @escaping () -> Void) {
+        self.init(title: title, selected: selected, subtitle: subtitle, titleFont: titleFont, inset: inset, action: action) { EmptyView() }
     }
 }
 

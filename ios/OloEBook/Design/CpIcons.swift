@@ -60,6 +60,7 @@ struct CpIcon: Equatable {
         Layer(d: "M9,12 L20,12", fill: false, stroke: 2.4),
         Layer(d: "M9,17.1 L20,17.1", fill: false, stroke: 2.4),
     ])
+    static let shelf = line("M5 5 V17.5 M5 5 H8.5 V17.5 M10.5 7 V17.5 M10.5 7 H13.5 V17.5 M15.5 8.5 L19 16.5 M3 20 H21")
 }
 
 /// 아이콘 한 개를 그린다. 기본 24pt, 색은 줄 글자색.
