@@ -27,7 +27,10 @@ import platform.CoreFoundation.kCFNumberDoubleType
 import platform.CoreFoundation.kCFStringEncodingUTF8
 import platform.CoreFoundation.kCFTypeDictionaryKeyCallBacks
 import platform.CoreFoundation.kCFTypeDictionaryValueCallBacks
+import platform.CoreText.CTFontCreateCopyWithSymbolicTraits
 import platform.CoreText.CTFontCreateUIFontForLanguage
+import platform.CoreText.CTFontCreateWithFontDescriptor
+import platform.CoreText.CTFontDescriptorRef
 import platform.CoreText.CTFontRef
 import platform.CoreText.CTLineCreateWithAttributedString
 import platform.CoreText.CTLineGetBoundsWithOptions
@@ -35,6 +38,7 @@ import platform.CoreText.CTLineGetTypographicBounds
 import platform.CoreText.CTLineRef
 import platform.CoreText.kCTFontAttributeName
 import platform.CoreText.kCTFontUIFontEmphasizedSystem
+import platform.CoreText.kCTFontTraitBold
 import platform.CoreText.kCTFontUIFontSystem
 import platform.CoreText.kCTForegroundColorFromContextAttributeName
 import platform.CoreText.kCTLineBoundsUseGlyphPathBounds
@@ -54,6 +58,9 @@ import kotlin.native.ref.createCleaner
  * - 폭은 CTLine 으로 잰다 — 커닝 · 한글 조합 · 대체 글꼴(SF 에 없는 한글은 Apple SD Gothic Neo)이 그릴 때와 똑같이 들어간다.
  *
  * 글꼴은 **시스템 글꼴**(디자인 인계 §3, 한국어 우선). [language] 를 주면 대체 글꼴의 순서가 그 언어를 따른다.
+ * [fontFile] 을 주면 그 글꼴 파일(사용자 글꼴)로 잰다. 그 글꼴에 없는 글자(한글 없는 영문 글꼴의 한글)는 CTLine 이 시스템 글꼴로
+ * 채운다 — 안드로이드의 "한글은 휴대폰 글꼴로 보입니다" 와 같다. 파일이 없거나 깨졌으면 시스템 글꼴로 물러선다: 글꼴 파일
+ * 하나 때문에 책이 열리지 않는 것이 최악이다(CLAUDE.md 규칙 6).
  *
  * **한 스레드에서만 쓴다**(안드로이드와 같다). 서식별 글꼴 캐시가 잠금 없는 HashMap 이다. 조판용과 그리기용을 따로 만든다 —
  * 같은 설정이면 같은 값이 나온다.
@@ -61,20 +68,24 @@ import kotlin.native.ref.createCleaner
 class CoreTextMeasurer(
     override val baseSizePx: Float,
     private val language: String = "ko-KR",
+    fontFile: String? = null,
 ) : TextMeasurer {
 
     init {
         require(baseSizePx > 0f) { "baseSizePx must be positive, was $baseSizePx" }
     }
 
-    private val faces = FaceCache()
+    private val faces = FaceCache(fontFile?.let { UserFonts.descriptor(it) })
+
+    /** 사용자 글꼴 파일을 실제로 읽었는지. 아니면(없음 · 깨짐) 시스템 글꼴로 재는 중이다. */
+    val usesFontFile: Boolean get() = faces.descriptor != null
 
     // CF 객체는 Kotlin 이 거두지 않는다. 측정기를 버리면 글꼴도 놓는다.
     @Suppress("unused")
     private val cleaner = createCleaner(faces) { it.releaseAll() }
 
     private val ascentEm: Float = run {
-        val probe = Face.create(PROBE_SIZE_PX, bold = false, italic = false, language = language)
+        val probe = Face.create(PROBE_SIZE_PX, bold = false, italic = false, language = language, descriptor = faces.descriptor)
         try {
             probe.glyphTop(PROBE_GLYPHS)?.let { (it / PROBE_SIZE_PX).coerceIn(0.5f, 1f) } ?: FALLBACK_ASCENT_EM
         } finally {
@@ -98,18 +109,19 @@ class CoreTextMeasurer(
         // 밑줄 · 취소선 · 위첨자는 폭을 바꾸지 않으므로 키에서 뺀다. 책 글꼴(face)은 아직 없다 — 모두 본문 글꼴로 잰다.
         val key = Key(style.bold, style.italic, style.sizeScale)
         return faces.map.getOrPut(key) {
-            Face.create(baseSizePx * style.sizeScale, style.bold, style.italic, language)
+            Face.create(baseSizePx * style.sizeScale, style.bold, style.italic, language, faces.descriptor)
         }
     }
 
     internal data class Key(val bold: Boolean, val italic: Boolean, val sizeScale: Float)
 
-    internal class FaceCache {
+    internal class FaceCache(val descriptor: CTFontDescriptorRef?) {
         val map = HashMap<Key, Face>()
 
         fun releaseAll() {
             map.values.forEach { it.release() }
             map.clear()
+            descriptor?.let { CFRelease(it) }
         }
     }
 
@@ -125,8 +137,11 @@ class CoreTextMeasurer(
         /** 합성 기울임(약 14°). 안드로이드의 textSkewX −0.25 와 같은 모양. */
         internal const val ITALIC_SKEW = 0.25
 
-        /** 조판 설정에서 만든다. 글꼴 고르기(fontId)가 생기면 여기서 갈라진다 — 캐시 키와 잰 글꼴이 갈라지지 않게. */
-        fun forSpec(spec: LayoutSpec): CoreTextMeasurer = CoreTextMeasurer(spec.baseSizePx)
+        /**
+         * 조판 설정에서 만든다. 글꼴은 [LayoutSpec.fontId] 에서만 고른다 — 캐시 키에 든 글꼴과 잰 글꼴이 갈라지면 바탕으로 잰
+         * 쪽을 고딕으로 그려 줄 끝이 어긋난다. 조판용 · 그리기용이 모두 여기서 만들어진다.
+         */
+        fun forSpec(spec: LayoutSpec): CoreTextMeasurer = CoreTextMeasurer(spec.baseSizePx, fontFile = UserFonts.path(spec.fontId))
     }
 }
 
@@ -184,16 +199,8 @@ internal class Face private constructor(
     }
 
     companion object {
-        fun create(sizePx: Float, bold: Boolean, italic: Boolean, language: String): Face {
-            val lang = CFStringCreateWithCString(null, language, kCFStringEncodingUTF8)
-            // 굵게는 시스템의 굵은 글꼴을 직접 고른다. 보통 글꼴에 굵게 특성을 달면 Semibold 가 나와 안드로이드(Bold)보다 옅다.
-            val type = if (bold) kCTFontUIFontEmphasizedSystem else kCTFontUIFontSystem
-            val chosen = CTFontCreateUIFontForLanguage(type, sizePx.toDouble(), lang)
-            // 굵은 꼴이 없으면 보통 꼴의 획을 두껍게 그린다. 테두리는 폭을 바꾸지 않는다.
-            val fakeBold = bold && chosen == null
-            val font: CTFontRef = chosen ?: CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, sizePx.toDouble(), lang)
-                ?: error("no system font for $language")
-            lang?.let { CFRelease(it) }
+        fun create(sizePx: Float, bold: Boolean, italic: Boolean, language: String, descriptor: CTFontDescriptorRef? = null): Face {
+            val (font, fakeBold) = descriptor?.let { fileFont(it, sizePx, bold) } ?: systemFont(sizePx, bold, language)
             val attributes = CFDictionaryCreateMutable(null, 3, kCFTypeDictionaryKeyCallBacks.ptr, kCFTypeDictionaryValueCallBacks.ptr)
                 ?: error("CFDictionaryCreateMutable failed")
             CFDictionarySetValue(attributes, kCTFontAttributeName, font)
@@ -208,6 +215,32 @@ internal class Face private constructor(
                 }
             }
             return Face(font, attributes, sizePx, italic)
+        }
+
+        private fun systemFont(sizePx: Float, bold: Boolean, language: String): Pair<CTFontRef, Boolean> {
+            val lang = CFStringCreateWithCString(null, language, kCFStringEncodingUTF8)
+            // 굵게는 시스템의 굵은 글꼴을 직접 고른다. 보통 글꼴에 굵게 특성을 달면 Semibold 가 나와 안드로이드(Bold)보다 옅다.
+            val type = if (bold) kCTFontUIFontEmphasizedSystem else kCTFontUIFontSystem
+            val chosen = CTFontCreateUIFontForLanguage(type, sizePx.toDouble(), lang)
+            // 굵은 꼴이 없으면 보통 꼴의 획을 두껍게 그린다. 테두리는 폭을 바꾸지 않는다.
+            val fakeBold = bold && chosen == null
+            val font: CTFontRef = chosen ?: CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, sizePx.toDouble(), lang)
+                ?: error("no system font for $language")
+            lang?.let { CFRelease(it) }
+            return font to fakeBold
+        }
+
+        /**
+         * 글꼴 파일의 꼴. 굵게는 같은 가족의 굵은 꼴이 등록돼 있으면 그것, 없으면(파일 하나뿐인 글꼴이 대부분) 획을 두껍게
+         * 합성한다. 파일을 읽지 못하면 null — 시스템 글꼴로 물러선다.
+         */
+        private fun fileFont(descriptor: CTFontDescriptorRef, sizePx: Float, bold: Boolean): Pair<CTFontRef, Boolean>? {
+            val regular = CTFontCreateWithFontDescriptor(descriptor, sizePx.toDouble(), null) ?: return null
+            if (!bold) return regular to false
+            val heavy = CTFontCreateCopyWithSymbolicTraits(regular, 0.0, null, kCTFontTraitBold, kCTFontTraitBold)
+            if (heavy == null) return regular to true
+            CFRelease(regular)
+            return heavy to false
         }
 
         /** 음수 = 채우고 테두리도 그린다. 글자 크기의 3%. */

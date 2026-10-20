@@ -28,6 +28,10 @@ struct ReaderPanels: View {
                 SidePanel(wide: wide, insets: insets, dismiss: model.back) {
                     ViewSettingsScreen(prefs: prefs, back: model.back)
                 }
+            case .fonts:
+                SidePanel(wide: wide, insets: insets, dismiss: model.back) {
+                    FontsScreen(prefs: prefs, back: model.back)
+                }
             case .contents:
                 SidePanel(wide: wide, insets: insets, dismiss: model.back) {
                     ContentsScreen(model: model, tab: $contentsTab)
@@ -155,8 +159,8 @@ private struct ReaderBar: View {
     }
 }
 
-/// 보기 판의 줄들(구상안 4A): 배경 · 그림 흰 바탕 · 밝기 · 글자 크기 · 줄 간격 · 여백 · 모든 보기 설정.
-/// 글꼴 줄은 글꼴 판 구상안을 정한 뒤에 더한다(결정 3A).
+/// 보기 판의 줄들(구상안 4A · 8): 배경 · 그림 흰 바탕 · 밝기 · 글자 크기 · 글꼴 · 줄 간격 · 여백 · 모든 보기 설정.
+/// 글꼴은 몇 개일지 모르므로 단추를 늘어놓지 않고 글꼴 판을 연다(결정 3A).
 private struct ViewPanelRows: View {
     @ObservedObject var model: ReaderModel
     @ObservedObject var prefs: ReaderPrefs
@@ -185,6 +189,8 @@ private struct ViewPanelRows: View {
             CpStepper(label: "글자 크기", value: "\(prefs.fontSize)",
                       onMinus: { prefs.fontSize = max(prefs.fontSize - 1, ReaderPrefs.fontRange.lowerBound) },
                       onPlus: { prefs.fontSize = min(prefs.fontSize + 1, ReaderPrefs.fontRange.upperBound) })
+            // 값은 실제로 쓰이는 글꼴 — 뺀 글꼴 이름이 남아 있으면 고른 것과 보이는 것이 다르다.
+            CpLinkRow(label: "글꼴", value: FontLibrary.shared.item(prefs.effectiveFont)?.label ?? FontsScreen.systemLabel) { model.panel = .fonts }
             CpChoice(label: "줄 간격", options: ["좁게", "보통", "넓게"], selected: prefs.lineSpacing) { prefs.lineSpacing = $0 }
             CpChoice(label: "여백", options: ["좁게", "보통", "넓게"], selected: prefs.margin) { prefs.margin = $0 }
             CpLinkRow(label: "모든 보기 설정") { model.panel = .settings }
@@ -227,6 +233,84 @@ private struct ViewSettingsScreen: View {
 
     private func section(_ title: String) -> some View {
         CpSectionLabel(text: title).padding(.horizontal, CpMetrics.gutter).padding(.top, 18).padding(.bottom, 6)
+    }
+}
+
+/// 글꼴 판(구상안 7A 확정): 휴대폰 글꼴 · ＋ 사용자 글꼴 · 넣은 글꼴(사용자 글꼴의 자식이라 동그라미가 부모 글자 시작선에 선다,
+/// UI 규칙 1). 이름은 그 글꼴로 그린다. 출판사 글꼴 줄은 책 글꼴을 읽게 되면 맨 위에 더한다.
+private struct FontsScreen: View {
+    static let systemLabel = "휴대폰 글꼴"
+
+    @ObservedObject var prefs: ReaderPrefs
+    let back: () -> Void
+    @ObservedObject private var library = FontLibrary.shared
+
+    @State private var picking = false
+    @State private var notice: (String, String)?
+    @State private var removing: UserFontItem?
+
+    var body: some View {
+        ZStack {
+            VStack(alignment: .leading, spacing: 0) {
+                CpHeader(title: "글꼴", leading: AnyView(CpIconButton(icon: .back, label: "뒤로", action: back))) {}
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        CpRadioRow(title: Self.systemLabel, selected: prefs.effectiveFont == nil,
+                                   subtitle: "iPhone 기본 고딕(Apple SD 산돌고딕 Neo)") { prefs.font = nil }
+                        // "사용자 글꼴" 은 넣기 단추이자 넣은 글꼴들의 머리다.
+                        CpIconRow(icon: .plus, title: "사용자 글꼴", subtitle: "글꼴 파일 넣기 · TTF · OTF · TTC") { picking = true }
+                        ForEach(library.fonts) { font in
+                            CpRadioRow(title: font.label, selected: prefs.effectiveFont == font.file,
+                                       subtitle: font.hasHangul ? nil : "한글 없음 · 한글은 휴대폰 글꼴로 보입니다",
+                                       titleFont: library.preview(font)) { prefs.font = font.file } trailing: {
+                                CpIconButton(icon: .close, label: "\(font.label) 빼기", color: CpColor.textMuted) { removing = font }
+                            }
+                            // 넣은 글꼴은 "사용자 글꼴" 의 자식 — 나란하면 네 번째 선택지로 읽힌다(안드로이드 0.10.2).
+                            .padding(.leading, CpMetrics.childIndent)
+                        }
+                    }
+                    .padding(.bottom, 24)
+                }
+            }
+            if let notice {
+                CpPopup(onDismiss: { self.notice = nil }) {
+                    Text(notice.0).font(CpFont.title).foregroundStyle(CpColor.text)
+                    Text(notice.1).font(CpFont.body).foregroundStyle(CpColor.textMuted).fixedSize(horizontal: false, vertical: true)
+                    HStack { Spacer(); CpButton(title: "확인") { self.notice = nil } }
+                }
+            }
+            if let font = removing {
+                CpPopup(onDismiss: { removing = nil }) {
+                    Text("‘\(font.label)’ 글꼴을 뺄까요?").font(CpFont.title).foregroundStyle(CpColor.text)
+                    Text("이 글꼴로 보던 책은 휴대폰 글꼴로 바뀝니다. 파일은 언제든 다시 넣을 수 있습니다.")
+                        .font(CpFont.body).foregroundStyle(CpColor.textMuted).fixedSize(horizontal: false, vertical: true)
+                    HStack {
+                        Spacer()
+                        CpButton(title: "취소", kind: .secondary) { removing = nil }
+                        CpButton(title: "빼기") {
+                            removing = nil
+                            // 지운 글꼴을 설정에 남기면 글꼴 ID 가 휴대폰 글꼴과 갈라진 채 캐시에 들어간다.
+                            if prefs.font == font.file { prefs.font = nil }
+                            library.remove(font)
+                        }
+                    }
+                }
+            }
+        }
+        // 글꼴 파일만 고르게 한다(구상안 7). 그래도 확장자만 글꼴인 파일은 넣을 때 까닭과 함께 거절한다.
+        .fileImporter(isPresented: $picking, allowedContentTypes: [.font]) { result in
+            guard case let .success(url) = result else { return }
+            switch library.importFont(from: url) {
+            case let .added(font):
+                // 넣은 글꼴로 바로 바꾼다. 넣고 나서 다시 찾아 누르게 하면 한 번 더 헤맨다.
+                prefs.font = font.file
+                if !font.hasHangul {
+                    notice = ("한글이 없는 글꼴입니다", "영문 · 숫자는 이 글꼴로, 한글은 휴대폰 글꼴로 보입니다.")
+                }
+            case let .rejected(reason):
+                notice = ("글꼴을 넣지 못했습니다", FontLibrary.describe(reason))
+            }
+        }
     }
 }
 

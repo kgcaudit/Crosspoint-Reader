@@ -5,6 +5,11 @@ struct OloEBookApp: App {
     @StateObject private var library = Library()
     @State private var reading: LibraryBook?
 
+    init() {
+        // 글꼴 폴더를 측정기에 알린다 — 첫 조판보다 먼저여야 고른 글꼴로 첫 쪽이 짜인다.
+        _ = FontLibrary.shared
+    }
+
     var body: some Scene {
         WindowGroup {
             ZStack {

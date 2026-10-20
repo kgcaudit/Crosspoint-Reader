@@ -68,8 +68,8 @@ struct PageFrame: @unchecked Sendable {
     }
 }
 
-/// 리더 위에 열린 판(안드로이드 `Panel`). 뒤로 가기: 목차 · 보기 → 메뉴, 보기 설정 → 보기, 메뉴 → 지면.
-enum ReaderPanel { case none, bar, view, settings, contents }
+/// 리더 위에 열린 판(안드로이드 `Panel`). 뒤로 가기: 목차 · 보기 → 메뉴, 보기 설정 · 글꼴 → 보기, 메뉴 → 지면.
+enum ReaderPanel { case none, bar, view, settings, fonts, contents }
 
 @MainActor
 final class ReaderModel: ObservableObject {
@@ -141,7 +141,7 @@ final class ReaderModel: ObservableObject {
 
     func back() {
         switch panel {
-        case .settings: panel = .view
+        case .settings, .fonts: panel = .view
         case .view, .contents: panel = .bar
         case .bar, .none: panel = .none
         }
@@ -211,7 +211,7 @@ struct ReaderView: View {
                 guard model.engine != nil else { return }
                 await model.layOut(prefs.spec(size: full, insets: insets), paper, blend: prefs.blendPictures)
                 #if DEBUG
-                // 화면 확인용: -olo-turn N 쪽 넘기고 -olo-panel bar|view|settings|contents 로 판을 연다. 출시 빌드에는 없다.
+                // 화면 확인용: -olo-turn N 쪽 넘기고 -olo-panel bar|view|settings|fonts|contents 로 판을 연다. 출시 빌드에는 없다.
                 let args = CommandLine.arguments
                 if !debugApplied {
                     debugApplied = true
@@ -220,7 +220,7 @@ struct ReaderView: View {
                     }
                     if let i = args.firstIndex(of: "-olo-theme"), i + 1 < args.count, let t = PaperTheme(rawValue: args[i + 1]) { prefs.theme = t }
                     if let i = args.firstIndex(of: "-olo-panel"), i + 1 < args.count {
-                        model.panel = ["bar": .bar, "view": .view, "settings": .settings, "contents": .contents][args[i + 1]] ?? .none
+                        model.panel = ["bar": .bar, "view": .view, "settings": .settings, "fonts": .fonts, "contents": .contents][args[i + 1]] ?? .none
                     }
                 }
                 #endif

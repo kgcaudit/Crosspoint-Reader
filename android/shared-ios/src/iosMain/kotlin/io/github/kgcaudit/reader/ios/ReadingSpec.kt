@@ -51,6 +51,8 @@ object ReadingSpec {
         alignOverride: TextAlign? = null,
         /** 첫 줄 들여쓰기 끔. */
         indentOff: Boolean = false,
+        /** 본문 글꼴: [UserFonts.SYSTEM_FONT_ID](휴대폰 글꼴) 또는 `UserFonts.fontId(파일 이름)`. 측정기가 이 값에서만 글꼴을 고른다. */
+        fontId: String = UserFonts.SYSTEM_FONT_ID,
     ): LayoutSpec = LayoutSpec(
         viewportWidthPx = widthPt,
         viewportHeightPx = heightPt,
@@ -69,7 +71,7 @@ object ReadingSpec {
         indentOff = indentOff,
         // CSS 1px = 1pt. 안드로이드는 1px 을 1dp 로 옮긴다(cssPxScale = 밀도) — iOS 의 pt 가 dp 자리다.
         cssPxScale = 1f,
-        fontId = "ios-system",
+        fontId = fontId,
     )
 
     /** 기본 줄 나누기 규칙의 [Paginator]. 같은 까닭(Swift 는 기본 매개변수를 못 쓴다)으로 여기서 만든다 — 규칙을 Swift 에서 따로 고르면 안드로이드와 줄 나눔이 갈라진다. */

@@ -26,6 +26,8 @@ final class ReaderPrefs: ObservableObject {
     @Published var indentOff: Bool { didSet { save(indentOff, "indentOff") } }
     @Published var paragraphSpacing: Int { didSet { save(paragraphSpacing, "paragraphSpacing") } }
     @Published var keepScreenOn: KeepScreenOn { didSet { save(keepScreenOn.rawValue, "keepScreenOn") } }
+    /// 본문 글꼴: nil = 휴대폰 글꼴, 아니면 넣은 글꼴의 파일 이름(`FontLibrary`).
+    @Published var font: String? { didSet { defaults.set(font, forKey: "reader.font") } }
 
     private let defaults = UserDefaults.standard
 
@@ -46,7 +48,12 @@ final class ReaderPrefs: ObservableObject {
         indentOff = d.bool(forKey: "reader.indentOff")
         paragraphSpacing = int("paragraphSpacing", 0, 0...2)
         keepScreenOn = KeepScreenOn(rawValue: int("keepScreenOn", 0, 0...2)) ?? .system
+        font = d.string(forKey: "reader.font")
     }
+
+    /// 실제로 쓰이는 글꼴 파일. 고른 글꼴이 목록에 없으면(뺀 글꼴 · 읽지 못하는 파일) 휴대폰 글꼴 — 글꼴 ID 를 남겨 두면 캐시 키는
+    /// 사용자 글꼴인데 측정기는 휴대폰 글꼴로 재서, 나중에 같은 이름이 돌아오면 옛 쪽을 다른 폭으로 그린다.
+    var effectiveFont: String? { FontLibrary.shared.item(font)?.file }
 
     private func save(_ value: Any, _ key: String) { defaults.set(value, forKey: "reader.\(key)") }
 
@@ -62,7 +69,8 @@ final class ReaderPrefs: ObservableObject {
             sideMargin: ReaderPrefs.margins[margin],
             paragraphSpacingEm: ReaderPrefs.paragraphSpacings[paragraphSpacing],
             alignOverride: align == 1 ? TextAlign.justify : align == 2 ? TextAlign.start : nil,
-            indentOff: indentOff
+            indentOff: indentOff,
+            fontId: UserFonts.shared.fontId(fileName: effectiveFont)
         )
     }
 }
