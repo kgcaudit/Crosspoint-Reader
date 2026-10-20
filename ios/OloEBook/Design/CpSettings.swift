@@ -263,3 +263,75 @@ struct CpCaption: View {
             .padding(.horizontal, CpMetrics.gutter)
     }
 }
+
+/// 동그라미 하나 고르기 줄(글꼴 목록). 동그라미 22 · 간격 16 — 그래서 자식 행의 들임은 `childIndent`(38)이고,
+/// 자식의 동그라미가 부모 글자 시작선에 선다(UI 규칙 1). [titleFont] 는 글꼴 이름을 그 글꼴로 그릴 때.
+struct CpRadioRow<Trailing: View>: View {
+    let title: String
+    let selected: Bool
+    var subtitle: String?
+    var titleFont: Font = CpFont.body
+    let action: () -> Void
+    @ViewBuilder var trailing: Trailing
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Button(action: action) {
+                HStack(spacing: 16) {
+                    Circle().stroke(selected ? CpColor.accent : CpColor.outline, lineWidth: 2)
+                        .frame(width: 22, height: 22)
+                        .overlay { if selected { Circle().fill(CpColor.accent).frame(width: 12, height: 12) } }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title).font(titleFont).foregroundStyle(CpColor.text).lineLimit(1)
+                        if let subtitle {
+                            Text(subtitle).font(CpFont.subtitle).foregroundStyle(CpColor.textMuted).lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.leading, CpMetrics.gutter).padding(.vertical, 8)
+                .frame(minHeight: CpMetrics.rowHeight)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(selected ? [.isSelected] : [])
+            trailing.padding(.trailing, 4)
+        }
+    }
+}
+
+extension CpRadioRow where Trailing == EmptyView {
+    init(title: String, selected: Bool, subtitle: String? = nil, titleFont: Font = CpFont.body, action: @escaping () -> Void) {
+        self.init(title: title, selected: selected, subtitle: subtitle, titleFont: titleFont, action: action) { EmptyView() }
+    }
+}
+
+/// 앞머리가 그림 하나(타일 없이)인 줄: "＋ 사용자 글꼴". 그림은 동그라미 칸(22)의 가운데에 서서
+/// [CpRadioRow] 와 글자 시작선이 같다 — 같은 목록에서 시작선이 어긋나면 위계로 잘못 읽힌다.
+struct CpIconRow: View {
+    let icon: CpIcon
+    let title: String
+    var subtitle: String?
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 16) {
+                CpIconView(icon: icon, size: 24, color: CpColor.text).frame(width: 22, height: 22)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(CpFont.body).foregroundStyle(CpColor.text)
+                    if let subtitle {
+                        Text(subtitle).font(CpFont.subtitle).foregroundStyle(CpColor.textMuted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, CpMetrics.gutter).padding(.vertical, 8)
+            .frame(minHeight: CpMetrics.rowHeight)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
