@@ -5,6 +5,8 @@
 - 비 오는 아침.epub : 세 장, 표지 그림 있음(표지 그림 경로 시험)
 - 바다로 가는 길.epub : 두 장, 표지 없음(이름 표지로 내려가는지)
 - 짧은 메모.txt : UTF-8, 한 쪽짜리(첫 쪽이 곧 끝 쪽)
+- 글꼴 든 책.epub : 출판사 글꼴(@font-face). 글꼴은 저장소의 OFL 시험 글꼴(android/text-platform/src/test/resources/
+  olo-test-fonts, 보통 400 · 굵게 700). 본문 문단은 책 글꼴, 첫 문단 · 제목은 책이 정하지 않아 휴대폰 글꼴
 등대지기의 저녁.txt(CP949 · CRLF)는 손으로 둔 파일이다.
 """
 import struct
@@ -46,15 +48,31 @@ PARAGRAPHS = {
 }
 
 
-def chapter(title, kind, count):
-    body = "".join(f"<p>{PARAGRAPHS[kind][i % len(PARAGRAPHS[kind])]}</p>" for i in range(count))
+FONTS = Path(__file__).resolve().parents[2] / "android/text-platform/src/test/resources/olo-test-fonts"
+
+FONT_CSS = (
+    '@font-face{font-family:"olo";src:url(fonts/regular.ttf);font-weight:400}'
+    '@font-face{font-family:"olo";src:url(fonts/bold.ttf);font-weight:700}'
+    'p.book{font-family:"olo",serif} b{font-weight:bold}'
+)
+
+
+def chapter(title, kind, count, styled=False):
+    if styled:
+        # 첫 문단은 책이 글꼴을 정하지 않는다 — 출판사 글꼴을 켜도 휴대폰 글꼴로 남아야 한다.
+        body = f"<p>{PARAGRAPHS[kind][0]}</p>" + "".join(
+            f'<p class="book">{PARAGRAPHS[kind][i % len(PARAGRAPHS[kind])]} <b>굵은 낱말</b></p>' for i in range(1, count))
+        head = '<link rel="stylesheet" href="style.css"/>'
+    else:
+        body = "".join(f"<p>{PARAGRAPHS[kind][i % len(PARAGRAPHS[kind])]}</p>" for i in range(count))
+        head = ""
     return (
         '<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml">'
-        f"<head><title>{title}</title></head><body><h1>{title}</h1>{body}</body></html>"
+        f"<head><title>{title}</title>{head}</head><body><h1>{title}</h1>{body}</body></html>"
     )
 
 
-def epub(path, title, chapters, cover_png=None):
+def epub(path, title, chapters, cover_png=None, fonts=False):
     manifest = "".join(
         f'<item id="c{i}" href="c{i}.xhtml" media-type="application/xhtml+xml"/>' for i in range(len(chapters))
     )
@@ -65,6 +83,10 @@ def epub(path, title, chapters, cover_png=None):
         meta_cover = '<meta name="cover" content="cover"/>'
     nav_items = "".join(f'<li><a href="c{i}.xhtml">{t}</a></li>' for i, (t, _, _) in enumerate(chapters))
     manifest += '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>'
+    if fonts:
+        manifest += ('<item id="css" href="style.css" media-type="text/css"/>'
+                     '<item id="f1" href="fonts/regular.ttf" media-type="font/ttf"/>'
+                     '<item id="f2" href="fonts/bold.ttf" media-type="font/ttf"/>')
     opf = (
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">'
@@ -90,7 +112,12 @@ def epub(path, title, chapters, cover_png=None):
         z.writestr("OEBPS/content.opf", opf, compress_type=zipfile.ZIP_DEFLATED)
         z.writestr("OEBPS/nav.xhtml", nav, compress_type=zipfile.ZIP_DEFLATED)
         for i, (t, kind, count) in enumerate(chapters):
-            z.writestr(f"OEBPS/c{i}.xhtml", chapter(t, kind, count), compress_type=zipfile.ZIP_DEFLATED)
+            z.writestr(f"OEBPS/c{i}.xhtml", chapter(t, kind, count, styled=fonts), compress_type=zipfile.ZIP_DEFLATED)
+        if fonts:
+            z.writestr("OEBPS/style.css", FONT_CSS, compress_type=zipfile.ZIP_DEFLATED)
+            # 압축해 넣는다 — 실제 책처럼 CoreText 가 바로 못 읽어 꺼내야 하는 경로를 지나게.
+            z.write(FONTS / "olo-test-regular.ttf", "OEBPS/fonts/regular.ttf", compress_type=zipfile.ZIP_DEFLATED)
+            z.write(FONTS / "olo-test-bold.ttf", "OEBPS/fonts/bold.ttf", compress_type=zipfile.ZIP_DEFLATED)
         if cover_png:
             z.writestr("OEBPS/cover.png", cover_png, compress_type=zipfile.ZIP_STORED)
 
@@ -102,6 +129,7 @@ def main(out):
          [("첫째 장 정류장", "rain", 14), ("둘째 장 버스 안", "rain", 20), ("셋째 장 창밖", "rain", 12)],
          cover_png=png(280, 400, cover))
     epub(out / "바다로 가는 길.epub", "바다로 가는 길", [("첫째 장 기차", "sea", 12), ("둘째 장 등대", "sea", 16)])
+    epub(out / "글꼴 든 책.epub", "글꼴 든 책", [("첫째 장 정류장", "rain", 14), ("둘째 장 바다", "sea", 10)], fonts=True)
     (out / "짧은 메모.txt").write_text("장 볼 것: 우유, 달걀, 보리차.\n", encoding="utf-8")
 
 

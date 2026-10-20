@@ -69,6 +69,8 @@ class CoreTextMeasurer(
     override val baseSizePx: Float,
     private val language: String = "ko-KR",
     fontFile: String? = null,
+    /** 책 글꼴(출판사 글꼴). 서식의 face 번호가 이 표를 가리킨다. null 이면 모든 글자가 본문 글꼴. 리더가 가지고 놓는다. */
+    private val bookFaces: BookFaces? = null,
 ) : TextMeasurer {
 
     init {
@@ -106,14 +108,16 @@ class CoreTextMeasurer(
 
     /** 이 서식을 그릴 글꼴. 그리는 쪽([PagePainter])은 반드시 이것을 쓴다 — 잰 글꼴과 그린 글꼴이 다르면 양쪽정렬 끝이 어긋난다. */
     internal fun face(style: TextStyle): Face {
-        // 밑줄 · 취소선 · 위첨자는 폭을 바꾸지 않으므로 키에서 뺀다. 책 글꼴(face)은 아직 없다 — 모두 본문 글꼴로 잰다.
-        val key = Key(style.bold, style.italic, style.sizeScale)
+        // 밑줄 · 취소선 · 위첨자는 폭을 바꾸지 않으므로 키에서 뺀다. 책 글꼴 번호는 그 꼴을 읽었을 때만 넣는다 — 못 읽은
+        // 가족은 본문 글꼴이라 본문과 같은 키를 쓴다.
+        val book = if (style.face > 0) bookFaces?.select(style.face, style.bold) else null
+        val key = Key(style.bold, style.italic, style.sizeScale, if (book != null) style.face else 0)
         return faces.map.getOrPut(key) {
-            Face.create(baseSizePx * style.sizeScale, style.bold, style.italic, language, faces.descriptor)
+            Face.create(baseSizePx * style.sizeScale, style.bold, style.italic, language, faces.descriptor, book)
         }
     }
 
-    internal data class Key(val bold: Boolean, val italic: Boolean, val sizeScale: Float)
+    internal data class Key(val bold: Boolean, val italic: Boolean, val sizeScale: Float, val face: Int)
 
     internal class FaceCache(val descriptor: CTFontDescriptorRef?) {
         val map = HashMap<Key, Face>()
@@ -141,7 +145,12 @@ class CoreTextMeasurer(
          * 조판 설정에서 만든다. 글꼴은 [LayoutSpec.fontId] 에서만 고른다 — 캐시 키에 든 글꼴과 잰 글꼴이 갈라지면 바탕으로 잰
          * 쪽을 고딕으로 그려 줄 끝이 어긋난다. 조판용 · 그리기용이 모두 여기서 만들어진다.
          */
-        fun forSpec(spec: LayoutSpec): CoreTextMeasurer = CoreTextMeasurer(spec.baseSizePx, fontFile = UserFonts.path(spec.fontId))
+        fun forSpec(spec: LayoutSpec, bookFaces: BookFaces? = null): CoreTextMeasurer = CoreTextMeasurer(
+            spec.baseSizePx,
+            fontFile = UserFonts.path(spec.fontId),
+            // 책 글꼴은 조판 설정이 켰을 때만 — 꺼져 있으면 서식에 번호가 남아 있어도 본문 글꼴로 잰다.
+            bookFaces = bookFaces?.takeIf { spec.useBookFonts },
+        )
     }
 }
 
@@ -199,8 +208,18 @@ internal class Face private constructor(
     }
 
     companion object {
-        fun create(sizePx: Float, bold: Boolean, italic: Boolean, language: String, descriptor: CTFontDescriptorRef? = null): Face {
-            val (font, fakeBold) = descriptor?.let { fileFont(it, sizePx, bold) } ?: systemFont(sizePx, bold, language)
+        fun create(
+            sizePx: Float,
+            bold: Boolean,
+            italic: Boolean,
+            language: String,
+            descriptor: CTFontDescriptorRef? = null,
+            /** 책 글꼴의 꼴과 굵기 합성 여부([BookFaces.select]). 있으면 이것이 먼저다. */
+            book: Pair<BookFaces.Face, Boolean>? = null,
+        ): Face {
+            val (font, fakeBold) = book?.let { (face, synthetic) ->
+                CTFontCreateWithFontDescriptor(face.descriptor, sizePx.toDouble(), null)?.let { it to synthetic }
+            } ?: descriptor?.let { fileFont(it, sizePx, bold) } ?: systemFont(sizePx, bold, language)
             val attributes = CFDictionaryCreateMutable(null, 3, kCFTypeDictionaryKeyCallBacks.ptr, kCFTypeDictionaryValueCallBacks.ptr)
                 ?: error("CFDictionaryCreateMutable failed")
             CFDictionarySetValue(attributes, kCTFontAttributeName, font)

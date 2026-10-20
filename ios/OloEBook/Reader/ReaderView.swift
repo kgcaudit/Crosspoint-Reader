@@ -29,6 +29,9 @@ actor ReaderEngine {
     }
 
     func goToBookmark(_ id: Int64) async throws -> PageFrame? { try await reader.goToBookmark(id: id).map(PageFrame.init) }
+    /// 책에 쓸 수 있는 글꼴이 있는지(꺼내 본 뒤에는 실제로 읽힌 것 기준).
+    func hasBookFonts() async -> Bool { (try? await reader.hasBookFonts())?.boolValue ?? false }
+    func bookFontPreviewPath() -> String? { reader.bookFontPreviewPath }
     func close() { reader.close() }
     nonisolated var title: String { reader.title }
     nonisolated var author: String? { reader.author }
@@ -82,6 +85,10 @@ final class ReaderModel: ObservableObject {
     @Published private(set) var engine: ReaderEngine?
     /// 마지막으로 넘긴 때. "화면 켜짐 유지 10분" 이 여기서 센다.
     @Published private(set) var lastActivity = Date()
+    /// 이 책에 쓸 수 있는 글꼴이 있다 — 글꼴 판에 "출판사 글꼴" 을 내놓고, 켜져 있으면 책 글꼴로 짠다.
+    @Published private(set) var bookFonts = false
+    /// "출판사 글꼴" 이름을 그릴 글꼴 파일(꺼낸 뒤에만).
+    @Published private(set) var bookFontPreview: String?
     private(set) var title = ""
     private(set) var author: String?
     private var endAccess: (() -> Void)?
@@ -95,7 +102,10 @@ final class ReaderModel: ObservableObject {
                 try IosBookReader.companion.open(path: book.url.path, bookId: book.id, displayName: book.displayName,
                                                  store: store, cacheDir: cache, edition: book.edition)
             }.value
-            engine = ReaderEngine(reader: reader)
+            let engine = ReaderEngine(reader: reader)
+            // 엔진을 내놓기 전에 안다 — 내놓은 뒤에 알면 첫 쪽을 휴대폰 글꼴로 짠 다음 책 글꼴로 한 번 더 짠다.
+            bookFonts = await engine.hasBookFonts()
+            self.engine = engine
             title = reader.title
             author = reader.author
         } catch {
@@ -107,6 +117,9 @@ final class ReaderModel: ObservableObject {
     func layOut(_ spec: LayoutSpec, _ paper: Paper, blend: Bool) async {
         guard let engine else { return }
         do { frame = try await engine.layOut(spec, paper, blend: blend) } catch { failure = "쪽을 짜지 못했습니다." }
+        // 처음 책 글꼴로 짤 때 꺼내 본다. 하나도 읽히지 않으면(WOFF 뿐 · 깨짐) 목록에서 "출판사 글꼴" 을 거둔다.
+        bookFonts = await engine.hasBookFonts()
+        bookFontPreview = await engine.bookFontPreviewPath()
     }
 
     func turn(_ step: Int) async {
@@ -207,9 +220,9 @@ struct ReaderView: View {
             .frame(width: full.width, height: full.height)
             .offset(x: -insets.leading, y: -insets.top)
             .task { await model.open(book, library: library) }
-            .task(id: LayoutKey(spec: model.engine == nil ? nil : prefs.spec(size: full, insets: insets), paper: paper, blend: prefs.blendPictures)) {
+            .task(id: LayoutKey(spec: model.engine == nil ? nil : prefs.spec(size: full, insets: insets, bookFonts: model.bookFonts), paper: paper, blend: prefs.blendPictures)) {
                 guard model.engine != nil else { return }
-                await model.layOut(prefs.spec(size: full, insets: insets), paper, blend: prefs.blendPictures)
+                await model.layOut(prefs.spec(size: full, insets: insets, bookFonts: model.bookFonts), paper, blend: prefs.blendPictures)
                 #if DEBUG
                 // 화면 확인용: -olo-turn N 쪽 넘기고 -olo-panel bar|view|settings|fonts|contents 로 판을 연다. 출시 빌드에는 없다.
                 let args = CommandLine.arguments

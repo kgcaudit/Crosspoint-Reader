@@ -28,6 +28,8 @@ final class ReaderPrefs: ObservableObject {
     @Published var keepScreenOn: KeepScreenOn { didSet { save(keepScreenOn.rawValue, "keepScreenOn") } }
     /// 본문 글꼴: nil = 휴대폰 글꼴, 아니면 넣은 글꼴의 파일 이름(`FontLibrary`).
     @Published var font: String? { didSet { defaults.set(font, forKey: "reader.font") } }
+    /// 출판사 글꼴(책에 든 글꼴). 안드로이드처럼 기본으로 켠다 — 출판사가 고른 모양이 그 책의 첫인상이다. 끄면 고른 글꼴로 돌아간다.
+    @Published var publisherFonts: Bool { didSet { defaults.set(publisherFonts, forKey: "reader.publisherFonts") } }
 
     private let defaults = UserDefaults.standard
 
@@ -49,17 +51,26 @@ final class ReaderPrefs: ObservableObject {
         paragraphSpacing = int("paragraphSpacing", 0, 0...2)
         keepScreenOn = KeepScreenOn(rawValue: int("keepScreenOn", 0, 0...2)) ?? .system
         font = d.string(forKey: "reader.font")
+        publisherFonts = d.object(forKey: "reader.publisherFonts") as? Bool ?? true
     }
 
     /// 실제로 쓰이는 글꼴 파일. 고른 글꼴이 목록에 없으면(뺀 글꼴 · 읽지 못하는 파일) 휴대폰 글꼴 — 글꼴 ID 를 남겨 두면 캐시 키는
     /// 사용자 글꼴인데 측정기는 휴대폰 글꼴로 재서, 나중에 같은 이름이 돌아오면 옛 쪽을 다른 폭으로 그린다.
     var effectiveFont: String? { FontLibrary.shared.item(font)?.file }
 
+    /// 이 책을 출판사 글꼴로 짜는가. 한 곳에서만 판단한다 — 조판(캐시 키) · 보기 판의 이름 · 글꼴 판의 선택 표시가 따로
+    /// 판단하면 "출판사 글꼴" 이 켜져 보이는데 휴대폰 글꼴로 짜이는 식으로 어긋난다(안드로이드 `usesBookFonts`).
+    func usesBookFonts(_ bookHasFonts: Bool) -> Bool { publisherFonts && bookHasFonts }
+
     private func save(_ value: Any, _ key: String) { defaults.set(value, forKey: "reader.\(key)") }
 
     /// 화면 크기 · 안전 영역과 함께 조판 설정을 만든다. 조판을 바꾸는 설정은 모두 여기를 지나 LayoutSpec 에 들어간다 —
     /// 빠뜨리면 캐시 키가 같아서 설정을 바꿨는데 옛 쪽이 보인다(CLAUDE.md 규칙 4).
-    func spec(size: CGSize, insets: EdgeInsets) -> LayoutSpec {
+    /// [bookFonts] 는 이 책에 쓸 수 있는 글꼴이 있는지. 출판사 글꼴로 짜면 책이 정하지 않은 곳은 휴대폰 글꼴이다 — 고른
+    /// 사용자 글꼴과 섞으면 어느 것이 책의 모양인지 알 수 없다(안드로이드 `bodyFont`). 고른 글꼴은 지우지 않는다.
+    func spec(size: CGSize, insets: EdgeInsets, bookFonts: Bool) -> LayoutSpec {
+        let book = usesBookFonts(bookFonts)
+        return
         ReadingSpec.shared.of(
             widthPt: Float(size.width), heightPt: Float(size.height),
             safeLeft: Float(insets.leading), safeTop: Float(insets.top),
@@ -70,7 +81,8 @@ final class ReaderPrefs: ObservableObject {
             paragraphSpacingEm: ReaderPrefs.paragraphSpacings[paragraphSpacing],
             alignOverride: align == 1 ? TextAlign.justify : align == 2 ? TextAlign.start : nil,
             indentOff: indentOff,
-            fontId: UserFonts.shared.fontId(fileName: effectiveFont)
+            fontId: UserFonts.shared.fontId(fileName: book ? nil : effectiveFont),
+            useBookFonts: book
         )
     }
 }

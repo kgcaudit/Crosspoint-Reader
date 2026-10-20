@@ -13,6 +13,7 @@ import io.github.kgcaudit.reader.document.io.Closeable
 import io.github.kgcaudit.reader.document.io.InputStream
 import io.github.kgcaudit.reader.layout.LayoutSpec
 import io.github.kgcaudit.reader.layout.Page
+import io.github.kgcaudit.reader.layout.book.BookFontTable
 import io.github.kgcaudit.reader.layout.book.BookLayout
 import io.github.kgcaudit.reader.layout.book.ReadingPosition
 import io.github.kgcaudit.reader.layout.book.ReadingSession
@@ -72,6 +73,52 @@ class IosBookReader private constructor(
     private val images = HashMap<String, UIImage?>()
     private val pages = PageStore(cacheDir)
 
+    /** 책의 `@font-face` 표. 처음 짤 때 한 번 읽는다(스타일시트를 모두 훑는다). */
+    private var fontTable: BookFontTable? = null
+
+    /** 꺼내 읽은 책 글꼴. 처음으로 책 글꼴로 조판할 때 준비한다 — 출판사 글꼴을 끈 사람에게 수 MB 를 풀 이유가 없다. */
+    private var bookFaces: BookFaces? = null
+
+    private suspend fun fontTable(): BookFontTable =
+        fontTable ?: (runCatching { BookFontTable.load(document) }.getOrNull() ?: BookFontTable.EMPTY).also { fontTable = it }
+
+    /**
+     * 책에 **쓸 수 있는** 글꼴이 들어 있다 — 글꼴 판에 "출판사 글꼴" 을 내놓는다. 꺼내 보기 전에는 선언만 보고, 꺼내 본 뒤에는
+     * 읽힌 것이 있는지를 본다(안드로이드 `hasBookFonts`). 모두 WOFF 이거나 깨진 책에서 "출판사 글꼴" 이 켜진 채 휴대폰
+     * 글꼴로 그려지면 무엇을 고른 것인지 알 수 없다.
+     */
+    @Throws(Exception::class)
+    suspend fun hasBookFonts(): Boolean = !fontTable().isEmpty && bookFaces?.isEmpty != true
+
+    /** "출판사 글꼴" 이름을 그릴 글꼴 파일. 아직 꺼내기 전이면 null. */
+    val bookFontPreviewPath: String? get() = bookFaces?.previewPath
+
+    /**
+     * [spec] 으로 재고 그리는 측정기. 조판과 그리기가 **같은 꼴**을 쓰게 하는 유일한 길이다 — 따로 만들면 책 글꼴로 잰 줄을
+     * 본문 글꼴로 그려 줄 끝이 어긋난다.
+     */
+    private fun measurer(spec: LayoutSpec): CoreTextMeasurer = CoreTextMeasurer.forSpec(spec, bookFaces)
+
+    /**
+     * 책 글꼴로 짜라면 꺼내 두고 지문을 캐시 키에 넣는다. 꺼내 보니 쓸 글꼴이 없으면(WOFF 뿐 · 깨짐) 책 글꼴 없이 — 두면
+     * "책 글꼴" 키로 짠 쪽이 휴대폰 글꼴로 그려진다.
+     */
+    private suspend fun withBookFonts(spec: LayoutSpec): LayoutSpec {
+        if (!spec.useBookFonts) return spec
+        val table = fontTable()
+        if (bookFaces == null && !table.isEmpty) {
+            bookFaces = try {
+                BookFaces.prepare(document, table, "$cacheDir/bookfonts/${fnv1aHex(document.meta.id.value + "|" + edition)}")
+            } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                BookFaces.EMPTY
+            }
+        }
+        val faces = bookFaces
+        return if (faces == null || faces.isEmpty) spec.copy(useBookFonts = false, bookFontsKey = null) else spec.copy(bookFontsKey = faces.fingerprint)
+    }
+
     /**
      * [spec] 으로 (다시) 짜고 지금 자리의 쪽을 낸다. 처음이면 저장된 자리에서, 이미 읽던 중이면(글자 크기 · 회전)
      * 보던 쪽의 첫 글자가 있는 쪽에서 — 쪽 번호로 이으면 설정을 바꾸는 순간 자리가 미끄러진다(CLAUDE.md 규칙 3).
@@ -82,9 +129,9 @@ class IosBookReader private constructor(
         this.ink = ink
         this.blendPictures = blendPictures
         val anchor = position?.let { p -> layout?.locatorAt(p.spineIndex, p.pageIndex) }
-        val withEdition = spec.copy(edition = edition)
+        val withEdition = withBookFonts(spec.copy(edition = edition))
         if (withEdition != this.spec || layout == null) {
-            val newLayout = BookLayout(document, withEdition, pages, CoreTextMeasurer.forSpec(withEdition))
+            val newLayout = BookLayout(document, withEdition, pages, measurer(withEdition), fonts = fontTable())
             layout = newLayout
             session = ReadingSession(newLayout, store, store)
             this.spec = withEdition
@@ -177,6 +224,8 @@ class IosBookReader private constructor(
 
     fun close() {
         (document as? Closeable)?.close()
+        bookFaces?.release()
+        bookFaces = null
     }
 
     private fun layout(): BookLayout = layout ?: error("layOut first")
@@ -193,7 +242,7 @@ class IosBookReader private constructor(
             PagePainter.blank(spec.viewportWidthPx.toDouble(), spec.viewportHeightPx.toDouble(), paper)
         } else {
             PagePainter.render(
-                page, text, CoreTextMeasurer.forSpec(spec), spec.viewportWidthPx.toDouble(), spec.viewportHeightPx.toDouble(),
+                page, text, measurer(spec), spec.viewportWidthPx.toDouble(), spec.viewportHeightPx.toDouble(),
                 paper, ink, pictures(target.spineIndex, page), PictureBlend.forPaper(paper, blendPictures),
             )
         }
@@ -269,7 +318,8 @@ class IosBookReader private constructor(
     }
 }
 
-private fun InputStream.readAllBytes(): ByteArray {
+/** 스트림 전부. 그림 · 책 글꼴을 꺼낼 때 쓴다. */
+internal fun InputStream.readAllBytes(): ByteArray {
     val chunks = ArrayList<ByteArray>()
     var total = 0
     val buffer = ByteArray(64 * 1024)

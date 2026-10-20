@@ -1,3 +1,4 @@
+import CoreText
 import SwiftUI
 
 /// 리더 위의 판들. 휴대폰은 전체 화면, 폭 600 이상(iPad · 가로)은 목차 · 보기 설정을 오른쪽 옆 판(400)으로 —
@@ -30,7 +31,7 @@ struct ReaderPanels: View {
                 }
             case .fonts:
                 SidePanel(wide: wide, insets: insets, dismiss: model.back) {
-                    FontsScreen(prefs: prefs, back: model.back)
+                    FontsScreen(model: model, prefs: prefs, back: model.back)
                 }
             case .contents:
                 SidePanel(wide: wide, insets: insets, dismiss: model.back) {
@@ -190,7 +191,8 @@ private struct ViewPanelRows: View {
                       onMinus: { prefs.fontSize = max(prefs.fontSize - 1, ReaderPrefs.fontRange.lowerBound) },
                       onPlus: { prefs.fontSize = min(prefs.fontSize + 1, ReaderPrefs.fontRange.upperBound) })
             // 값은 실제로 쓰이는 글꼴 — 뺀 글꼴 이름이 남아 있으면 고른 것과 보이는 것이 다르다.
-            CpLinkRow(label: "글꼴", value: FontLibrary.shared.item(prefs.effectiveFont)?.label ?? FontsScreen.systemLabel) { model.panel = .fonts }
+            CpLinkRow(label: "글꼴", value: prefs.usesBookFonts(model.bookFonts) ? FontsScreen.publisherLabel
+                      : FontLibrary.shared.item(prefs.effectiveFont)?.label ?? FontsScreen.systemLabel) { model.panel = .fonts }
             CpChoice(label: "줄 간격", options: ["좁게", "보통", "넓게"], selected: prefs.lineSpacing) { prefs.lineSpacing = $0 }
             CpChoice(label: "여백", options: ["좁게", "보통", "넓게"], selected: prefs.margin) { prefs.margin = $0 }
             CpLinkRow(label: "모든 보기 설정") { model.panel = .settings }
@@ -237,16 +239,28 @@ private struct ViewSettingsScreen: View {
 }
 
 /// 글꼴 판(구상안 7A 확정): 휴대폰 글꼴 · ＋ 사용자 글꼴 · 넣은 글꼴(사용자 글꼴의 자식이라 동그라미가 부모 글자 시작선에 선다,
-/// UI 규칙 1). 이름은 그 글꼴로 그린다. 출판사 글꼴 줄은 책 글꼴을 읽게 되면 맨 위에 더한다.
+/// UI 규칙 1). 이름은 그 글꼴로 그린다. "출판사 글꼴" 은 글꼴이 든 책에서만 맨 위에 — 없는 책에서 골라도 아무것도 바뀌지 않는다.
 private struct FontsScreen: View {
     static let systemLabel = "휴대폰 글꼴"
+    static let publisherLabel = "출판사 글꼴"
 
+    @ObservedObject var model: ReaderModel
     @ObservedObject var prefs: ReaderPrefs
     let back: () -> Void
     @ObservedObject private var library = FontLibrary.shared
 
     @State private var picking = false
     @State private var notice: (String, String)?
+
+    private var publisherOn: Bool { prefs.usesBookFonts(model.bookFonts) }
+
+    /// "출판사 글꼴" 이름을 책 글꼴로. 아직 꺼내기 전이면 본문 글꼴(안드로이드도 같다).
+    private var publisherPreview: Font {
+        guard let path = model.bookFontPreview,
+              let descriptors = CTFontManagerCreateFontDescriptorsFromURL(URL(fileURLWithPath: path) as CFURL) as? [CTFontDescriptor],
+              let first = descriptors.first else { return CpFont.body }
+        return Font(CTFontCreateWithFontDescriptor(first, 16, nil))
+    }
     @State private var removing: UserFontItem?
 
     var body: some View {
@@ -255,14 +269,21 @@ private struct FontsScreen: View {
                 CpHeader(title: "글꼴", leading: AnyView(CpIconButton(icon: .back, label: "뒤로", action: back))) {}
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        CpRadioRow(title: Self.systemLabel, selected: prefs.effectiveFont == nil,
-                                   subtitle: "iPhone 기본 고딕(Apple SD 산돌고딕 Neo)") { prefs.font = nil }
+                        // 출판사 글꼴이 켜져 있으면 그 줄에만 불이 들어온다. 책이 정하지 않은 곳은 늘 휴대폰 글꼴이라 아래 줄에 따로
+                        // 불을 켤 것이 없다 — 설명 한 줄로 충분하다.
+                        if model.bookFonts {
+                            CpRadioRow(title: Self.publisherLabel, selected: publisherOn,
+                                       subtitle: "이 책에 든 글꼴 · 책이 정하지 않은 곳은 휴대폰 글꼴",
+                                       titleFont: publisherPreview) { prefs.publisherFonts = true }
+                        }
+                        CpRadioRow(title: Self.systemLabel, selected: !publisherOn && prefs.effectiveFont == nil,
+                                   subtitle: "iPhone 기본 고딕(Apple SD 산돌고딕 Neo)") { prefs.font = nil; prefs.publisherFonts = false }
                         // "사용자 글꼴" 은 넣기 단추이자 넣은 글꼴들의 머리다.
                         CpIconRow(icon: .plus, title: "사용자 글꼴", subtitle: "글꼴 파일 넣기 · TTF · OTF · TTC") { picking = true }
                         ForEach(library.fonts) { font in
-                            CpRadioRow(title: font.label, selected: prefs.effectiveFont == font.file,
+                            CpRadioRow(title: font.label, selected: !publisherOn && prefs.effectiveFont == font.file,
                                        subtitle: font.hasHangul ? nil : "한글 없음 · 한글은 휴대폰 글꼴로 보입니다",
-                                       titleFont: library.preview(font)) { prefs.font = font.file } trailing: {
+                                       titleFont: library.preview(font)) { prefs.font = font.file; prefs.publisherFonts = false } trailing: {
                                 CpIconButton(icon: .close, label: "\(font.label) 빼기", color: CpColor.textMuted) { removing = font }
                             }
                             // 넣은 글꼴은 "사용자 글꼴" 의 자식 — 나란하면 네 번째 선택지로 읽힌다(안드로이드 0.10.2).
@@ -304,6 +325,7 @@ private struct FontsScreen: View {
             case let .added(font):
                 // 넣은 글꼴로 바로 바꾼다. 넣고 나서 다시 찾아 누르게 하면 한 번 더 헤맨다.
                 prefs.font = font.file
+                prefs.publisherFonts = false
                 if !font.hasHangul {
                     notice = ("한글이 없는 글꼴입니다", "영문 · 숫자는 이 글꼴로, 한글은 휴대폰 글꼴로 보입니다.")
                 }

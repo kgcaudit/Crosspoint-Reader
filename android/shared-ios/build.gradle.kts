@@ -38,3 +38,9 @@ tasks.register("assembleXCFramework") {
     description = "OloCore.xcframework (debug + release) 를 만든다."
     dependsOn("assembleOloCoreXCFramework")
 }
+
+// 시험이 저장소의 시험 글꼴(OFL, text-platform 의 것 그대로)을 읽는 곳. 시뮬레이터 안 프로세스에는 SIMCTL_CHILD_ 를 뗀 이름으로
+// 간다. 글꼴을 시험 코드에 바이트로 박으면 수백 KB 짜리 소스가 생긴다.
+tasks.withType<org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeSimulatorTest>().configureEach {
+    environment("SIMCTL_CHILD_OLO_TEST_FONTS", rootProject.file("text-platform/src/test/resources/olo-test-fonts").absolutePath)
+}
