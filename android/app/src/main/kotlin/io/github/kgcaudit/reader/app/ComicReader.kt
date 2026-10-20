@@ -121,6 +121,7 @@ import io.github.kgcaudit.reader.ui.design.ScreenPrefs
 import io.github.kgcaudit.reader.ui.design.TapAction
 import io.github.kgcaudit.reader.ui.design.VolumeKeyPaging
 import io.github.kgcaudit.reader.ui.design.actionAt
+import io.github.kgcaudit.reader.ui.design.forward
 import io.github.kgcaudit.reader.document.SpreadSlot
 import io.github.kgcaudit.reader.ui.design.CpPageTurn
 import io.github.kgcaudit.reader.ui.design.PageTurn
@@ -488,14 +489,15 @@ fun ComicReader(
                                 onDoubleTap = { at -> setViewport(viewportNow.value?.toggleZoom(at.x, at.y)) },
                                 onTap = { at ->
                                     if (panel != ComicPanel.None) { panel = ComicPanel.None; return@detectTapGestures }
-                                    when (latestPrefs.touch.actionAt(at.x, at.y, viewW, BOOKMARK_CORNER.toPx())) {
-                                        // 화면의 오른쪽 = 왼→오 책의 다음. 오→왼이면 뒤집는다. 넘기기는 최신 처리기로 — 이 처리기는 보이는
-                                        // 조각 번호가 바뀔 때만 새로 만들어지는데, 나누기를 켜고 끄면 번호는 그대로(2쪽 통째 = 조각 1 = 2쪽 왼쪽 반)
-                                        // 조각 목록만 바뀐다. 옛 목록으로 셈하면 "이 작품 나눔" 을 고른 뒤 첫 누름이 오른쪽 반을 건너뛰었다.
-                                        TapAction.Next -> advanceNow(ComicReading.forward(screenNext = true, rightToLeft = rtl))
-                                        TapAction.Previous -> advanceNow(ComicReading.forward(screenNext = false, rightToLeft = rtl))
+                                    val zones = latestPrefs.touch
+                                    when (val action = zones.actionAt(at.x, at.y, viewW, BOOKMARK_CORNER.toPx())) {
                                         TapAction.Menu -> panel = ComicPanel.Bar
                                         TapAction.Bookmark -> toggleBookmarkNow()
+                                        // 읽는 방향으로 바꾸는 것은 터치 영역이 한다(오→왼이면 자리를 뒤집되 한 손은 늘 다음). 넘기기는 최신
+                                        // 처리기로 — 이 처리기는 보이는 조각 번호가 바뀔 때만 새로 만들어지는데, 나누기를 켜고 끄면 번호는
+                                        // 그대로(2쪽 통째 = 조각 1 = 2쪽 왼쪽 반) 조각 목록만 바뀐다. 옛 목록으로 셈하면 "이 작품 나눔" 을 고른 뒤
+                                        // 첫 누름이 오른쪽 반을 건너뛰었다.
+                                        else -> zones.forward(action, rtl)?.let { advanceNow(it) }
                                     }
                                 },
                             )

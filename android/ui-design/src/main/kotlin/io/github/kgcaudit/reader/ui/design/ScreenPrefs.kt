@@ -190,6 +190,19 @@ fun TouchZones.actionAt(x: Float, y: Float, width: Float, cornerPx: Float): TapA
     }
 }
 
+/**
+ * 누른 동작이 **읽는 순서로** 앞으로인가. 넘기기가 아니면(메뉴 · 책갈피) null. 만화처럼 오→왼 책이 있는 리더가 쓴다.
+ *
+ * 기본 · 좌우 바꾸기는 화면 자리를 뜻한다(오른쪽 = 왼→오 책의 다음) — 오→왼 책이면 뒤집어, 왼쪽을 누르면 다음 쪽이다.
+ * 한 손은 자리가 아니라 "다음" 그 자체라 뒤집지 않는다. 0.54.7 까지는 한 손도 뒤집혀, 오→왼 만화에서 어느 쪽을 눌러도
+ * 앞 쪽으로 갔다(사용자 보고).
+ */
+fun TouchZones.forward(action: TapAction, rightToLeft: Boolean): Boolean? = when (action) {
+    TapAction.Next -> this == TouchZones.OneHand || !rightToLeft
+    TapAction.Previous -> rightToLeft
+    TapAction.Menu, TapAction.Bookmark -> null
+}
+
 /** 쪽 넘김 효과. 덮기 · 말림은 0.32.0. */
 enum class PageTurn(val label: String) {
     None("없음"),

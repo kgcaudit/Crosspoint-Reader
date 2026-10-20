@@ -32,6 +32,25 @@ class TouchZonesTest {
     }
 
     @Test
+    fun `right to left mirrors the sides but one hand still goes forward on either side`() {
+        fun TouchZones.go(x: Float, rtl: Boolean) = forward(at(x), rtl)
+        // 왼→오: 오른쪽이 다음.
+        assertEquals(true, TouchZones.Default.go(900f, rtl = false))
+        assertEquals(false, TouchZones.Default.go(100f, rtl = false))
+        // 오→왼: 자리를 뒤집는다 — 왼쪽이 다음.
+        assertEquals(true, TouchZones.Default.go(100f, rtl = true))
+        assertEquals(false, TouchZones.Default.go(900f, rtl = true))
+        assertEquals(true, TouchZones.Reversed.go(900f, rtl = true))
+        // 한 손: 방향과 상관없이 양쪽 모두 다음. 0.54.7 까지 오→왼에서 양쪽 모두 앞 쪽으로 갔다.
+        for (rtl in listOf(false, true)) for (x in listOf(100f, 900f)) {
+            assertEquals(true, TouchZones.OneHand.go(x, rtl), "한 손 · ${if (rtl) "오→왼" else "왼→오"} · x=$x")
+        }
+        // 넘기기가 아닌 자리.
+        assertEquals(null, TouchZones.OneHand.go(500f, rtl = true))
+        assertEquals(null, TouchZones.OneHand.forward(TapAction.Bookmark, rightToLeft = true))
+    }
+
+    @Test
     fun `the top right corner toggles the bookmark in every mode`() {
         for (zones in TouchZones.entries) assertEquals(TapAction.Bookmark, zones.at(950f, 50f), zones.name)
     }

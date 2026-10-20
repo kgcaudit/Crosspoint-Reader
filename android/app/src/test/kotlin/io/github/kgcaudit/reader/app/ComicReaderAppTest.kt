@@ -13,6 +13,9 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.swipeLeft
+import io.github.kgcaudit.reader.reflow.ReaderPrefs
+import io.github.kgcaudit.reader.ui.design.ScreenPrefs
+import io.github.kgcaudit.reader.ui.design.TouchZones
 import androidx.compose.ui.test.swipeRight
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.flow.first
@@ -188,6 +191,26 @@ class ComicReaderAppTest {
         waitFor(page(3))
         val s = screen()
         assertTrue(redAt(s, 0.25f) && !redAt(s, 0.75f), "오→왼에서 쪽 그림까지 거울처럼 뒤집혔다")
+    }
+
+    @Test
+    fun `one hand mode turns forward on either side of a right to left comic`() {
+        // 사용자 보고(0.54.7): 한 손(양쪽 다음)인데 오→왼 만화에서 어느 쪽을 눌러도 앞 쪽으로 갔다.
+        app.container.prefs.save(ReaderPrefs(screen = ScreenPrefs(touch = TouchZones.OneHand)))
+        compose.activityRule.scenario.recreate()
+        runBlocking { app.container.data.comics.setRightToLeft(app.container.data.comics.works().first().single(), true) }
+        openWork()
+        click(hasText("1권"))
+        waitFor(page(1))
+        tapRight()
+        waitFor(page(2))
+        // 두 번 누르기(확대)로 읽히지 않게 사이를 둔다.
+        compose.mainClock.advanceTimeBy(1_000)
+        tapLeft()
+        waitFor(page(3))
+        // 앞 쪽은 밀어서 — 오→왼 책은 왼쪽으로 밀면 앞 쪽이다.
+        compose.onRoot().performTouchInput { swipeLeft() }
+        waitFor(page(2))
     }
 
     @Test
