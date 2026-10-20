@@ -648,7 +648,7 @@ fun ComicReader(
             CpToolButton(CpIcons.Bookmark, "책갈피", { panel = ComicPanel.Bookmarks })
             CpToolButton(CpIcons.View, "보기", { panel = if (panel == ComicPanel.View) ComicPanel.Bar else ComicPanel.View }, selected = panel == ComicPanel.View)
         }
-        ComicPanel.Settings -> CpViewSettingsScreen(prefs, onPrefsChange, onBack = { panel = ComicPanel.View }, highlights = false, reader = CpReaderKind.Comic, ownCovers = ownCovers)
+        ComicPanel.Settings -> CpViewSettingsScreen(prefs, onPrefsChange, onBack = { panel = ComicPanel.View }, highlights = false, reader = CpReaderKind.Comic, ownCovers = ownCovers, rightToLeft = rtl)
         // 쪽 목록 · 책갈피는 책의 쪽으로 보이고 고른다.
         // 펼침면은 한 줄을 다 쓰고, 나누는 동안은 두 반을 따로 고른다(확정 구상안 6). 고른 반은 실제 쪽이라 방향에 맞는 자리로 옮긴다.
         ComicPanel.Pages -> PageGrid(book, title, sizes, split, parts.getOrNull(page) ?: SpreadSplit.Part(realOf(page), SpreadSplit.Half.WHOLE), onBack = { panel = ComicPanel.Bar }) { p, half ->
