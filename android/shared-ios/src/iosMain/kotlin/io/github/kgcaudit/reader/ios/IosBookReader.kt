@@ -4,6 +4,8 @@ package io.github.kgcaudit.reader.ios
 
 import io.github.kgcaudit.reader.document.BookFormat
 import io.github.kgcaudit.reader.document.BookId
+import io.github.kgcaudit.reader.document.Locator
+import io.github.kgcaudit.reader.document.TocEntry
 import io.github.kgcaudit.reader.document.ReflowDocument
 import io.github.kgcaudit.reader.document.TxtDocument
 import io.github.kgcaudit.reader.document.epub.EpubDocument
@@ -21,6 +23,12 @@ import kotlinx.cinterop.usePinned
 import platform.Foundation.NSData
 import platform.Foundation.create
 import platform.UIKit.UIImage
+
+/** 목차 한 줄. */
+class ContentsRow(val label: String, val depth: Int)
+
+/** 책갈피 한 줄. [snippet] 은 꽂은 쪽의 첫 80자. */
+class BookmarkRow(val id: Long, val snippet: String, val percent: Float)
 
 /** 화면에 낼 한 쪽과 그 쪽의 자리. */
 class ReaderFrame(
@@ -51,12 +59,15 @@ class IosBookReader private constructor(
     private val edition: String?,
 ) {
     val title: String get() = document.meta.title
+    val author: String? get() = document.meta.author
 
     private var layout: BookLayout? = null
     private var session: ReadingSession? = null
     private var position: ReadingPosition? = null
     private var paper = 0xFBF9F5
     private var ink = 0x1D1A16
+    private var blendPictures = true
+    private var toc: List<TocEntry>? = null
     private var spec: LayoutSpec? = null
     private val images = HashMap<String, UIImage?>()
     private val pages = PageStore(cacheDir)
@@ -66,9 +77,10 @@ class IosBookReader private constructor(
      * 보던 쪽의 첫 글자가 있는 쪽에서 — 쪽 번호로 이으면 설정을 바꾸는 순간 자리가 미끄러진다(CLAUDE.md 규칙 3).
      */
     @Throws(Exception::class)
-    suspend fun layOut(spec: LayoutSpec, paper: Int, ink: Int): ReaderFrame {
+    suspend fun layOut(spec: LayoutSpec, paper: Int, ink: Int, blendPictures: Boolean): ReaderFrame {
         this.paper = paper
         this.ink = ink
+        this.blendPictures = blendPictures
         val anchor = position?.let { p -> layout?.locatorAt(p.spineIndex, p.pageIndex) }
         val withEdition = spec.copy(edition = edition)
         if (withEdition != this.spec || layout == null) {
@@ -112,6 +124,57 @@ class IosBookReader private constructor(
         return show(p)
     }
 
+    // ── 목차 ──────────────────────────────────────────────────────────────
+
+    /** 목차(책이 적은 차례 그대로). TXT 처럼 없으면 빈 목록. 읽을 수 없는 목차도 빈 목록 — 목차 때문에 책이 안 열리면 안 된다. */
+    @Throws(Exception::class)
+    suspend fun contents(): List<ContentsRow> = outline().map { ContentsRow(it.label, it.depth) }
+
+    /**
+     * 지금 읽는 곳의 목차 항목(없으면 −1). "지금 장과 같은 항목" 이 아니라 **지금 자리 이전의 마지막 항목** — 실제 책은 목차가
+     * 장보다 훨씬 적어(항목 7개가 장 113개를 덮는다) 같은 것만 찾으면 대부분의 쪽에서 아무것도 강조되지 않는다. 안드로이드
+     * `currentTocIndex` 와 같은 규칙이다.
+     */
+    @Throws(Exception::class)
+    suspend fun currentContentsIndex(): Int {
+        val spine = position?.spineIndex ?: return -1
+        return currentIndex(outline(), spine)
+    }
+
+    /** 목차 항목으로 간다. 없는 항목 · 가리키는 곳이 없는 항목은 null(아무 일도 없다). */
+    @Throws(Exception::class)
+    suspend fun goToContents(index: Int): ReaderFrame? {
+        val entry = outline().getOrNull(index) ?: return null
+        val spine = (entry.locator as? Locator.Reflow)?.spine ?: return null
+        val l = layout()
+        if (spine !in l.spine().indices) return null // 어긋난 목차 링크: 그 항목만 버린다(CLAUDE.md 규칙 6).
+        return show(l.resolve(l.locatorForAnchor(spine, entry.anchor)))
+    }
+
+    private suspend fun outline(): List<TocEntry> =
+        toc ?: runCatching { document.outline() }.getOrDefault(emptyList()).also { toc = it }
+
+    // ── 책갈피 ────────────────────────────────────────────────────────────
+
+    /** 꽂은 책갈피(책 차례대로). */
+    @Throws(Exception::class)
+    suspend fun bookmarks(): List<BookmarkRow> {
+        val s = session ?: return emptyList()
+        val l = layout()
+        return s.bookmarks().map { b ->
+            val percent = (b.locator as? Locator.Reflow)?.let { runCatching { l.percent(it) }.getOrDefault(0f) } ?: 0f
+            BookmarkRow(b.id, b.snippet?.takeIf { it.isNotBlank() } ?: "(빈 쪽)", percent)
+        }
+    }
+
+    /** 책갈피 자리로 간다. 지워진 책갈피면 null. */
+    @Throws(Exception::class)
+    suspend fun goToBookmark(id: Long): ReaderFrame? {
+        val s = session ?: return null
+        val bookmark = s.bookmarks().firstOrNull { it.id == id } ?: return null
+        return show(s.goTo(bookmark) ?: return null)
+    }
+
     fun close() {
         (document as? Closeable)?.close()
     }
@@ -131,7 +194,7 @@ class IosBookReader private constructor(
         } else {
             PagePainter.render(
                 page, text, CoreTextMeasurer.forSpec(spec), spec.viewportWidthPx.toDouble(), spec.viewportHeightPx.toDouble(),
-                paper, ink, pictures(target.spineIndex, page),
+                paper, ink, pictures(target.spineIndex, page), PictureBlend.forPaper(paper, blendPictures),
             )
         }
         return ReaderFrame(
@@ -163,6 +226,20 @@ class IosBookReader private constructor(
 
     companion object {
         private const val IMAGE_CACHE = 12
+
+        internal fun currentIndex(entries: List<TocEntry>, spineIndex: Int): Int {
+            var best = -1
+            var bestSpine = -1
+            entries.forEachIndexed { i, entry ->
+                val spine = (entry.locator as? Locator.Reflow)?.spine ?: return@forEachIndexed
+                // 같은 장을 가리키는 항목이 여럿이면(한 파일에 여러 절) 그 장의 첫 항목. 앵커의 글자 자리는 조판해야 안다.
+                if (spine <= spineIndex && spine > bestSpine) {
+                    best = i
+                    bestSpine = spine
+                }
+            }
+            return best
+        }
 
         /**
          * [path] 의 책을 연다. [bookId] 는 서재가 정한 변하지 않는 이름(앱 폴더 안의 상대 경로 등) — 앱을 고쳐 깔면 앱

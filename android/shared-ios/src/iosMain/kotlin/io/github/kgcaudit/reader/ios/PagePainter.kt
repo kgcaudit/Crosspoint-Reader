@@ -12,6 +12,8 @@ import platform.CoreGraphics.CGContextFillRect
 import platform.CoreGraphics.CGContextRef
 import platform.CoreGraphics.CGContextRestoreGState
 import platform.CoreGraphics.CGContextSaveGState
+import platform.CoreGraphics.CGContextSetBlendMode
+import platform.CoreGraphics.CGBlendMode
 import platform.CoreGraphics.CGContextSetRGBFillColor
 import platform.CoreGraphics.CGContextSetRGBStrokeColor
 import platform.CoreGraphics.CGContextSetTextMatrix
@@ -44,6 +46,7 @@ object PagePainter {
         paper: Int,
         ink: Int,
         pictures: Map<String, UIImage>,
+        blend: PictureBlend = PictureBlend.None,
     ): UIImage {
         val format = UIGraphicsImageRendererFormat.preferredFormat().apply { opaque = true }
         val renderer = UIGraphicsImageRenderer(size = CGSizeMake(widthPt, heightPt), format = format)
@@ -52,7 +55,7 @@ object PagePainter {
             fill(cg, paper, 1.0)
             CGContextFillRect(cg, CGRectMake(0.0, 0.0, widthPt, heightPt))
             draw(cg, page, text, measurer, ink)
-            drawPictures(page, pictures)
+            drawPictures(cg, page, pictures, blend)
         }
     }
 
@@ -70,7 +73,7 @@ object PagePainter {
      * 그림은 칸 안에 원래 비율로 가장 크게, 가운데에(디자인 인계 6-2 "그림은 자르지 않는다"). 조판기가 비율대로 칸을 잡지만
      * 그림 머리의 크기와 실제 그림이 다른 책이 있어, 늘여 채우면 찌그러진다.
      */
-    private fun drawPictures(page: Page, pictures: Map<String, UIImage>) {
+    private fun drawPictures(context: CGContextRef, page: Page, pictures: Map<String, UIImage>, blend: PictureBlend) {
         for (placed in page.images) {
             val image = pictures[placed.href] ?: continue
             val (iw, ih) = image.size.useContents { width to height }
@@ -80,7 +83,20 @@ object PagePainter {
             val scale = minOf(boxW / iw, boxH / ih)
             val w = iw * scale
             val h = ih * scale
-            image.drawInRect(CGRectMake(placed.xPx + (boxW - w) / 2, placed.yPx + (boxH - h) / 2, w, h))
+            val rect = CGRectMake(placed.xPx + (boxW - w) / 2, placed.yPx + (boxH - h) / 2, w, h)
+            when (blend) {
+                // 곱하기: 흰 바탕은 지면색이 되고 검은 글씨는 그대로. 투명한 곳은 지면이 그대로 비친다.
+                PictureBlend.Multiply -> image.drawInRect(rect, CGBlendMode.kCGBlendModeMultiply, 1.0)
+                PictureBlend.Dim -> {
+                    image.drawInRect(rect)
+                    CGContextSaveGState(context)
+                    CGContextSetBlendMode(context, CGBlendMode.kCGBlendModeMultiply)
+                    CGContextSetRGBFillColor(context, DARK_DIM, DARK_DIM, DARK_DIM, 1.0)
+                    CGContextFillRect(context, rect)
+                    CGContextRestoreGState(context)
+                }
+                PictureBlend.None -> image.drawInRect(rect)
+            }
         }
     }
 
@@ -127,6 +143,9 @@ object PagePainter {
         }
     }
 
+    /** 어두운 지면에서 그림 밝기(안드로이드와 같다). 흰 바탕이 검은 지면 옆에서 눈부시지 않으면서 어두운 곳이 뭉개지지 않는다. */
+    private const val DARK_DIM = 0.78
+
     private fun fill(context: CGContextRef, rgb: Int, alpha: Double) =
         CGContextSetRGBFillColor(context, red(rgb), green(rgb), blue(rgb), alpha)
 
@@ -136,4 +155,28 @@ object PagePainter {
     private fun red(rgb: Int) = ((rgb shr 16) and 0xFF) / 255.0
     private fun green(rgb: Int) = ((rgb shr 8) and 0xFF) / 255.0
     private fun blue(rgb: Int) = (rgb and 0xFF) / 255.0
+}
+
+/** "그림 흰 바탕"(보기 판). 그림의 흰 바탕이 지면색 위에서 흰 네모로 튀지 않게 한다. */
+enum class PictureBlend {
+    /** 그대로 · 흰 지면. */
+    None,
+
+    /** 밝은 지면: 그림에 지면색을 곱한다. */
+    Multiply,
+
+    /** 어두운 지면: 그림을 조금 어둡게. */
+    Dim,
+    ;
+
+    companion object {
+        /** [paper] 지면에서 "배경색으로" 를 골랐을 때의 방식. 흰 지면은 할 일이 없다. */
+        fun forPaper(paper: Int, blend: Boolean): PictureBlend {
+            if (!blend || paper == 0xFFFFFF) return None
+            val r = (paper shr 16) and 0xFF
+            val g = (paper shr 8) and 0xFF
+            val b = paper and 0xFF
+            return if (0.299 * r + 0.587 * g + 0.114 * b < 128) Dim else Multiply
+        }
+    }
 }

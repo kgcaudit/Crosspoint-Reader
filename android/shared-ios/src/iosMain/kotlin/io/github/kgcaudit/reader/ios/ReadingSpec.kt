@@ -41,20 +41,32 @@ object ReadingSpec {
         safeRight: Float,
         safeBottom: Float,
         fontSize: Float = DEFAULT_SIZE,
+        /** 줄 간격 배수: 좁게 1.4 · 보통 1.65 · 넓게 1.9(안드로이드 `LineSpacing`). */
+        lineSpacing: Float = DEFAULT_LINE_SPACING,
+        /** 좌우 여백: 좁게 24 · 보통 36 · 넓게 48(안드로이드 `Margin`). */
+        sideMargin: Float = SIDE_MARGIN,
+        /** 문단 간격(em): 좁게 0.25 · 보통 0.6 · 넓게 1.0. */
+        paragraphSpacingEm: Float = 0.25f,
+        /** 정렬: null = 원본(책이 정한 대로), 양쪽 · 왼쪽은 덮어쓴다. */
+        alignOverride: TextAlign? = null,
+        /** 첫 줄 들여쓰기 끔. */
+        indentOff: Boolean = false,
     ): LayoutSpec = LayoutSpec(
         viewportWidthPx = widthPt,
         viewportHeightPx = heightPt,
         margin = Insets(
-            left = SIDE_MARGIN + safeLeft,
+            left = sideMargin + safeLeft,
             top = TOP_MARGIN + safeTop,
-            right = SIDE_MARGIN + safeRight,
+            right = sideMargin + safeRight,
             bottom = BOTTOM_MARGIN + safeBottom,
         ),
         baseSizePx = fontSize,
-        lineHeightMultiplier = DEFAULT_LINE_SPACING,
+        lineHeightMultiplier = lineSpacing,
         align = TextAlign.Justify,
         paragraphIndentEm = 1f,
-        paragraphSpacingEm = 0.25f,
+        paragraphSpacingEm = paragraphSpacingEm,
+        alignOverride = alignOverride,
+        indentOff = indentOff,
         // CSS 1px = 1pt. 안드로이드는 1px 을 1dp 로 옮긴다(cssPxScale = 밀도) — iOS 의 pt 가 dp 자리다.
         cssPxScale = 1f,
         fontId = "ios-system",
