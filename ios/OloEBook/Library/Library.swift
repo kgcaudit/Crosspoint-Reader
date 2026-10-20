@@ -20,6 +20,13 @@ struct LibraryBook: Identifiable, Hashable {
 
     /// 조판 캐시 키의 판. 같은 이름으로 고친 책에 옛 쪽이 보이지 않게.
     var edition: String { "\(sizeBytes)-\(Int64(modified.timeIntervalSince1970))" }
+
+    /// 책이 든 폴더 이름(목록 보기의 "84KB · 소설"). 앱 폴더 바로 안이면 "OLO eBook" — 실제 이름 "Documents" 는
+    /// 파일 앱에서도 보이지 않는 이름이라 사람이 알아보지 못한다.
+    @MainActor var folderLabel: String {
+        let parent = url.deletingLastPathComponent()
+        return parent.standardizedFileURL.path == Library.appFolder.standardizedFileURL.path ? "OLO eBook" : parent.lastPathComponent
+    }
 }
 
 /// 서재 한 줄 = 책 + 읽기 기록.
@@ -44,7 +51,8 @@ enum LibrarySort: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-enum LibraryLayout: String { case grid, list }
+/// 서재 보기. 세 갈래가 모두 같은 보기를 따른다(안드로이드 0.38). 책장은 원목 판 위에 표지만(0.39 · 0.44).
+enum LibraryLayout: String { case grid, list, shelf }
 
 /// 서재. 안드로이드의 폴더 등록(SAF) 대신 세 길로 책을 들인다(2026-10-20 사용자 결정, 구상안 3A):
 /// 앱 자기 폴더(파일 앱 › 나의 iPhone › OLO eBook), 연결한 폴더, 다른 앱에서 열기(받은 파일 폴더로 복사).

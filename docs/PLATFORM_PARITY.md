@@ -61,7 +61,7 @@ iOS 쪽 actual 은 `document/src/iosTest` · `core-layout/src/iosTest` 가 시�
 번들 식별자 `io.github.kgcaudit.oloebook`(안드로이드와 같다). 묶음 대상 `OloCore` 가 빌드마다 지금 칩 · 구성의 프레임워크 하나를
 Gradle 로 링크하고, 앱은 검색 경로로 읽는다 — XCFramework 를 앱에 직접 붙이면 Xcode 가 Gradle 보다 먼저 옛 것을 복사해 가서
 Kotlin 을 고친 뒤 두 번 빌드해야 반영됐다. 처음 한 번은 `android` 폴더에서 `./gradlew :shared-ios:linkDebugFrameworkIosSimulatorArm64`.
-서재(구상안 1A · 3A) · 리더(2A)까지. 디자인 시스템은 `ios/OloEBook/Design/` — `CpTheme`(색 · 글자 · 치수, 다크는 토큰에서) · `CpIcons`(안드로이드 경로 문자열을 그대로 읽는다, SF Symbols 를 쓰지 않는다) · `CpComponents`. 화면 확인용 시험 책은 `ios/TestBooks/`(`make_books.py` 가 EPUB 을 짓는다). 디버그 빌드에만 실행 인자 `-olo-open "<파일 이름>"` · `-olo-turn N` · `-olo-menu` 가 있다(시뮬레이터는 명령으로 누를 수 없다). 찍은 화면은 `docs/ios-screens/`.
+서재(구상안 3A · 9 · 10 · 11) · 리더(2A · 4A · 5A · 6A)까지. 디자인 시스템은 `ios/OloEBook/Design/` — `CpTheme`(색 · 글자 · 치수, 다크는 토큰에서) · `CpIcons`(안드로이드 경로 문자열을 그대로 읽는다, SF Symbols 를 쓰지 않는다) · `CpComponents`. 화면 확인용 시험 책은 `ios/TestBooks/`(`make_books.py` 가 EPUB 을 짓는다). 디버그 빌드에만 실행 인자 `-olo-open "<파일 이름>"` · `-olo-turn N` · `-olo-menu` 가 있다(시뮬레이터는 명령으로 누를 수 없다). 서재 보기는 설정 값 그대로 `-library.layout grid|list|shelf` 로 띄운다(실행 인자가 설정을 덮는다). 찍은 화면은 `docs/ios-screens/`.
 
 공통 코드가 iOS 에서도 컴파일되는지는 리눅스에서도 검사된다: `./gradlew :document:check :core-layout:check`
 (`compileCommonMainKotlinMetadata` 포함). `commonMain` 에 `java.*` 를 쓰면 여기서 깨진다.
@@ -87,8 +87,8 @@ macOS 26.6 (Apple Silicon) · Xcode 27.1 · iOS 시뮬레이터 27.0/27.1 · JDK
 | 폴더 등록 · 하위 폴더 훑기 | ✅ | ◐ | 2026-10-20 구상안 3A: 앱 폴더(파일 앱 › 나의 iPhone › OLO eBook) + 다른 폴더 연결(보안 범위 북마크). PDF 는 리더(PDFKit) 전이라 서재에 올리지 않는다 |
 | 연결 프로그램으로 열기(다른 앱의 파일) | ✅ | ◐ | EPUB · TXT 를 `받은 파일` 폴더로 들여와 바로 연다(같은 이름 · 크기면 다시 복사 안 함). 실기기 확인 전 |
 | 책 · 만화 탭, 만화 세 갈래(만화 · 웹툰 · 그림책) | ✅ | ⬜ | |
-| 격자 · 목록 · 원목 책장 보기 | ✅ | ◐ | 격자 · 목록. 책장 보기 ⬜. **2026-10-20 찾음: iOS 서재는 디자인 인계 그림(9-28, 0.25 무렵)을 보고 만들어 0.38~0.44 의 서재 개편이 빠졌다** — "OLO eBook" 머리 없앰, 탭 아래 도구 한 줄(순서 ▾ · 찾기 · 격자\|목록\|책장 · 더 보기), 읽는 책 줄도 줄바꿈. 구상안 다시 |
-| 읽는 책 · 읽은 책 · 읽을 책, 책 찾기 | ✅ | ◐ | 순서(최근 읽은 순 · 이름 · 추가 · 크기) ✅. 갈래 이름이 옛 말("읽는 중") — 0.43.0 용어집대로 "읽는 책" 으로. 책 찾기 ⬜ |
+| 격자 · 목록 · 원목 책장 보기 | ✅ | ✅ | 2026-10-21 구상안 9 · 10 · 11 로 0.54.8 에 맞춤: 머리 없앰 · 도구 한 줄(순서 ▾ · 찾기 · 격자\|목록\|책장 · 더 보기) · 원목 책장(값은 `WoodShelf.kt` 그대로, 결 난수만 다름) · 대신 표지 띠 · 순서 판(OLO). 더 보기의 독서 기록 줄은 그 기능을 만들 때 |
+| 읽는 책 · 읽은 책 · 읽을 책, 책 찾기 | ✅ | ◐ | 갈래(0.43 이름 · 안드로이드 순서) · 순서 ✅, 세 갈래 모두 같은 보기 · 줄바꿈(0.38) ✅. 책 찾기 ⬜(단추는 흐리게). 저자 줄 ⬜ — iOS 는 아직 책 정보를 읽지 않아 형식을 보인다 |
 | 작품 묶기 · 작품 정리 · 압축 속 압축을 권으로 | ✅ | ⬜ | |
 | 표지 고르기(반쪽 · 왼/오/통째로) | ✅ | ⬜ | |
 | 옮긴 파일의 기록 잇기 | ✅ | ⬜ | |
