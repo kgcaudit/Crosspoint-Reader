@@ -31,6 +31,11 @@ struct CpIcon: Equatable {
     static let close = line("M6 6 L18 18 M18 6 L6 18")
     static let note = line("M5 4 H19 V15 L14 20 H5 Z M14 20 V15 H19 M8.5 8.5 H15.5 M8.5 11.5 H13")
     static let headphones = line("M4.5 15 V12 A7.5 7.5 0 0 1 19.5 12 V15 M4.5 14 H7.5 V20 H5.5 A1 1 0 0 1 4.5 19 Z M19.5 14 H16.5 V20 H18.5 A1 1 0 0 0 19.5 19 Z")
+    static let play = fill("M8 5 L19 12 L8 19 Z")
+    static let pause = fill("M7 5 H10 V19 H7 Z M14 5 H17 V19 H14 Z")
+    static let skipBack = fill("M6 5 V19 M18 5 L9 12 L18 19 Z")
+    static let skipForward = fill("M18 5 V19 M6 5 L15 12 L6 19 Z")
+    static let timer = line("M12 8 V13 L15 15 M9.5 3 H14.5 M12 21 A8 8 0 1 0 12 5 A8 8 0 1 0 12 21 Z")
     static let info = line("M12 3.5 A8.5 8.5 0 1 0 12 20.5 A8.5 8.5 0 1 0 12 3.5 Z M12 11 V16.5 M12 7.9 V8")
     /// 보기 설정: 조절 막대 셋(0.29.0). 구상안의 "가가" 자리 — 안드로이드는 이 그림으로 바꿨다.
     static let view = line("M4 7 H20 M4 12 H20 M4 17 H20 M9 5 V9 M15 10 V14 M7.5 15 V19")
