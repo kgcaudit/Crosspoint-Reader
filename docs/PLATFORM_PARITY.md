@@ -127,7 +127,7 @@ macOS 26.6 (Apple Silicon) · Xcode 27.1 · iOS 시뮬레이터 27.0/27.1 · JDK
 | 기능 | 안 | i | iOS 메모 |
 |---|---|---|---|
 | 쪽 보기 · 확대 · 폭 맞춤 · 목차 · 암호 PDF | ✅ | ◐ | 구상안 32A · 33: 서재에 PDF(표지 = 첫 쪽, 제목 · 저자는 공통 `PdfStructureReader` 정리 규칙), 쪽은 PDFKit 으로 그려 지면색을 곱한다(검은 지면은 0.78 로 어둡게만). 쪽 맞춤 쪽 전체(기본) · 폭 · 이어서 — 앱 전체 하나(`pdfFit`). 쪽 전체: 넘김 효과 · 말림 · 소리 그대로, 가로 두 쪽(표지 따로/함께 — 책마다, 처음 값은 모든 보기 설정, 혼자인 쪽은 공통 `SpreadSlot`). 폭: 한 화면씩(10% 겹침) 내리다 쪽 끝에서 넘김, 앞 쪽은 끝부터, 밀면 바로 넘김, 알약 '4쪽 · 2번째 화면 (2/4)' · 막대, 쪽 안 자리 저장. 이어서: 사이 14 · 짙은 틈, 누르면 90%, 밀면 한 쪽, 알약 'n쪽 · N쪽 중', 지금 쪽 = 가운데 · 저장 = 맨 위. 확대: 두 번 누르기 2.5배 · 두 손가락 최대 5배(쪽 전체 · 폭, 두 쪽 · 이어서는 없음), 넘기면 풀림. 목차(쪽 이름표 · 줄 끝 쪽), 책갈피 'n쪽'(펼침이면 두 쪽 모두 뺌), 진도 막대 'n쪽', 아래 줄 'iv · 4 / 230' · 이 장 남은 쪽(목차 항목까지). 암호는 묻지 않고 '암호가 걸린 PDF입니다. …'(32A), 깨진 파일 · 쪽 없는 파일 안내. **다른 점**: 폭 · 이어서에서는 말림 대신 그 밖의 넘김 효과(말림은 화면 한 장이 쪽 전체여야 한다), PDF 의 남은 시간(쪽 단위 빠르기)은 아직 빈칸, 화면 회전 줄 없음 |
-| 찾기 · 형광펜 · 듣기 | ✅ | ⬜ | PDFKit 의 글자 층 |
+| 찾기 · 형광펜 · 듣기 | ✅ | ⬜ | 구상안 34 확정(화면은 책과 같다, 쪽 단위 · 한 쪽 안에서만 · 스캔본 안내). 34A: 글자 층 코드가 공통으로 옮겨지기를 기다린다(변경 기록의 요청) |
 | 그림 위주 PDF 를 만화로 보기 | ✅ | ⬜ | |
 
 ### 만화 · 웹툰
@@ -160,6 +160,7 @@ iOS 세션이 공통 코드의 문제를 찾으면 판 칸에 `iOS→안` 이라
 
 | 판 | 날짜 | 무엇 | 범위 | iOS |
 |---|---|---|---|---|
+| iOS→안 | 2026-10-22 | **요청**(구상안 34A, 사용자 결정): PDF 글자 층 코드를 공통(commonMain)으로 옮겨 주세요 — 지금 안드로이드 전용 `reader-pdf` 에 있어 iOS 가 쓸 수 없다. 대상: `PageText`(rowStarts · inVisualOrder · withoutOverprint · repaired · lines · charAt · wordAt · rects · quote · speech · isReadable · textOnly), `TextLine`, `PdfSpeech`, `BrokenHangul`, `KsHangul`(java.util.Base64 → kotlin.io.encoding.Base64), `AdobeKr`, `layerHits`, 가능하면 `PageViewport.reveal`. 시험(`PageTextTest` · `BrokenHangulTest`)도 `commonTest` 로 — 이름에 쉼표가 없어야 iOS 에서 컴파일된다(아래 요청 참고). **까닭**: PDF 형광펜 자리(`Reflow(page, charOffset)`)는 이 코드가 다듬은 층 글자의 번호라, 두 앱이 같은 코드여야 PDF 형광펜이 백업으로 오간다. iOS 는 층을 PDFKit 의 `PDFPage.string` · `characterBounds(at:)` 로 채워 `PageText(text, boxes)` 를 만들 생각이다(번호 체계가 같아 `assembleLayer` 는 필요 없을 듯). 옮긴 뒤 iOS 가 PDF 찾기 · 형광펜 · 듣기(34)를 잇는다 — 그때까지 PDF 2단계는 멈춘다 | 공통 | 대기(안드로이드) |
 | iOS→안 | 2026-10-21 | **요청**: `commonTest` 로 옮긴 시험(4c63d06)이 iOS 에서 컴파일되지 않는다 — `:document` · `:core-layout` 의 `compileTestKotlinIosSimulatorArm64` 오류 67개. (1) Kotlin/Native 는 시험 이름(백틱)에 쉼표를 받지 않는다: `Name contains illegal characters: ","` — 29개 파일(CssParserTest 5 · CoverCropTest 6 · PictureBookTest 5 · ComicNameTest 4 · ComicReadingTest 4 · TocParserTest 4 · SpreadSplitTest 3 · ChapterParserTest 3 …). 쉼표를 ` and ` · 대시로 바꾸면 된다(iOS 시험들이 그렇게 한다). (2) `ContainerParserTest` 가 JVM 의 `reader()` 를 쓴다(7곳) — `jvmTest` 로 되돌리거나 공통 입력으로. 맥에서 `./gradlew :document:iosSimulatorArm64Test :core-layout:iosSimulatorArm64Test` 로 확인할 수 있다. 공통 코드라 iOS 세션은 고치지 않고 요청으로 남긴다 | 공통 | 대기(안드로이드) |
 | 0.54.9 | 2026-10-20 | 터치 영역의 설명 · 그림을 읽기 방향대로 — 오→왼 만화에서 열면 "이 작품은 오→왼으로 읽습니다 — 좌우가 바뀝니다" 와 뒤집힌 설명, 한 손 설명에 미는 방향(`TouchZones.description(rightToLeft)`) | 화면 | 대기 — iOS 터치 영역 화면도 같은 글 · 그림 규칙 |
 | 0.54.8 | 2026-10-20 | 오→왼 만화에서 한 손(양쪽 다음)으로 눌러도 앞 쪽으로 가던 것을 고침 — 한 손은 방향과 상관없이 늘 다음, 기본 · 좌우 바꾸기만 오→왼에서 자리를 뒤집는다(`TouchZones.forward`) | 화면 | 대기 — iOS 에 만화 리더가 아직 없다. 만들 때 `TouchZones.forward` 와 같은 규칙으로(2026-10-20 확인) |
