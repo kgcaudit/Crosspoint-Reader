@@ -5,6 +5,7 @@
 - 비 오는 아침.epub : 세 장, 표지 그림 있음(표지 그림 경로 시험)
 - 바다로 가는 길.epub : 두 장, 표지 없음(이름 표지로 내려가는지)
 - 짧은 메모.txt : UTF-8, 한 쪽짜리(첫 쪽이 곧 끝 쪽)
+- 각주 든 책.epub : 각주(위첨자 1 · 2) · 다른 장으로 가는 링크 · 책 밖 주소 · 없는 곳을 가리키는 링크(구상안 18 확인용)
 - 글꼴 든 책.epub : 출판사 글꼴(@font-face). 글꼴은 저장소의 OFL 시험 글꼴(android/text-platform/src/test/resources/
   olo-test-fonts, 보통 400 · 굵게 700). 본문 문단은 책 글꼴, 첫 문단 · 제목은 책이 정하지 않아 휴대폰 글꼴
 등대지기의 저녁.txt(CP949 · CRLF)는 손으로 둔 파일이다.
@@ -122,6 +123,49 @@ def epub(path, title, chapters, cover_png=None, fonts=False):
             z.writestr("OEBPS/cover.png", cover_png, compress_type=zipfile.ZIP_STORED)
 
 
+def notes_book(path):
+    """각주 · 링크 시험 책. 셋째 장이 주석 장이다(각주 내용은 id 가 붙은 문단)."""
+    c0 = (
+        '<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>첫째 장</title></head>'
+        "<body><h1>첫째 장 찻집</h1>"
+        '<p>등대 아래에는 작은 찻집이 있었다.<sup><a href="c2.xhtml#n1">1</a></sup> 주인은 말없이 따뜻한 보리차를 내주었다.</p>'
+        '<p>찻집의 창은 바다 쪽으로 나 있었다.<sup><a href="c2.xhtml#n2">2</a></sup> 해가 지면 등대의 불빛이 창을 한 바퀴 돌았다.</p>'
+        '<p>자세한 내력은 <a href="c1.xhtml#hist">둘째 장 등대의 역사</a>에 적어 두었다.</p>'
+        '<p>사진은 <a href="https://example.com/lighthouse">마을 누리집</a>에 있다.</p>'
+        '<p>지도는 <a href="gone.xhtml">사라진 장</a>에 있었다.</p>'
+        "</body></html>"
+    )
+    c1 = (
+        '<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>둘째 장</title></head>'
+        '<body><h1 id="hist">둘째 장 등대의 역사</h1>'
+        + "".join(f"<p>{PARAGRAPHS['sea'][i % 3]}</p>" for i in range(8))
+        + "</body></html>"
+    )
+    c2 = (
+        '<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>주석</title></head>'
+        "<body><h1>주석</h1>"
+        '<p id="n1">1. 이 찻집은 1952년 등대지기의 가족이 처음 열었다. 지금도 같은 자리에서 같은 보리차를 낸다.</p>'
+        '<p id="n2">2. 창틀은 처음 지을 때의 나무 그대로다. 바닷바람에 하얗게 바랬다.</p>'
+        "</body></html>"
+    )
+    opf = (
+        '<?xml version="1.0" encoding="UTF-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">'
+        '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>각주 든 책</dc:title><dc:creator>OLO 시험 책</dc:creator>'
+        '<dc:language>ko</dc:language><dc:identifier id="id">olo-test-notes</dc:identifier></metadata><manifest>'
+        + "".join(f'<item id="c{i}" href="c{i}.xhtml" media-type="application/xhtml+xml"/>' for i in range(3))
+        + '</manifest><spine>' + "".join(f'<itemref idref="c{i}"/>' for i in range(3)) + "</spine></package>"
+    )
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr(zipfile.ZipInfo("mimetype"), "application/epub+zip", compress_type=zipfile.ZIP_STORED)
+        z.writestr("META-INF/container.xml",
+                   '<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
+                   '<rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>'
+                   "</rootfiles></container>", compress_type=zipfile.ZIP_DEFLATED)
+        z.writestr("OEBPS/content.opf", opf, compress_type=zipfile.ZIP_DEFLATED)
+        for i, c in enumerate((c0, c1, c2)):
+            z.writestr(f"OEBPS/c{i}.xhtml", c, compress_type=zipfile.ZIP_DEFLATED)
+
+
 def main(out):
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
@@ -130,6 +174,7 @@ def main(out):
          cover_png=png(280, 400, cover))
     epub(out / "바다로 가는 길.epub", "바다로 가는 길", [("첫째 장 기차", "sea", 12), ("둘째 장 등대", "sea", 16)])
     epub(out / "글꼴 든 책.epub", "글꼴 든 책", [("첫째 장 정류장", "rain", 14), ("둘째 장 바다", "sea", 10)], fonts=True)
+    notes_book(out / "각주 든 책.epub")
     (out / "짧은 메모.txt").write_text("장 볼 것: 우유, 달걀, 보리차.\n", encoding="utf-8")
 
 

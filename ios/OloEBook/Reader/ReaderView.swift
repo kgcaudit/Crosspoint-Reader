@@ -11,7 +11,7 @@ actor ReaderEngine {
     func layOut(_ spec: LayoutSpec, _ paper: Paper, blend: Bool) async throws -> PageFrame {
         // 찾은 말 칠은 지면 밝기에 맞는 강조색(메뉴도 지면 밝기를 따른다).
         PageFrame(try await reader.layOut(spec: spec, paper: Int32(paper.paper), ink: Int32(paper.ink), blendPictures: blend,
-                                          accent: paper.dark ? 0xE8A183 : 0xB95B3B))
+                                          accent: paper.dark ? 0xE8A183 : 0xB95B3B, accentText: paper.dark ? 0xF6C4AE : 0x9A4A2C))
     }
 
     func chapterCount() async throws -> Int { Int(try await reader.chapterCount()) }
@@ -28,6 +28,12 @@ actor ReaderEngine {
     }
 
     func clearMark() async throws -> PageFrame { PageFrame(try await reader.clearMark()) }
+
+    func tapLink(_ x: Double, _ y: Double) async throws -> LinkAction? { try await reader.tapLink(x: Float(x), y: Float(y)) }
+    func jumpTo(_ spine: Int, _ anchor: String?, markLength: Int) async throws -> PageFrame {
+        PageFrame(try await reader.jumpTo(spine: Int32(spine), anchor: anchor, markLength: Int32(markLength)))
+    }
+    func returnBack() async throws -> PageFrame? { try await reader.returnBack().map(PageFrame.init) }
 
     func next() async throws -> PageFrame? { try await reader.next().map(PageFrame.init) }
     func previous() async throws -> PageFrame? { try await reader.previous().map(PageFrame.init) }
@@ -91,6 +97,8 @@ struct PageFrame: @unchecked Sendable {
     let pages: Int
     let percent: Double
     let bookmarked: Bool
+    /// 링크로 건너온 쪽 — "읽던 곳으로" 칩.
+    let canReturn: Bool
 
     init(_ f: ReaderFrame) {
         image = f.image
@@ -100,7 +108,17 @@ struct PageFrame: @unchecked Sendable {
         pages = Int(f.pageCount)
         percent = Double(f.percent)
         bookmarked = f.bookmarked
+        canReturn = f.canReturn
     }
+}
+
+/// 각주 판에 띄울 것.
+struct FootnoteItem: Identifiable {
+    let id = UUID()
+    let title: String
+    let text: String
+    let spine: Int
+    let anchor: String?
 }
 
 /// 리더 위에 열린 판(안드로이드 `Panel`). 뒤로 가기: 목차 · 보기 → 메뉴, 보기 설정 · 글꼴 → 보기, 메뉴 → 지면.
@@ -168,6 +186,37 @@ final class ReaderModel: ObservableObject {
         guard let engine, let f = try? await engine.seek(percent) else { return }
         lastActivity = Date()
         direction = f.percent >= (frame?.percent ?? 0) ? 1 : -1
+        frame = f
+    }
+
+    /// 각주 판 · 바깥 주소 판(구상안 18).
+    @Published var footnote: FootnoteItem?
+    @Published var external: String?
+
+    /// 쪽을 눌렀다. 링크가 먼저다 — 그 자리가 "다음 쪽" 자리여도 넘기지 않는다. 링크가 아니면 [otherwise](넘김 · 메뉴).
+    func tap(at point: CGPoint, otherwise: @escaping () -> Void) async {
+        guard let engine, let action = try? await engine.tapLink(point.x, point.y) else { otherwise(); return }
+        switch action.kind {
+        case "footnote":
+            footnote = FootnoteItem(title: action.title, text: action.text, spine: Int(action.spine), anchor: action.anchor)
+        case "jump":
+            if let f = action.frame { frame = PageFrame(f); lastActivity = Date() }
+        case "external":
+            external = action.url
+        default:
+            say(action.text)
+        }
+    }
+
+    /// 각주 판의 "각주 자리로 가기": 그 자리를 칠해 보인다(주석 장에는 비슷한 문단이 줄지어 있다).
+    func goToFootnote(_ note: FootnoteItem) async {
+        footnote = nil
+        guard let engine, let f = try? await engine.jumpTo(note.spine, note.anchor, markLength: note.text.count) else { return }
+        frame = f
+    }
+
+    func returnBack() async {
+        guard let engine, let f = try? await engine.returnBack() else { return }
         frame = f
     }
 
@@ -286,6 +335,7 @@ struct ReaderView: View {
                 }
                 TurnZones(cornerTop: insets.top, cornerRight: insets.trailing,
                           turn: { step in Task { await model.turn(step) } },
+                          tap: { point, otherwise in Task { await model.tap(at: point, otherwise: otherwise) } },
                           bookmark: { Task { await model.toggleBookmark() } },
                           toggleMenu: { withAnimation(.easeOut(duration: 0.18)) { model.panel = model.panel == .none ? .bar : .none } })
                 ReaderPanels(model: model, prefs: prefs, brightness: brightness, insets: insets, wide: full.width >= 600,
@@ -293,6 +343,31 @@ struct ReaderView: View {
                     // 메뉴도 지면의 밝기를 따른다 — 검은 지면 위에 밝은 메뉴가 뜨면 눈이 부시다(안드로이드 CpReaderTheme).
                     .environment(\.colorScheme, paper.dark ? .dark : .light)
                 SearchBarLayer(model: model, search: model.search, bottom: insets.bottom)
+                // 링크로 건너온 쪽: "읽던 곳으로". 결과 막대가 떠 있으면 그것이 먼저다(같은 자리).
+                if model.panel == .none, model.search.current < 0, model.frame?.canReturn == true {
+                    ReturnChip { Task { await model.returnBack() } }
+                        .padding(.bottom, 64 + insets.bottom)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                }
+                if let note = model.footnote {
+                    NoteSheet(note: note, bottom: insets.bottom, goTo: { Task { await model.goToFootnote(note) } },
+                              close: { model.footnote = nil })
+                }
+                if let url = model.external {
+                    CpPopup(onDismiss: { model.external = nil }) {
+                        Text("브라우저로 열까요?").font(CpFont.title).foregroundStyle(CpColor.text)
+                        Text(url).font(CpFont.subtitle).foregroundStyle(CpColor.textMuted).lineLimit(3)
+                        HStack {
+                            Spacer()
+                            CpButton(title: "취소", kind: .secondary) { model.external = nil }
+                            CpButton(title: "열기") {
+                                model.external = nil
+                                // 앱은 인터넷을 쓰지 않는다 — 여는 것은 휴대폰의 브라우저 · 메일 앱이다.
+                                if let link = URL(string: url) { UIApplication.shared.open(link) }
+                            }
+                        }
+                    }
+                }
                 if let toast = model.toast {
                     CpToast(message: toast)
                         .padding(.bottom, insets.bottom)
@@ -397,6 +472,8 @@ private struct TurnZones: View {
     let cornerTop: CGFloat
     let cornerRight: CGFloat
     let turn: (Int) -> Void
+    /// 누름: 먼저 그 자리의 링크를 묻고, 링크가 아니면 두 번째 함수(넘김 · 메뉴)를 부른다.
+    let tap: (CGPoint, @escaping () -> Void) -> Void
     let bookmark: () -> Void
     let toggleMenu: () -> Void
 
@@ -418,7 +495,9 @@ private struct TurnZones: View {
                                 return
                             }
                             let x = v.location.x / g.size.width
-                            if x < 0.3 { turn(-1) } else if x > 0.7 { turn(1) } else { toggleMenu() }
+                            tap(v.location) {
+                                if x < 0.3 { turn(-1) } else if x > 0.7 { turn(1) } else { toggleMenu() }
+                            }
                         }
                     }
                 )
@@ -480,5 +559,64 @@ private struct SearchBarLayer: View {
             .padding(.bottom, 64 + bottom)
             .frame(maxHeight: .infinity, alignment: .bottom)
         }
+    }
+}
+
+/// 링크로 건너간 뒤 떠 있는 "읽던 곳으로"(안드로이드 `ReturnChip`): 48 · 모서리 14 — 결과 막대와 같은 모양.
+private struct ReturnChip: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 0) {
+                CpIconView(icon: .back, size: 20, color: CpColor.accent).padding(8)
+                Text("읽던 곳으로").font(CpFont.label).foregroundStyle(CpColor.accentText)
+            }
+            .padding(.leading, 8).padding(.trailing, 18).padding(.vertical, 4)
+            .frame(minHeight: CpMetrics.touchTarget)
+            .background(CpColor.surface)
+            .clipShape(RoundedRectangle(cornerRadius: CpMetrics.cornerMedium))
+            .overlay(RoundedRectangle(cornerRadius: CpMetrics.cornerMedium).stroke(CpColor.divider, lineWidth: 1))
+            .shadow(color: .black.opacity(0.2), radius: 8, y: 3)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// 각주 판(구상안 18, 안드로이드 `NoteSheet` · `CpBottomSheet`): 아래에서 올라온다. 짧으면 내용만큼, 길면 화면의 60% 까지
+/// 올라오고 판 안에서 스크롤한다. 읽던 쪽은 뒤에 흐리게 — 바깥을 누르거나 "닫기" 면 그대로 이어 읽는다.
+private struct NoteSheet: View {
+    let note: FootnoteItem
+    let bottom: CGFloat
+    let goTo: () -> Void
+    let close: () -> Void
+
+    var body: some View {
+        GeometryReader { g in
+            ZStack(alignment: .bottom) {
+                Color.black.opacity(0.32).contentShape(Rectangle()).onTapGesture(perform: close)
+                    .accessibilityLabel("닫기").accessibilityAddTraits(.isButton)
+                VStack(alignment: .leading, spacing: 0) {
+                    Capsule().fill(CpColor.divider).frame(width: 36, height: 4).frame(maxWidth: .infinity)
+                    Text(note.title).font(CpFont.label).foregroundStyle(CpColor.accentText).padding(.top, 14).padding(.bottom, 8)
+                    ScrollView {
+                        Text(note.text).font(CpFont.body).foregroundStyle(CpColor.text).lineSpacing(10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: max(g.size.height * 0.6 - 120, 80))
+                    .fixedSize(horizontal: false, vertical: true)
+                    HStack {
+                        Spacer()
+                        CpButton(title: "각주 자리로 가기", kind: .secondary, action: goTo)
+                        CpButton(title: "닫기", action: close)
+                    }
+                    .padding(.top, 20)
+                }
+                .padding(.horizontal, 24).padding(.top, 10).padding(.bottom, 24 + bottom)
+                .background(CpColor.surface)
+                .clipShape(UnevenRoundedRectangle(topLeadingRadius: CpMetrics.cornerSheet, topTrailingRadius: CpMetrics.cornerSheet))
+            }
+        }
+        .transition(.move(edge: .bottom))
     }
 }

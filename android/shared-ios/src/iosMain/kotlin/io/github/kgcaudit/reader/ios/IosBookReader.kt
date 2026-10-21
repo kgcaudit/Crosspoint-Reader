@@ -15,6 +15,7 @@ import io.github.kgcaudit.reader.layout.LayoutSpec
 import io.github.kgcaudit.reader.layout.Page
 import io.github.kgcaudit.reader.layout.book.BookFontTable
 import io.github.kgcaudit.reader.layout.book.BookLayout
+import io.github.kgcaudit.reader.layout.book.LinkTarget
 import io.github.kgcaudit.reader.layout.book.ReadingPosition
 import io.github.kgcaudit.reader.layout.book.ReadingSession
 import io.github.kgcaudit.reader.layout.cache.PageStore
@@ -61,6 +62,22 @@ class ReaderFrame(
     /** 책 전체 진도(0~100). */
     val percent: Float,
     val bookmarked: Boolean,
+    /** 링크로 건너온 쪽이다 — "읽던 곳으로" 칩을 띄운다. */
+    val canReturn: Boolean = false,
+)
+
+/**
+ * 누른 링크가 한 일(안드로이드 `openLink`). [kind] 는 "footnote"(각주 판을 띄운다: [title] · [text], 가기는 [spine] · [anchor]),
+ * "jump"(이미 건너갔다: [frame]), "external"(묻고 연다: [url]), "missing"(알림: [text]).
+ */
+class LinkAction(
+    val kind: String,
+    val title: String = "",
+    val text: String = "",
+    val url: String = "",
+    val spine: Int = 0,
+    val anchor: String? = null,
+    val frame: ReaderFrame? = null,
 )
 
 /**
@@ -87,6 +104,14 @@ class IosBookReader private constructor(
     private var ink = 0x1D1A16
     private var blendPictures = true
     private var accent = 0xB95B3B
+
+    private var accentText = 0x9A4A2C
+
+    /** 링크로 건너가기 전에 읽던 곳. 목차 · 진도 · 책갈피 · 찾기로 다른 곳에 가면 뜻을 잃어 지운다. */
+    private var returnTo: Locator.Reflow? = null
+
+    /** 지금 보이는 쪽 — 누른 자리의 링크를 찾는다. */
+    private var shown: Pair<io.github.kgcaudit.reader.layout.Page, Int>? = null
 
     /** 칠해 둔 찾은 말(장 · 글자 구간). 그 장의 쪽을 그릴 때만 칠한다. */
     private var mark: Pair<Int, IntRange>? = null
@@ -146,8 +171,16 @@ class IosBookReader private constructor(
      * 보던 쪽의 첫 글자가 있는 쪽에서 — 쪽 번호로 이으면 설정을 바꾸는 순간 자리가 미끄러진다(CLAUDE.md 규칙 3).
      */
     @Throws(Exception::class)
-    suspend fun layOut(spec: LayoutSpec, paper: Int, ink: Int, blendPictures: Boolean, accent: Int = 0xB95B3B): ReaderFrame {
+    suspend fun layOut(
+        spec: LayoutSpec,
+        paper: Int,
+        ink: Int,
+        blendPictures: Boolean,
+        accent: Int = 0xB95B3B,
+        accentText: Int = 0x9A4A2C,
+    ): ReaderFrame {
         this.accent = accent
+        this.accentText = accentText
         this.paper = paper
         this.ink = ink
         this.blendPictures = blendPictures
@@ -182,6 +215,7 @@ class IosBookReader private constructor(
     @Throws(Exception::class)
     suspend fun seek(percent: Float): ReaderFrame {
         val l = layout()
+        returnTo = null
         return show(l.resolve(l.locatorAtPercent(percent.coerceIn(0f, 100f))))
     }
 
@@ -218,11 +252,75 @@ class IosBookReader private constructor(
         val spine = (entry.locator as? Locator.Reflow)?.spine ?: return null
         val l = layout()
         if (spine !in l.spine().indices) return null // 어긋난 목차 링크: 그 항목만 버린다(CLAUDE.md 규칙 6).
+        returnTo = null
         return show(l.resolve(l.locatorForAnchor(spine, entry.anchor)))
     }
 
     private suspend fun outline(): List<TocEntry> =
         toc ?: runCatching { document.outline() }.getOrDefault(emptyList()).also { toc = it }
+
+    // ── 링크 · 각주(안드로이드 F1–F6) ─────────────────────────────────────────
+
+    /**
+     * 쪽의 ([x], [y])를 눌렀다. 그 자리에 링크가 없으면 null — 화면이 넘김 · 메뉴로 처리한다. 링크가 먼저다: 그 자리가 "다음
+     * 쪽" 자리여도 넘기지 않는다(F2).
+     */
+    @Throws(Exception::class)
+    suspend fun tapLink(x: Float, y: Float): LinkAction? {
+        val (page, spine) = shown ?: return null
+        val l = layout()
+        val text = l.chapterText(spine) ?: return null
+        val link = PagePainter.linkAt(page, text, measurer(spec!!), l.links(spine), x, y) ?: return null
+        val label = text.substring(link.start.coerceIn(0, text.length), link.endExclusive.coerceIn(0, text.length)).trim()
+        return when (val target = l.resolveLink(spine, link)) {
+            is LinkTarget.Footnote -> LinkAction("footnote", title = "각주 $label".trim(), text = target.text, spine = target.spine, anchor = target.anchor)
+            is LinkTarget.Jump -> LinkAction("jump", frame = jumpTo(target.spine, target.anchor, 0))
+            is LinkTarget.External -> LinkAction("external", url = target.url)
+            LinkTarget.Missing -> LinkAction(
+                "missing",
+                text = if (link.isFootnote(text)) "이 각주의 내용을 책에서 찾지 못했습니다" else "링크가 가리키는 곳을 책에서 찾지 못했습니다",
+            )
+        }
+    }
+
+    /**
+     * 책 안 자리로 건너간다. 건너가기 전 자리를 기억한다(이미 건너온 길이면 처음 자리 그대로 — 각주에서 또 건너가도 "읽던
+     * 곳" 은 처음 읽던 곳이다). [markLength] 가 있으면 그 자리를 칠한다: 주석 장에는 비슷한 문단이 줄지어 있어 어느 것인지
+     * 찾아야 한다(F4).
+     */
+    @Throws(Exception::class)
+    suspend fun jumpTo(spine: Int, anchor: String?, markLength: Int): ReaderFrame {
+        val l = layout()
+        if (spine !in l.spine().indices) return show(position ?: error("not laid out"))
+        if (returnTo == null) returnTo = position?.let { l.locatorAt(it.spineIndex, it.pageIndex) }
+        mark = if (markLength > 0) {
+            val at = l.anchorOffset(spine, anchor)
+            spine to (at until at + markLength)
+        } else {
+            null
+        }
+        return show(l.resolve(l.locatorForAnchor(spine, anchor)))
+    }
+
+    /** 시험용: 지금 쪽의 링크마다 (주소, 글자 네모 가운데). 시험이 그 자리를 "누른다". */
+    internal suspend fun linkCenters(): List<Pair<String, Pair<Float, Float>>> {
+        val (page, spine) = shown ?: return emptyList()
+        val l = layout()
+        val text = l.chapterText(spine) ?: return emptyList()
+        return l.links(spine).mapNotNull { link ->
+            PagePainter.rangeBoxes(page, text, measurer(spec!!), link.start, link.endExclusive).firstOrNull()
+                ?.let { link.href to (it.centerX to it.centerY) }
+        }
+    }
+
+    /** 건너뛰기 전 읽던 곳으로. 돌아갈 곳이 없으면 null. */
+    @Throws(Exception::class)
+    suspend fun returnBack(): ReaderFrame? {
+        val back = returnTo ?: return null
+        returnTo = null
+        mark = null
+        return show(layout().resolve(back))
+    }
 
     // ── 찾기(안드로이드 E2 · E3) ─────────────────────────────────────────────
 
@@ -250,6 +348,7 @@ class IosBookReader private constructor(
     suspend fun goToHit(spine: Int, start: Int, endExclusive: Int): ReaderFrame {
         val l = layout()
         mark = spine to (start until endExclusive)
+        returnTo = null
         return show(l.resolve(Locator.Reflow(spine, start)))
     }
 
@@ -292,6 +391,7 @@ class IosBookReader private constructor(
     suspend fun goToBookmark(id: Long): ReaderFrame? {
         val s = session ?: return null
         val bookmark = s.bookmarks().firstOrNull { it.id == id } ?: return null
+        returnTo = null
         return show(s.goTo(bookmark) ?: return null)
     }
 
@@ -318,8 +418,12 @@ class IosBookReader private constructor(
                 page, text, measurer(spec), spec.viewportWidthPx.toDouble(), spec.viewportHeightPx.toDouble(),
                 paper, ink, pictures(target.spineIndex, page), PictureBlend.forPaper(paper, blendPictures),
                 mark = mark?.takeIf { it.first == target.spineIndex }?.second, markColor = accent,
+                noteMarks = l.links(target.spineIndex).filter { it.isFootnote(text) }.map { it.start until it.endExclusive },
+                // 각주 번호는 작은 위첨자 — 지면마다 본문과 대비 4.5 를 넘게 본문 색 쪽으로 짙게(안드로이드 0.29).
+                noteColor = PagePainter.readableOn(accentText, paper, ink),
             )
         }
+        shown = page?.let { it to target.spineIndex }
         return ReaderFrame(
             image = image,
             spineIndex = target.spineIndex,
@@ -328,6 +432,7 @@ class IosBookReader private constructor(
             pageCount = target.pageCount,
             percent = saved.percent,
             bookmarked = s.isBookmarked(target),
+            canReturn = returnTo != null,
         )
     }
 

@@ -3,6 +3,8 @@
 package io.github.kgcaudit.reader.ios
 
 import io.github.kgcaudit.reader.layout.Page
+import io.github.kgcaudit.reader.layout.html.Link
+import kotlin.math.pow
 import io.github.kgcaudit.reader.layout.VerticalAlign
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.useContents
@@ -50,6 +52,9 @@ object PagePainter {
         /** 찾은 말(장 안 글자 구간). 없으면 null. 글자 뒤에 [markColor] 30% 로 칠한다(안드로이드 highlightColor). */
         mark: IntRange? = null,
         markColor: Int = 0xB95B3B,
+        /** 각주 표시(장 안 글자 구간들). [noteColor] 로 그린다 — 작은 위첨자라 본문과 대비 4.5 이상인 색이어야 한다. */
+        noteMarks: List<IntRange> = emptyList(),
+        noteColor: Int = 0,
     ): UIImage {
         val format = UIGraphicsImageRendererFormat.preferredFormat().apply { opaque = true }
         val renderer = UIGraphicsImageRenderer(size = CGSizeMake(widthPt, heightPt), format = format)
@@ -60,9 +65,11 @@ object PagePainter {
             // 칠은 글자보다 먼저 — 나중에 칠하면 글자가 덮인다.
             if (mark != null) {
                 fill(cg, markColor, 0.3)
-                for (box in rangeBoxes(page, text, measurer, mark.first, mark.last + 1)) CGContextFillRect(cg, box)
+                for (b in rangeBoxes(page, text, measurer, mark.first, mark.last + 1)) {
+                    CGContextFillRect(cg, CGRectMake(b.left.toDouble(), b.top.toDouble(), (b.right - b.left).toDouble(), (b.bottom - b.top).toDouble()))
+                }
             }
-            draw(cg, page, text, measurer, ink)
+            draw(cg, page, text, measurer, ink, noteMarks, noteColor)
             drawPictures(cg, page, pictures, blend)
         }
     }
@@ -112,22 +119,88 @@ object PagePainter {
      * 쪽 위에서 글자 구간 [start]..[endExclusive] 가 차지하는 네모들(줄마다 하나, 안드로이드 `rangeBoxes`). 조판은 양쪽정렬로
      * 벌린 자리에서 조각을 끊어 두므로, 한 조각 안에서는 글자 폭을 더해 가면 정확한 x 가 나온다. 조판에 쓴 측정기여야 한다.
      */
-    internal fun rangeBoxes(page: Page, text: String, measurer: CoreTextMeasurer, start: Int, endExclusive: Int): List<kotlinx.cinterop.CValue<platform.CoreGraphics.CGRect>> {
-        val boxes = ArrayList<kotlinx.cinterop.CValue<platform.CoreGraphics.CGRect>>()
+    internal fun rangeBoxes(page: Page, text: String, measurer: CoreTextMeasurer, start: Int, endExclusive: Int): List<Box> {
+        val boxes = ArrayList<Box>()
         for (run in page.runs) {
             val from = maxOf(run.start, start)
             val to = minOf(run.endExclusive, endExclusive, text.length)
             if (from >= to) continue
             val left = run.xPx + measurer.advance(text, run.start, from, run.style)
-            val width = measurer.advance(text, from, to, run.style)
+            val right = left + measurer.advance(text, from, to, run.style)
             val top = run.baselineYPx - measurer.ascent(run.style)
-            boxes += CGRectMake(left.toDouble(), top.toDouble(), width.toDouble(), measurer.lineHeight(run.style).toDouble())
+            boxes += Box(left, top, right, top + measurer.lineHeight(run.style))
         }
         return boxes
     }
 
+    /** 글자 구간 네모(쪽 좌표, 위가 0). */
+    class Box(val left: Float, val top: Float, val right: Float, val bottom: Float) {
+        val centerX: Float get() = (left + right) / 2
+        val centerY: Float get() = (top + bottom) / 2
+    }
+
+    /**
+     * 누른 자리([x], [y])의 링크(안드로이드 `linkAt`). 표시가 글자 하나(¹)여도 손가락이 닿는 네모([minTouch], 48)는 넉넉하게 —
+     * 그 안이면 그 링크다. 여럿이 겹치면 가운데가 가장 가까운 것.
+     */
+    internal fun linkAt(page: Page, text: String, measurer: CoreTextMeasurer, links: List<Link>, x: Float, y: Float, minTouch: Float = 48f): Link? {
+        var best: Link? = null
+        var bestDistance = Float.MAX_VALUE
+        for (link in links) {
+            if (link.endExclusive <= page.startChar || link.start >= page.endCharExclusive) continue
+            for (box in rangeBoxes(page, text, measurer, link.start, link.endExclusive)) {
+                val w = maxOf(box.right - box.left, minTouch)
+                val h = maxOf(box.bottom - box.top, minTouch)
+                if (x < box.centerX - w / 2 || x > box.centerX + w / 2 || y < box.centerY - h / 2 || y > box.centerY + h / 2) continue
+                val dx = box.centerX - x
+                val dy = box.centerY - y
+                val d = dx * dx + dy * dy
+                if (d < bestDistance) {
+                    best = link
+                    bestDistance = d
+                }
+            }
+        }
+        return best
+    }
+
+    /** [color](0xRRGGBB)를 [background] 위에서 대비 [min] 이 될 때까지 [toward] 쪽으로 짙게(안드로이드 `readableOn`). */
+    internal fun readableOn(color: Int, background: Int, toward: Int, min: Double = 4.5): Int {
+        var t = 0.0
+        var c = color
+        while (contrast(c, background) < min && t < 1.0) {
+            t += 0.05
+            c = lerp(color, toward, t)
+        }
+        return c
+    }
+
+    private fun lerp(a: Int, b: Int, t: Double): Int {
+        fun ch(shift: Int) = (((a shr shift) and 0xFF) + (((b shr shift) and 0xFF) - ((a shr shift) and 0xFF)) * t).toInt().coerceIn(0, 255)
+        return (ch(16) shl 16) or (ch(8) shl 8) or ch(0)
+    }
+
+    private fun luminance(rgb: Int): Double {
+        fun lin(v: Int): Double { val s = v / 255.0; return if (s <= 0.03928) s / 12.92 else ((s + 0.055) / 1.055).pow(2.4) }
+        return 0.2126 * lin((rgb shr 16) and 0xFF) + 0.7152 * lin((rgb shr 8) and 0xFF) + 0.0722 * lin(rgb and 0xFF)
+    }
+
+    private fun contrast(a: Int, b: Int): Double {
+        val la = luminance(a)
+        val lb = luminance(b)
+        return (maxOf(la, lb) + 0.05) / (minOf(la, lb) + 0.05)
+    }
+
     /** 위가 0 인(UIKit) 좌표계의 [context] 에 그린다. 시험이 비트맵에 직접 그려 글자 자리를 잰다. */
-    internal fun draw(context: CGContextRef, page: Page, text: String, measurer: CoreTextMeasurer, ink: Int) {
+    internal fun draw(
+        context: CGContextRef,
+        page: Page,
+        text: String,
+        measurer: CoreTextMeasurer,
+        ink: Int,
+        noteMarks: List<IntRange> = emptyList(),
+        noteColor: Int = ink,
+    ) {
         for (run in page.runs) {
             val start = run.start.coerceIn(0, text.length)
             val end = run.endExclusive.coerceIn(start, text.length)
@@ -141,17 +214,31 @@ object PagePainter {
             }
             val x = run.xPx.toDouble()
             val y = run.baselineYPx + shift
-            val line = face.line(text, start, end) ?: continue
             CGContextSaveGState(context)
-            fill(context, ink, 1.0)
-            stroke(context, ink)
             // CoreText 는 위가 + 인 글자 공간에서 그린다. UIKit 좌표(아래가 +)에서는 y 를 뒤집어야 글자가 바로 선다.
             // 기울임은 같은 행렬에 넣는다: 글자 공간의 위쪽일수록 오른쪽으로(안드로이드 textSkewX −0.25 와 같은 모양).
             val skew = if (face.italic) CoreTextMeasurer.ITALIC_SKEW else 0.0
             CGContextSetTextMatrix(context, CGAffineTransformMake(1.0, 0.0, skew, -1.0, 0.0, 0.0))
-            CGContextSetTextPosition(context, x, y)
-            CTLineDraw(line, context)
-            CFRelease(line)
+            // 각주 표시가 든 조각은 표시 부분만 강조 글자색으로 나눠 그린다. 나눈 자리의 x 는 앞 글자 폭을 더해 구한다 — 조각
+            // 안에는 양쪽정렬의 벌림이 없다(안드로이드와 같다).
+            val cuts = noteMarks.filter { it.first < end && it.last + 1 > start }
+                .flatMap { listOf(it.first, it.last + 1) }.filter { it in (start + 1) until end }.sorted()
+            var from = start
+            for (cut in cuts + end) {
+                if (cut <= from) continue
+                val inNote = noteMarks.any { from >= it.first && from <= it.last }
+                val color = if (inNote) noteColor else ink
+                fill(context, color, 1.0)
+                stroke(context, color)
+                val piece = face.line(text, from, cut)
+                if (piece != null) {
+                    CGContextSetTextPosition(context, x + if (from == start) 0.0 else face.width(text, start, from).toDouble(), y)
+                    CTLineDraw(piece, context)
+                    CFRelease(piece)
+                }
+                from = cut
+            }
+            fill(context, ink, 1.0)
             if (run.style.underline || run.style.strikethrough) {
                 val width = face.width(text, start, end).toDouble()
                 val thickness = maxOf(size / 16.0, 1.0)
