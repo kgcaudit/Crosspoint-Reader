@@ -322,7 +322,7 @@ class GreedyLineBreakerTest {
         val lines = breakLines(text, widthPx = 35f)
         assertTrue(lines.size > 1)
         for (line in lines) {
-            assertTrue(!Character.isLowSurrogate(text[line.startChar]), "줄이 쌍의 가운데서 시작한다: ${line.startChar}")
+            assertTrue(!text[line.startChar].isLowSurrogate(), "줄이 쌍의 가운데서 시작한다: ${line.startChar}")
         }
         assertEquals(text.length, lines.last().endCharExclusive)
     }
