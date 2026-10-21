@@ -144,11 +144,16 @@ struct ReadingFooter: View {
             // 모르면(시뮬레이터 −1) 비운다 — "배터리 -100%" 보다 낫다.
             return level < 0 ? "" : "배터리 \(Int((level * 100).rounded()))%"
         case .page:
-            return frame.hasRight ? "\(frame.page + 1)–\(frame.page + 2) / \(frame.pages)" : "\(frame.page + 1) / \(frame.pages)"
+            let n = frame.hasRight ? "\(frame.page + 1)–\(frame.page + 2) / \(frame.pages)" : "\(frame.page + 1) / \(frame.pages)"
+            // 인쇄된 쪽 번호가 파일 순서와 다르면 앞에 — "iv · 4 / 230"(안드로이드 PDF).
+            return frame.pageLabel.map { "\($0) · \(n)" } ?? n
         case .percent: return "\(Int(frame.percent.rounded()))%"
-        case .chapterLeft: return FooterText.chapterLeft(max(frame.pages - frame.page - 1 - (frame.hasRight ? 1 : 0), 0))
-        case .chapterTime: return speed.minutes(for: frame.charsLeftChapter).map { "이 장 \(FooterText.minutes($0)) 남음" } ?? ""
-        case .bookTime: return speed.minutes(for: frame.charsLeftBook).map { "책 \(FooterText.minutes($0)) 남음" } ?? ""
+        case .chapterLeft: return FooterText.chapterLeft(frame.pagesLeft ?? max(frame.pages - frame.page - 1 - (frame.hasRight ? 1 : 0), 0))
+        // PDF 의 남은 시간(쪽 단위 빠르기)은 아직 — 빈칸(charsLeft 가 −1).
+        case .chapterTime:
+            return frame.charsLeftChapter < 0 ? "" : speed.minutes(for: frame.charsLeftChapter).map { "이 장 \(FooterText.minutes($0)) 남음" } ?? ""
+        case .bookTime:
+            return frame.charsLeftBook < 0 ? "" : speed.minutes(for: frame.charsLeftBook).map { "책 \(FooterText.minutes($0)) 남음" } ?? ""
         }
     }
 }

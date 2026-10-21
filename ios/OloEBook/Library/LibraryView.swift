@@ -403,7 +403,7 @@ struct BookCover: View {
     private var fallback: some View {
         CpColor.tileDocument.overlay {
             if small {
-                CpIconView(icon: book.format == .epub ? .book : .text, size: 18, color: .white)
+                CpIconView(icon: book.format == .epub ? .book : book.format == .pdf ? .pdf : .text, size: 18, color: .white)
             } else {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(book.label).font(CpFont.body).foregroundStyle(.white).lineLimit(3)

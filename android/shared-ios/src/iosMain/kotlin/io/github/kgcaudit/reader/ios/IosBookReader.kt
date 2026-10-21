@@ -913,6 +913,11 @@ class IosBookReader private constructor(
          */
         fun info(path: String, displayName: String): BookInfo {
             val plain = BookInfo(displayName.substringBeforeLast('.', displayName), null)
+            // PDF 는 문서 정보(/Info)의 제목 · 저자 — 군더더기를 뗀 공통 규칙. 목차와 함께 읽어도 파일 끝 몇 KB 만 본다.
+            if (BookFormat.fromFileName(displayName) == BookFormat.PDF) {
+                val s = IosPdfBook.structure(path)
+                return BookInfo(s.title ?: plain.title, s.author)
+            }
             if (BookFormat.fromFileName(displayName) != BookFormat.EPUB) return plain
             return runCatching {
                 val document = EpubDocument.open(BookId("info"), displayName, FileSeekableSource(path))

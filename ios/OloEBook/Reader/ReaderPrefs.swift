@@ -56,6 +56,15 @@ final class ReaderPrefs: ObservableObject {
         didSet { for (i, key) in ["footerLeft", "footerCenter", "footerRight"].enumerated() { save(footer[i].rawValue, key) } }
     }
 
+    /// PDF 쪽 맞춤(구상안 32A · 33): 앱 전체에 하나(안드로이드 `pdfFit`). 0 쪽 전체 · 1 폭 · 2 이어서.
+    @Published var pdfFit: Int { didSet { save(pdfFit, "pdfFit") } }
+    /// PDF 두 쪽에서 표지를 혼자 두는가(처음 여는 책의 값). 책마다 보기 판에서 바꾼 값이 먼저다.
+    @Published var pdfCoverAlone: Bool { didSet { save(pdfCoverAlone, "pdfCoverAlone") } }
+    /// 책마다 고른 표지(따로 · 함께). 없으면 [pdfCoverAlone].
+    @Published var pdfCoverByBook: [String: Bool] { didSet { defaults.set(pdfCoverByBook, forKey: "reader.pdfCoverByBook") } }
+
+    func coverAlone(_ bookId: String) -> Bool { pdfCoverByBook[bookId] ?? pdfCoverAlone }
+
     /// 세로 두 쪽을 쓸 수 있는 넓은 화면(안드로이드 sw600dp). iPhone 은 가로로 들어도 짧은 변이 600 이 안 된다.
     static let wideScreen: CGFloat = 600
 
@@ -95,6 +104,9 @@ final class ReaderPrefs: ObservableObject {
         listenVoice = d.string(forKey: "reader.listenVoice")
         listenJoin = int("listenJoin", 0, 0...1)
         autoTurn = int("autoTurn", 0, 0...3)
+        pdfFit = int("pdfFit", 0, 0...2)
+        pdfCoverAlone = d.object(forKey: "reader.pdfCoverAlone") as? Bool ?? true
+        pdfCoverByBook = d.dictionary(forKey: "reader.pdfCoverByBook") as? [String: Bool] ?? [:]
         twoPagesLandscape = d.object(forKey: "reader.twoPagesLandscape") as? Bool ?? true
         twoPagesPortrait = d.object(forKey: "reader.twoPagesPortrait") as? Bool ?? true
         // 모르는 이름(옛 판 · 다른 앱의 새 항목)은 그 자리의 기본값으로.

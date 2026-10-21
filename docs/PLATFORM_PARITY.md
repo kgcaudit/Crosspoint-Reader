@@ -59,6 +59,7 @@ iOS 쪽 actual 은 `document/src/iosTest` · `core-layout/src/iosTest` 가 시�
 | `BookFaces` | 출판사 글꼴(안드로이드 `BookTypefaces` 짝): 책 글꼴을 캐시 폴더로 꺼내고, 보통 · 굵게를 안드로이드와 같은 규칙으로(굵은 파일 하나뿐인 가족은 다시 굵히지 않음), 지문을 `bookFontsKey` 로. 측정기는 서식의 `face` 번호로 고른다 |
 | 형광펜(`IosBookReader` · `ReadingStore.annotations`) | 고르기는 `charAt` · `wordAt`(안드로이드 `PageHits` 와 같은 셈), 칠은 `highlight`(같은 구간이면 색 · 메모만 바꾼다) · `recolor` · `setNote` · `removeNote`. 쪽 그림에 칠 · 메모 쪽지, 고른 구간 · 손잡이 · 메뉴는 Swift 가 겹쳐 그린다(고르는 동안 쪽을 다시 그리지 않게) |
 | `NotesExport` | 독서노트 내보내기 글(글 · 마크다운 · 감싸기 · 파일 이름) — 안드로이드 `exportNotes` · `exportMarkdown` 와 같은 글. 두 앱이 같은 파일을 내야 한다 |
+| `IosPdfBook` | PDF 의 기록 · 구조(공통 `PdfStructureReader`): 목차(쪽 수를 넘는 항목 뺌) · 쪽 이름표 · 자리(`p:page:0:y`, 짧아진 파일은 마지막 쪽) · 진도(보이는 마지막 쪽까지) · 책갈피(펼침의 두 쪽) · 이 장 남은 쪽. 쪽 그리기는 화면(PDFKit) |
 | `RecordsBackup` · `RecordsCodec` | 읽기 기록 백업 파일 읽기 · 쓰기 · 미리 보기 · 합치기 · 기다리는 기록(안드로이드 `RecordsBackup` 과 같은 규칙). `ReadingStore.recordOf` · `merge`. 책 id 는 한글을 모아 쓴 꼴(NFC) — 옛 판이 풀어 쓴 꼴로 적은 줄도 읽을 때 모은다 |
 | `ReadingStore` 읽은 시간 · `IosBookReader.info` | `T` 줄(책 · 날 · 방식, 음수 버림 · 하루 상한, 모르는 방식은 남기고 셈에서만 뺀다) · `addTime` · `times`. `info(path, displayName)`: EPUB 의 제목 · 저자(없으면 파일 이름, 깨진 책도 파일 이름) |
 | `IosBookReader` 두 쪽 · 하단 정보 | `layOut(twoPages, fullWidth, leftInset)` · `PagePainter.spread`. `ReaderFrame` 에 `hasRight` · `section` · `charsLeftChapter` · `charsLeftBook`(공통 `chapterLength` · `charsAfterChapter`, 장마다 한 번 셈) |
@@ -125,7 +126,7 @@ macOS 26.6 (Apple Silicon) · Xcode 27.1 · iOS 시뮬레이터 27.0/27.1 · JDK
 
 | 기능 | 안 | i | iOS 메모 |
 |---|---|---|---|
-| 쪽 보기 · 확대 · 폭 맞춤 · 목차 · 암호 PDF | ✅ | ⬜ | PDFKit 으로 그린다. 구조 읽기는 공통 |
+| 쪽 보기 · 확대 · 폭 맞춤 · 목차 · 암호 PDF | ✅ | ◐ | 구상안 32A · 33: 서재에 PDF(표지 = 첫 쪽, 제목 · 저자는 공통 `PdfStructureReader` 정리 규칙), 쪽은 PDFKit 으로 그려 지면색을 곱한다(검은 지면은 0.78 로 어둡게만). 쪽 맞춤 쪽 전체(기본) · 폭 · 이어서 — 앱 전체 하나(`pdfFit`). 쪽 전체: 넘김 효과 · 말림 · 소리 그대로, 가로 두 쪽(표지 따로/함께 — 책마다, 처음 값은 모든 보기 설정, 혼자인 쪽은 공통 `SpreadSlot`). 폭: 한 화면씩(10% 겹침) 내리다 쪽 끝에서 넘김, 앞 쪽은 끝부터, 밀면 바로 넘김, 알약 '4쪽 · 2번째 화면 (2/4)' · 막대, 쪽 안 자리 저장. 이어서: 사이 14 · 짙은 틈, 누르면 90%, 밀면 한 쪽, 알약 'n쪽 · N쪽 중', 지금 쪽 = 가운데 · 저장 = 맨 위. 확대: 두 번 누르기 2.5배 · 두 손가락 최대 5배(쪽 전체 · 폭, 두 쪽 · 이어서는 없음), 넘기면 풀림. 목차(쪽 이름표 · 줄 끝 쪽), 책갈피 'n쪽'(펼침이면 두 쪽 모두 뺌), 진도 막대 'n쪽', 아래 줄 'iv · 4 / 230' · 이 장 남은 쪽(목차 항목까지). 암호는 묻지 않고 '암호가 걸린 PDF입니다. …'(32A), 깨진 파일 · 쪽 없는 파일 안내. **다른 점**: 폭 · 이어서에서는 말림 대신 그 밖의 넘김 효과(말림은 화면 한 장이 쪽 전체여야 한다), PDF 의 남은 시간(쪽 단위 빠르기)은 아직 빈칸, 화면 회전 줄 없음 |
 | 찾기 · 형광펜 · 듣기 | ✅ | ⬜ | PDFKit 의 글자 층 |
 | 그림 위주 PDF 를 만화로 보기 | ✅ | ⬜ | |
 

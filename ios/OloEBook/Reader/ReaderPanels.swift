@@ -28,7 +28,7 @@ struct ReaderPanels: View {
                 }
             case .settings:
                 SidePanel(wide: wide, insets: insets, dismiss: model.back) {
-                    ViewSettingsScreen(prefs: prefs, back: model.back, openFooter: { model.panel = .footer })
+                    ViewSettingsScreen(prefs: prefs, isPdf: model.isPdf, back: model.back, openFooter: { model.panel = .footer })
                 }
             case .footer:
                 SidePanel(wide: wide, insets: insets, dismiss: model.back) {
@@ -130,7 +130,11 @@ private struct ReaderBar: View {
                         .fixedSize(horizontal: false, vertical: true)
                     }
                     // 진행 줄 40 · 도구 46(안드로이드 0.45 낮은 메뉴 — 두 줄 머리와 큰 단추가 읽던 쪽을 너무 가렸다).
-                    SeekBar(percent: frame.percent) { p in Task { await model.seek(p) } }
+                    // PDF 는 쪽으로: 막대 자리는 쪽 차례, 끄는 동안 "4쪽"(안드로이드와 같다).
+                    SeekBar(percent: frame.isPdf ? Double(frame.page) * 100 / Double(max(frame.pages - 1, 1)) : frame.percent,
+                            label: frame.isPdf ? { "\(Int(($0 / 100 * Double(frame.pages - 1)).rounded()) + 1)쪽" } : nil) { p in
+                        Task { await model.seek(p) }
+                    }
                         .padding(.horizontal, CpMetrics.gutter)
                         .frame(height: 40)
                     HStack(spacing: 0) {
@@ -160,11 +164,13 @@ private struct ReaderBar: View {
             VStack(alignment: .leading, spacing: 0) {
                 // 서재 머리(19)보다 작은 17 — 제목이 길면 한 줄에서 자른다(두 줄로 늘면 판이 다시 두꺼워진다).
                 Text(model.title).font(.system(size: 17, weight: .bold)).foregroundStyle(CpColor.text).lineLimit(1)
-                Text("\(frame.spine + 1) / \(frame.chapters)장").font(CpFont.caption).foregroundStyle(CpColor.textMuted)
+                Text(frame.isPdf ? "\(frame.page + 1) / \(frame.pages)쪽" : "\(frame.spine + 1) / \(frame.chapters)장")
+                    .font(CpFont.caption).foregroundStyle(CpColor.textMuted)
             }
             Spacer(minLength: 8)
-            CpIconButton(icon: .search, label: "책에서 찾기") { model.panel = .search }
-            CpIconButton(icon: .headphones, label: "듣기") {
+            // PDF 의 찾기 · 듣기는 글자 층을 만든 뒤(2단계) — 그때까지 흐리게.
+            CpIconButton(icon: .search, label: "책에서 찾기", enabled: !frame.isPdf) { model.panel = .search }
+            CpIconButton(icon: .headphones, label: "듣기", enabled: !frame.isPdf) {
                 Task { await model.listen(rate: prefs.listenRate, voice: prefs.listenVoice, join: prefs.listenJoin) }
             }
             CpIconButton(icon: frame.bookmarked ? .bookmarkFilled : .bookmark,
@@ -209,6 +215,22 @@ private struct ViewPanelRows: View {
             .padding(.horizontal, CpMetrics.gutter)
             .padding(.vertical, 4)
             CpCaption(text: "움직인 밝기는 이 책을 닫으면 휴대폰 밝기로 돌아갑니다").frame(maxWidth: .infinity, alignment: .leading)
+            if model.isPdf {
+                // PDF(구상안 32A): 글꼴 · 크기 · 줄 간격 · 여백 대신 쪽 맞춤.
+                CpChoice(label: "쪽 맞춤", options: ["쪽 전체", "폭", "이어서"], selected: prefs.pdfFit) { prefs.pdfFit = $0 }
+                if model.pdfSpread {
+                    // 이 책만 — 겉표지와 속표지가 있으면 "함께" 여야 본문 펼침(왼쪽 짝수 쪽)이 맞는다.
+                    CpChoice(label: "표지", options: ["따로", "함께"], selected: prefs.coverAlone(model.openBookId) ? 0 : 1) {
+                        prefs.pdfCoverByBook[model.openBookId] = $0 == 0
+                    }
+                    CpCaption(text: "이 책만 · 겉표지와 속표지가 있으면 \"함께\" 로 두면 본문 펼침이 맞습니다").frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if prefs.pdfFit == PdfFit.continuous.rawValue {
+                    CpCaption(text: "이어서: 쪽을 폭에 맞춰 위아래로 이어 붙입니다. 누르면 한 화면씩 내려가고, 두 쪽 보기는 쓰지 않습니다.")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                CpLinkRow(label: "모든 보기 설정") { model.panel = .settings }
+            } else {
             CpStepper(label: "글자 크기", value: "\(prefs.fontSize)",
                       onMinus: { prefs.fontSize = max(prefs.fontSize - 1, ReaderPrefs.fontRange.lowerBound) },
                       onPlus: { prefs.fontSize = min(prefs.fontSize + 1, ReaderPrefs.fontRange.upperBound) })
@@ -218,6 +240,7 @@ private struct ViewPanelRows: View {
             CpChoice(label: "줄 간격", options: ["좁게", "보통", "넓게"], selected: prefs.lineSpacing) { prefs.lineSpacing = $0 }
             CpChoice(label: "여백", options: ["좁게", "보통", "넓게"], selected: prefs.margin) { prefs.margin = $0 }
             CpLinkRow(label: "모든 보기 설정") { model.panel = .settings }
+            }
         }
         .padding(.top, 8)
         .padding(.bottom, 4)
@@ -227,6 +250,8 @@ private struct ViewPanelRows: View {
 /// 모든 보기 설정(구상안 5A): 이번에 동작하는 줄만. 넘기기 · 형광펜 · 두 쪽 보기 · 하단 정보는 그 기능을 만들 때 더한다.
 private struct ViewSettingsScreen: View {
     @ObservedObject var prefs: ReaderPrefs
+    /// PDF 면 문단 묶음 · 형광펜 줄을 빼고, 두 쪽 줄에 쪽 맞춤의 까닭 · 표지 줄을 더한다(구상안 32A · 33).
+    var isPdf = false
     let back: () -> Void
     let openFooter: () -> Void
 
@@ -235,6 +260,7 @@ private struct ViewSettingsScreen: View {
             CpHeader(title: "보기 설정", leading: AnyView(CpIconButton(icon: .back, label: "뒤로", action: back))) {}
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
+                    if !isPdf {
                     section("문단")
                     // 줄들은 갈래 이름에 속하므로 한 단 들인다(UI 규칙 1).
                     CpChoice(label: "정렬", options: ["원본", "양쪽", "왼쪽"], selected: prefs.align) { prefs.align = $0 }
@@ -243,6 +269,7 @@ private struct ViewSettingsScreen: View {
                         .padding(.leading, CpMetrics.levelIndent)
                     CpChoice(label: "문단 간격", options: ["좁게", "보통", "넓게"], selected: prefs.paragraphSpacing) { prefs.paragraphSpacing = $0 }
                         .padding(.leading, CpMetrics.levelIndent)
+                    }
                     // 넘기기(구상안 23A, 안드로이드 차례: 문단 → 넘기기 → 화면).
                     section("넘기기")
                     CpChoice(label: "넘김 효과", options: ["없음", "서서히", "밀기", "덮기", "말림"], selected: prefs.pageTurn) { prefs.pageTurn = $0 }
@@ -265,22 +292,37 @@ private struct ViewSettingsScreen: View {
                         .padding(.leading, CpMetrics.levelIndent)
                     // 화면(안드로이드 차례: 형광펜 · 메모 → 두 쪽 보기 → 화면 켜짐 유지 → 하단 정보).
                     section("화면")
-                    // 숨겨도 지우지 않는다 — 다시 보이면 그대로 있다.
-                    CpChoice(label: "형광펜 · 메모", options: ["보임", "숨김"], selected: prefs.showHighlights ? 0 : 1) { prefs.showHighlights = $0 == 0 }
-                        .padding(.leading, CpMetrics.levelIndent)
+                    // 숨겨도 지우지 않는다 — 다시 보이면 그대로 있다. PDF 의 형광펜은 2단계.
+                    if !isPdf {
+                        CpChoice(label: "형광펜 · 메모", options: ["보임", "숨김"], selected: prefs.showHighlights ? 0 : 1) { prefs.showHighlights = $0 == 0 }
+                            .padding(.leading, CpMetrics.levelIndent)
+                    }
                     CpChoice(label: "가로에서 두 쪽 보기", options: ["켬", "끔"], selected: prefs.twoPagesLandscape ? 0 : 1) {
                         prefs.twoPagesLandscape = $0 == 0
                     }
                     .padding(.leading, CpMetrics.levelIndent)
+                    .opacity(pdfOnePage == nil ? 1 : 0.45)
+                    .allowsHitTesting(pdfOnePage == nil)
+                    if isPdf {
+                        // 가로 두 쪽 줄에 속한다 — 한 단 더 들인다(UI 규칙 1).
+                        CpChoice(label: "표지 (처음 여는 책)", options: ["따로", "함께"], selected: prefs.pdfCoverAlone ? 0 : 1) {
+                            prefs.pdfCoverAlone = $0 == 0
+                        }
+                        .padding(.leading, CpMetrics.levelIndent * 2)
+                        CpCaption(text: "책마다 보기 판에서 바꾼 값이 이보다 먼저입니다. 바꾼 책 \(prefs.pdfCoverByBook.count)개")
+                            .padding(.leading, CpMetrics.levelIndent * 2)
+                    }
                     // 휴대폰에서는 흐리게 두고 누를 수 없다 — 숨기면 iPad 에서 본 설정을 찾지 못하고, 누를 수 있으면 바뀌는 것이 없어
                     // 고장으로 보인다(안드로이드와 같다).
                     CpChoice(label: "세로에서 두 쪽 보기", options: ["켬", "끔"], selected: prefs.twoPagesPortrait ? 0 : 1) {
                         prefs.twoPagesPortrait = $0 == 0
                     }
                     .padding(.leading, CpMetrics.levelIndent)
-                    .opacity(wideDevice ? 1 : 0.45)
-                    .allowsHitTesting(wideDevice)
-                    if !wideDevice {
+                    .opacity(wideDevice && pdfOnePage == nil ? 1 : 0.45)
+                    .allowsHitTesting(wideDevice && pdfOnePage == nil)
+                    if let why = pdfOnePage {
+                        CpCaption(text: why).padding(.leading, CpMetrics.levelIndent)
+                    } else if !wideDevice {
                         CpCaption(text: "넓은 화면(iPad)에서만 쓸 수 있습니다").padding(.leading, CpMetrics.levelIndent)
                     }
                     CpChoice(label: "화면 켜짐 유지", options: ["휴대폰", "10분", "항상"], selected: prefs.keepScreenOn.rawValue) {
@@ -299,6 +341,16 @@ private struct ViewSettingsScreen: View {
 
     private func section(_ title: String) -> some View {
         CpSectionLabel(text: title).padding(.horizontal, CpMetrics.gutter).padding(.top, 18).padding(.bottom, 6)
+    }
+
+    /// PDF 를 폭 · 이어서로 보면 두 쪽을 쓰지 않는다 — 두 쪽 줄을 흐리게 하고 까닭을 적는다(안드로이드 `pdfOnePageNote`).
+    private var pdfOnePage: String? {
+        guard isPdf else { return nil }
+        switch PdfFit(rawValue: prefs.pdfFit) {
+        case .width: return "폭 맞춤에서는 한 쪽씩 보입니다"
+        case .continuous: return "이어서에서는 두 쪽 보기를 쓰지 않습니다"
+        default: return nil
+        }
     }
 
     /// 세로 두 쪽을 쓸 수 있는 기기(짧은 변 600 이상 — iPad).
@@ -470,13 +522,13 @@ private struct ContentsScreen: View {
     private var contents: some View {
         if let rows {
             if rows.isEmpty {
-                CpEmptyMessage(text: "목차가 없는 책입니다")
+                CpEmptyMessage(text: model.isPdf ? "목차가 없는 파일입니다. 진행 막대로 원하는 쪽에 갈 수 있습니다." : "목차가 없는 책입니다")
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: 0) {
                             ForEach(rows) { row in
-                                CpTocRow(label: row.label, depth: row.depth, current: row.index == current) {
+                                CpTocRow(label: row.label, depth: row.depth, current: row.index == current, trailing: row.trailing) {
                                     Task { await model.jump { try await $0.goToContents(row.index) } }
                                 }
                                 .id(row.index)
@@ -615,6 +667,8 @@ enum NoteEntry {
 /// 진도 막대. 끌면 손을 뗀 자리로 옮긴다(끄는 동안은 숫자만 바뀐다 — 끌 때마다 짜면 막대가 따라오지 못한다).
 private struct SeekBar: View {
     let percent: Double
+    /// 막대 옆 글(PDF 는 "4쪽"). nil 이면 "%".
+    var label: ((Double) -> String)?
     let seek: (Double) -> Void
     @State private var dragging: Double?
 
@@ -623,7 +677,7 @@ private struct SeekBar: View {
             CpSlider(value: (dragging ?? percent) / 100, label: "지금 위치", height: 40,
                      onChange: { dragging = $0 * 100 },
                      onCommit: { v in dragging = nil; seek(v * 100) })
-            Text("\(Int((dragging ?? percent).rounded()))%").font(CpFont.label).foregroundStyle(CpColor.text)
+            Text(label?(dragging ?? percent) ?? "\(Int((dragging ?? percent).rounded()))%").font(CpFont.label).foregroundStyle(CpColor.text)
         }
     }
 }

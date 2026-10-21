@@ -24,6 +24,7 @@ struct CpIcon: Equatable {
     static let minus = line("M5 12 H19")
     static let folder = line("M3.5 7.5 V18 A1.5 1.5 0 0 0 5 19.5 H19 A1.5 1.5 0 0 0 20.5 18 V9.5 A1.5 1.5 0 0 0 19 8 H11.5 L9.5 5.5 H5 A1.5 1.5 0 0 0 3.5 7 Z")
     static let book = line("M4 5.5 C6.5 4.5 9.5 4.5 12 6 C14.5 4.5 17.5 4.5 20 5.5 V18.5 C17.5 17.5 14.5 17.5 12 19 C9.5 17.5 6.5 17.5 4 18.5 Z M12 6 V19")
+    static let pdf = line("M6 3.5 H14.5 L18.5 7.5 V20.5 H6 Z M14.5 3.5 V7.5 H18.5 M8.5 16.5 C11 15 13 12 13 10 C13 8.5 11.5 8.5 11.5 10 C11.5 13 14 15.5 16 15.5")
     static let text = line("M6 3.5 H14.5 L18.5 7.5 V20.5 H6 Z M14.5 3.5 V7.5 H18.5 M9 11 H15.5 M9 14 H15.5 M9 17 H13")
     static let bookmark = line("M7 4 H17 V20 L12 16 L7 20 Z")
     static let bookmarkFilled = fill("M7 4 H17 V20 L12 16 L7 20 Z")

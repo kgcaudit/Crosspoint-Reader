@@ -24,6 +24,8 @@ struct CurlPager: UIViewControllerRepresentable {
     let onFlip: (Int) -> Void
     let onTap: (CGPoint) -> Void
     let onLongPress: (CGPoint) -> Void
+    /// PDF 확대(두 번 누르기 2.5배 · 두 손가락). nil 이면 받지 않는다 — 받으면 한 번 누름이 두 번째를 기다린다.
+    var zoom: ((CGPoint, CGFloat) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -41,6 +43,13 @@ struct CurlPager: UIViewControllerRepresentable {
         let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped(_:)))
         let long = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.pressed(_:)))
         long.minimumPressDuration = 0.45
+        if zoom != nil {
+            let double = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.doubleTapped(_:)))
+            double.numberOfTapsRequired = 2
+            tap.require(toFail: double)
+            pager.view.addGestureRecognizer(double)
+            pager.view.addGestureRecognizer(UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.pinched(_:))))
+        }
         pager.view.addGestureRecognizer(tap)
         pager.view.addGestureRecognizer(long)
         return pager
@@ -133,6 +142,12 @@ struct CurlPager: UIViewControllerRepresentable {
         }
 
         @objc func tapped(_ g: UITapGestureRecognizer) { parent.onTap(g.location(in: g.view)) }
+
+        @objc func doubleTapped(_ g: UITapGestureRecognizer) { parent.zoom?(g.location(in: g.view), 2.5) }
+
+        @objc func pinched(_ g: UIPinchGestureRecognizer) {
+            if g.state == .ended, g.scale > 1.05 { parent.zoom?(g.location(in: g.view), min(g.scale, 5)) }
+        }
 
         @objc func pressed(_ g: UILongPressGestureRecognizer) {
             if g.state == .began { parent.onLongPress(g.location(in: g.view)) }

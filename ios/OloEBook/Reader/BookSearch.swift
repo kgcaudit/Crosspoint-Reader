@@ -38,7 +38,7 @@ final class BookSearch: ObservableObject {
     private var task: Task<Void, Never>?
 
     /// 장마다 찾아 나오는 대로 더한다. 새로 찾으면 앞의 찾기는 멈춘다.
-    func start(_ engine: ReaderEngine) {
+    func start(_ engine: any BookEngine) {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         task?.cancel()
         results = []

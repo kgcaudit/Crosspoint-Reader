@@ -22,7 +22,7 @@ struct LibraryBook: Identifiable, Hashable {
     /// 서재에 보이는 이름(안드로이드 `label`): 책 제목, 모르면 파일 이름.
     var label: String { title.isEmpty ? displayName : title }
 
-    enum Format: String { case epub = "EPUB", txt = "TXT" }
+    enum Format: String { case epub = "EPUB", txt = "TXT", pdf = "PDF" }
 
     /// 조판 캐시 키의 판. 같은 이름으로 고친 책에 옛 쪽이 보이지 않게.
     var edition: String { "\(sizeBytes)-\(Int64(modified.timeIntervalSince1970))" }
@@ -203,11 +203,11 @@ final class Library: ObservableObject {
         let rootPath = root.standardizedFileURL.path
         var out: [LibraryBook] = []
         for case let url as URL in walker {
-            // PDF 는 리더(PDFKit)를 만든 뒤에 서재에 올린다 — 보이는데 열리지 않는 책이 가장 나쁘다.
             let format: LibraryBook.Format
             switch url.pathExtension.lowercased() {
             case "epub": format = .epub
             case "txt": format = .txt
+            case "pdf": format = .pdf
             default: continue
             }
             guard let values = try? url.resourceValues(forKeys: Set(keys)), values.isRegularFile == true else { continue }
@@ -298,7 +298,7 @@ final class Library: ObservableObject {
     /// 같은 책을 두 번 열 때마다 사본이 생기면 서재가 같은 책으로 찬다.
     func receive(_ url: URL) async -> LibraryBook? {
         let ext = url.pathExtension.lowercased()
-        guard ext == "epub" || ext == "txt" else { return nil }
+        guard ext == "epub" || ext == "txt" || ext == "pdf" else { return nil }
         let access = url.startAccessingSecurityScopedResource()
         defer { if access { url.stopAccessingSecurityScopedResource() } }
         let fm = FileManager.default
@@ -329,11 +329,14 @@ final class Covers: @unchecked Sendable {
     func load(_ book: LibraryBook, library: Library) async -> UIImage? {
         let key = key(book)
         if let image = cache.object(forKey: key) { return image }
-        if missing.object(forKey: key) != nil || book.format != .epub { return nil }
+        if missing.object(forKey: key) != nil || book.format == .txt { return nil }
         let end = await library.beginAccess(book)
         defer { end() }
         let path = book.url.path
-        let image = await Task.detached(priority: .utility) { IosBookReader.companion.cover(path: path) }.value
+        let pdf = book.format == .pdf
+        let image = await Task.detached(priority: .utility) {
+            pdf ? PdfPages.cover(url: URL(fileURLWithPath: path)) : IosBookReader.companion.cover(path: path)
+        }.value
         if let image { cache.setObject(image, forKey: key) } else { missing.setObject(1, forKey: key) }
         return image
     }
