@@ -159,9 +159,15 @@ EPUB 은 색이 아니라 **그림**으로 가른다(0.32.2, 계열 FILEKIND 의
 
 ## 8. 본보기 화면 (`screens/`)
 
+0.54.9 (2026-10-21) 에 지금 판으로 다시 찍었다 — 0.25 무렵 그림은 0.38~0.44 서재 개편 · 0.45 낮은 읽기 메뉴 전이라 달랐다. 그림은 앱 시험(`:app:testDebugUnitTest`)이 `app/build/screenshots/` 에 남기는 것을 같은 이름으로 옮긴다.
+
 | 파일 | 보이는 것 |
 |---|---|
-| `100-home-grid.png` · `101-home-list.png` | 홈: 선반 · 격자 · 풍성한 목록 · `CpIconToggle` |
+| `100-home-grid.png` · `101-home-list.png` · `104-home-shelf.png` | 서재(책): 격자 · 목록 · 원목 책장, 보기 도구 한 줄(정렬 · 찾기 · 보기 셋 · 더 보기) |
+| `90b-library-more.png` | 서재 더 보기 판(새로고침 · 책 폴더 · 독서 기록 · 앱 정보) |
+| `comic-tab.png` · `comic-tab-list.png` · `comic-tab-shelf.png` | 서재(만화): 책 · 만화 위 탭, 만화 세 갈래 묶음 표지 |
+| `comic-work.png` | 작품 화면: 권 목록, 합본의 권은 들여쓰기(위계 규칙) |
+| `44-touch-zones.png` | 터치 영역 고르기(설명 · 작은 그림) |
 | `11-dark-library.png` | 어두운 테마 |
 | `03-reader-first-page.png` · `05-menu-bar.png` | 리더 지면 · 위아래 메뉴 |
 | `40-view-panel.png` · `42-view-settings.png` | 보기 판 · 전체 설정(`CpChoice` · `CpStepper`) |
