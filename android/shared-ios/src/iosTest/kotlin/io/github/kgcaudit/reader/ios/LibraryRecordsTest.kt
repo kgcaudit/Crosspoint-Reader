@@ -10,6 +10,7 @@ import platform.Foundation.NSString
 import platform.Foundation.NSTemporaryDirectory
 import platform.Foundation.NSUTF8StringEncoding
 import platform.Foundation.NSUUID
+import platform.Foundation.decomposedStringWithCanonicalMapping
 import platform.Foundation.create
 import platform.Foundation.stringWithContentsOfFile
 import platform.Foundation.writeToFile
@@ -80,6 +81,21 @@ class LibraryRecordsTest {
         assertEquals(2, again.size)
         // 모르는 방식은 버리지 않는다 — 새 판이 더한 방식을 옛 판이 지우면 안 된다.
         assertTrue(again.any { it.mode == "SKIM" && it.millis == 700L })
+    }
+
+    @Test
+    fun `records written under a decomposed hangul id are found under the composed id`() {
+        val path = "$root/r.tsv"
+        @Suppress("CAST_NEVER_SUCCEEDS")
+        val nfd = ("app:짧은 메모.txt" as NSString).decomposedStringWithCanonicalMapping
+        assertTrue(nfd != "app:짧은 메모.txt")
+        @Suppress("CAST_NEVER_SUCCEEDS")
+        ("T\t$nfd\t20000\tREAD\t500\nR\t$nfd\t1\t-\n" as NSString).writeToFile(path, true, NSUTF8StringEncoding, null)
+        val store = ReadingStore(path)
+        store.addTime("app:짧은 메모.txt", 20_000, "READ", 100)
+        // 옛 판이 풀어 쓴 꼴로 적은 줄과 새 줄이 한 책 · 한 칸으로 모인다(둘로 갈라지면 통계 · 백업에서 반이 사라진다).
+        assertEquals(600, store.times().single().millis)
+        assertEquals(1, store.shelf(listOf("app:짧은 메모.txt")).single().openedAtEpochMs)
     }
 
     private fun write(name: String, bytes: ByteArray): String {

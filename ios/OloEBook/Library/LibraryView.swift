@@ -76,20 +76,17 @@ struct LibraryView: View {
                              dismiss: { showFolders = false })
             }
             if showInfo {
-                CpPopup(onDismiss: { showInfo = false }) {
-                    Text("OLO eBook").font(CpFont.title).foregroundStyle(CpColor.text)
-                    Text("iOS \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "") · 공통 코어 안드로이드 0.54.8")
-                        .font(CpFont.subtitle).foregroundStyle(CpColor.textMuted)
-                    HStack { Spacer(); CpButton(title: "닫기", kind: .secondary) { showInfo = false } }
-                }
+                AboutScreen(library: library, back: { showInfo = false })
+                    .transition(.move(edge: .trailing))
             }
         }
         #if DEBUG
-        // 화면 확인용: -olo-book-search <말> 은 책 찾기, -olo-stats 는 독서 기록을 연다. 출시 빌드에는 없다.
+        // 화면 확인용: -olo-book-search <말> 은 책 찾기, -olo-stats 는 독서 기록, -olo-about 은 앱 정보를 연다. 출시 빌드에는 없다.
         .onAppear {
             let args = CommandLine.arguments
             if let i = args.firstIndex(of: "-olo-book-search"), i + 1 < args.count { query = args[i + 1]; searching = true }
             if args.contains("-olo-stats") { showStats = true }
+            if args.contains("-olo-about") || args.contains("-olo-import") || args.contains("-olo-export-to") { showInfo = true }
         }
         #endif
         .fileImporter(isPresented: $pickingFolder, allowedContentTypes: [.folder]) { result in

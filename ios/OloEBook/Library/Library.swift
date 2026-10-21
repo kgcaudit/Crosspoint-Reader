@@ -73,6 +73,8 @@ final class Library: ObservableObject {
     @Published var layout: LibraryLayout { didSet { save(layout.rawValue, "library.layout") } }
 
     let store: ReadingStore
+    /// 읽기 기록 백업(구상안 31A). 못 찾은 책의 기록은 기다렸다가 서재를 훑을 때 붙인다.
+    let backup: RecordsBackup
     let pageCache: String
     private var books: [LibraryBook] = []
     private var records: [String: ShelfRecord] = [:]
@@ -88,6 +90,7 @@ final class Library: ObservableObject {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         store = ReadingStore(path: support.appendingPathComponent("reading.tsv").path)
+        backup = RecordsBackup(store: store, pendingPath: support.appendingPathComponent("pending-records.json").path)
         pageCache = caches.appendingPathComponent("pages", isDirectory: true).path
         let defaults = UserDefaults.standard
         sort = LibrarySort(rawValue: defaults.string(forKey: "library.sort") ?? "") ?? .recent
@@ -110,8 +113,27 @@ final class Library: ObservableObject {
         books = found
         infos = seen
         Library.saveInfos(seen)
+        // 백업에서 기다리던 책이 이제 보이면 붙인다(책 폴더를 추가한 뒤 등).
+        _ = backup.resumePending(shelf: shelfBooks)
         reloadRecords()
         scanning = false
+    }
+
+    // MARK: 기록 백업(구상안 31A)
+
+    /// 맞추기의 열쇠: 파일 이름 + 크기(안드로이드와 같다 — 기기마다 경로가 달라도 같은 파일을 찾는다).
+    private var shelfBooks: [ShelfBook] {
+        books.map { ShelfBook(id: $0.id, name: $0.displayName, size: $0.sizeBytes, title: $0.title.isEmpty ? nil : $0.title, author: $0.author) }
+    }
+
+    func backupSummary() -> BackupSummary { backup.summary(shelf: shelfBooks) }
+    func exportRecords() -> String { backup.export(shelf: shelfBooks, now: Int64(Date().timeIntervalSince1970 * 1000)) }
+    func previewRecords(_ text: String) -> ImportPreview? { backup.preview(text: text, shelf: shelfBooks) }
+
+    func importRecords(_ text: String) -> ImportResult? {
+        let result = backup.apply(text: text, shelf: shelfBooks)
+        reloadRecords()
+        return result
     }
 
     // MARK: 이름표(구상안 29A)
@@ -192,7 +214,8 @@ final class Library: ObservableObject {
             let path = url.standardizedFileURL.path
             let relative = path.hasPrefix(rootPath) ? String(path.dropFirst(rootPath.count).drop(while: { $0 == "/" })) : url.lastPathComponent
             out.append(LibraryBook(
-                id: prefix + relative,
+                // 한글을 모아 쓴 꼴(NFC)로 — 훑어 받은 경로는 풀어 쓴 꼴이다. 기록 파일(Kotlin)은 두 꼴을 다른 글로 본다.
+                id: (prefix + relative).precomposedStringWithCanonicalMapping,
                 url: url,
                 displayName: url.lastPathComponent,
                 format: format,

@@ -175,6 +175,70 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
     /** 모든 시간 줄(통계가 한 번에 묻는다). */
     fun times(): List<TimeRecord> = locked { times.map { (k, v) -> TimeRecord(k.first, k.second, k.third, v) } }
 
+    // ── 백업(구상안 31A) ──────────────────────────────────────────────────
+
+    /** 이 책의 기록(백업에 담을 것). 아무 기록도 없으면 null — 빈 책을 백업에 늘어놓지 않는다(안드로이드 `recordOf`). */
+    fun recordOf(bookId: String, name: String, size: Long?, title: String?, author: String?): BackupBook? = locked {
+        val p = progress[bookId]
+        val book = BackupBook(
+            name, size, title, author,
+            p?.let { BackupProgress(Locator.encode(it.locator), it.percent, it.updatedAtEpochMs) },
+            opened[bookId], finished[bookId],
+            bookmarks.filter { it.bookId.value == bookId }.map { BackupBookmark(Locator.encode(it.locator), it.snippet, it.createdAtEpochMs) },
+            notes.filter { it.bookId.value == bookId }.map {
+                BackupNote(Locator.encode(it.start), Locator.encode(it.end), it.color.name, it.note, it.snippet, it.createdAtEpochMs)
+            },
+            times.filter { it.key.first == bookId }.map { (k, v) -> BackupTime(k.second, k.third, v) }.sortedWith(compareBy({ it.day }, { it.mode })),
+        )
+        book.takeIf { it.hasRecords }
+    }
+
+    /**
+     * 백업의 기록을 이 책에 합친다(안드로이드 `mergeInto`). 이 휴대폰의 기록은 지우지 않는다: 읽은 자리는 백업이 더 뒤쪽일 때만(나중에
+     * 고쳤다는 것만으로는 이기지 않는다), 연 때는 나중 것, 다 읽은 때는 이 휴대폰에 없을 때만, 책갈피는 같은 자리가 없을 때만, 형광펜은
+     * 같은 구간이 있으면 이 휴대폰의 색을 두고 메모만 비었으면 채운다, 읽은 시간은 날 · 방식마다 큰 쪽(두 번 가져와도 늘지 않는다).
+     */
+    fun merge(bookId: String, b: BackupBook) = locked {
+        val id = BookId(bookId)
+        b.progress?.let { incoming ->
+            val local = progress[bookId]
+            val mine = local?.let { BackupProgress(Locator.encode(it.locator), it.percent, it.updatedAtEpochMs) }
+            if (mine == null || isFurther(incoming, mine)) {
+                Locator.decodeOrNull(incoming.locator)?.let { progress[bookId] = ReadingProgress(id, it, incoming.percent, incoming.updatedAt) }
+            }
+        }
+        if (b.openedAt != null || b.finishedAt != null) {
+            opened[bookId] = maxOf(opened[bookId] ?: Long.MIN_VALUE, b.openedAt ?: opened[bookId] ?: currentTimeMillis())
+            if (bookId !in finished) b.finishedAt?.let { finished[bookId] = it }
+        }
+        val marks = bookmarks.filter { it.bookId == id }.map { Locator.encode(it.locator) }.toMutableSet()
+        for (m in b.bookmarks) {
+            val locator = Locator.decodeOrNull(m.locator) ?: continue
+            if (!marks.add(Locator.encode(locator))) continue
+            bookmarks.add(Bookmark(nextBookmarkId++, id, locator, m.snippet, m.createdAt))
+        }
+        for (a in b.annotations) {
+            val start = Locator.decodeOrNull(a.start) as? Locator.Reflow ?: continue
+            val end = Locator.decodeOrNull(a.end) as? Locator.Reflow ?: continue
+            val i = notes.indexOfFirst { it.bookId == id && it.start == start && it.end == end }
+            if (i >= 0) {
+                if (notes[i].note == null && a.note != null) notes[i] = notes[i].copy(note = a.note)
+                continue
+            }
+            // 모르는 색은 노랑으로 — iOS 의 칠 색은 넷뿐이다.
+            val color = HighlightColor.entries.firstOrNull { it.name == a.color } ?: HighlightColor.Yellow
+            runCatching { Annotation(nextNoteId, id, start, end, color, a.note, a.snippet, a.createdAt) }.getOrNull()?.let {
+                notes.add(it)
+                nextNoteId++
+            }
+        }
+        for (t in b.time) {
+            val key = Triple(bookId, t.day, t.mode)
+            times[key] = maxOf(times[key] ?: 0L, t.ms).coerceAtMost(DAY_MS)
+        }
+        persist()
+    }
+
     private fun order(locator: Locator): Long = when (locator) {
         is Locator.Reflow -> locator.spine.toLong() * Int.MAX_VALUE + locator.charOffset
         is Locator.FixedPage -> locator.page.toLong() * 1_000_000 + locator.yPermille * 1000L + locator.xPermille
@@ -185,7 +249,11 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
     private fun load() {
         val text = NSString.stringWithContentsOfFile(path, NSUTF8StringEncoding, null) ?: return
         for (line in text.split('\n')) {
-            val f = line.split('\t').map(::unescape)
+            val raw = line.split('\t').map(::unescape)
+            // 책 id 는 한글을 모아 쓴 꼴(NFC)로. iOS 가 폴더를 훑어 주는 경로는 풀어 쓴 꼴(NFD)이라 옛 판은 그 꼴로 적었다 — Swift 는 두
+            // 꼴을 같은 글로 보지만 여기(Kotlin)는 다른 글로 봐, 같은 책의 기록이 둘로 갈라졌다.
+            val idAt = when (raw.firstOrNull()) { "P", "R", "T" -> 1; "B", "A" -> 2; else -> -1 }
+            val f = if (idAt in raw.indices) raw.toMutableList().also { it[idAt] = nfc(it[idAt]) } else raw
             // 깨진 줄은 그 줄만 버린다 — 기록 하나 때문에 서재 전체가 비면 안 된다.
             runCatching {
                 when (f.firstOrNull()) {
