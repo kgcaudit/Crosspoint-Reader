@@ -52,6 +52,9 @@ object PagePainter {
         /** 찾은 말(장 안 글자 구간). 없으면 null. 글자 뒤에 [markColor] 30% 로 칠한다(안드로이드 highlightColor). */
         mark: IntRange? = null,
         markColor: Int = 0xB95B3B,
+        /** 듣는 문장(장 안 글자 구간). 형광펜 **아래**에 [markColor] [speakingAlpha] 로 칠한다(안드로이드 0.18 · 검은 지면 0.30). */
+        speaking: IntRange? = null,
+        speakingAlpha: Double = 0.18,
         /** 각주 표시(장 안 글자 구간들). [noteColor] 로 그린다 — 작은 위첨자라 본문과 대비 4.5 이상인 색이어야 한다. */
         noteMarks: List<IntRange> = emptyList(),
         noteColor: Int = 0,
@@ -68,6 +71,12 @@ object PagePainter {
             fill(cg, paper, 1.0)
             CGContextFillRect(cg, CGRectMake(0.0, 0.0, widthPt, heightPt))
             // 칠은 글자보다 먼저 — 나중에 칠하면 글자가 덮인다.
+            if (speaking != null) {
+                fill(cg, markColor, speakingAlpha)
+                for (b in rangeBoxes(page, text, measurer, speaking.first, speaking.last + 1)) {
+                    CGContextFillRect(cg, CGRectMake(b.left.toDouble(), b.top.toDouble(), (b.right - b.left).toDouble(), (b.bottom - b.top).toDouble()))
+                }
+            }
             for ((range, color) in tints) {
                 fill(cg, color, tintAlpha)
                 for (b in rangeBoxes(page, text, measurer, range.first, range.last + 1)) {

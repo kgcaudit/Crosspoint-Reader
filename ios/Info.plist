@@ -1,11 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  빌드 설정(GENERATE_INFOPLIST_FILE)이 채우지 못하는 것만 둔다: 이 앱이 여는 문서 형식.
+  빌드 설정(GENERATE_INFOPLIST_FILE)이 채우지 못하는 것만 둔다: 이 앱이 여는 문서 형식 · 화면을 꺼도 이어 읽는 듣기(audio).
   OloEBook 폴더 밖에 두는 까닭: 그 폴더는 통째로 앱에 담기므로 거기 두면 Info.plist 가 두 번 만들어져 빌드가 깨진다.
 -->
 <plist version="1.0">
 <dict>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>

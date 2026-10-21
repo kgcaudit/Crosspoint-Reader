@@ -67,7 +67,13 @@ class ReaderFrame(
     val bookmarked: Boolean,
     /** 링크로 건너온 쪽이다 — "읽던 곳으로" 칩을 띄운다. */
     val canReturn: Boolean = false,
+    /** 이 쪽의 글자 구간(장 안). 듣기가 "보이는 쪽에서 시작하는 첫 문장" 을 찾고, 사람이 넘긴 쪽에 듣던 문장이 있는지 본다. */
+    val pageStart: Int = 0,
+    val pageEnd: Int = 0,
 )
+
+/** 듣기가 읽을 한 문장(장 안 글자 구간, 공통 `Sentence`). */
+class SpeechSentence(val start: Int, val end: Int)
 
 /**
  * 형광펜 한 줄(Swift 로 내는 값). [color] 는 펜 번호(0 노랑 · 1 초록 · 2 파랑 · 3 분홍, 공통 `HighlightColor` 차례).
@@ -155,6 +161,12 @@ class IosBookReader private constructor(
 
     /** 칠해 둔 찾은 말(장 · 글자 구간). 그 장의 쪽을 그릴 때만 칠한다. */
     private var mark: Pair<Int, IntRange>? = null
+
+    /** 듣는 중인 문장(장 · 글자 구간). 형광펜 아래에 강조색으로 옅게 칠한다 — 위에 칠하면 형광펜 색이 탁해진다. */
+    private var speaking: Pair<Int, IntRange>? = null
+
+    /** 마지막으로 나눈 장의 문장(듣기는 한 장을 문장마다 묻는다 — 매번 나누면 긴 장에서 문장마다 장 전체를 훑는다). */
+    private var speech: Pair<Int, List<io.github.kgcaudit.reader.layout.book.Sentence>>? = null
     private var toc: List<TocEntry>? = null
     private var spec: LayoutSpec? = null
     private val images = HashMap<String, UIImage?>()
@@ -593,6 +605,64 @@ class IosBookReader private constructor(
         return show(position ?: error("not laid out"))
     }
 
+    // ── 듣기(구상안 24) ───────────────────────────────────────────────────
+
+    /**
+     * 장 하나의 문장들(공통 `splitSentences`). 깨진 장 · 없는 장은 빈 목록 — 듣기는 그 장을 건너뛴다(CLAUDE.md 규칙 6).
+     * 문단 시작에서 언제나 끊는다: 장 텍스트는 문단을 구분자 없이 이어, 끊지 않으면 "삼킨다.어른들은" 이 한 문장이 된다.
+     */
+    @Throws(Exception::class)
+    suspend fun speechSentences(spine: Int): List<SpeechSentence> = sentences(spine).map { SpeechSentence(it.start, it.endExclusive) }
+
+    private suspend fun sentences(spine: Int): List<io.github.kgcaudit.reader.layout.book.Sentence> {
+        speech?.takeIf { it.first == spine }?.let { return it.second }
+        val l = layout()
+        if (spine !in 0 until l.spine().size) return emptyList()
+        val text = runCatching { l.chapterText(spine) }.getOrNull() ?: return emptyList()
+        return io.github.kgcaudit.reader.layout.book.splitSentences(text, l.paragraphStarts(spine)).also { speech = spine to it }
+    }
+
+    /**
+     * 엔진에 넘길 글: 숨은 문자를 정리하고(공통 `speakable`) 어절 쉼 줄이기([join] 0 일반 · 1 속독, 공통 `joinWords`)를 건다.
+     * 화면의 글 · 칠은 그대로다. 구간이 장 밖이면 빈 글.
+     */
+    @Throws(Exception::class)
+    suspend fun spoken(spine: Int, start: Int, end: Int, join: Int): String {
+        // 없는 장은 묻지 않는다 — chapterText 는 없는 장에도 "이 장을 읽지 못했습니다" 자리 글을 내준다(화면용).
+        if (spine !in 0 until layout().spine().size) return ""
+        val text = runCatching { layout().chapterText(spine) }.getOrNull() ?: return ""
+        val from = start.coerceIn(0, text.length)
+        val to = end.coerceIn(from, text.length)
+        val level = io.github.kgcaudit.reader.layout.book.WordJoin.entries.getOrElse(join) { io.github.kgcaudit.reader.layout.book.WordJoin.Off }
+        return io.github.kgcaudit.reader.layout.book.joinWords(
+            io.github.kgcaudit.reader.layout.book.speakable(text, io.github.kgcaudit.reader.layout.book.Sentence(from, to)), level,
+        )
+    }
+
+    /**
+     * 지금 읽는 문장을 칠하고 쪽을 낸다. [follow] 면 그 문장의 첫 글자가 든 쪽으로 옮긴다 — 이미 보이는 쪽이면 옮기지 않는다
+     * (다시 짜면 사람이 넘긴 쪽이 문장 자리로 되돌아간다). 쪽 전체가 한 문장 안이라 사람이 둔 쪽을 지킬 때는 [follow] 를 끈다.
+     */
+    @Throws(Exception::class)
+    suspend fun speak(spine: Int, start: Int, end: Int, follow: Boolean): ReaderFrame {
+        speaking = spine to (start until end)
+        val here = position ?: error("not laid out")
+        val page = shown?.first
+        val visible = here.spineIndex == spine && page != null && start in page.startChar until page.endCharExclusive
+        if (follow && !visible) {
+            returnTo = null
+            return show(layout().resolve(Locator.Reflow(spine, start)))
+        }
+        return show(here)
+    }
+
+    /** 듣기를 껐다 — 문장 칠을 지우고 지금 쪽을 다시 낸다. */
+    @Throws(Exception::class)
+    suspend fun stopSpeaking(): ReaderFrame {
+        speaking = null
+        return show(position ?: error("not laid out"))
+    }
+
     // ── 책갈피 ────────────────────────────────────────────────────────────
 
     /** 꽂은 책갈피(책 차례대로). */
@@ -654,6 +724,8 @@ class IosBookReader private constructor(
             percent = saved.percent,
             bookmarked = s.isBookmarked(target),
             canReturn = returnTo != null,
+            pageStart = page?.startChar ?: 0,
+            pageEnd = page?.endCharExclusive ?: 0,
         )
     }
 
@@ -681,6 +753,7 @@ class IosBookReader private constructor(
                 page, text, measurer(spec), spec.viewportWidthPx.toDouble(), spec.viewportHeightPx.toDouble(),
                 paper, ink, pictures(target.spineIndex, page), PictureBlend.forPaper(paper, blendPictures),
                 mark = mark?.takeIf { it.first == target.spineIndex }?.second, markColor = accent,
+                speaking = speaking?.takeIf { it.first == target.spineIndex }?.second, speakingAlpha = if (darkPaper) 0.30 else 0.18,
                 noteMarks = l.links(target.spineIndex).filter { it.isFootnote(text) }.map { it.start until it.endExclusive },
                 // 각주 번호는 작은 위첨자 — 지면마다 본문과 대비 4.5 를 넘게 본문 색 쪽으로 짙게(안드로이드 0.29).
                 noteColor = PagePainter.readableOn(accentText, paper, ink),

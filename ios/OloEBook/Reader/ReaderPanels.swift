@@ -44,6 +44,13 @@ struct ReaderPanels: View {
                 SidePanel(wide: wide, insets: insets, dismiss: model.back) {
                     NotesExportScreen(model: model, initialFilter: model.exportFilter, back: model.back)
                 }
+            case .voices:
+                SidePanel(wide: wide, insets: insets, dismiss: model.back) {
+                    VoiceScreen(prefs: prefs, pick: { id in
+                        prefs.listenVoice = id
+                        model.listening.setVoice(id)
+                    }, back: model.back)
+                }
             case .contents:
                 SidePanel(wide: wide, insets: insets, dismiss: model.back) {
                     ContentsScreen(model: model, tab: $contentsTab)
@@ -148,9 +155,10 @@ private struct ReaderBar: View {
                 Text("\(frame.spine + 1) / \(frame.chapters)장").font(CpFont.caption).foregroundStyle(CpColor.textMuted)
             }
             Spacer(minLength: 8)
-            // 듣기는 판 구상안을 정한 뒤에 붙인다(지금은 흐리게 — 누를 수 없다).
             CpIconButton(icon: .search, label: "책에서 찾기") { model.panel = .search }
-            CpIconButton(icon: .headphones, label: "듣기", enabled: false) {}
+            CpIconButton(icon: .headphones, label: "듣기") {
+                Task { await model.listen(rate: prefs.listenRate, voice: prefs.listenVoice, join: prefs.listenJoin) }
+            }
             CpIconButton(icon: frame.bookmarked ? .bookmarkFilled : .bookmark,
                          label: frame.bookmarked ? "책갈피 빼기" : "책갈피 꽂기",
                          color: frame.bookmarked ? CpColor.accent : CpColor.text) { Task { await model.toggleBookmark() } }
@@ -242,6 +250,10 @@ private struct ViewSettingsScreen: View {
                         if $0 == 0 { UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.6) }
                     }
                     .padding(.leading, CpMetrics.levelIndent)
+                    CpChoice(label: "자동 넘김", options: ["끔", "15초", "30초", "60초"], selected: prefs.autoTurn) { prefs.autoTurn = $0 }
+                        .padding(.leading, CpMetrics.levelIndent)
+                    CpCaption(text: "자동 넘김은 가운데를 누르면 멈춥니다. 듣기와 함께 켜면 듣기가 넘김을 맡습니다.")
+                        .padding(.leading, CpMetrics.levelIndent)
                     section("화면")
                     CpChoice(label: "화면 켜짐 유지", options: ["휴대폰", "10분", "항상"], selected: prefs.keepScreenOn.rawValue) {
                         prefs.keepScreenOn = ReaderPrefs.KeepScreenOn(rawValue: $0) ?? .system

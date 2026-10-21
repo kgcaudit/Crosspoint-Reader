@@ -1,3 +1,4 @@
+import Combine
 import OloCore
 import SwiftUI
 
@@ -91,6 +92,18 @@ actor ReaderEngine {
     }
 
     func goToBookmark(_ id: Int64) async throws -> PageFrame? { try await reader.goToBookmark(id: id).map(PageFrame.init) }
+
+    // 듣기
+    func speechSentences(_ spine: Int) async -> [SpokenSentence] {
+        ((try? await reader.speechSentences(spine: Int32(spine))) ?? []).map { SpokenSentence(start: Int($0.start), end: Int($0.end)) }
+    }
+    func spoken(_ spine: Int, _ s: SpokenSentence, join: Int) async -> String {
+        (try? await reader.spoken(spine: Int32(spine), start: Int32(s.start), end: Int32(s.end), join: Int32(join))) ?? ""
+    }
+    func speak(_ spine: Int, _ s: SpokenSentence, follow: Bool) async throws -> PageFrame {
+        PageFrame(try await reader.speak(spine: Int32(spine), start: Int32(s.start), end: Int32(s.end), follow: follow))
+    }
+    func stopSpeaking() async throws -> PageFrame { PageFrame(try await reader.stopSpeaking()) }
     /// 책에 쓸 수 있는 글꼴이 있는지(꺼내 본 뒤에는 실제로 읽힌 것 기준).
     func hasBookFonts() async -> Bool { (try? await reader.hasBookFonts())?.boolValue ?? false }
     func bookFontPreviewPath() -> String? { reader.bookFontPreviewPath }
@@ -134,6 +147,10 @@ struct PageFrame: @unchecked Sendable {
     let bookmarked: Bool
     /// 링크로 건너온 쪽 — "읽던 곳으로" 칩.
     let canReturn: Bool
+    /// 이 쪽의 글자 구간(장 안). 듣기가 이 쪽에서 시작하는 첫 문장을 찾는다.
+    let pageStart: Int
+    let pageEnd: Int
+    var key: String { "\(spine):\(page)" }
 
     init(_ f: ReaderFrame) {
         image = f.image
@@ -144,6 +161,8 @@ struct PageFrame: @unchecked Sendable {
         percent = Double(f.percent)
         bookmarked = f.bookmarked
         canReturn = f.canReturn
+        pageStart = Int(f.pageStart)
+        pageEnd = Int(f.pageEnd)
     }
 }
 
@@ -157,7 +176,7 @@ struct FootnoteItem: Identifiable {
 }
 
 /// 리더 위에 열린 판(안드로이드 `Panel`). 뒤로 가기: 목차 · 보기 → 메뉴, 보기 설정 · 글꼴 → 보기, 메뉴 → 지면.
-enum ReaderPanel { case none, bar, view, settings, fonts, contents, search, export }
+enum ReaderPanel { case none, bar, view, settings, fonts, contents, search, export, voices }
 
 @MainActor
 final class ReaderModel: ObservableObject {
@@ -177,6 +196,12 @@ final class ReaderModel: ObservableObject {
     private(set) var title = ""
     private(set) var author: String?
     private var endAccess: (() -> Void)?
+    private var listenWatch: AnyCancellable?
+
+    init() {
+        // 조종판 · 칠 · 결과 막대 자리가 듣기 상태를 따라 바뀐다 — 듣기의 바뀜을 리더의 바뀜으로 넘긴다.
+        listenWatch = listening.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+    }
 
     func open(_ book: LibraryBook, library: Library) async {
         guard engine == nil else { return }
@@ -210,12 +235,14 @@ final class ReaderModel: ObservableObject {
         bookFontPreview = await engine.bookFontPreviewPath()
     }
 
-    func turn(_ step: Int) async {
-        guard let engine else { return }
-        if panel != .none { panel = .none; return }
+    /// [quiet] 면 소리 · 진동 없이(자동 넘김 — 30초마다 종이 소리가 나면 거슬린다). 책의 처음 · 끝이라 넘기지 못했으면 false.
+    @discardableResult
+    func turn(_ step: Int, quiet: Bool = false) async -> Bool {
+        guard let engine else { return false }
+        if panel != .none { panel = .none; return false }
         lastActivity = Date()
         let next = try? await (step > 0 ? engine.next() : engine.previous())
-        guard let next else { return } // 책의 처음 · 끝: 아무 일도 없다.
+        guard let next else { return false } // 책의 처음 · 끝: 아무 일도 없다.
         // 쪽이 바뀌면 고르기를 푼다(이어 고르기는 "이어서 ›" 로만 — 그냥 넘기면 고르던 것을 들고 가지 않는다).
         selection = nil
         tapped = nil
@@ -229,8 +256,18 @@ final class ReaderModel: ObservableObject {
         } else {
             withAnimation(.easeOut(duration: turnEffect == 1 ? 0.25 : 0.22)) { frame = next }
         }
-        feedback(step)
+        if !quiet { feedback(step) }
+        return true
     }
+
+    // ── 자동 넘김(구상안 26) ────────────────────────────────────────────────
+
+    /// ✕ 로 껐다 — 이번에 연 동안만. 설정은 그대로라 다음에 책을 열면 다시 돈다.
+    @Published var autoOff = false
+    /// 알약의 멈춤(또는 책 끝).
+    @Published var autoPaused = false
+    /// 다음 쪽까지 남은 초(알약).
+    @Published var autoLeft = 0
 
     // ── 넘김 효과 · 소리 · 진동(구상안 23A) ──────────────────────────────────
 
@@ -504,15 +541,53 @@ final class ReaderModel: ObservableObject {
         switch panel {
         case .settings, .fonts: panel = .view
         case .export: panel = .contents
+        // 듣는 중이면 듣기 판으로 돌아온다 — 판에서 "목소리" 를 눌러 왔다.
+        case .voices: panel = .none; listenSheet = listening.active
         case .view, .contents, .search: panel = .bar
         case .bar, .none: panel = .none
         }
     }
 
+    // ── 듣기(구상안 24 · 25A) ───────────────────────────────────────────────
+
+    let listening = Listening()
+    /// 듣기 판을 열어 두었다. 듣기가 꺼지면 보이지 않는다.
+    @Published var listenSheet = false
+
+    /// 위 막대의 헤드폰: 듣던 것이 있으면 이어 듣고, 아니면 보이는 쪽에서 시작하는 첫 문장부터.
+    func listen(rate: Double, voice: String?, join: Int) async {
+        panel = .none
+        if listening.active { listening.play(); return }
+        guard let frame else { return }
+        listening.source = self
+        await listening.start(spine: frame.spine, offset: frame.pageStart, pageEnd: frame.pageEnd, rate: rate, voice: voice, join: join)
+    }
+
+    /// 듣기를 껐다(조종판 ✕ · 책 닫기): 문장 칠을 지운다.
+    func stopListening() async {
+        listenSheet = false
+        if listening.active { listening.close() }
+        if let engine, let f = try? await engine.stopSpeaking() { frame = f }
+    }
+
     func close() async {
+        if listening.active { listening.close() }
         await engine?.close()
         endAccess?()
         endAccess = nil
+    }
+}
+
+extension ReaderModel: ListenSource {
+    func speech(_ spine: Int) async -> [SpokenSentence] { await engine?.speechSentences(spine) ?? [] }
+    func spoken(_ spine: Int, _ sentence: SpokenSentence, join: Int) async -> String { await engine?.spoken(spine, sentence, join: join) ?? "" }
+    func unitCount() async -> Int { (try? await engine?.chapterCount()) ?? 0 }
+
+    /// 듣는 문장을 칠하고 쪽을 따라간다. 듣기가 넘긴 쪽은 효과 · 소리 없이 바뀐다 — 화면을 끈 채 듣는 동안에도 불린다.
+    func follow(_ spine: Int, _ sentence: SpokenSentence, follow: Bool) async {
+        guard let engine, listening.active, let f = try? await engine.speak(spine, sentence, follow: follow) else { return }
+        if f.key != frame?.key { selection = nil; tapped = nil; direction = 1 }
+        frame = f
     }
 }
 
@@ -529,6 +604,8 @@ struct ReaderView: View {
     @Environment(\.colorScheme) private var scheme
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// 앱이 뒤로 갈 때 보던 쪽(듣는 동안 쪽이 넘어갔는지 견준다).
+    @State private var leftAt: String?
     #if DEBUG
     @State private var debugApplied = false
     #endif
@@ -586,12 +663,30 @@ struct ReaderView: View {
                              close: close)
                     // 메뉴도 지면의 밝기를 따른다 — 검은 지면 위에 밝은 메뉴가 뜨면 눈이 부시다(안드로이드 CpReaderTheme).
                     .environment(\.colorScheme, paper.dark ? .dark : .light)
-                SearchBarLayer(model: model, search: model.search, bottom: insets.bottom)
+                // 듣기 조종판 · 자동 넘김 알약은 아래 가운데 60(구상안 24 · 26). 메뉴 · 판이 열리면 숨는다.
+                if model.panel == .none, model.listening.active {
+                    ListenPlayer(listening: model.listening, openSheet: { model.listenSheet = true },
+                                 close: { Task { await model.stopListening() } })
+                        .padding(.bottom, 60)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                } else if autoPillShown {
+                    AutoTurnPill(secondsLeft: model.autoLeft, paused: model.autoPaused,
+                                 toggle: { model.autoPaused.toggle() }, close: { model.autoOff = true })
+                        .padding(.bottom, 60)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                }
+                SearchBarLayer(model: model, search: model.search, bottom: chipBottom(insets))
                 // 링크로 건너온 쪽: "읽던 곳으로". 결과 막대가 떠 있으면 그것이 먼저다(같은 자리).
                 if model.panel == .none, model.search.current < 0, model.frame?.canReturn == true {
                     ReturnChip { Task { await model.returnBack() } }
-                        .padding(.bottom, 64 + insets.bottom)
+                        .padding(.bottom, chipBottom(insets))
                         .frame(maxHeight: .infinity, alignment: .bottom)
+                }
+                if model.listenSheet, model.listening.active {
+                    ListenSheet(listening: model.listening, prefs: prefs, bottom: insets.bottom,
+                                openVoices: { model.listenSheet = false; model.panel = .voices },
+                                close: { model.listenSheet = false })
+                        .environment(\.colorScheme, paper.dark ? .dark : .light)
                 }
                 if let draft = model.memo {
                     MemoSheet(draft: draft, bottom: insets.bottom,
@@ -654,7 +749,7 @@ struct ReaderView: View {
                 await model.layOut(prefs.spec(size: full, insets: insets, bookFonts: model.bookFonts), paper, blend: prefs.blendPictures,
                                    highlights: prefs.showHighlights)
                 #if DEBUG
-                // 화면 확인용: -olo-turn N 쪽 넘기고 -olo-panel bar|view|settings|fonts|contents 로 판을 연다, -olo-search <말> 은 찾기 판에서 찾는다. 출시 빌드에는 없다.
+                // 화면 확인용: -olo-turn N 쪽 넘기고 -olo-panel bar|view|settings|fonts|contents|voices 로 판을 연다, -olo-search <말> 은 찾기 판에서 찾는다. 출시 빌드에는 없다.
                 let args = CommandLine.arguments
                 if !debugApplied {
                     debugApplied = true
@@ -667,13 +762,38 @@ struct ReaderView: View {
                         model.startSearch()
                         model.panel = .search
                     }
+                    // -olo-listen 은 듣기를 켜고, -olo-listen-sheet 는 듣기 판까지 연다.
+                    if args.contains("-olo-listen") || args.contains("-olo-listen-sheet") {
+                        await model.listen(rate: prefs.listenRate, voice: prefs.listenVoice, join: prefs.listenJoin)
+                        if args.contains("-olo-listen-sheet") { model.listenSheet = true }
+                    }
                     if let i = args.firstIndex(of: "-olo-panel"), i + 1 < args.count {
-                        model.panel = ["bar": .bar, "view": .view, "settings": .settings, "fonts": .fonts, "contents": .contents][args[i + 1]] ?? .none
+                        model.panel = ["bar": .bar, "view": .view, "settings": .settings, "fonts": .fonts, "contents": .contents,
+                                       "voices": .voices][args[i + 1]] ?? .none
                     }
                 }
                 #endif
             }
-            .task(id: KeepAwakeKey(mode: prefs.keepScreenOn, activity: model.lastActivity)) { await keepAwake() }
+            .task(id: KeepAwakeKey(mode: prefs.keepScreenOn, activity: model.lastActivity, auto: autoRunning)) { await keepAwake() }
+            // 자동 넘김: 쪽이 바뀌면 처음부터 센다(열쇠에 쪽이 들어 있다). 메뉴 · 듣기 · 고르기 · 메모 · 앱이 뒤로 가면 쉰다.
+            .task(id: AutoKey(seconds: ReaderPrefs.autoTurnSeconds[prefs.autoTurn], running: autoRunning, page: model.frame?.key ?? "")) {
+                let seconds = ReaderPrefs.autoTurnSeconds[prefs.autoTurn]
+                guard autoRunning, seconds > 0 else { return }
+                for left in stride(from: seconds, to: 0, by: -1) {
+                    model.autoLeft = left
+                    try? await Task.sleep(for: .seconds(1))
+                    if Task.isCancelled { return }
+                }
+                // 책 끝이면 멈춘다 — 알약이 "멈춰 있음" 으로 남아 왜 서 있는지 보인다.
+                if !(await model.turn(1, quiet: true)) { model.autoPaused = true }
+            }
+            // 사람이 쪽을 옮겼다 — 듣던 문장이 그 쪽에 없으면 그 쪽의 첫 문장으로(듣기가 넘긴 쪽이면 문장이 거기 있어 그대로다).
+            .onChange(of: model.frame?.key) { _, _ in
+                if let f = model.frame { model.listening.onPageShown(spine: f.spine, start: f.pageStart, end: f.pageEnd) }
+            }
+            .onChange(of: model.listening.message) { _, message in
+                if let message { model.say(message); model.listening.message = nil }
+            }
             .task(id: TurnKey(effect: prefs.pageTurn, sound: prefs.turnSound, haptic: prefs.turnHaptic, width: full.width, height: full.height)) {
                 model.turnEffect = prefs.pageTurn
                 model.turnSound = prefs.turnSound
@@ -688,6 +808,7 @@ struct ReaderView: View {
         }
         .sheet(item: $model.lookUp) { DictionaryView(term: $0.text).ignoresSafeArea() }
         .sheet(item: $model.shareOut) { ShareView(text: $0.text).presentationDetents([.medium, .large]) }
+        .animation(.easeOut(duration: 0.2), value: model.listenSheet)
         .statusBarHidden(model.panel == .none)
         // 읽는 동안 홈 표시줄을 숨긴다(구상안 13A) — 아래 줄이 그 자리에 있다. 손대면 다시 보인다(Apple Books 와 같다).
         .persistentSystemOverlays(model.panel == .none ? .hidden : .automatic)
@@ -695,11 +816,19 @@ struct ReaderView: View {
         .onChange(of: scenePhase) { _, phase in
             // 다른 앱으로 나가면 휴대폰 밝기로 되돌리고, 돌아오면 이 책의 밝기를 다시 건다.
             if phase == .active { brightness.reapply() } else { brightness.restore() }
+            // 화면을 끈 채 듣는 동안 쪽이 넘어갔다 — 돌아와서 보던 쪽이 바뀐 까닭을 모르면 놀란다.
+            if phase == .background { leftAt = model.frame?.key }
+            if phase == .active, let left = leftAt {
+                leftAt = nil
+                if model.listening.active, left != model.frame?.key { model.say("듣던 곳으로 쪽을 옮겼습니다") }
+            }
         }
     }
 
     /// 화면 켜짐 유지: 휴대폰 = 휴대폰의 꺼짐 시간, 10분 = 마지막으로 넘긴 뒤 10분(읽다 잠들어도 밤새 켜져 있지 않게), 항상.
     private func keepAwake() async {
+        // 자동 넘김이 도는 동안은 화면을 켜 둔다 — 꺼지면 넘어가는 쪽을 볼 수 없다.
+        if autoRunning { UIApplication.shared.isIdleTimerDisabled = true; return }
         switch prefs.keepScreenOn {
         case .system: UIApplication.shared.isIdleTimerDisabled = false
         case .always: UIApplication.shared.isIdleTimerDisabled = true
@@ -714,6 +843,7 @@ struct ReaderView: View {
     private func close() {
         Task {
             brightness.forget()
+            if model.listening.active { await model.stopListening() }
             await model.close()
             onClose()
         }
@@ -769,6 +899,27 @@ struct ReaderView: View {
     private struct KeepAwakeKey: Equatable {
         let mode: ReaderPrefs.KeepScreenOn
         let activity: Date
+        let auto: Bool
+    }
+
+    private struct AutoKey: Equatable {
+        let seconds: Int
+        let running: Bool
+        let page: String
+    }
+
+    /// 알약을 보이는가: 켜 두었고, 이번에 끄지 않았고, 지면만 보이고 있다. 듣기가 켜져 있으면 듣기가 넘김을 맡는다.
+    private var autoPillShown: Bool {
+        prefs.autoTurn > 0 && !model.autoOff && model.panel == .none && !model.listening.active
+            && model.selection == nil && model.tapped == nil && model.memo == nil && model.footnote == nil && model.frame != nil
+    }
+
+    /// 세고 있는가: 알약이 보이고, 멈추지 않았고, 앱이 앞에 있다.
+    private var autoRunning: Bool { autoPillShown && !model.autoPaused && scenePhase == .active && model.external == nil }
+
+    /// 결과 막대 · "읽던 곳으로" 의 자리. 듣는 동안은 조종판(60 + 52) 위로 올린다(안드로이드 124) — 겹치면 누를 곳이 둘이 된다.
+    private func chipBottom(_ insets: EdgeInsets) -> CGFloat {
+        model.panel == .none && (model.listening.active || autoPillShown) ? 124 : 64 + insets.bottom
     }
 }
 
@@ -884,7 +1035,7 @@ private struct SearchBarLayer: View {
                 onList: { model.panel = .search },
                 onClose: { Task { await model.endSearch() } }
             )
-            .padding(.bottom, 64 + bottom)
+            .padding(.bottom, bottom)
             .frame(maxHeight: .infinity, alignment: .bottom)
         }
     }

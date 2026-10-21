@@ -39,6 +39,16 @@ final class ReaderPrefs: ObservableObject {
     /// 출판사 글꼴(책에 든 글꼴). 안드로이드처럼 기본으로 켠다 — 출판사가 고른 모양이 그 책의 첫인상이다. 끄면 고른 글꼴로 돌아간다.
     @Published var publisherFonts: Bool { didSet { defaults.set(publisherFonts, forKey: "reader.publisherFonts") } }
 
+    /// 듣기 빠르기 0.5–2.0(안드로이드 `ListenPrefs.rate`). 책이 바뀌어도 그대로다 — 사람의 귀에 맞춘 값이다.
+    @Published var listenRate: Double { didSet { save(listenRate, "listenRate") } }
+    /// 고른 목소리(iOS 목소리 식별자). nil 이면 iPhone 기본.
+    @Published var listenVoice: String? { didSet { defaults.set(listenVoice, forKey: "reader.listenVoice") } }
+    /// 어절 쉼 줄이기: 0 일반(기본 — 듣는 방식을 몰래 바꾸지 않는다) · 1 속독.
+    @Published var listenJoin: Int { didSet { save(listenJoin, "listenJoin") } }
+    /// 자동 넘김: 0 끔(기본) · 1 15초 · 2 30초 · 3 60초.
+    @Published var autoTurn: Int { didSet { save(autoTurn, "autoTurn") } }
+    static let autoTurnSeconds = [0, 15, 30, 60]
+
     private let defaults = UserDefaults.standard
 
     init() {
@@ -64,6 +74,12 @@ final class ReaderPrefs: ObservableObject {
         turnSound = int("turnSound", 0, 0...3)
         turnHaptic = d.bool(forKey: "reader.turnHaptic")
         publisherFonts = d.object(forKey: "reader.publisherFonts") as? Bool ?? true
+        let rate = d.object(forKey: "reader.listenRate") as? Double ?? 1
+        // 범위 밖(옛 판 · 손으로 고친 값)은 1.0 — 단추로는 갈 수 없는 빠르기가 되살아나면 되돌릴 길이 없다.
+        listenRate = (0.5...2.0).contains(rate) ? (rate * 10).rounded() / 10 : 1
+        listenVoice = d.string(forKey: "reader.listenVoice")
+        listenJoin = int("listenJoin", 0, 0...1)
+        autoTurn = int("autoTurn", 0, 0...3)
     }
 
     /// 실제로 쓰이는 글꼴 파일. 고른 글꼴이 목록에 없으면(뺀 글꼴 · 읽지 못하는 파일) 휴대폰 글꼴 — 글꼴 ID 를 남겨 두면 캐시 키는
