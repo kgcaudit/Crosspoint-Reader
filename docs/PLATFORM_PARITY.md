@@ -59,6 +59,7 @@ iOS 쪽 actual 은 `document/src/iosTest` · `core-layout/src/iosTest` 가 시�
 | `BookFaces` | 출판사 글꼴(안드로이드 `BookTypefaces` 짝): 책 글꼴을 캐시 폴더로 꺼내고, 보통 · 굵게를 안드로이드와 같은 규칙으로(굵은 파일 하나뿐인 가족은 다시 굵히지 않음), 지문을 `bookFontsKey` 로. 측정기는 서식의 `face` 번호로 고른다 |
 | 형광펜(`IosBookReader` · `ReadingStore.annotations`) | 고르기는 `charAt` · `wordAt`(안드로이드 `PageHits` 와 같은 셈), 칠은 `highlight`(같은 구간이면 색 · 메모만 바꾼다) · `recolor` · `setNote` · `removeNote`. 쪽 그림에 칠 · 메모 쪽지, 고른 구간 · 손잡이 · 메뉴는 Swift 가 겹쳐 그린다(고르는 동안 쪽을 다시 그리지 않게) |
 | `NotesExport` | 독서노트 내보내기 글(글 · 마크다운 · 감싸기 · 파일 이름) — 안드로이드 `exportNotes` · `exportMarkdown` 와 같은 글. 두 앱이 같은 파일을 내야 한다 |
+| `RecordsBackup` · `RecordsCodec` | 읽기 기록 백업 파일 읽기 · 쓰기 · 미리 보기 · 합치기 · 기다리는 기록(안드로이드 `RecordsBackup` 과 같은 규칙). `ReadingStore.recordOf` · `merge`. 책 id 는 한글을 모아 쓴 꼴(NFC) — 옛 판이 풀어 쓴 꼴로 적은 줄도 읽을 때 모은다 |
 | `ReadingStore` 읽은 시간 · `IosBookReader.info` | `T` 줄(책 · 날 · 방식, 음수 버림 · 하루 상한, 모르는 방식은 남기고 셈에서만 뺀다) · `addTime` · `times`. `info(path, displayName)`: EPUB 의 제목 · 저자(없으면 파일 이름, 깨진 책도 파일 이름) |
 | `IosBookReader` 두 쪽 · 하단 정보 | `layOut(twoPages, fullWidth, leftInset)` · `PagePainter.spread`. `ReaderFrame` 에 `hasRight` · `section` · `charsLeftChapter` · `charsLeftBook`(공통 `chapterLength` · `charsAfterChapter`, 장마다 한 번 셈) |
 | `IosBookReader` 듣기 | `speechSentences`(공통 `splitSentences` + 문단 시작) · `spoken`(공통 `speakable` + `joinWords`) · `speak`(문장 칠 + 그 문장이 든 쪽으로, 이미 보이면 그대로) · `stopSpeaking`. 칠은 형광펜 **아래** 강조색 18%(검은 지면 30%). `ReaderFrame.pageStart` · `pageEnd` 로 "보이는 쪽에서 시작하는 첫 문장" 을 찾는다 |
@@ -101,7 +102,7 @@ macOS 26.6 (Apple Silicon) · Xcode 27.1 · iOS 시뮬레이터 27.0/27.1 · JDK
 | 작품 묶기 · 작품 정리 · 압축 속 압축을 권으로 | ✅ | ⬜ | |
 | 표지 고르기(반쪽 · 왼/오/통째로) | ✅ | ⬜ | |
 | 옮긴 파일의 기록 잇기 | ✅ | ⬜ | |
-| 기록 백업 · 가져오기 | ✅ | ⬜ | 백업 파일 형식은 두 앱이 같아야 한다(서로 옮길 수 있게) |
+| 기록 백업 · 가져오기 | ✅ | ✅ | 구상안 31A: 앱 정보가 판에서 화면으로, '읽기 기록' 두 줄, 저장 창만. 형식은 안드로이드 `RecordsCodec` 과 같은 JSON(Kotlin `RecordsCodec` — 한 칸 들여쓰기 · null 칸은 키째 뺌 · 빈 `time` 은 뺌 · 날은 "YYYY-MM-DD"), 합치기는 `mergeInto` 와 같은 규칙(읽은 자리 더 뒤쪽 · 연 때 나중 · 다 읽은 때는 이 기기 우선 · 책갈피는 자리 · 형광펜은 구간으로 겹침 없앰 · 시간은 큰 쪽). 맞추기는 파일 이름 + 크기, **이름은 한글을 모아 쓴 꼴로 견준다**. 못 찾은 책은 `pending-records.json` 에 두었다가 서재를 훑을 때 붙인다. **iOS 에 없는 만화 · 작품 설정 항목은 읽은 JSON 그대로 간직해 다음 백업에 다시 담는다**(안드로이드 → iOS → 안드로이드에서 잃지 않게). 다른 점: 모르는 형광펜 색은 노랑으로 들어온다(iOS 칠은 넷), 작품 설정만 든 백업은 "작품 설정 N개를 기억해 두었습니다" |
 | 이어 읽기 위젯 | ✅ | ⬜ | WidgetKit |
 | 기기 간 이어 읽기 | ✅ | ⬜ | |
 
