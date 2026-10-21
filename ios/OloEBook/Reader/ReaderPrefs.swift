@@ -74,7 +74,9 @@ final class ReaderPrefs: ObservableObject {
         ReadingSpec.shared.of(
             widthPt: Float(size.width), heightPt: Float(size.height),
             safeLeft: Float(insets.leading), safeTop: Float(insets.top),
-            safeRight: Float(insets.trailing), safeBottom: Float(insets.bottom),
+            // 아래 안전 영역은 더하지 않는다: 아래 줄이 화면 끝에서 14 에 서고 홈 표시줄은 읽는 동안 숨는다(구상안 13A). 더하면
+            // 본문이 34 만큼 덜 들어가 같은 크기 화면의 안드로이드와 쪽 수가 갈라진다.
+            safeRight: Float(insets.trailing), safeBottom: 0,
             fontSize: Float(fontSize),
             lineSpacing: ReaderPrefs.lineSpacings[lineSpacing],
             sideMargin: ReaderPrefs.margins[margin],

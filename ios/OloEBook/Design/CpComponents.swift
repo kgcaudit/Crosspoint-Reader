@@ -198,3 +198,60 @@ struct CpPopup<Content: View>: View {
         }
     }
 }
+
+/// 아이콘 아래 이름을 단 단추(안드로이드 `CpToolButton`, 0.45): 최소 46 · 그림 22 · 이름 11. 0.44 의 56 + 위아래 여백은 읽기 메뉴
+/// 아래 판을 두껍게 했다. 고르면 그림은 강조색, 이름은 강조 글자색.
+struct CpToolButton: View {
+    let icon: CpIcon
+    let label: String
+    var selected = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 1) {
+                CpIconView(icon: icon, size: 22, color: selected ? CpColor.accent : CpColor.text)
+                Text(label).font(.system(size: 11)).foregroundStyle(selected ? CpColor.accentText : CpColor.text)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 3)
+            .frame(minHeight: 46)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
+    }
+}
+
+/// 짧은 알림(안드로이드 `CpToast`): 아래에서 64 띄운 반투명 판, 1.5초 뒤 사라진다. 줄을 바꿔 다 보인다 — 한 줄로 막으면 긴
+/// 알림의 앞머리만 보여 무엇을 하라는지 알 수 없었다(안드로이드 0.28.3).
+struct CpToast: View {
+    let message: String
+
+    var body: some View {
+        Text(message).font(CpFont.label).foregroundStyle(.white).multilineTextAlignment(.center).lineLimit(4)
+            .padding(.horizontal, 18).padding(.vertical, 10)
+            .background(Color(CpColor.uiColor(0x302A24)).opacity(0.9))
+            .clipShape(RoundedRectangle(cornerRadius: 20))
+            .padding(.horizontal, 24).padding(.bottom, 64)
+            .accessibilityAddTraits(.updatesFrequently)
+    }
+}
+
+/// 책갈피가 꽂힌 쪽의 표시(안드로이드 `CpRibbon`): 위에서 내려온 띠, 아래 끝이 V 로 파였다(22×30). 윗여백 안에서 끝나 글자를
+/// 가리지 않고, 오른쪽 위 모서리를 누르면 꽂고 빼는 자리와 같은 곳이다 — 표시를 누르면 빠진다는 것이 설명 없이 읽힌다.
+struct CpRibbon: View {
+    var body: some View {
+        Path { p in
+            p.move(to: .zero)
+            p.addLine(to: CGPoint(x: 22, y: 0))
+            p.addLine(to: CGPoint(x: 22, y: 30))
+            p.addLine(to: CGPoint(x: 11, y: 30 * 0.72))
+            p.addLine(to: CGPoint(x: 0, y: 30))
+            p.closeSubpath()
+        }
+        .fill(CpColor.accent)
+        .frame(width: 22, height: 30)
+        .accessibilityLabel("책갈피 꽂힌 쪽")
+    }
+}

@@ -103,16 +103,22 @@ private struct ReaderBar: View {
                         .frame(maxHeight: g.size.height * 0.55)
                         .fixedSize(horizontal: false, vertical: true)
                     }
+                    // 진행 줄 40 · 도구 46(안드로이드 0.45 낮은 메뉴 — 두 줄 머리와 큰 단추가 읽던 쪽을 너무 가렸다).
                     SeekBar(percent: frame.percent) { p in Task { await model.seek(p) } }
-                        .padding(.horizontal, 24).padding(.top, 10)
-                    HStack {
-                        tool(.toc, "목차", selected: false, action: openContents)
-                        tool(.note, "독서노트", selected: false, action: openNotes)
-                        tool(.view, "보기", selected: model.panel == .view) {
+                        .padding(.horizontal, CpMetrics.gutter)
+                        .frame(height: 40)
+                    HStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        CpToolButton(icon: .toc, label: "목차", action: openContents)
+                        Spacer(minLength: 0)
+                        CpToolButton(icon: .note, label: "독서노트", action: openNotes)
+                        Spacer(minLength: 0)
+                        CpToolButton(icon: .view, label: "보기", selected: model.panel == .view) {
                             model.panel = model.panel == .view ? .bar : .view
                         }
+                        Spacer(minLength: 0)
                     }
-                    .padding(.bottom, 4)
+                    .padding(.horizontal, 8)
                 }
                 .padding(.bottom, insets.bottom)
                 .padding(.horizontal, max(insets.leading, insets.trailing))
@@ -124,39 +130,26 @@ private struct ReaderBar: View {
 
     private var top: some View {
         HStack(spacing: 0) {
-            CpIconButton(icon: .back, label: "서재로", action: close)
+            CpIconButton(icon: .back, label: "뒤로", action: close)
             VStack(alignment: .leading, spacing: 0) {
-                Text(model.title).font(CpFont.title).foregroundStyle(CpColor.text).lineLimit(1)
+                // 서재 머리(19)보다 작은 17 — 제목이 길면 한 줄에서 자른다(두 줄로 늘면 판이 다시 두꺼워진다).
+                Text(model.title).font(.system(size: 17, weight: .bold)).foregroundStyle(CpColor.text).lineLimit(1)
                 Text("\(frame.spine + 1) / \(frame.chapters)장").font(CpFont.caption).foregroundStyle(CpColor.textMuted)
             }
             Spacer(minLength: 8)
             // 찾기 · 듣기는 판 구상안을 정한 뒤에 붙인다(지금은 흐리게 — 누를 수 없다).
-            CpIconButton(icon: .search, label: "찾기", enabled: false) {}
+            CpIconButton(icon: .search, label: "책에서 찾기", enabled: false) {}
             CpIconButton(icon: .headphones, label: "듣기", enabled: false) {}
             CpIconButton(icon: frame.bookmarked ? .bookmarkFilled : .bookmark,
                          label: frame.bookmarked ? "책갈피 빼기" : "책갈피 꽂기",
                          color: frame.bookmarked ? CpColor.accent : CpColor.text) { Task { await model.toggleBookmark() } }
         }
-        .padding(.trailing, 4)
-        .frame(height: CpMetrics.headerHeight)
+        .padding(.horizontal, 4)
+        .frame(height: 52)
         .padding(.top, insets.top)
         .padding(.horizontal, max(insets.leading, insets.trailing))
         .background(CpColor.surface)
         .contentShape(Rectangle())
-    }
-
-    private func tool(_ icon: CpIcon, _ label: String, selected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            VStack(spacing: 4) {
-                CpIconView(icon: icon, color: selected ? CpColor.accentText : CpColor.text)
-                Text(label).font(CpFont.caption).foregroundStyle(selected ? CpColor.accentText : CpColor.text)
-            }
-            .frame(maxWidth: .infinity, minHeight: 56)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
-        .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
 }
 
@@ -179,13 +172,15 @@ private struct ViewPanelRows: View {
                 Button { brightness.followPhone() } label: {
                     Text("휴대폰").font(CpFont.label)
                         .foregroundStyle(brightness.value == nil ? CpColor.accentText : CpColor.textMuted)
-                        .padding(.horizontal, 8).frame(minHeight: CpMetrics.touchTarget)
+                        .padding(.horizontal, 12).frame(minHeight: CpMetrics.touchTarget)
                 }
                 .buttonStyle(.plain)
                 // 배경 견본에도 "휴대폰" 이 있다. 화면 읽기로는 둘이 같은 말로 들린다.
                 .accessibilityLabel("휴대폰 설정 밝기")
+                .padding(.leading, 4)
             }
             .padding(.horizontal, CpMetrics.gutter)
+            .padding(.vertical, 4)
             CpCaption(text: "움직인 밝기는 이 책을 닫으면 휴대폰 밝기로 돌아갑니다").frame(maxWidth: .infinity, alignment: .leading)
             CpStepper(label: "글자 크기", value: "\(prefs.fontSize)",
                       onMinus: { prefs.fontSize = max(prefs.fontSize - 1, ReaderPrefs.fontRange.lowerBound) },
@@ -344,6 +339,8 @@ private struct ContentsScreen: View {
     @State private var rows: [ContentsItem]?
     @State private var current = -1
     @State private var bookmarks: [BookmarkItem]?
+    /// ⋮ 메뉴가 열린 책갈피.
+    @State private var menuFor: Int64?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -375,7 +372,6 @@ private struct ContentsScreen: View {
                                 .id(row.index)
                             }
                         }
-                        .padding(.vertical, 8)
                     }
                     // 지금 장이 위에서 세 줄쯤 아래에 오게 — 맨 위에 붙이면 앞 장이 안 보여 어디쯤인지 모른다.
                     .onAppear { if current > 0 { proxy.scrollTo(max(current - 3, 0), anchor: .top) } }
@@ -386,32 +382,36 @@ private struct ContentsScreen: View {
         }
     }
 
+    /// 독서노트(구상안 14A, 안드로이드 `CpReadingNotes`): 장마다 갈래 이름, 줄마다 ⋮ → 지우기. 거르기 칩(전체 · 책갈피 ·
+    /// 형광펜 · 메모)은 형광펜 · 메모가 생길 때 — 지금은 거를 것이 책갈피뿐이다.
     @ViewBuilder
     private var notes: some View {
         if let bookmarks {
             if bookmarks.isEmpty {
-                CpEmptyMessage(text: "꽂은 책갈피가 없습니다\n메뉴 위의 책갈피 단추로 꽂습니다")
+                // 안드로이드 문장에서 아직 iOS 에 없는 "글자를 길게 눌러 칠하기" 를 뺐다.
+                CpEmptyMessage(text: "독서노트가 비어 있습니다. 쪽 오른쪽 위를 눌러 책갈피를 꽂으면 여기에 모입니다.")
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(bookmarks) { mark in
-                            Button {
-                                Task { await model.jump { try await $0.goToBookmark(mark.id) } }
-                            } label: {
-                                HStack(alignment: .top, spacing: 14) {
-                                    CpIconView(icon: .bookmarkFilled, color: CpColor.accent)
-                                    Text(mark.snippet).font(CpFont.body).foregroundStyle(CpColor.text)
-                                        .lineLimit(2).multilineTextAlignment(.leading)
-                                    Spacer(minLength: 8)
-                                    Text("\(Int(mark.percent.rounded()))%").font(CpFont.caption).foregroundStyle(CpColor.textMuted)
-                                }
-                                .padding(.horizontal, CpMetrics.gutter).padding(.vertical, 12)
-                                .frame(minHeight: CpMetrics.rowHeight)
-                                .contentShape(Rectangle())
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(bookmarks.enumerated()), id: \.element.id) { i, mark in
+                            if i == 0 || bookmarks[i - 1].section != mark.section {
+                                CpSectionLabel(text: mark.section)
+                                    .padding(.horizontal, CpMetrics.gutter).padding(.top, 18).padding(.bottom, 6)
                             }
-                            .buttonStyle(.plain)
+                            NoteRow(mark: mark, menuOpen: menuFor == mark.id,
+                                    open: { Task { await model.jump { try await $0.goToBookmark(mark.id) } } },
+                                    toggleMenu: { menuFor = menuFor == mark.id ? nil : mark.id },
+                                    remove: {
+                                        menuFor = nil
+                                        Task {
+                                            await model.removeBookmark(mark.id)
+                                            self.bookmarks = (try? await model.engine?.bookmarks()) ?? []
+                                        }
+                                    })
+                                .zIndex(menuFor == mark.id ? 1 : 0)
                         }
                     }
+                    .padding(.bottom, 24)
                 }
             }
         } else {
@@ -428,11 +428,62 @@ private struct SeekBar: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            CpSlider(value: (dragging ?? percent) / 100, label: "진도",
+            CpSlider(value: (dragging ?? percent) / 100, label: "지금 위치", height: 40,
                      onChange: { dragging = $0 * 100 },
                      onCommit: { v in dragging = nil; seek(v * 100) })
             Text("\(Int((dragging ?? percent).rounded()))%").font(CpFont.label).foregroundStyle(CpColor.text)
-                .frame(minWidth: 44, alignment: .trailing)
+        }
+    }
+}
+
+/// 독서노트 한 줄(안드로이드 `NoteRow`): 들임 gutter + levelIndent(32) — 노트는 그 장에 속한다(UI 규칙 1). 그림 칸 24, 글자는
+/// childIndent(38) 선, 본문 3줄 · "3% · 2026.10.21." · 오른쪽 ⋮. ⋮ 메뉴는 그 줄 아래에 붙는 작은 판(서재의 더 보기 판과 같은 모양).
+private struct NoteRow: View {
+    let mark: BookmarkItem
+    let menuOpen: Bool
+    let open: () -> Void
+    let toggleMenu: () -> Void
+    let remove: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 0) {
+            Button(action: open) {
+                HStack(alignment: .top, spacing: 0) {
+                    CpIconView(icon: .bookmarkFilled, size: 20, color: CpColor.accent).frame(width: 24, height: 24)
+                    Spacer().frame(width: CpMetrics.childIndent - 24)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(mark.snippet).font(CpFont.body).foregroundStyle(CpColor.text).lineSpacing(5).lineLimit(3)
+                            .multilineTextAlignment(.leading)
+                        Text(mark.whereLabel).font(CpFont.caption).foregroundStyle(CpColor.textMuted)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
+            // 행마다 "더 보기" 로만 읽으면 어느 노트의 메뉴인지 모른다 — 종류와 자리를 붙인다(안드로이드와 같다).
+            CpIconButton(icon: .more, label: "책갈피 더 보기 · \(mark.whereLabel)", color: CpColor.textMuted, action: toggleMenu)
+        }
+        .padding(.leading, CpMetrics.gutter + CpMetrics.levelIndent).padding(.trailing, 4).padding(.vertical, 10)
+        .overlay(alignment: .bottomTrailing) {
+            if menuOpen {
+                Button(action: remove) {
+                    HStack(spacing: 14) {
+                        CpIconView(icon: .close, size: 22)
+                        Text("지우기").font(CpFont.body).foregroundStyle(CpColor.text)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 16).frame(width: 160, height: CpMetrics.touchTarget)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.vertical, 6)
+                .background(CpColor.surface)
+                .clipShape(RoundedRectangle(cornerRadius: CpMetrics.cornerSmall + 4))
+                .shadow(color: .black.opacity(0.25), radius: 8, y: 3)
+                .offset(x: -8, y: 50)
+            }
         }
     }
 }

@@ -58,6 +58,10 @@ struct LibraryView: View {
                     }
                 }
             }
+            if showFolders {
+                FoldersPopup(library: library, addFolder: { showFolders = false; pickingFolder = true },
+                             dismiss: { showFolders = false })
+            }
             if showInfo {
                 CpPopup(onDismiss: { showInfo = false }) {
                     Text("OLO eBook").font(CpFont.title).foregroundStyle(CpColor.text)
@@ -66,9 +70,6 @@ struct LibraryView: View {
                     HStack { Spacer(); CpButton(title: "닫기", kind: .secondary) { showInfo = false } }
                 }
             }
-        }
-        .sheet(isPresented: $showFolders) {
-            FoldersSheet(library: library, linkFolder: { showFolders = false; pickingFolder = true })
         }
         .fileImporter(isPresented: $pickingFolder, allowedContentTypes: [.folder]) { result in
             if case let .success(url) = result { Task { await library.link(folder: url) } }
@@ -416,7 +417,8 @@ struct ImportWays: View {
             CpSectionLabel(text: "책을 들이는 길")
             CpListRow(icon: .folder, tile: CpColor.tileFolder, title: "이 iPhone 의 OLO eBook 폴더",
                       subtitle: "파일 앱 › 나의 iPhone › OLO eBook 에 넣으면 저절로 보입니다") { openAppFolderInFiles() }
-            CpListRow(icon: .plus, tile: CpColor.tileFolder, title: "다른 폴더 연결",
+            // "폴더 추가"(0.43 용어집, 안드로이드와 같은 말). 더하는 줄은 강조색 타일 — 폴더 행(클레이)과 갈린다.
+            CpListRow(icon: .plus, tile: CpColor.accent, title: "폴더 추가",
                       subtitle: "iCloud Drive · 다운로드 등 이미 책이 있는 폴더", action: linkFolder)
             CpListRow(icon: .book, tile: CpColor.tileDocument, title: "다른 앱에서 열기",
                       subtitle: "메일 · 메신저의 파일에서 공유 › OLO eBook")
@@ -434,37 +436,48 @@ func openAppFolderInFiles() {
     if let url = components?.url { UIApplication.shared.open(url) }
 }
 
-/// 폴더 판: 앱 폴더 · 연결한 폴더 · 다른 폴더 연결. 연결한 폴더는 앱 폴더에 **속하지 않으므로** 들이지 않는다(규칙 1).
-struct FoldersSheet: View {
+/// 책 폴더 판(구상안 15A, 안드로이드 "책 폴더" 팝업과 같은 모양 · 말): 폴더 추가(맨 위) · 앱 폴더 · 추가한 폴더(✕ 빼기).
+/// 추가한 폴더는 앱 폴더에 **속하지 않으므로** 들이지 않는다(UI 규칙 1). 앱 폴더는 뺄 수 없다 — 누르면 파일 앱에서 연다.
+struct FoldersPopup: View {
     @ObservedObject var library: Library
-    let linkFolder: () -> Void
-    @Environment(\.dismiss) private var dismiss
+    let addFolder: () -> Void
+    let dismiss: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            CpHeader(title: "폴더", subtitle: "책을 찾는 곳") {
-                CpIconButton(icon: .close, label: "닫기") { dismiss() }
-            }
+        CpPopup(onDismiss: dismiss) {
+            Text("책 폴더").font(CpFont.title).foregroundStyle(CpColor.text)
+            Text("폴더를 빼도 그 책들의 읽은 자리와 책갈피는 남습니다. 다시 추가하면 이어집니다.")
+                .font(CpFont.subtitle).foregroundStyle(CpColor.textMuted).fixedSize(horizontal: false, vertical: true)
             ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    CpListRow(icon: .folder, tile: CpColor.tileFolder, title: "이 iPhone 의 OLO eBook 폴더",
-                              subtitle: "파일 앱에서 열기") { openAppFolderInFiles() }
+                VStack(spacing: 0) {
+                    row(icon: .plus, tile: CpColor.accent, title: "폴더 추가", action: addFolder)
+                    row(icon: .folder, tile: CpColor.tileFolder, title: "OLO eBook (이 iPhone)") { openAppFolderInFiles() }
                     ForEach(library.folders) { folder in
                         HStack(spacing: 0) {
-                            CpListRow(icon: .folder, tile: CpColor.tileFolder, title: folder.name, subtitle: "연결한 폴더")
-                            CpIconButton(icon: .close, label: "\(folder.name) 연결 끊기", color: CpColor.textMuted) {
+                            row(icon: .folder, tile: CpColor.tileFolder, title: folder.name, action: nil)
+                            CpIconButton(icon: .close, label: "\(folder.name) 빼기", color: CpColor.textMuted) {
                                 Task { await library.unlink(folder) }
                             }
                         }
                     }
-                    CpListRow(icon: .plus, tile: CpColor.tileFolder, title: "다른 폴더 연결",
-                              subtitle: "iCloud Drive · 다운로드 등", action: linkFolder)
                 }
-                .padding(.horizontal, CpMetrics.gutter)
             }
+            .frame(maxHeight: 320)
+            .fixedSize(horizontal: false, vertical: true)
         }
-        .background(CpColor.background.ignoresSafeArea())
-        .presentationDetents([.medium, .large])
-        .presentationCornerRadius(CpMetrics.cornerSheet)
+    }
+
+    /// 48 줄(안드로이드 compact 행): 타일 · 이름.
+    private func row(icon: CpIcon, tile: Color, title: String, action: (() -> Void)?) -> some View {
+        let content = HStack(spacing: 14) {
+            CpTile(icon: icon, color: tile)
+            Text(title).font(CpFont.body).foregroundStyle(CpColor.text).lineLimit(1)
+            Spacer(minLength: 0)
+        }
+        .frame(minHeight: 48)
+        .contentShape(Rectangle())
+        return Group {
+            if let action { Button(action: action) { content }.buttonStyle(.plain) } else { content.accessibilityElement(children: .combine) }
+        }
     }
 }

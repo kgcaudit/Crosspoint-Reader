@@ -29,7 +29,14 @@ import platform.UIKit.UIImage
 class ContentsRow(val label: String, val depth: Int)
 
 /** 책갈피 한 줄. [snippet] 은 꽂은 쪽의 첫 80자. */
-class BookmarkRow(val id: Long, val snippet: String, val percent: Float)
+class BookmarkRow(
+    val id: Long,
+    val snippet: String,
+    val percent: Float,
+    /** 독서노트의 갈래 이름: 이 자리를 담은 목차 항목(없으면 "N장"). 안드로이드 `readingNotes` 의 section 과 같은 규칙. */
+    val section: String,
+    val createdAtEpochMs: Long,
+)
 
 /** 화면에 낼 한 쪽과 그 쪽의 자리. */
 class ReaderFrame(
@@ -208,10 +215,24 @@ class IosBookReader private constructor(
     suspend fun bookmarks(): List<BookmarkRow> {
         val s = session ?: return emptyList()
         val l = layout()
+        val toc = outline()
         return s.bookmarks().map { b ->
-            val percent = (b.locator as? Locator.Reflow)?.let { runCatching { l.percent(it) }.getOrDefault(0f) } ?: 0f
-            BookmarkRow(b.id, b.snippet?.takeIf { it.isNotBlank() } ?: "(빈 쪽)", percent)
+            val at = b.locator as? Locator.Reflow
+            val percent = at?.let { runCatching { l.percent(it) }.getOrDefault(0f) } ?: 0f
+            val spine = at?.spine ?: 0
+            val section = toc.getOrNull(currentIndex(toc, spine))?.label ?: "${spine + 1}장"
+            BookmarkRow(b.id, b.snippet?.takeIf { it.isNotBlank() } ?: "(빈 쪽)", percent, section, b.createdAtEpochMs)
         }
+    }
+
+    /**
+     * 독서노트에서 책갈피를 지운다. 지금 쪽을 다시 낸다 — 지운 책갈피가 보던 쪽 것이면 리본이 사라져야 한다(두면 리본을 눌러
+     * 빼려다 하나 더 꽂는다).
+     */
+    @Throws(Exception::class)
+    suspend fun removeBookmark(id: Long): ReaderFrame {
+        store.remove(id)
+        return show(position ?: error("not laid out"))
     }
 
     /** 책갈피 자리로 간다. 지워진 책갈피면 null. */

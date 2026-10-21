@@ -74,7 +74,8 @@ struct CpStepper: View {
                 .accessibilityLabel("\(label) \(value)")
             CpIconButton(icon: .plus, label: "\(label) 늘리기", action: onPlus)
         }
-        .padding(.leading, CpMetrics.gutter)
+        // 오른쪽에도 gutter(안드로이드와 같다). 없으면 [+] 가 화면 끝에 붙어 둥근 모서리 폰에서 누르기 어렵다.
+        .padding(.horizontal, CpMetrics.gutter)
     }
 }
 
@@ -90,7 +91,7 @@ struct CpLinkRow: View {
                 Text(label).font(CpFont.body).foregroundStyle(CpColor.text)
                 Spacer(minLength: 8)
                 if !value.isEmpty {
-                    Text(value).font(CpFont.body).foregroundStyle(CpColor.accentText).lineLimit(1).frame(maxWidth: 200, alignment: .trailing)
+                    Text(value).font(CpFont.label).foregroundStyle(CpColor.accentText).lineLimit(1).frame(maxWidth: 200, alignment: .trailing)
                 }
                 CpIconView(icon: .forward, size: 20, color: CpColor.textMuted)
             }
@@ -146,10 +147,12 @@ struct CpThemeSwatches: View {
     }
 }
 
-/// 막대(진도 · 밝기). 손잡이는 누르는 표적이라 동그라미를 쓴다(디자인 인계 §4 모서리 줄).
+/// 막대(진도 · 밝기). 손잡이 18 · 막대 4 는 둥근 끝(안드로이드 `CpSlider`). 손잡이는 누르는 표적이라 동그라미(디자인 인계 §4).
+/// [height] 는 누르는 높이 — 읽기 메뉴의 진행 줄은 40 에 줄여 넣는다(손잡이 18 이라 40 안에서도 잡힌다).
 struct CpSlider: View {
     let value: Double // 0...1
     let label: String
+    var height: CGFloat = CpMetrics.touchTarget
     var onChange: (Double) -> Void
     var onCommit: (Double) -> Void
 
@@ -158,11 +161,11 @@ struct CpSlider: View {
     var body: some View {
         GeometryReader { g in
             let v = dragging ?? value
-            let thumb: CGFloat = 22
+            let thumb: CGFloat = 18
             let x = (g.size.width - thumb) * min(max(v, 0), 1)
             ZStack(alignment: .leading) {
-                Rectangle().fill(CpColor.progressTrack).frame(height: 4)
-                Rectangle().fill(CpColor.accent).frame(width: x + thumb / 2, height: 4)
+                Capsule().fill(CpColor.progressTrack).frame(height: 4)
+                Capsule().fill(CpColor.accent).frame(width: x + thumb / 2, height: 4)
                 Circle().fill(CpColor.accent).frame(width: thumb, height: thumb).offset(x: x)
             }
             .frame(maxHeight: .infinity)
@@ -178,7 +181,7 @@ struct CpSlider: View {
                     dragging = nil
                 })
         }
-        .frame(height: CpMetrics.touchTarget)
+        .frame(height: height)
         .accessibilityElement()
         .accessibilityLabel(label)
         .accessibilityValue("\(Int((value * 100).rounded()))%")

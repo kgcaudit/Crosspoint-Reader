@@ -213,6 +213,36 @@ class ReaderEngineTest {
     }
 
     @Test
+    fun `removing a bookmark from the notes list takes the ribbon off its page`() = runTest {
+        val path = writeText("book.txt", book)
+        val reader = IosBookReader.open(path, "app:book.txt", "book.txt", ReadingStore("$root/r.tsv"), "$root/pages", "1")
+        reader.layOut(spec(18f), 0xFFFFFF, 0, true)
+        reader.next()
+        assertTrue(reader.toggleBookmark().bookmarked)
+        val mark = reader.bookmarks().single()
+        // 목차 없는 TXT 는 "1장" 으로 묶인다 — 빈 갈래 이름이면 독서노트에서 어느 장인지 알 수 없다.
+        assertEquals("1장", mark.section)
+        assertTrue(mark.createdAtEpochMs > 0)
+        // 보던 쪽의 책갈피를 지우면 리본도 바로 빠져야 한다. 남으면 리본을 눌러 빼려다 하나를 더 꽂는다.
+        assertFalse(reader.removeBookmark(mark.id).bookmarked)
+        assertTrue(reader.bookmarks().isEmpty())
+        // 없는 번호를 지워도(두 번 누름) 아무 일 없다.
+        assertFalse(reader.removeBookmark(mark.id).bookmarked)
+    }
+
+    @Test
+    fun `bookmarks are grouped under the contents entry that holds them`() = runTest {
+        val path = "$root/tiny.epub"
+        tinyEpub().writeTo(path)
+        val reader = IosBookReader.open(path, "app:tiny.epub", "tiny.epub", ReadingStore("$root/r.tsv"), "$root/pages", "1")
+        reader.layOut(spec(18f), 0xFFFFFF, 0, true)
+        reader.toggleBookmark()
+        assertNotNull(reader.goToContents(1))
+        reader.toggleBookmark()
+        assertEquals(listOf("첫째 장", "둘째 장"), reader.bookmarks().map { it.section })
+    }
+
+    @Test
     fun `wider line spacing and margins give the book more pages`() = runTest {
         // 짧은 책은 쪽 수가 우연히 같을 수 있다(40문단에서 8쪽 · 8쪽). 차이가 쌓이도록 길게.
         val path = writeText("long.txt", (1..6).joinToString("\n") { book })
