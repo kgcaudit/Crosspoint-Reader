@@ -13,11 +13,12 @@ actor ReaderEngine {
     var showHighlights = true
     func setShowHighlights(_ on: Bool) { showHighlights = on }
 
-    func layOut(_ spec: LayoutSpec, _ paper: Paper, blend: Bool) async throws -> PageFrame {
+    func layOut(_ spec: LayoutSpec, _ paper: Paper, blend: Bool, spread: Spread?) async throws -> PageFrame {
         // 찾은 말 칠은 지면 밝기에 맞는 강조색(메뉴도 지면 밝기를 따른다).
         PageFrame(try await reader.layOut(spec: spec, paper: Int32(paper.paper), ink: Int32(paper.ink), blendPictures: blend,
                                           accent: paper.dark ? 0xE8A183 : 0xB95B3B, accentText: paper.dark ? 0xF6C4AE : 0x9A4A2C,
-                                          showHighlights: showHighlights))
+                                          showHighlights: showHighlights, twoPages: spread != nil,
+                                          fullWidth: Float(spread?.width ?? 0), leftInset: Float(spread?.leftInset ?? 0)))
     }
 
     func chapterCount() async throws -> Int { Int(try await reader.chapterCount()) }
@@ -150,6 +151,12 @@ struct PageFrame: @unchecked Sendable {
     /// 이 쪽의 글자 구간(장 안). 듣기가 이 쪽에서 시작하는 첫 문장을 찾는다.
     let pageStart: Int
     let pageEnd: Int
+    /// 두 쪽 보기에서 오른쪽 쪽이 있다("3–4 / 12").
+    let hasRight: Bool
+    /// 이 자리의 목차 항목(아래 줄 "장 제목").
+    let section: String
+    let charsLeftChapter: Int
+    let charsLeftBook: Int
     var key: String { "\(spine):\(page)" }
 
     init(_ f: ReaderFrame) {
@@ -163,7 +170,17 @@ struct PageFrame: @unchecked Sendable {
         canReturn = f.canReturn
         pageStart = Int(f.pageStart)
         pageEnd = Int(f.pageEnd)
+        hasRight = f.hasRight
+        section = f.section
+        charsLeftChapter = Int(f.charsLeftChapter)
+        charsLeftBook = Int(f.charsLeftBook)
     }
+}
+
+/// 두 쪽 보기의 펼침 자리: 화면 폭과 왼쪽 쪽이 시작하는 곳(왼쪽 안전 영역).
+struct Spread: Equatable {
+    let width: CGFloat
+    let leftInset: CGFloat
 }
 
 /// 각주 판에 띄울 것.
@@ -176,11 +193,16 @@ struct FootnoteItem: Identifiable {
 }
 
 /// 리더 위에 열린 판(안드로이드 `Panel`). 뒤로 가기: 목차 · 보기 → 메뉴, 보기 설정 · 글꼴 → 보기, 메뉴 → 지면.
-enum ReaderPanel { case none, bar, view, settings, fonts, contents, search, export, voices }
+enum ReaderPanel { case none, bar, view, settings, fonts, contents, search, export, voices, footer, footerItem }
+
+/// 쪽이 바뀐 까닭(읽는 빠르기 표본). 사람이 바로 다음 쪽으로 넘긴 것만 잰다.
+enum TurnCause { case jump, forward, backward, machine }
 
 @MainActor
 final class ReaderModel: ObservableObject {
-    @Published private(set) var frame: PageFrame?
+    @Published private(set) var frame: PageFrame? {
+        didSet { if frame?.key != oldValue?.key { sampleTurn() } }
+    }
     @Published private(set) var failure: String?
     @Published var panel = ReaderPanel.none
     /// 넘긴 방향(+1 다음, −1 앞). 쪽이 들어오는 쪽을 정한다.
@@ -224,12 +246,12 @@ final class ReaderModel: ObservableObject {
         }
     }
 
-    func layOut(_ spec: LayoutSpec, _ paper: Paper, blend: Bool, highlights: Bool = true) async {
+    func layOut(_ spec: LayoutSpec, _ paper: Paper, blend: Bool, highlights: Bool = true, spread: Spread? = nil) async {
         guard let engine else { return }
         showHighlights = highlights
         darkPaper = paper.dark
         await engine.setShowHighlights(highlights)
-        do { frame = try await engine.layOut(spec, paper, blend: blend) } catch { failure = "쪽을 짜지 못했습니다." }
+        do { frame = try await engine.layOut(spec, paper, blend: blend, spread: spread) } catch { failure = "쪽을 짜지 못했습니다." }
         // 처음 책 글꼴로 짤 때 꺼내 본다. 하나도 읽히지 않으면(WOFF 뿐 · 깨짐) 목록에서 "출판사 글꼴" 을 거둔다.
         bookFonts = await engine.hasBookFonts()
         bookFontPreview = await engine.bookFontPreviewPath()
@@ -248,6 +270,7 @@ final class ReaderModel: ObservableObject {
         tapped = nil
         direction = step
         turnCount += 1
+        turnCause = quiet ? .machine : step > 0 ? .forward : .backward
         // 사람이 넘긴 쪽만 효과 · 소리(안드로이드 PageTurnState.request) — 글자 크기 · 회전 · 목차 이동은 순간 이동이다(바뀐 조판이
         // 말리면 "넘긴 것" 으로 읽힌다).
         flipFor = "\(next.spine):\(next.page)"
@@ -294,8 +317,31 @@ final class ReaderModel: ObservableObject {
         tapped = nil
         lastActivity = Date()
         direction = step
+        turnCause = step > 0 ? .forward : .backward
         frame = next
         feedback(step)
+    }
+
+    // ── 남은 시간(구상안 28) ────────────────────────────────────────────────
+
+    /// 읽는 빠르기(모든 책에 하나).
+    @Published private(set) var speed = ReadingSpeed.load()
+    /// 다음 쪽 변화의 까닭. 쪽이 바뀌면 읽고 지운다 — 까닭을 적지 않은 변화(목차 · 찾기 · 진도 막대 · 링크 · 다시 짜기)는 건너뛴 것.
+    private var turnCause = TurnCause.jump
+    /// 지금 쪽(펼침)을 보이기 시작한 때와 그 글자 수. 사람이 바로 다음 쪽으로 넘기면 그 사이가 표본 하나다.
+    private var sampleStart: (at: Date, chars: Int)?
+
+    /// 쪽이 바뀌었다(안드로이드 `TurnSampler`). 자동 넘김 · 듣기가 넘긴 쪽, 건너뛴 쪽은 세지 않는다 — 기계의 빠르기나 목차를 고르던
+    /// 시간이 섞이면 남은 시간이 엉뚱해진다. 기계가 넘기다 사람이 이어받으면 그때부터 다시 잰다.
+    private func sampleTurn() {
+        let cause = turnCause
+        turnCause = .jump
+        if cause == .forward, let start = sampleStart {
+            speed.record(units: start.chars, seconds: Date().timeIntervalSince(start.at))
+            speed.save()
+        }
+        guard let frame, cause == .forward || cause == .backward else { sampleStart = nil; return }
+        sampleStart = (Date(), frame.pageEnd - frame.pageStart)
     }
 
     func prefetch() async {
@@ -540,6 +586,8 @@ final class ReaderModel: ObservableObject {
     func back() {
         switch panel {
         case .settings, .fonts: panel = .view
+        case .footer: panel = .settings
+        case .footerItem: panel = .footer
         case .export: panel = .contents
         // 듣는 중이면 듣기 판으로 돌아온다 — 판에서 "목소리" 를 눌러 왔다.
         case .voices: panel = .none; listenSheet = listening.active
@@ -551,6 +599,8 @@ final class ReaderModel: ObservableObject {
     // ── 듣기(구상안 24 · 25A) ───────────────────────────────────────────────
 
     let listening = Listening()
+    /// 하단 정보에서 고르는 자리(0 왼쪽 · 1 가운데 · 2 오른쪽).
+    var footerSlot = 0
     /// 듣기 판을 열어 두었다. 듣기가 꺼지면 보이지 않는다.
     @Published var listenSheet = false
 
@@ -586,7 +636,7 @@ extension ReaderModel: ListenSource {
     /// 듣는 문장을 칠하고 쪽을 따라간다. 듣기가 넘긴 쪽은 효과 · 소리 없이 바뀐다 — 화면을 끈 채 듣는 동안에도 불린다.
     func follow(_ spine: Int, _ sentence: SpokenSentence, follow: Bool) async {
         guard let engine, listening.active, let f = try? await engine.speak(spine, sentence, follow: follow) else { return }
-        if f.key != frame?.key { selection = nil; tapped = nil; direction = 1 }
+        if f.key != frame?.key { selection = nil; tapped = nil; direction = 1; turnCause = .machine }
         frame = f
     }
 }
@@ -622,11 +672,14 @@ struct ReaderView: View {
                     let key = "\(frame.spine):\(frame.page)"
                     if curl {
                         CurlPager(image: frame.image, key: key, previous: model.prevImage, next: model.nextImage,
-                                  paper: UIColor(paper.paperColor), animate: model.flipFor == key ? model.direction : 0,
+                                  paper: UIColor(paper.paperColor), spread: twoPages(full),
+                                  animate: model.flipFor == key ? model.direction : 0,
                                   onFlip: { step in Task { await model.commitFlip(step) } },
                                   onTap: { p in pageTap(p, size: full, insets: insets) },
                                   onLongPress: { p in Task { await model.select(at: p) } })
                             .accessibilityLabel("\(model.title), \(frame.page + 1)쪽")
+                            // 한 쪽 ↔ 두 쪽은 책등 자리가 달라 말림을 새로 만든다(UIPageViewController 는 책등을 만들 때 정한다).
+                            .id(twoPages(full))
                     } else {
                         Image(uiImage: frame.image).resizable()
                             .id(key)
@@ -642,7 +695,7 @@ struct ReaderView: View {
                     }
                     // 아래 줄은 화면 끝에서 14(구상안 13A, 안드로이드와 같다) — 읽는 동안 홈 표시줄을 숨긴다. 좌우는 본문 여백 선:
                     // 안드로이드의 16 은 iPhone 의 둥근 모서리에 글자가 잘린다.
-                    ReadingFooter(title: model.title, frame: frame, ink: paper.inkMutedColor)
+                    ReadingFooter(title: model.title, frame: frame, items: prefs.footer, speed: model.speed, ink: paper.inkMutedColor)
                         .padding(.horizontal, CGFloat(ReaderPrefs.margins[prefs.margin]) + max(insets.leading, insets.trailing))
                         .frame(maxHeight: .infinity, alignment: .bottom)
                         .padding(.bottom, 14)
@@ -743,13 +796,17 @@ struct ReaderView: View {
             .frame(width: full.width, height: full.height)
             .offset(x: -insets.leading, y: -insets.top)
             .task { await model.open(book, library: library) }
-            .task(id: LayoutKey(spec: model.engine == nil ? nil : prefs.spec(size: full, insets: insets, bookFonts: model.bookFonts), paper: paper,
-                                blend: prefs.blendPictures, highlights: prefs.showHighlights)) {
+            .task(id: LayoutKey(spec: model.engine == nil ? nil : prefs.spec(size: full, insets: insets, bookFonts: model.bookFonts,
+                                                                               twoPages: twoPages(full)),
+                                paper: paper, blend: prefs.blendPictures, highlights: prefs.showHighlights,
+                                spread: twoPages(full) ? Spread(width: full.width, leftInset: insets.leading) : nil)) {
                 guard model.engine != nil else { return }
-                await model.layOut(prefs.spec(size: full, insets: insets, bookFonts: model.bookFonts), paper, blend: prefs.blendPictures,
-                                   highlights: prefs.showHighlights)
+                let two = twoPages(full)
+                await model.layOut(prefs.spec(size: full, insets: insets, bookFonts: model.bookFonts, twoPages: two), paper,
+                                   blend: prefs.blendPictures, highlights: prefs.showHighlights,
+                                   spread: two ? Spread(width: full.width, leftInset: insets.leading) : nil)
                 #if DEBUG
-                // 화면 확인용: -olo-turn N 쪽 넘기고 -olo-panel bar|view|settings|fonts|contents|voices 로 판을 연다, -olo-search <말> 은 찾기 판에서 찾는다. 출시 빌드에는 없다.
+                // 화면 확인용: -olo-turn N 쪽 넘기고 -olo-panel bar|view|settings|fonts|contents|voices|footer|footerItem 로 판을 연다, -olo-search <말> 은 찾기 판에서 찾는다. 출시 빌드에는 없다.
                 let args = CommandLine.arguments
                 if !debugApplied {
                     debugApplied = true
@@ -769,7 +826,7 @@ struct ReaderView: View {
                     }
                     if let i = args.firstIndex(of: "-olo-panel"), i + 1 < args.count {
                         model.panel = ["bar": .bar, "view": .view, "settings": .settings, "fonts": .fonts, "contents": .contents,
-                                       "voices": .voices][args[i + 1]] ?? .none
+                                       "voices": .voices, "footer": .footer, "footerItem": .footerItem][args[i + 1]] ?? .none
                     }
                 }
                 #endif
@@ -854,7 +911,11 @@ struct ReaderView: View {
         let paper: Paper
         let blend: Bool
         let highlights: Bool
+        let spread: Spread?
     }
+
+    /// 이 화면 크기에서 두 쪽으로 보이는가(구상안 27).
+    private func twoPages(_ full: CGSize) -> Bool { prefs.twoPages(full) }
 
     private struct TurnKey: Equatable {
         let effect: Int
@@ -988,35 +1049,6 @@ private struct TurnZones: View {
         .accessibilityAction(named: "앞 쪽") { turn(-1) }
         .accessibilityAction(named: "메뉴") { toggleMenu() }
         .accessibilityAction(named: "책갈피") { bookmark() }
-    }
-}
-
-/// 지면 아래 줄(안드로이드 `CpReadingFooter` 기본 칸): 얇은 진도 막대 · 왼쪽 제목 · 가운데 장 안의 쪽 · 오른쪽 책 진도.
-/// 막대는 강조색, 빈 곳은 지면의 흐린 글자색 28% — UI 막대색(progressTrack)은 세피아 · 회색 지면에 묻혀 얼마 남았는지 보이지
-/// 않았다(안드로이드 0.29).
-private struct ReadingFooter: View {
-    let title: String
-    let frame: PageFrame
-    let ink: Color
-
-    var body: some View {
-        VStack(spacing: 6) {
-            GeometryReader { g in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(ink.opacity(0.28))
-                    Capsule().fill(CpColor.accent).frame(width: g.size.width * min(max(frame.percent / 100, 0), 1))
-                }
-            }
-            .frame(height: 2)
-            HStack(spacing: 0) {
-                Text(title).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
-                Text("\(frame.page + 1) / \(frame.pages)").padding(.horizontal, 12)
-                Text("\(Int(frame.percent.rounded()))%").frame(maxWidth: .infinity, alignment: .trailing)
-            }
-            .font(CpFont.caption)
-            .foregroundStyle(ink)
-        }
-        .accessibilityElement(children: .combine)
     }
 }
 

@@ -30,6 +30,11 @@ struct OloEBookApp: App {
                 #if DEBUG
                 // 화면 확인용(시뮬레이터는 명령으로 누를 수 없다): -olo-open "<파일 이름>" 으로 그 책을 연다. 출시 빌드에는 없다.
                 let args = CommandLine.arguments
+                // -olo-landscape 는 가로로 돌린다(두 쪽 보기 확인 — 시뮬레이터를 명령으로 돌릴 수 없다).
+                if args.contains("-olo-landscape"),
+                   let scene = UIApplication.shared.connectedScenes.first(where: { $0 is UIWindowScene }) as? UIWindowScene {
+                    scene.requestGeometryUpdate(.iOS(interfaceOrientations: .landscapeRight))
+                }
                 if let i = args.firstIndex(of: "-olo-open"), i + 1 < args.count {
                     reading = (library.reading + library.toRead + library.finished).first { $0.book.displayName == args[i + 1] }?.book
                 }
