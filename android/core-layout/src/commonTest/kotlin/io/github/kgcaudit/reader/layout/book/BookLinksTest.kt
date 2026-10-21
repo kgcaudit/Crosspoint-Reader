@@ -115,7 +115,7 @@ class BookLinksTest {
         // 두 어절 이상을 찾으면 언제나 0건이었다.
         for (space in listOf(' ', ' ', '　')) {
             val text = "그때 보아${space}구렁이가 나타났다."
-            val hit = assertNotNull(findAll(text, "보아 구렁이", 0).singleOrNull(), "U+%04X 로 띄운 두 어절을 못 찾았다".format(space.code))
+            val hit = assertNotNull(findAll(text, "보아 구렁이", 0).singleOrNull(), "U+${space.code.toString(16).uppercase().padStart(4, '0')} 로 띄운 두 어절을 못 찾았다")
             assertEquals("보아${space}구렁이", text.substring(hit.start, hit.endExclusive))
         }
     }

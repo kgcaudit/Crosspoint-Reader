@@ -13,6 +13,9 @@ kotlin {
     iosArm64()
     iosSimulatorArm64()
     sourceSets {
+        // 플랫폼과 무관한 시험은 commonTest 에 둔다(2026-10-21, iOS 세션 요청) — 맥에서는 같은 시험이 iOS(iosSimulatorArm64Test)로도
+        // 돈다. 두 앱이 같은 책을 다르게 읽으면 여기서 걸린다. java.* 를 쓰는 시험(시험용 zip · 그림 짓기 · 파일)은 jvmTest 에 남는다.
+        commonTest.dependencies { implementation(libs.kotlin.test) }
         // iOS 의 actual(zlib · iconv · CommonCrypto · NSFileManager)을 시뮬레이터에서 시험한다. 맥에서만 돈다.
         iosTest.dependencies { implementation(libs.kotlin.test) }
         jvmTest.dependencies {

@@ -73,7 +73,7 @@ class WebtoonTest {
         assertEquals(0.5f, f, 0.001f)
         // 넓은 기둥에서 같은 자리.
         val wide = WebtoonColumn(sizes, 1000f)
-        assertEquals(2 to 0.5f, wide.at(wide.offsetOf(i, f)).let { it.first to (Math.round(it.second * 1000) / 1000f) })
+        assertEquals(2 to 0.5f, wide.at(wide.offsetOf(i, f)).let { it.first to (kotlin.math.round(it.second * 1000) / 1000f) })
         assertEquals(2 to 1f, narrow.at(99999f))
         assertEquals(0 to 0f, narrow.at(-5f))
         assertEquals(0 to 0f, WebtoonColumn(emptyList(), 400f).at(10f))

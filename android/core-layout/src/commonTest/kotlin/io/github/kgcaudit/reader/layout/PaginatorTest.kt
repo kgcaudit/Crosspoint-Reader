@@ -45,7 +45,7 @@ class PaginatorTest {
      * 조각을 내므로 줄 수보다 훨씬 많다.
      */
     private fun lines(page: Page): List<List<PlacedRun>> =
-        page.runs.groupBy { it.baselineYPx }.toSortedMap().values.toList()
+        page.runs.groupBy { it.baselineYPx }.entries.sortedBy { it.key }.map { it.value }
 
     private fun lineCount(page: Page): Int = lines(page).size
 
