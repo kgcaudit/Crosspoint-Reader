@@ -228,6 +228,9 @@ private struct ViewSettingsScreen: View {
                     .padding(.leading, CpMetrics.levelIndent)
                     CpCaption(text: "10분은 마지막으로 넘긴 뒤 10분입니다. 읽다 잠들어도 밤새 켜져 있지 않습니다.")
                         .padding(.leading, CpMetrics.levelIndent)
+                    // 숨겨도 지우지 않는다 — 다시 보이면 그대로 있다.
+                    CpChoice(label: "형광펜 · 메모", options: ["보임", "숨김"], selected: prefs.showHighlights ? 0 : 1) { prefs.showHighlights = $0 == 0 }
+                        .padding(.leading, CpMetrics.levelIndent)
                 }
                 .padding(.bottom, 24)
             }
@@ -345,21 +348,38 @@ private struct ContentsScreen: View {
     @State private var rows: [ContentsItem]?
     @State private var current = -1
     @State private var bookmarks: [BookmarkItem]?
-    /// ⋮ 메뉴가 열린 책갈피.
-    @State private var menuFor: Int64?
+    @State private var highlights: [HighlightItem] = []
+    /// ⋮ 메뉴가 열린 줄(종류 · 번호).
+    @State private var menuFor: String?
+    /// 거르기: 0 전체 · 1 책갈피 · 2 형광펜 · 3 메모.
+    @State private var filter = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             CpHeader(title: model.title, subtitle: model.author,
                      leading: AnyView(CpIconButton(icon: .back, label: "뒤로", action: model.back))) {}
-            CpTabBar(tabs: ["목차", bookmarks.map { "독서노트 \($0.count)" } ?? "독서노트"], selected: tab) { tab = $0 }
+            CpTabBar(tabs: ["목차", bookmarks.map { "독서노트 \($0.count + highlights.count)" } ?? "독서노트"], selected: tab) { tab = $0 }
             if tab == 0 { contents } else { notes }
         }
         .task {
             guard let engine = model.engine else { return }
             if let loaded = try? await engine.contents() { rows = loaded.rows; current = loaded.current }
-            bookmarks = (try? await engine.bookmarks()) ?? []
+            await reloadNotes()
         }
+        // 메모를 쓰거나 색을 바꾸면 목록도 다시 읽는다(메모 판은 이 판 위에 뜬다).
+        .onChange(of: model.notesVersion) { _, _ in Task { await reloadNotes() } }
+    }
+
+    private func reloadNotes() async {
+        guard let engine = model.engine else { return }
+        bookmarks = (try? await engine.bookmarks()) ?? []
+        highlights = (try? await engine.noteRows()) ?? []
+    }
+
+    /// 책갈피와 형광펜을 한 목록으로: 책 차례 · 같은 자리면 책갈피가 먼저(쪽 머리에 꽂은 것이 쪽 안의 칠보다 앞에 읽힌다).
+    private var entries: [NoteEntry] {
+        let all = (bookmarks ?? []).map(NoteEntry.bookmark) + highlights.map(NoteEntry.highlight)
+        return all.sorted { $0.order < $1.order }
     }
 
     @ViewBuilder
@@ -388,40 +408,122 @@ private struct ContentsScreen: View {
         }
     }
 
-    /// 독서노트(구상안 14A, 안드로이드 `CpReadingNotes`): 장마다 갈래 이름, 줄마다 ⋮ → 지우기. 거르기 칩(전체 · 책갈피 ·
-    /// 형광펜 · 메모)은 형광펜 · 메모가 생길 때 — 지금은 거를 것이 책갈피뿐이다.
+    /// 독서노트(구상안 14A · 20, 안드로이드 `CpReadingNotes`): 거르기 칩 · 장마다 갈래 이름 · 책갈피 · 칠(색 동그라미와 그 색
+    /// 바탕) · 메모 상자 · 줄마다 ⋮.
     @ViewBuilder
     private var notes: some View {
-        if let bookmarks {
-            if bookmarks.isEmpty {
-                // 안드로이드 문장에서 아직 iOS 에 없는 "글자를 길게 눌러 칠하기" 를 뺐다.
-                CpEmptyMessage(text: "독서노트가 비어 있습니다. 쪽 오른쪽 위를 눌러 책갈피를 꽂으면 여기에 모입니다.")
-            } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(bookmarks.enumerated()), id: \.element.id) { i, mark in
-                            if i == 0 || bookmarks[i - 1].section != mark.section {
-                                CpSectionLabel(text: mark.section)
-                                    .padding(.horizontal, CpMetrics.gutter).padding(.top, 18).padding(.bottom, 6)
+        if bookmarks != nil {
+            let all = entries
+            VStack(spacing: 0) {
+                // 옆으로 밀어 본다 — 한 줄에 우겨 넣으면 좁은 폰에서 마지막 칩이 찌그러졌다(안드로이드 0.29).
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(0..<4, id: \.self) { f in
+                            let on = f == filter
+                            Button { filter = f } label: {
+                                Text("\(NoteEntry.filters[f]) \(all.filter { $0.shows(f) }.count)").font(CpFont.label)
+                                    .foregroundStyle(on ? CpColor.onAccent : CpColor.text)
+                                    .padding(.horizontal, 14).frame(minHeight: CpMetrics.touchTarget)
+                                    .background(on ? CpColor.accent : Color.clear)
+                                    .clipShape(RoundedRectangle(cornerRadius: CpMetrics.cornerSmall))
+                                    .overlay(RoundedRectangle(cornerRadius: CpMetrics.cornerSmall).stroke(on ? CpColor.accent : CpColor.outline, lineWidth: 1))
                             }
-                            NoteRow(mark: mark, menuOpen: menuFor == mark.id,
-                                    open: { Task { await model.jump { try await $0.goToBookmark(mark.id) } } },
-                                    toggleMenu: { menuFor = menuFor == mark.id ? nil : mark.id },
-                                    remove: {
-                                        menuFor = nil
-                                        Task {
-                                            await model.removeBookmark(mark.id)
-                                            self.bookmarks = (try? await model.engine?.bookmarks()) ?? []
-                                        }
-                                    })
-                                .zIndex(menuFor == mark.id ? 1 : 0)
+                            .buttonStyle(.plain)
+                            .accessibilityAddTraits(on ? [.isSelected] : [])
                         }
                     }
-                    .padding(.bottom, 24)
+                    .padding(.horizontal, CpMetrics.gutter).padding(.vertical, 4)
+                }
+                CpDivider()
+                let shown = all.filter { $0.shows(filter) }
+                if shown.isEmpty {
+                    // 안드로이드 문장 그대로(칠하기 · 책갈피 두 길을 모두 알린다).
+                    CpEmptyMessage(text: all.isEmpty
+                        ? "독서노트가 비어 있습니다. 글자를 길게 눌러 칠하거나 쪽 오른쪽 위를 눌러 책갈피를 꽂으면 여기에 모입니다."
+                        : "\(NoteEntry.filters[filter]) 항목이 없습니다")
+                } else {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(Array(shown.enumerated()), id: \.element.key) { i, entry in
+                                if i == 0 || shown[i - 1].section != entry.section {
+                                    CpSectionLabel(text: entry.section)
+                                        .padding(.horizontal, CpMetrics.gutter).padding(.top, 18).padding(.bottom, 6)
+                                }
+                                NoteEntryRow(entry: entry, dark: model.darkPaper, menuOpen: menuFor == entry.key,
+                                             open: { open(entry) }, toggleMenu: { menuFor = menuFor == entry.key ? nil : entry.key },
+                                             action: { word, pen in menuFor = nil; Task { await act(entry, word, pen) } })
+                                    .zIndex(menuFor == entry.key ? 1 : 0)
+                            }
+                        }
+                        .padding(.bottom, 24)
+                    }
                 }
             }
         } else {
             Spacer()
+        }
+    }
+
+    private func open(_ entry: NoteEntry) {
+        switch entry {
+        case .bookmark(let b): Task { await model.jump { try await $0.goToBookmark(b.id) } }
+        case .highlight(let h): Task { await model.goToHighlight(h.id) }
+        }
+    }
+
+    private func act(_ entry: NoteEntry, _ word: String, _ pen: Int?) async {
+        switch entry {
+        case .bookmark(let b):
+            if word == "지우기" { await model.removeBookmark(b.id) }
+        case .highlight(let h):
+            switch word {
+            case "메모": model.memo = MemoDraft(noteId: h.id, start: h.start, end: h.end, quote: h.snippet, pen: h.pen, text: h.note ?? "")
+            case "공유": model.shareOut = SharedText(text: shareText(quote: h.snippet, memo: h.note, title: model.title))
+            case "지우기": await model.removeHighlight(h)
+            case "색": if let pen { await model.recolor(h, pen: pen) }
+            default: break
+            }
+        }
+        await reloadNotes()
+    }
+}
+
+/// 독서노트 한 항목.
+enum NoteEntry {
+    case bookmark(BookmarkItem)
+    case highlight(HighlightItem)
+
+    static let filters = ["전체", "책갈피", "형광펜", "메모"]
+
+    var key: String {
+        switch self {
+        case .bookmark(let b): "b\(b.id)"
+        case .highlight(let h): "h\(h.id)"
+        }
+    }
+
+    var section: String {
+        switch self {
+        case .bookmark(let b): b.section
+        case .highlight(let h): h.section
+        }
+    }
+
+    /// 책 차례. 같은 자리면 책갈피가 먼저.
+    var order: Double {
+        switch self {
+        case .bookmark(let b): b.percent * 1000
+        case .highlight(let h): h.percent * 1000 + 0.5
+        }
+    }
+
+    func shows(_ filter: Int) -> Bool {
+        switch (filter, self) {
+        case (0, _): true
+        case (1, .bookmark): true
+        case (2, .highlight): true
+        case (3, .highlight(let h)): h.note != nil
+        default: false
         }
     }
 }
@@ -443,53 +545,116 @@ private struct SeekBar: View {
 }
 
 /// 독서노트 한 줄(안드로이드 `NoteRow`): 들임 gutter + levelIndent(32) — 노트는 그 장에 속한다(UI 규칙 1). 그림 칸 24, 글자는
-/// childIndent(38) 선, 본문 3줄 · "3% · 2026.10.21." · 오른쪽 ⋮. ⋮ 메뉴는 그 줄 아래에 붙는 작은 판(서재의 더 보기 판과 같은 모양).
-private struct NoteRow: View {
-    let mark: BookmarkItem
+/// childIndent(38) 선(아래 메모 상자가 같은 선에서 시작해 "이 칠의 메모" 로 읽힌다), 본문 3줄 · "3% · 2026.10.21." · ⋮.
+private struct NoteEntryRow: View {
+    let entry: NoteEntry
+    let dark: Bool
     let menuOpen: Bool
     let open: () -> Void
     let toggleMenu: () -> Void
-    let remove: () -> Void
+    let action: (String, Int?) -> Void
+    @State private var recolor = false
+
+    private var whereLabel: String {
+        switch entry {
+        case .bookmark(let b): b.whereLabel
+        case .highlight(let h): noteWhere(h.percent, h.created)
+        }
+    }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 0) {
-            Button(action: open) {
-                HStack(alignment: .top, spacing: 0) {
-                    CpIconView(icon: .bookmarkFilled, size: 20, color: CpColor.accent).frame(width: 24, height: 24)
-                    Spacer().frame(width: CpMetrics.childIndent - 24)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(mark.snippet).font(CpFont.body).foregroundStyle(CpColor.text).lineSpacing(5).lineLimit(3)
-                            .multilineTextAlignment(.leading)
-                        Text(mark.whereLabel).font(CpFont.caption).foregroundStyle(CpColor.textMuted)
-                    }
-                    Spacer(minLength: 0)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityElement(children: .combine)
-            // 행마다 "더 보기" 로만 읽으면 어느 노트의 메뉴인지 모른다 — 종류와 자리를 붙인다(안드로이드와 같다).
-            CpIconButton(icon: .more, label: "책갈피 더 보기 · \(mark.whereLabel)", color: CpColor.textMuted, action: toggleMenu)
-        }
-        .padding(.leading, CpMetrics.gutter + CpMetrics.levelIndent).padding(.trailing, 4).padding(.vertical, 10)
-        .overlay(alignment: .bottomTrailing) {
-            if menuOpen {
-                Button(action: remove) {
-                    HStack(spacing: 14) {
-                        CpIconView(icon: .close, size: 22)
-                        Text("지우기").font(CpFont.body).foregroundStyle(CpColor.text)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 0) {
+                Button(action: open) {
+                    HStack(alignment: .top, spacing: 0) {
+                        Group {
+                            switch entry {
+                            case .bookmark: CpIconView(icon: .bookmarkFilled, size: 20, color: CpColor.accent)
+                            case .highlight(let h): Circle().fill(Pen.color(h.pen)).frame(width: 12, height: 12)
+                            }
+                        }
+                        .frame(width: 24, height: 24)
+                        Spacer().frame(width: CpMetrics.childIndent - 24)
+                        VStack(alignment: .leading, spacing: 4) {
+                            body(text: entry)
+                                .font(CpFont.body).foregroundStyle(CpColor.text).lineSpacing(5).lineLimit(3)
+                                .multilineTextAlignment(.leading)
+                            Text(whereLabel).font(CpFont.caption).foregroundStyle(CpColor.textMuted)
+                        }
                         Spacer(minLength: 0)
                     }
-                    .padding(.horizontal, 16).frame(width: 160, height: CpMetrics.touchTarget)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .padding(.vertical, 6)
-                .background(CpColor.surface)
-                .clipShape(RoundedRectangle(cornerRadius: CpMetrics.cornerSmall + 4))
-                .shadow(color: .black.opacity(0.25), radius: 8, y: 3)
-                .offset(x: -8, y: 50)
+                .accessibilityElement(children: .combine)
+                CpIconButton(icon: .more, label: "\(kind) 더 보기 · \(whereLabel)", color: CpColor.textMuted) {
+                    recolor = false
+                    toggleMenu()
+                }
+            }
+            if case .highlight(let h) = entry, let memo = h.note {
+                Text(memo).font(CpFont.subtitle).foregroundStyle(CpColor.text).lineLimit(6)
+                    .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(CpColor.dialog).clipShape(RoundedRectangle(cornerRadius: CpMetrics.cornerSmall))
+                    .padding(.leading, CpMetrics.childIndent).padding(.trailing, CpMetrics.touchTarget).padding(.top, 8)
             }
         }
+        .padding(.leading, CpMetrics.gutter + CpMetrics.levelIndent).padding(.trailing, 4).padding(.vertical, 10)
+        .overlay(alignment: .topTrailing) {
+            if menuOpen { menu.offset(x: -8, y: 50) }
+        }
     }
+
+    private var kind: String {
+        switch entry {
+        case .bookmark: "책갈피"
+        case .highlight(let h): h.note == nil ? "형광펜" : "메모"
+        }
+    }
+
+    private func body(text entry: NoteEntry) -> Text {
+        switch entry {
+        case .bookmark(let b): return Text(b.snippet)
+        case .highlight(let h):
+            var a = AttributedString(h.snippet)
+            a.backgroundColor = Pen.fill(h.pen, dark: dark)
+            return Text(a)
+        }
+    }
+
+    private var words: [String] {
+        if case .bookmark = entry { return ["지우기"] }
+        return ["메모", "색 바꾸기", "공유", "지우기"]
+    }
+
+    private var menu: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if recolor, case .highlight(let h) = entry {
+                PenDots(current: h.pen, ring: CpColor.text, dot: 24) { action("색", $0) }.padding(.horizontal, 6)
+            } else {
+                ForEach(words, id: \.self) { w in
+                    Button {
+                        if w == "색 바꾸기" { recolor = true } else { action(w, nil) }
+                    } label: {
+                        Text(w).font(CpFont.body).foregroundStyle(CpColor.text)
+                            .padding(.horizontal, 16).frame(width: 160, height: CpMetrics.touchTarget, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(.vertical, 6)
+        .background(CpColor.surface)
+        .clipShape(RoundedRectangle(cornerRadius: CpMetrics.cornerSmall + 4))
+        .shadow(color: .black.opacity(0.25), radius: 8, y: 3)
+    }
+}
+
+/// "3% · 2026.10.21."(안드로이드 `noteWhere`).
+func noteWhere(_ percent: Double, _ date: Date) -> String {
+    let f = DateFormatter()
+    f.locale = Locale(identifier: "ko_KR")
+    f.dateFormat = "yyyy.MM.dd."
+    return "\(Int(percent.rounded()))% · \(f.string(from: date))"
 }

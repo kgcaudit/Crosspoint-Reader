@@ -55,6 +55,11 @@ object PagePainter {
         /** 각주 표시(장 안 글자 구간들). [noteColor] 로 그린다 — 작은 위첨자라 본문과 대비 4.5 이상인 색이어야 한다. */
         noteMarks: List<IntRange> = emptyList(),
         noteColor: Int = 0,
+        /** 형광펜: (구간, 0xRRGGBB). [tintAlpha] 로 글자 뒤에 칠한다(밝은 지면 0.45 · 어두운 지면 0.38). */
+        tints: List<Pair<IntRange, Int>> = emptyList(),
+        tintAlpha: Double = 0.45,
+        /** 메모 쪽지: (칠의 끝 글자 다음 자리, 색). 끝 글자 오른쪽 위 행간에 작은 쪽지. */
+        memos: List<Pair<Int, Int>> = emptyList(),
     ): UIImage {
         val format = UIGraphicsImageRendererFormat.preferredFormat().apply { opaque = true }
         val renderer = UIGraphicsImageRenderer(size = CGSizeMake(widthPt, heightPt), format = format)
@@ -63,6 +68,12 @@ object PagePainter {
             fill(cg, paper, 1.0)
             CGContextFillRect(cg, CGRectMake(0.0, 0.0, widthPt, heightPt))
             // 칠은 글자보다 먼저 — 나중에 칠하면 글자가 덮인다.
+            for ((range, color) in tints) {
+                fill(cg, color, tintAlpha)
+                for (b in rangeBoxes(page, text, measurer, range.first, range.last + 1)) {
+                    CGContextFillRect(cg, CGRectMake(b.left.toDouble(), b.top.toDouble(), (b.right - b.left).toDouble(), (b.bottom - b.top).toDouble()))
+                }
+            }
             if (mark != null) {
                 fill(cg, markColor, 0.3)
                 for (b in rangeBoxes(page, text, measurer, mark.first, mark.last + 1)) {
@@ -70,6 +81,10 @@ object PagePainter {
                 }
             }
             draw(cg, page, text, measurer, ink, noteMarks, noteColor)
+            for ((end, color) in memos) {
+                val box = rangeBoxes(page, text, measurer, end - 1, end).lastOrNull() ?: continue
+                memoGlyph(cg, box.right.toDouble(), box.top.toDouble(), maxOf((box.bottom - box.top) * 0.55f, 6f).toDouble(), color)
+            }
             drawPictures(cg, page, pictures, blend)
         }
     }
@@ -133,6 +148,80 @@ object PagePainter {
         return boxes
     }
 
+    /**
+     * 메모 쪽지(안드로이드 `drawMemoGlyph`): 접힌 귀가 있는 작은 종이에 흰 줄 둘. ([x], [y]) 는 칠한 끝 글자의 오른쪽 위 —
+     * 쪽지는 그 자리에서 4분의 3 쯤 위로 올라가 행간에 걸친다. 줄 안에 두면 다음 글자의 머리를 덮는다.
+     */
+    private fun memoGlyph(cg: CGContextRef, x0: Double, y0: Double, size: Double, color: Int) {
+        val x = x0 + size * 0.1
+        val y = y0 - size * 0.75
+        val fold = size * 0.32
+        fill(cg, color, 1.0)
+        platform.CoreGraphics.CGContextBeginPath(cg)
+        platform.CoreGraphics.CGContextMoveToPoint(cg, x, y)
+        platform.CoreGraphics.CGContextAddLineToPoint(cg, x + size, y)
+        platform.CoreGraphics.CGContextAddLineToPoint(cg, x + size, y + size - fold)
+        platform.CoreGraphics.CGContextAddLineToPoint(cg, x + size - fold, y + size)
+        platform.CoreGraphics.CGContextAddLineToPoint(cg, x, y + size)
+        platform.CoreGraphics.CGContextClosePath(cg)
+        platform.CoreGraphics.CGContextFillPath(cg)
+        fill(cg, 0xFFFFFF, 1.0)
+        val stroke = maxOf(size * 0.1, 1.0)
+        CGContextFillRect(cg, CGRectMake(x + size * 0.2, y + size * 0.32 - stroke / 2, size * 0.6, stroke))
+        CGContextFillRect(cg, CGRectMake(x + size * 0.2, y + size * 0.56 - stroke / 2, size * 0.4, stroke))
+    }
+
+    /**
+     * 누른 자리([x], [y])에 가장 가까운 글자의 오프셋(안드로이드 `charAt`, 고르기 · 손잡이 끌기). 먼저 [y] 가 든 줄(없으면
+     * 세로로 가장 가까운 줄)을 고르고 그 줄에서 [x] 가 든 글자를 찾는다. 줄 끝 바깥이면 그 줄 마지막 글자 — 손잡이를 여백까지
+     * 끌어도 고른 것이 사라지지 않게. [after] 면 글자 오른쪽 반에서 다음 오프셋(끝 손잡이는 "이 글자까지" 다).
+     */
+    internal fun charAt(page: Page, text: String, measurer: CoreTextMeasurer, x: Float, y: Float, after: Boolean = false): Int? {
+        val lines = page.runs.filter { it.start < it.endExclusive && it.start < text.length }.groupBy { it.baselineYPx }
+        if (lines.isEmpty()) return null
+        fun top(r: io.github.kgcaudit.reader.layout.PlacedRun) = r.baselineYPx - measurer.ascent(r.style)
+        fun bottom(r: io.github.kgcaudit.reader.layout.PlacedRun) = top(r) + measurer.lineHeight(r.style)
+        val line = lines.values.minBy { runs ->
+            val t = runs.minOf { top(it) }
+            val b = runs.maxOf { bottom(it) }
+            when {
+                y < t -> t - y
+                y > b -> y - b
+                else -> 0f
+            }
+        }.sortedBy { it.xPx }
+        val run = line.firstOrNull { x < it.xPx + measurer.advance(text, it.start, it.endExclusive.coerceAtMost(text.length), it.style) }
+            ?: return line.last().endExclusive.coerceAtMost(text.length).let { if (after) it else it - 1 }
+        if (x <= run.xPx) return run.start
+        val end = run.endExclusive.coerceAtMost(text.length)
+        var i = run.start
+        var left = run.xPx
+        while (i < end) {
+            val next = if (i + 1 < end && text[i].isHighSurrogate()) i + 2 else i + 1
+            val right = run.xPx + measurer.advance(text, run.start, next, run.style)
+            if (x < right) return if (after && x > (left + right) / 2) next else i
+            left = right
+            i = next
+        }
+        return if (after) end else end - 1
+    }
+
+    /**
+     * [offset] 이 든 낱말(길게 눌렀을 때 처음 고르는 구간, 안드로이드 `wordAt`). 띄어쓰기 · 문장부호에서 끊는다 — 한국어는
+     * 어절 하나. 공백을 눌렀으면 그 한 글자만(빈 구간이면 메뉴가 뜰 자리가 없다).
+     */
+    internal fun wordAt(text: String, offset: Int): IntRange {
+        if (text.isEmpty()) return IntRange.EMPTY
+        val at = offset.coerceIn(0, text.length - 1)
+        fun inWord(c: Char) = c.isLetterOrDigit() || c == '\'' || c == '’' || c == '-'
+        if (!inWord(text[at])) return at..at
+        var s = at
+        while (s > 0 && inWord(text[s - 1])) s--
+        var e = at
+        while (e < text.length - 1 && inWord(text[e + 1])) e++
+        return s..e
+    }
+
     /** 글자 구간 네모(쪽 좌표, 위가 0). */
     class Box(val left: Float, val top: Float, val right: Float, val bottom: Float) {
         val centerX: Float get() = (left + right) / 2
@@ -179,6 +268,8 @@ object PagePainter {
         fun ch(shift: Int) = (((a shr shift) and 0xFF) + (((b shr shift) and 0xFF) - ((a shr shift) and 0xFF)) * t).toInt().coerceIn(0, 255)
         return (ch(16) shl 16) or (ch(8) shl 8) or ch(0)
     }
+
+    internal fun luminanceOf(rgb: Int): Double = luminance(rgb)
 
     private fun luminance(rgb: Int): Double {
         fun lin(v: Int): Double { val s = v / 255.0; return if (s <= 0.03928) s / 12.92 else ((s + 0.055) / 1.055).pow(2.4) }

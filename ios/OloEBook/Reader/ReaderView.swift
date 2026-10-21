@@ -8,10 +8,15 @@ actor ReaderEngine {
 
     init(reader: IosBookReader) { self.reader = reader }
 
+    /// 형광펜 보임(모든 보기 설정). 조판이 아니라 그리기만 바꾸므로 LayoutSpec 이 아니라 여기 둔다.
+    var showHighlights = true
+    func setShowHighlights(_ on: Bool) { showHighlights = on }
+
     func layOut(_ spec: LayoutSpec, _ paper: Paper, blend: Bool) async throws -> PageFrame {
         // 찾은 말 칠은 지면 밝기에 맞는 강조색(메뉴도 지면 밝기를 따른다).
         PageFrame(try await reader.layOut(spec: spec, paper: Int32(paper.paper), ink: Int32(paper.ink), blendPictures: blend,
-                                          accent: paper.dark ? 0xE8A183 : 0xB95B3B, accentText: paper.dark ? 0xF6C4AE : 0x9A4A2C))
+                                          accent: paper.dark ? 0xE8A183 : 0xB95B3B, accentText: paper.dark ? 0xF6C4AE : 0x9A4A2C,
+                                          showHighlights: showHighlights))
     }
 
     func chapterCount() async throws -> Int { Int(try await reader.chapterCount()) }
@@ -34,6 +39,27 @@ actor ReaderEngine {
         PageFrame(try await reader.jumpTo(spine: Int32(spine), anchor: anchor, markLength: Int32(markLength)))
     }
     func returnBack() async throws -> PageFrame? { try await reader.returnBack().map(PageFrame.init) }
+
+    // 형광펜 · 메모
+    func charAt(_ p: CGPoint, after: Bool) async throws -> Int { Int(try await reader.charAt(x: Float(p.x), y: Float(p.y), after: after)) }
+    func wordAt(_ p: CGPoint) async throws -> (Int, Int)? {
+        let w = try await reader.wordAt(x: Float(p.x), y: Float(p.y))
+        return w.count == 2 ? (w[0].intValue, w[1].intValue) : nil
+    }
+    func boxes(_ start: Int, _ end: Int) async throws -> [CGRect] {
+        try await reader.boxes(start: Int32(start), end: Int32(end)).map {
+            CGRect(x: CGFloat($0.left), y: CGFloat($0.top), width: CGFloat($0.right - $0.left), height: CGFloat($0.bottom - $0.top))
+        }
+    }
+    func textOf(_ start: Int, _ end: Int) async throws -> String { try await reader.textOf(start: Int32(start), end: Int32(end)) }
+    func highlight(_ start: Int, _ end: Int, pen: Int, note: String?) async throws -> PageFrame {
+        PageFrame(try await reader.highlight(start: Int32(start), end: Int32(end), color: Int32(pen), note: note))
+    }
+    func recolor(_ id: Int64, pen: Int) async throws -> PageFrame { PageFrame(try await reader.recolor(id: id, color: Int32(pen))) }
+    func setNote(_ id: Int64, _ note: String?) async throws -> PageFrame { PageFrame(try await reader.setNote(id: id, note: note)) }
+    func removeNote(_ id: Int64) async throws -> PageFrame { PageFrame(try await reader.removeNote(id: id)) }
+    func noteRows() async throws -> [HighlightItem] { try await reader.noteRows().map(HighlightItem.init) }
+    func goToNote(_ id: Int64) async throws -> PageFrame? { try await reader.goToNote(id: id).map(PageFrame.init) }
 
     func next() async throws -> PageFrame? { try await reader.next().map(PageFrame.init) }
     func previous() async throws -> PageFrame? { try await reader.previous().map(PageFrame.init) }
@@ -164,8 +190,11 @@ final class ReaderModel: ObservableObject {
         }
     }
 
-    func layOut(_ spec: LayoutSpec, _ paper: Paper, blend: Bool) async {
+    func layOut(_ spec: LayoutSpec, _ paper: Paper, blend: Bool, highlights: Bool = true) async {
         guard let engine else { return }
+        showHighlights = highlights
+        darkPaper = paper.dark
+        await engine.setShowHighlights(highlights)
         do { frame = try await engine.layOut(spec, paper, blend: blend) } catch { failure = "쪽을 짜지 못했습니다." }
         // 처음 책 글꼴로 짤 때 꺼내 본다. 하나도 읽히지 않으면(WOFF 뿐 · 깨짐) 목록에서 "출판사 글꼴" 을 거둔다.
         bookFonts = await engine.hasBookFonts()
@@ -195,6 +224,8 @@ final class ReaderModel: ObservableObject {
 
     /// 쪽을 눌렀다. 링크가 먼저다 — 그 자리가 "다음 쪽" 자리여도 넘기지 않는다. 링크가 아니면 [otherwise](넘김 · 메뉴).
     func tap(at point: CGPoint, otherwise: @escaping () -> Void) async {
+        // 고르는 중 · 칠한 곳 메뉴가 떠 있으면 그것만 닫는다 — 쪽이 넘어가면 고른 것을 잃는다.
+        if selection != nil || tapped != nil { clearSelection(); return }
         guard let engine, let action = try? await engine.tapLink(point.x, point.y) else { otherwise(); return }
         switch action.kind {
         case "footnote":
@@ -203,9 +234,130 @@ final class ReaderModel: ObservableObject {
             if let f = action.frame { frame = PageFrame(f); lastActivity = Date() }
         case "external":
             external = action.url
+        case "note":
+            if let n = action.note { await openTapped(HighlightItem(n)) }
         default:
             say(action.text)
         }
+    }
+
+    // ── 형광펜 · 메모(구상안 19A · 20) ────────────────────────────────────────
+
+    /// 고른 구간(장 안 글자 자리)과 그 네모들. nil 이면 고르지 않았다.
+    @Published var selection: TextSelection?
+    /// 누른 칠(메뉴를 띄운다).
+    @Published var tapped: TappedHighlight?
+    /// 쓰는 중인 메모.
+    @Published var memo: MemoDraft?
+    /// 사전 · 공유 판에 넘길 글.
+    @Published var lookUp: SharedText?
+    @Published var shareOut: SharedText?
+    /// 독서노트를 다시 읽을 때(칠 · 메모 · 지우기마다 하나씩 오른다).
+    @Published private(set) var notesVersion = 0
+    /// 지면이 어두운가 — 독서노트의 칠 바탕을 옅게.
+    var darkPaper = false
+    /// 마지막으로 고른 펜 — 메모 판이 그 색으로 연다.
+    var lastPen = 0
+    /// 형광펜 숨김이면 칠할 때 알린다(아무 일도 없어 보이면 저장이 안 된 줄 안다).
+    var showHighlights = true
+
+    /// 길게 누른 자리의 낱말을 고른다. 판 · 메뉴가 열려 있으면 하지 않는다.
+    func select(at point: CGPoint) async {
+        guard panel == .none, let engine, let (s, e) = try? await engine.wordAt(point) else { return }
+        tapped = nil
+        await setSelection(s, e)
+    }
+
+    private func setSelection(_ start: Int, _ end: Int) async {
+        guard let engine, end > start else { return }
+        let boxes = (try? await engine.boxes(start, end)) ?? []
+        selection = boxes.isEmpty ? nil : TextSelection(start: start, end: end, boxes: boxes)
+    }
+
+    /// 손잡이를 끈 자리 → 새 구간. 시작 손잡이는 끝을 넘지 못하고 끝 손잡이는 시작을 넘지 못한다(최소 한 글자) — 넘기면 구간이
+    /// 뒤집혀 메뉴가 엉뚱한 곳에 뜬다(안드로이드 `dragHandle`). 고를 글자가 없는 자리면 그대로 둔다.
+    func dragHandle(start isStart: Bool, to point: CGPoint) async {
+        guard let engine, let sel = selection,
+              let at = try? await engine.charAt(point, after: !isStart), at >= 0 else { return }
+        if isStart { await setSelection(min(at, sel.end - 1), sel.end) } else { await setSelection(sel.start, max(at, sel.start + 1)) }
+    }
+
+    func clearSelection() {
+        selection = nil
+        tapped = nil
+    }
+
+    /// 고른 구간을 칠한다(알약의 색 동그라미).
+    func paint(pen: Int) async {
+        guard let engine, let sel = selection, let f = try? await engine.highlight(sel.start, sel.end, pen: pen, note: nil) else { return }
+        lastPen = pen
+        frame = f
+        selection = nil
+        notesVersion += 1
+        if !showHighlights { say("형광펜을 숨겨 둔 상태라 보이지 않습니다. 보기 설정에서 켤 수 있습니다.") }
+    }
+
+    func openTapped(_ item: HighlightItem) async {
+        guard let engine else { return }
+        let boxes = (try? await engine.boxes(item.start, item.end)) ?? []
+        selection = nil
+        tapped = boxes.isEmpty ? nil : TappedHighlight(item: item, boxes: boxes)
+    }
+
+    func recolor(_ item: HighlightItem, pen: Int) async {
+        guard let engine, let f = try? await engine.recolor(item.id, pen: pen) else { return }
+        lastPen = pen
+        frame = f
+        tapped = nil
+        notesVersion += 1
+    }
+
+    func removeHighlight(_ item: HighlightItem) async {
+        guard let engine, let f = try? await engine.removeNote(item.id) else { return }
+        frame = f
+        tapped = nil
+        notesVersion += 1
+        say("형광펜을 지웠습니다")
+    }
+
+    /// 고른 말 · 칠의 글(복사 · 공유 · 사전 · 메모 인용).
+    func quote() async -> String {
+        if let t = tapped { return t.item.snippet }
+        guard let engine, let sel = selection else { return "" }
+        return (try? await engine.textOf(sel.start, sel.end)) ?? ""
+    }
+
+    /// 메모 판을 연다. 새로 고른 말이면 "저장" 할 때 비로소 칠한다 — 취소하면 아무것도 남지 않는다.
+    func startMemo() async {
+        let text = await quote()
+        if let t = tapped {
+            memo = MemoDraft(noteId: t.item.id, start: t.item.start, end: t.item.end, quote: text, pen: t.item.pen, text: t.item.note ?? "")
+        } else if let sel = selection {
+            memo = MemoDraft(noteId: nil, start: sel.start, end: sel.end, quote: text, pen: lastPen, text: "")
+        }
+        selection = nil
+        tapped = nil
+    }
+
+    func saveMemo(_ draft: MemoDraft, text: String, pen: Int) async {
+        memo = nil
+        guard let engine else { return }
+        lastPen = pen
+        let f: PageFrame?
+        if let id = draft.noteId {
+            _ = try? await engine.recolor(id, pen: pen)
+            f = try? await engine.setNote(id, text)
+        } else {
+            f = try? await engine.highlight(draft.start, draft.end, pen: pen, note: text)
+        }
+        if let f { frame = f }
+        notesVersion += 1
+        if !showHighlights { say("형광펜을 숨겨 둔 상태라 보이지 않습니다. 보기 설정에서 켤 수 있습니다.") }
+    }
+
+    /// 독서노트에서 칠한 곳으로.
+    func goToHighlight(_ id: Int64) async {
+        await jump { try await $0.goToNote(id) }
     }
 
     /// 각주 판의 "각주 자리로 가기": 그 자리를 칠해 보인다(주석 장에는 비슷한 문단이 줄지어 있다).
@@ -336,8 +488,12 @@ struct ReaderView: View {
                 TurnZones(cornerTop: insets.top, cornerRight: insets.trailing,
                           turn: { step in Task { await model.turn(step) } },
                           tap: { point, otherwise in Task { await model.tap(at: point, otherwise: otherwise) } },
+                          longPress: { point in Task { await model.select(at: point) } },
                           bookmark: { Task { await model.toggleBookmark() } },
                           toggleMenu: { withAnimation(.easeOut(duration: 0.18)) { model.panel = model.panel == .none ? .bar : .none } })
+                if model.selection != nil || model.tapped != nil {
+                    SelectionLayer(model: model, title: model.title)
+                }
                 ReaderPanels(model: model, prefs: prefs, brightness: brightness, insets: insets, wide: full.width >= 600,
                              close: close)
                     // 메뉴도 지면의 밝기를 따른다 — 검은 지면 위에 밝은 메뉴가 뜨면 눈이 부시다(안드로이드 CpReaderTheme).
@@ -348,6 +504,12 @@ struct ReaderView: View {
                     ReturnChip { Task { await model.returnBack() } }
                         .padding(.bottom, 64 + insets.bottom)
                         .frame(maxHeight: .infinity, alignment: .bottom)
+                }
+                if let draft = model.memo {
+                    MemoSheet(draft: draft, bottom: insets.bottom,
+                              save: { text, pen in Task { await model.saveMemo(draft, text: text, pen: pen) } },
+                              cancel: { model.memo = nil })
+                        .id(draft.id)
                 }
                 if let note = model.footnote {
                     NoteSheet(note: note, bottom: insets.bottom, goTo: { Task { await model.goToFootnote(note) } },
@@ -398,9 +560,11 @@ struct ReaderView: View {
             .frame(width: full.width, height: full.height)
             .offset(x: -insets.leading, y: -insets.top)
             .task { await model.open(book, library: library) }
-            .task(id: LayoutKey(spec: model.engine == nil ? nil : prefs.spec(size: full, insets: insets, bookFonts: model.bookFonts), paper: paper, blend: prefs.blendPictures)) {
+            .task(id: LayoutKey(spec: model.engine == nil ? nil : prefs.spec(size: full, insets: insets, bookFonts: model.bookFonts), paper: paper,
+                                blend: prefs.blendPictures, highlights: prefs.showHighlights)) {
                 guard model.engine != nil else { return }
-                await model.layOut(prefs.spec(size: full, insets: insets, bookFonts: model.bookFonts), paper, blend: prefs.blendPictures)
+                await model.layOut(prefs.spec(size: full, insets: insets, bookFonts: model.bookFonts), paper, blend: prefs.blendPictures,
+                                   highlights: prefs.showHighlights)
                 #if DEBUG
                 // 화면 확인용: -olo-turn N 쪽 넘기고 -olo-panel bar|view|settings|fonts|contents 로 판을 연다, -olo-search <말> 은 찾기 판에서 찾는다. 출시 빌드에는 없다.
                 let args = CommandLine.arguments
@@ -423,6 +587,8 @@ struct ReaderView: View {
             }
             .task(id: KeepAwakeKey(mode: prefs.keepScreenOn, activity: model.lastActivity)) { await keepAwake() }
         }
+        .sheet(item: $model.lookUp) { DictionaryView(term: $0.text).ignoresSafeArea() }
+        .sheet(item: $model.shareOut) { ShareView(text: $0.text).presentationDetents([.medium, .large]) }
         .statusBarHidden(model.panel == .none)
         // 읽는 동안 홈 표시줄을 숨긴다(구상안 13A) — 아래 줄이 그 자리에 있다. 손대면 다시 보인다(Apple Books 와 같다).
         .persistentSystemOverlays(model.panel == .none ? .hidden : .automatic)
@@ -458,6 +624,7 @@ struct ReaderView: View {
         let spec: LayoutSpec?
         let paper: Paper
         let blend: Bool
+        let highlights: Bool
     }
 
     private struct KeepAwakeKey: Equatable {
@@ -474,17 +641,39 @@ private struct TurnZones: View {
     let turn: (Int) -> Void
     /// 누름: 먼저 그 자리의 링크를 묻고, 링크가 아니면 두 번째 함수(넘김 · 메뉴)를 부른다.
     let tap: (CGPoint, @escaping () -> Void) -> Void
+    /// 길게 누름(0.45초, 움직이지 않음) — 그 자리의 낱말을 고른다.
+    let longPress: (CGPoint) -> Void
     let bookmark: () -> Void
     let toggleMenu: () -> Void
 
     /// 안드로이드 `BOOKMARK_CORNER`(56). 리본(22×30)을 넉넉히 덮는다.
     private let corner: CGFloat = 56
+    /// 누르기 시작한 때 · 자리 · 길게 누름이 이미 불렸는지. 밀기와 한 제스처라 시간으로 가른다.
+    @State private var pressTask: Task<Void, Never>?
+    @State private var longFired = false
 
     var body: some View {
         GeometryReader { g in
             Color.clear.contentShape(Rectangle())
                 .gesture(
-                    DragGesture(minimumDistance: 0).onEnded { v in
+                    DragGesture(minimumDistance: 0)
+                    .onChanged { v in
+                        if pressTask == nil && !longFired {
+                            let at = v.startLocation
+                            pressTask = Task { @MainActor in
+                                try? await Task.sleep(for: .milliseconds(450))
+                                guard !Task.isCancelled else { return }
+                                longFired = true
+                                longPress(at)
+                            }
+                        }
+                        // 움직이면 밀기다 — 길게 누름이 아니다.
+                        if abs(v.translation.width) > 10 || abs(v.translation.height) > 10 { pressTask?.cancel() }
+                    }
+                    .onEnded { v in
+                        pressTask?.cancel()
+                        pressTask = nil
+                        if longFired { longFired = false; return }
                         let dx = v.translation.width
                         if abs(dx) > 40 && abs(dx) > abs(v.translation.height) {
                             turn(dx < 0 ? 1 : -1) // 왼쪽으로 밀면 다음 쪽(종이를 넘기는 방향).

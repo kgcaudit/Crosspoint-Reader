@@ -2,7 +2,10 @@
 
 package io.github.kgcaudit.reader.ios
 
+import io.github.kgcaudit.reader.document.Annotation
 import io.github.kgcaudit.reader.document.BookFormat
+import io.github.kgcaudit.reader.document.HighlightColor
+import io.github.kgcaudit.reader.document.io.currentTimeMillis
 import io.github.kgcaudit.reader.document.BookId
 import io.github.kgcaudit.reader.document.Locator
 import io.github.kgcaudit.reader.document.TocEntry
@@ -67,6 +70,23 @@ class ReaderFrame(
 )
 
 /**
+ * 형광펜 한 줄(Swift 로 내는 값). [color] 는 펜 번호(0 노랑 · 1 초록 · 2 파랑 · 3 분홍, 공통 `HighlightColor` 차례).
+ * [start] · [end] 는 그 장 안 글자 자리(쪽 위 상자를 묻는 데 쓴다). [percent] · [section] 은 독서노트 줄.
+ */
+class NoteRow(
+    val id: Long,
+    val spine: Int,
+    val start: Int,
+    val end: Int,
+    val color: Int,
+    val snippet: String,
+    val note: String?,
+    val percent: Float,
+    val section: String,
+    val createdAtEpochMs: Long,
+)
+
+/**
  * 누른 링크가 한 일(안드로이드 `openLink`). [kind] 는 "footnote"(각주 판을 띄운다: [title] · [text], 가기는 [spine] · [anchor]),
  * "jump"(이미 건너갔다: [frame]), "external"(묻고 연다: [url]), "missing"(알림: [text]).
  */
@@ -78,6 +98,8 @@ class LinkAction(
     val spine: Int = 0,
     val anchor: String? = null,
     val frame: ReaderFrame? = null,
+    /** kind 가 "note" 면 누른 형광펜. */
+    val note: NoteRow? = null,
 )
 
 /**
@@ -106,6 +128,13 @@ class IosBookReader private constructor(
     private var accent = 0xB95B3B
 
     private var accentText = 0x9A4A2C
+    private var showHighlights = true
+
+    /** 이 책의 형광펜(읽는 차례). 처음 쪽을 보일 때 한 번 읽고, 고칠 때마다 보관소와 함께 다시 읽는다. */
+    private var notes: List<Annotation>? = null
+
+    private suspend fun loadNotes(): List<Annotation> =
+        notes ?: runCatching { store.annotations.forBook(document.meta.id) }.getOrDefault(emptyList()).also { notes = it }
 
     /** 링크로 건너가기 전에 읽던 곳. 목차 · 진도 · 책갈피 · 찾기로 다른 곳에 가면 뜻을 잃어 지운다. */
     private var returnTo: Locator.Reflow? = null
@@ -178,7 +207,10 @@ class IosBookReader private constructor(
         blendPictures: Boolean,
         accent: Int = 0xB95B3B,
         accentText: Int = 0x9A4A2C,
+        /** 형광펜 숨김(모든 보기 설정): 그리지도, 눌러 열지도 않는다. 지우지는 않는다. */
+        showHighlights: Boolean = true,
     ): ReaderFrame {
+        this.showHighlights = showHighlights
         this.accent = accent
         this.accentText = accentText
         this.paper = paper
@@ -259,6 +291,136 @@ class IosBookReader private constructor(
     private suspend fun outline(): List<TocEntry> =
         toc ?: runCatching { document.outline() }.getOrDefault(emptyList()).also { toc = it }
 
+    // ── 형광펜 · 메모(안드로이드 N1–N7) ───────────────────────────────────────
+
+    /** 지면이 어두운가(검은 테마) — 칠을 옅게, 쪽지는 원래 색으로. */
+    private val darkPaper: Boolean get() = PagePainter.luminanceOf(paper) < 0.18
+
+    /** 그 장에서 보이는 형광펜(숨김이면 없다). 장 하나에 걸친 것만 — 쪽을 넘는 칠은 다음 단계. */
+    private suspend fun visibleNotes(spine: Int): List<Annotation> =
+        if (!showHighlights) emptyList() else loadNotes().filter { it.start.spine == spine && it.end.spine == spine }
+
+    private suspend fun row(a: Annotation): NoteRow {
+        val l = layout()
+        val toc = outline()
+        return NoteRow(
+            a.id, a.start.spine, a.start.charOffset, a.end.charOffset, a.color.ordinal, a.snippet, a.note,
+            runCatching { l.percentAt(a.start.spine, a.start.charOffset) }.getOrDefault(0f),
+            toc.getOrNull(currentIndex(toc, a.start.spine))?.label ?: "${a.start.spine + 1}장",
+            a.createdAtEpochMs,
+        )
+    }
+
+    /** 지금 쪽의 ([x], [y]) 에 가장 가까운 글자 자리. 글자가 없는 쪽(그림뿐)이면 -1. */
+    @Throws(Exception::class)
+    suspend fun charAt(x: Float, y: Float, after: Boolean): Int {
+        val (page, spine) = shown ?: return -1
+        val text = layout().chapterText(spine) ?: return -1
+        return PagePainter.charAt(page, text, measurer(spec!!), x, y, after) ?: -1
+    }
+
+    /** 길게 누른 자리의 낱말 [시작, 끝). 글자가 없으면 빈 배열. */
+    @Throws(Exception::class)
+    suspend fun wordAt(x: Float, y: Float): List<Int> {
+        val (page, spine) = shown ?: return emptyList()
+        val text = layout().chapterText(spine) ?: return emptyList()
+        val at = PagePainter.charAt(page, text, measurer(spec!!), x, y) ?: return emptyList()
+        val word = PagePainter.wordAt(text, at)
+        return if (word.isEmpty()) emptyList() else listOf(word.first, word.last + 1)
+    }
+
+    /** 지금 쪽에서 글자 구간이 차지하는 네모들(고른 구간 칠 · 손잡이 · 메뉴 자리). 쪽 밖이면 빈 목록. */
+    @Throws(Exception::class)
+    suspend fun boxes(start: Int, end: Int): List<PagePainter.Box> {
+        val (page, spine) = shown ?: return emptyList()
+        val text = layout().chapterText(spine) ?: return emptyList()
+        return PagePainter.rangeBoxes(page, text, measurer(spec!!), start, end)
+    }
+
+    /** 지금 장의 글자 구간(복사 · 공유 · 사전 · 메모 판의 인용). */
+    @Throws(Exception::class)
+    suspend fun textOf(start: Int, end: Int): String {
+        val (_, spine) = shown ?: return ""
+        val text = layout().chapterText(spine) ?: return ""
+        return text.substring(start.coerceIn(0, text.length), end.coerceIn(0, text.length))
+    }
+
+    /**
+     * 지금 장의 구간을 칠한다(메모가 있으면 함께). 같은 구간에 이미 칠이 있으면 색 · 메모만 바꾼다 — 두 번 칠해 같은 줄이
+     * 둘 생기면 지울 때 하나가 남아 "지웠는데 그대로" 로 보인다. [note] 가 null 이면 있던 메모를 둔다, 빈 글이면 지운다.
+     */
+    @Throws(Exception::class)
+    suspend fun highlight(start: Int, end: Int, color: Int, note: String?): ReaderFrame {
+        val (_, spine) = shown ?: error("not laid out")
+        val l = layout()
+        val text = l.chapterText(spine) ?: return show(position!!)
+        val from = start.coerceIn(0, text.length)
+        val to = end.coerceIn(from, text.length)
+        if (from >= to) return show(position!!)
+        val pen = HighlightColor.entries.getOrElse(color) { HighlightColor.Yellow }
+        val same = loadNotes().firstOrNull { it.start == Locator.Reflow(spine, from) && it.end == Locator.Reflow(spine, to) }
+        if (same != null) {
+            store.annotations.update(same.copy(color = pen).withNote(note ?: same.note))
+        } else {
+            store.annotations.add(
+                Annotation(
+                    Annotation.NO_ID, l.bookId, Locator.Reflow(spine, from), Locator.Reflow(spine, to), pen, null,
+                    l.excerpt(spine, from, to).take(SNIPPET_MAX), currentTimeMillis(),
+                ).withNote(note),
+            )
+        }
+        notes = null
+        return show(position!!)
+    }
+
+    /** 색만 바꾼다. */
+    @Throws(Exception::class)
+    suspend fun recolor(id: Long, color: Int): ReaderFrame {
+        loadNotes().firstOrNull { it.id == id }?.let { a ->
+            store.annotations.update(a.copy(color = HighlightColor.entries.getOrElse(color) { a.color }))
+        }
+        notes = null
+        return show(position!!)
+    }
+
+    /** 메모를 고친다. 빈 글이면 메모를 지운다(칠은 남는다). */
+    @Throws(Exception::class)
+    suspend fun setNote(id: Long, note: String?): ReaderFrame {
+        loadNotes().firstOrNull { it.id == id }?.let { store.annotations.update(it.withNote(note)) }
+        notes = null
+        return show(position!!)
+    }
+
+    @Throws(Exception::class)
+    suspend fun removeNote(id: Long): ReaderFrame {
+        store.annotations.remove(id)
+        notes = null
+        return show(position!!)
+    }
+
+    /** 이 책의 형광펜 전부(독서노트, 읽는 차례). */
+    @Throws(Exception::class)
+    suspend fun noteRows(): List<NoteRow> = loadNotes().map { row(it) }
+
+    /** 독서노트에서 누름: 칠한 곳으로 간다. */
+    @Throws(Exception::class)
+    suspend fun goToNote(id: Long): ReaderFrame? {
+        val a = loadNotes().firstOrNull { it.id == id } ?: return null
+        returnTo = null
+        return show(layout().resolve(a.start))
+    }
+
+    /** 지금 쪽에서 ([x], [y]) 의 칠(숨김이면 없다). 겹치면 나중에 칠한 것. */
+    private suspend fun noteAt(x: Float, y: Float): Annotation? {
+        val (page, spine) = shown ?: return null
+        val text = layout().chapterText(spine) ?: return null
+        val m = measurer(spec!!)
+        return visibleNotes(spine).lastOrNull { a ->
+            PagePainter.rangeBoxes(page, text, m, a.start.charOffset, a.end.charOffset)
+                .any { x >= it.left && x <= it.right && y >= it.top && y <= it.bottom }
+        }
+    }
+
     // ── 링크 · 각주(안드로이드 F1–F6) ─────────────────────────────────────────
 
     /**
@@ -270,7 +432,14 @@ class IosBookReader private constructor(
         val (page, spine) = shown ?: return null
         val l = layout()
         val text = l.chapterText(spine) ?: return null
-        val link = PagePainter.linkAt(page, text, measurer(spec!!), l.links(spine), x, y) ?: return null
+        val m = measurer(spec!!)
+        val link = PagePainter.linkAt(page, text, m, l.links(spine), x, y)
+        // 칠한 곳을 누르면 그 칠의 메뉴. 다만 링크 글자 바로 위를 눌렀으면 링크가 먼저 — 각주 표시가 칠 안에 있어도 열린다.
+        // 링크의 넉넉한 누름 자리(48)보다는 칠한 글자가 앞선다(안드로이드와 같다).
+        val onLinkText = link != null && PagePainter.rangeBoxes(page, text, m, link.start, link.endExclusive)
+            .any { x >= it.left && x <= it.right && y >= it.top && y <= it.bottom }
+        if (!onLinkText) noteAt(x, y)?.let { return LinkAction("note", note = row(it)) }
+        link ?: return null
         val label = text.substring(link.start.coerceIn(0, text.length), link.endExclusive.coerceIn(0, text.length)).trim()
         return when (val target = l.resolveLink(spine, link)) {
             is LinkTarget.Footnote -> LinkAction("footnote", title = "각주 $label".trim(), text = target.text, spine = target.spine, anchor = target.anchor)
@@ -421,6 +590,10 @@ class IosBookReader private constructor(
                 noteMarks = l.links(target.spineIndex).filter { it.isFootnote(text) }.map { it.start until it.endExclusive },
                 // 각주 번호는 작은 위첨자 — 지면마다 본문과 대비 4.5 를 넘게 본문 색 쪽으로 짙게(안드로이드 0.29).
                 noteColor = PagePainter.readableOn(accentText, paper, ink),
+                tints = visibleNotes(target.spineIndex).map { (it.start.charOffset until it.end.charOffset) to PEN_BASE[it.color.ordinal] },
+                tintAlpha = if (darkPaper) 0.38 else 0.45,
+                memos = visibleNotes(target.spineIndex).filter { it.note != null }
+                    .map { it.end.charOffset to if (darkPaper) PEN_BASE[it.color.ordinal] else PEN_DEEP[it.color.ordinal] },
             )
         }
         shown = page?.let { it to target.spineIndex }
@@ -454,6 +627,13 @@ class IosBookReader private constructor(
 
     companion object {
         private const val IMAGE_CACHE = 12
+
+        /** 독서노트 · 내보내기에 떠 두는 칠한 글의 최대 길이(안드로이드 SNIPPET_MAX). */
+        private const val SNIPPET_MAX = 400
+
+        /** 펜 색(안드로이드 `Pen`): 칠하는 바탕 · 밝은 지면의 메모 쪽지(진하게 — 노랑 쪽지가 노랑 칠에 묻히지 않게). */
+        internal val PEN_BASE = intArrayOf(0xF2C94C, 0x6FCF97, 0x56B4F2, 0xF28DB2)
+        internal val PEN_DEEP = intArrayOf(0xB88A10, 0x2E9B5E, 0x2A7FC0, 0xD2537F)
 
         internal fun currentIndex(entries: List<TocEntry>, spineIndex: Int): Int {
             var best = -1

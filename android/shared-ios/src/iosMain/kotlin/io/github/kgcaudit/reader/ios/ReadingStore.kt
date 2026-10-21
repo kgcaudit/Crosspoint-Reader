@@ -2,8 +2,11 @@
 
 package io.github.kgcaudit.reader.ios
 
+import io.github.kgcaudit.reader.document.Annotation
+import io.github.kgcaudit.reader.document.AnnotationRepository
 import io.github.kgcaudit.reader.document.BookId
 import io.github.kgcaudit.reader.document.Bookmark
+import io.github.kgcaudit.reader.document.HighlightColor
 import io.github.kgcaudit.reader.document.BookmarkRepository
 import io.github.kgcaudit.reader.document.Locator
 import io.github.kgcaudit.reader.document.ProgressRepository
@@ -38,6 +41,7 @@ data class ShelfRecord(
  * - `P bookId locator percent updatedAt`
  * - `B id bookId locator createdAt snippet`
  * - `R bookId openedAt finishedAt|-`
+ * - `A id bookId start end color createdAt snippet note` — note 칸이 없으면 메모 없음. 빈 메모는 만들지 않는다(공통 `withNote`)
  *
  * 여러 스레드(조판 · 서재)에서 함께 부르므로 잠근다.
  */
@@ -48,6 +52,39 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
     private val opened = LinkedHashMap<String, Long>()
     private val finished = LinkedHashMap<String, Long>()
     private var nextBookmarkId = 1L
+    private val notes = ArrayList<Annotation>()
+    private var nextNoteId = 1L
+
+    /**
+     * 형광펜 보관소. 함수 이름(forBook · add · remove)이 책갈피 규약과 같아 한 클래스에 함께 둘 수 없다 — 같은 파일 · 같은
+     * 잠금을 쓰는 안쪽 객체로 둔다. 따로 파일을 두면 백업 · 옮기기가 파일 둘을 맞춰야 한다.
+     */
+    val annotations: AnnotationRepository = object : AnnotationRepository {
+        override suspend fun forBook(bookId: BookId): List<Annotation> = locked {
+            notes.filter { it.bookId == bookId }.sortedWith(compareBy({ order(it.start) }, { it.id }))
+        }
+
+        override suspend fun add(annotation: Annotation): Annotation = locked {
+            val saved = annotation.copy(id = nextNoteId++)
+            notes.add(saved)
+            persist()
+            saved
+        }
+
+        override suspend fun update(annotation: Annotation) = locked {
+            // 색 · 메모만 바꾼다. 자리 · 책은 처음 것 그대로 — 칠한 글과 자리가 어긋나면 안 된다(규약).
+            val i = notes.indexOfFirst { it.id == annotation.id }
+            if (i >= 0) {
+                notes[i] = notes[i].copy(color = annotation.color, note = annotation.note)
+                persist()
+            }
+        }
+
+        override suspend fun remove(id: Long) = locked {
+            notes.removeAll { it.id == id }
+            persist()
+        }
+    }
 
     init {
         load()
@@ -138,6 +175,15 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
                         bookmarks.add(Bookmark(id, BookId(f[2]), locator, f.getOrNull(5)?.ifEmpty { null }, f[4].toLong()))
                         if (id >= nextBookmarkId) nextBookmarkId = id + 1
                     }
+                    "A" -> {
+                        val start = Locator.decodeOrNull(f[3]) as? Locator.Reflow ?: return@runCatching
+                        val end = Locator.decodeOrNull(f[4]) as? Locator.Reflow ?: return@runCatching
+                        val color = HighlightColor.entries.firstOrNull { it.name == f[5] } ?: HighlightColor.Yellow
+                        val id = f[1].toLong()
+                        // 빈 구간 · 뒤집힌 구간은 Annotation 이 거절한다 — 그 줄만 버린다.
+                        notes.add(Annotation(id, BookId(f[2]), start, end, color, f.getOrNull(8), f[7], f[6].toLong()))
+                        if (id >= nextNoteId) nextNoteId = id + 1
+                    }
                     "R" -> {
                         opened[f[1]] = f[2].toLong()
                         f[3].takeIf { it != "-" }?.let { finished[f[1]] = it.toLong() }
@@ -154,6 +200,12 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
         }
         for (p in progress.values) row("P", p.bookId.value, Locator.encode(p.locator), p.percent.toString(), p.updatedAtEpochMs.toString())
         for (b in bookmarks) row("B", b.id.toString(), b.bookId.value, Locator.encode(b.locator), b.createdAtEpochMs.toString(), b.snippet ?: "")
+        for (a in notes) {
+            val cells = mutableListOf("A", a.id.toString(), a.bookId.value, Locator.encode(a.start), Locator.encode(a.end), a.color.name,
+                a.createdAtEpochMs.toString(), a.snippet)
+            a.note?.let { cells += it }
+            row(*cells.toTypedArray())
+        }
         // 다 읽었지만 연 기록이 없는 책(기록을 옮겨 온 경우)도 남긴다.
         for (id in opened.keys + finished.keys.filter { it !in opened }) {
             row("R", id, (opened[id] ?: finished.getValue(id)).toString(), finished[id]?.toString() ?: "-")

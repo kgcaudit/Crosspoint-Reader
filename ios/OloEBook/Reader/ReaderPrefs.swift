@@ -26,6 +26,8 @@ final class ReaderPrefs: ObservableObject {
     @Published var indentOff: Bool { didSet { save(indentOff, "indentOff") } }
     @Published var paragraphSpacing: Int { didSet { save(paragraphSpacing, "paragraphSpacing") } }
     @Published var keepScreenOn: KeepScreenOn { didSet { save(keepScreenOn.rawValue, "keepScreenOn") } }
+    /// 형광펜 · 메모 보임(모든 보기 설정). 숨기면 그리지도, 눌러 열지도 않는다 — 지우지는 않는다.
+    @Published var showHighlights: Bool { didSet { defaults.set(showHighlights, forKey: "reader.showHighlights") } }
     /// 본문 글꼴: nil = 휴대폰 글꼴, 아니면 넣은 글꼴의 파일 이름(`FontLibrary`).
     @Published var font: String? { didSet { defaults.set(font, forKey: "reader.font") } }
     /// 출판사 글꼴(책에 든 글꼴). 안드로이드처럼 기본으로 켠다 — 출판사가 고른 모양이 그 책의 첫인상이다. 끄면 고른 글꼴로 돌아간다.
@@ -51,6 +53,7 @@ final class ReaderPrefs: ObservableObject {
         paragraphSpacing = int("paragraphSpacing", 0, 0...2)
         keepScreenOn = KeepScreenOn(rawValue: int("keepScreenOn", 0, 0...2)) ?? .system
         font = d.string(forKey: "reader.font")
+        showHighlights = d.object(forKey: "reader.showHighlights") as? Bool ?? true
         publisherFonts = d.object(forKey: "reader.publisherFonts") as? Bool ?? true
     }
 
