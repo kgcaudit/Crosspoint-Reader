@@ -156,7 +156,7 @@ struct FootnoteItem: Identifiable {
 }
 
 /// 리더 위에 열린 판(안드로이드 `Panel`). 뒤로 가기: 목차 · 보기 → 메뉴, 보기 설정 · 글꼴 → 보기, 메뉴 → 지면.
-enum ReaderPanel { case none, bar, view, settings, fonts, contents, search }
+enum ReaderPanel { case none, bar, view, settings, fonts, contents, search, export }
 
 @MainActor
 final class ReaderModel: ObservableObject {
@@ -228,6 +228,9 @@ final class ReaderModel: ObservableObject {
         direction = f.percent >= (frame?.percent ?? 0) ? 1 : -1
         frame = f
     }
+
+    /// 내보내기를 열 때 독서노트에서 보던 칩.
+    var exportFilter = 0
 
     /// 각주 판 · 바깥 주소 판(구상안 18).
     @Published var footnote: FootnoteItem?
@@ -451,6 +454,7 @@ final class ReaderModel: ObservableObject {
     func back() {
         switch panel {
         case .settings, .fonts: panel = .view
+        case .export: panel = .contents
         case .view, .contents, .search: panel = .bar
         case .bar, .none: panel = .none
         }

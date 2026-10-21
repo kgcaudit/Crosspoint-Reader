@@ -39,6 +39,10 @@ struct ReaderPanels: View {
                                  onOpen: { i in Task { await model.openHit(i) } }, onBack: model.back,
                                  onCleared: { Task { await model.endSearch() } })
                 }
+            case .export:
+                SidePanel(wide: wide, insets: insets, dismiss: model.back) {
+                    NotesExportScreen(model: model, initialFilter: model.exportFilter, back: model.back)
+                }
             case .contents:
                 SidePanel(wide: wide, insets: insets, dismiss: model.back) {
                     ContentsScreen(model: model, tab: $contentsTab)
@@ -357,7 +361,19 @@ private struct ContentsScreen: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             CpHeader(title: model.title, subtitle: model.author,
-                     leading: AnyView(CpIconButton(icon: .back, label: "뒤로", action: model.back))) {}
+                     leading: AnyView(CpIconButton(icon: .back, label: "뒤로", action: model.back))) {
+                // 독서노트를 보고 있고 담을 것이 있을 때만(구상안 22).
+                if tab == 1 && !entries.isEmpty {
+                    Button {
+                        model.exportFilter = filter
+                        model.panel = .export
+                    } label: {
+                        Text("내보내기").font(CpFont.label).foregroundStyle(CpColor.accentText)
+                            .padding(.horizontal, 12).frame(minHeight: CpMetrics.touchTarget).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
             CpTabBar(tabs: ["목차", bookmarks.map { "독서노트 \($0.count + highlights.count)" } ?? "독서노트"], selected: tab) { tab = $0 }
             if tab == 0 { contents } else { notes }
         }
