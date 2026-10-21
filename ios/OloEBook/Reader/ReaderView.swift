@@ -9,8 +9,25 @@ actor ReaderEngine {
     init(reader: IosBookReader) { self.reader = reader }
 
     func layOut(_ spec: LayoutSpec, _ paper: Paper, blend: Bool) async throws -> PageFrame {
-        PageFrame(try await reader.layOut(spec: spec, paper: Int32(paper.paper), ink: Int32(paper.ink), blendPictures: blend))
+        // 찾은 말 칠은 지면 밝기에 맞는 강조색(메뉴도 지면 밝기를 따른다).
+        PageFrame(try await reader.layOut(spec: spec, paper: Int32(paper.paper), ink: Int32(paper.ink), blendPictures: blend,
+                                          accent: paper.dark ? 0xE8A183 : 0xB95B3B))
     }
+
+    func chapterCount() async throws -> Int { Int(try await reader.chapterCount()) }
+
+    func searchChapter(_ spine: Int, _ query: String, firstId: Int) async throws -> [SearchItem] {
+        try await reader.searchChapter(spine: Int32(spine), query: query).enumerated().map { i, r in
+            SearchItem(id: firstId + i, spine: Int(r.spine), start: Int(r.start), end: Int(r.endExclusive), context: r.context,
+                       matchStart: Int(r.contextMatchStart), percent: Double(r.percent), section: r.section)
+        }
+    }
+
+    func goToHit(_ item: SearchItem) async throws -> PageFrame {
+        PageFrame(try await reader.goToHit(spine: Int32(item.spine), start: Int32(item.start), endExclusive: Int32(item.end)))
+    }
+
+    func clearMark() async throws -> PageFrame { PageFrame(try await reader.clearMark()) }
 
     func next() async throws -> PageFrame? { try await reader.next().map(PageFrame.init) }
     func previous() async throws -> PageFrame? { try await reader.previous().map(PageFrame.init) }
@@ -87,7 +104,7 @@ struct PageFrame: @unchecked Sendable {
 }
 
 /// 리더 위에 열린 판(안드로이드 `Panel`). 뒤로 가기: 목차 · 보기 → 메뉴, 보기 설정 · 글꼴 → 보기, 메뉴 → 지면.
-enum ReaderPanel { case none, bar, view, settings, fonts, contents }
+enum ReaderPanel { case none, bar, view, settings, fonts, contents, search }
 
 @MainActor
 final class ReaderModel: ObservableObject {
@@ -154,6 +171,31 @@ final class ReaderModel: ObservableObject {
         frame = f
     }
 
+    /// 찾기(구상안 16A · 17). 판이 닫혀도 결과는 남는다.
+    let search = BookSearch()
+
+    func startSearch() {
+        guard let engine else { return }
+        search.start(engine)
+    }
+
+    /// 결과를 연다: 그 쪽으로 가서 찾은 말을 칠하고 판을 닫는다(결과 막대가 뜬다).
+    func openHit(_ index: Int) async {
+        guard let engine, index >= 0, index < search.results.count,
+              let f = try? await engine.goToHit(search.results[index]) else { return }
+        search.current = index
+        lastActivity = Date()
+        frame = f
+        panel = .none
+    }
+
+    /// 찾기를 끝냈다(결과 막대의 × · 칸 비우기): 칠을 지운다.
+    func endSearch() async {
+        search.current = -1
+        guard let engine, let f = try? await engine.clearMark() else { return }
+        frame = f
+    }
+
     /// 짧은 알림(책갈피를 꽂았습니다 등). 화면이 1.5초 뒤 지운다.
     @Published var toast: String?
     @Published private(set) var toastCount = 0
@@ -188,7 +230,7 @@ final class ReaderModel: ObservableObject {
     func back() {
         switch panel {
         case .settings, .fonts: panel = .view
-        case .view, .contents: panel = .bar
+        case .view, .contents, .search: panel = .bar
         case .bar, .none: panel = .none
         }
     }
@@ -250,6 +292,7 @@ struct ReaderView: View {
                              close: close)
                     // 메뉴도 지면의 밝기를 따른다 — 검은 지면 위에 밝은 메뉴가 뜨면 눈이 부시다(안드로이드 CpReaderTheme).
                     .environment(\.colorScheme, paper.dark ? .dark : .light)
+                SearchBarLayer(model: model, search: model.search, bottom: insets.bottom)
                 if let toast = model.toast {
                     CpToast(message: toast)
                         .padding(.bottom, insets.bottom)
@@ -284,7 +327,7 @@ struct ReaderView: View {
                 guard model.engine != nil else { return }
                 await model.layOut(prefs.spec(size: full, insets: insets, bookFonts: model.bookFonts), paper, blend: prefs.blendPictures)
                 #if DEBUG
-                // 화면 확인용: -olo-turn N 쪽 넘기고 -olo-panel bar|view|settings|fonts|contents 로 판을 연다. 출시 빌드에는 없다.
+                // 화면 확인용: -olo-turn N 쪽 넘기고 -olo-panel bar|view|settings|fonts|contents 로 판을 연다, -olo-search <말> 은 찾기 판에서 찾는다. 출시 빌드에는 없다.
                 let args = CommandLine.arguments
                 if !debugApplied {
                     debugApplied = true
@@ -292,6 +335,11 @@ struct ReaderView: View {
                         for _ in 0..<n { await model.turn(1) }
                     }
                     if let i = args.firstIndex(of: "-olo-theme"), i + 1 < args.count, let t = PaperTheme(rawValue: args[i + 1]) { prefs.theme = t }
+                    if let i = args.firstIndex(of: "-olo-search"), i + 1 < args.count {
+                        model.search.query = args[i + 1]
+                        model.startSearch()
+                        model.panel = .search
+                    }
                     if let i = args.firstIndex(of: "-olo-panel"), i + 1 < args.count {
                         model.panel = ["bar": .bar, "view": .view, "settings": .settings, "fonts": .fonts, "contents": .contents][args[i + 1]] ?? .none
                     }
@@ -411,5 +459,26 @@ private struct ReadingFooter: View {
             .foregroundStyle(ink)
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// 결과를 보고 있는 동안 떠 있는 결과 막대. 판이 열리면 숨는다(판 위에 겹치면 누를 곳이 둘이 된다).
+private struct SearchBarLayer: View {
+    @ObservedObject var model: ReaderModel
+    @ObservedObject var search: BookSearch
+    let bottom: CGFloat
+
+    var body: some View {
+        if model.panel == .none, search.current >= 0, !search.results.isEmpty {
+            SearchResultBar(
+                index: search.current, total: search.results.count,
+                onPrevious: { if search.current > 0 { Task { await model.openHit(search.current - 1) } } },
+                onNext: { if search.current < search.results.count - 1 { Task { await model.openHit(search.current + 1) } } },
+                onList: { model.panel = .search },
+                onClose: { Task { await model.endSearch() } }
+            )
+            .padding(.bottom, 64 + bottom)
+            .frame(maxHeight: .infinity, alignment: .bottom)
+        }
     }
 }

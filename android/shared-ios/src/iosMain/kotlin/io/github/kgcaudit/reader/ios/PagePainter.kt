@@ -47,6 +47,9 @@ object PagePainter {
         ink: Int,
         pictures: Map<String, UIImage>,
         blend: PictureBlend = PictureBlend.None,
+        /** 찾은 말(장 안 글자 구간). 없으면 null. 글자 뒤에 [markColor] 30% 로 칠한다(안드로이드 highlightColor). */
+        mark: IntRange? = null,
+        markColor: Int = 0xB95B3B,
     ): UIImage {
         val format = UIGraphicsImageRendererFormat.preferredFormat().apply { opaque = true }
         val renderer = UIGraphicsImageRenderer(size = CGSizeMake(widthPt, heightPt), format = format)
@@ -54,6 +57,11 @@ object PagePainter {
             val cg = context?.CGContext ?: return@imageWithActions
             fill(cg, paper, 1.0)
             CGContextFillRect(cg, CGRectMake(0.0, 0.0, widthPt, heightPt))
+            // 칠은 글자보다 먼저 — 나중에 칠하면 글자가 덮인다.
+            if (mark != null) {
+                fill(cg, markColor, 0.3)
+                for (box in rangeBoxes(page, text, measurer, mark.first, mark.last + 1)) CGContextFillRect(cg, box)
+            }
             draw(cg, page, text, measurer, ink)
             drawPictures(cg, page, pictures, blend)
         }
@@ -98,6 +106,24 @@ object PagePainter {
                 PictureBlend.None -> image.drawInRect(rect)
             }
         }
+    }
+
+    /**
+     * 쪽 위에서 글자 구간 [start]..[endExclusive] 가 차지하는 네모들(줄마다 하나, 안드로이드 `rangeBoxes`). 조판은 양쪽정렬로
+     * 벌린 자리에서 조각을 끊어 두므로, 한 조각 안에서는 글자 폭을 더해 가면 정확한 x 가 나온다. 조판에 쓴 측정기여야 한다.
+     */
+    internal fun rangeBoxes(page: Page, text: String, measurer: CoreTextMeasurer, start: Int, endExclusive: Int): List<kotlinx.cinterop.CValue<platform.CoreGraphics.CGRect>> {
+        val boxes = ArrayList<kotlinx.cinterop.CValue<platform.CoreGraphics.CGRect>>()
+        for (run in page.runs) {
+            val from = maxOf(run.start, start)
+            val to = minOf(run.endExclusive, endExclusive, text.length)
+            if (from >= to) continue
+            val left = run.xPx + measurer.advance(text, run.start, from, run.style)
+            val width = measurer.advance(text, from, to, run.style)
+            val top = run.baselineYPx - measurer.ascent(run.style)
+            boxes += CGRectMake(left.toDouble(), top.toDouble(), width.toDouble(), measurer.lineHeight(run.style).toDouble())
+        }
+        return boxes
     }
 
     /** 위가 0 인(UIKit) 좌표계의 [context] 에 그린다. 시험이 비트맵에 직접 그려 글자 자리를 잰다. */

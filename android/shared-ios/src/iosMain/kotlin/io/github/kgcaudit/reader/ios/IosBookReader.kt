@@ -38,6 +38,17 @@ class BookmarkRow(
     val createdAtEpochMs: Long,
 )
 
+/** 찾은 곳 한 줄(안드로이드 `Found` + `CpSearchRow`). [section] 은 목차 이름(없으면 "N장"), [percent] 는 책의 %. */
+class SearchRow(
+    val spine: Int,
+    val start: Int,
+    val endExclusive: Int,
+    val context: String,
+    val contextMatchStart: Int,
+    val percent: Float,
+    val section: String,
+)
+
 /** 화면에 낼 한 쪽과 그 쪽의 자리. */
 class ReaderFrame(
     val image: UIImage,
@@ -75,6 +86,10 @@ class IosBookReader private constructor(
     private var paper = 0xFBF9F5
     private var ink = 0x1D1A16
     private var blendPictures = true
+    private var accent = 0xB95B3B
+
+    /** 칠해 둔 찾은 말(장 · 글자 구간). 그 장의 쪽을 그릴 때만 칠한다. */
+    private var mark: Pair<Int, IntRange>? = null
     private var toc: List<TocEntry>? = null
     private var spec: LayoutSpec? = null
     private val images = HashMap<String, UIImage?>()
@@ -131,7 +146,8 @@ class IosBookReader private constructor(
      * 보던 쪽의 첫 글자가 있는 쪽에서 — 쪽 번호로 이으면 설정을 바꾸는 순간 자리가 미끄러진다(CLAUDE.md 규칙 3).
      */
     @Throws(Exception::class)
-    suspend fun layOut(spec: LayoutSpec, paper: Int, ink: Int, blendPictures: Boolean): ReaderFrame {
+    suspend fun layOut(spec: LayoutSpec, paper: Int, ink: Int, blendPictures: Boolean, accent: Int = 0xB95B3B): ReaderFrame {
+        this.accent = accent
         this.paper = paper
         this.ink = ink
         this.blendPictures = blendPictures
@@ -208,6 +224,42 @@ class IosBookReader private constructor(
     private suspend fun outline(): List<TocEntry> =
         toc ?: runCatching { document.outline() }.getOrDefault(emptyList()).also { toc = it }
 
+    // ── 찾기(안드로이드 E2 · E3) ─────────────────────────────────────────────
+
+    /** 장 수. 찾기가 "1 / 3장" 을 보이는 데 쓴다. */
+    @Throws(Exception::class)
+    suspend fun chapterCount(): Int = layout().spine().size
+
+    /**
+     * 장 하나에서 찾는다(공통 `BookLayout.searchChapter`). 화면이 장마다 불러 나오는 대로 목록에 더한다 — 한 번에 다
+     * 찾으면 큰 책에서 한참 아무것도 보이지 않는다. 읽을 수 없는 장은 빈 목록.
+     */
+    @Throws(Exception::class)
+    suspend fun searchChapter(spine: Int, query: String): List<SearchRow> {
+        val l = layout()
+        val toc = outline()
+        val section = toc.getOrNull(currentIndex(toc, spine))?.label ?: "${spine + 1}장"
+        return l.searchChapter(spine, query).map { hit ->
+            SearchRow(hit.spine, hit.start, hit.endExclusive, hit.context, hit.contextMatchStart,
+                runCatching { l.percentAt(hit.spine, hit.start) }.getOrDefault(0f), section)
+        }
+    }
+
+    /** 찾은 곳으로 가서 그 말을 칠한다. */
+    @Throws(Exception::class)
+    suspend fun goToHit(spine: Int, start: Int, endExclusive: Int): ReaderFrame {
+        val l = layout()
+        mark = spine to (start until endExclusive)
+        return show(l.resolve(Locator.Reflow(spine, start)))
+    }
+
+    /** 찾기를 끝냈다 — 칠을 지우고 지금 쪽을 다시 낸다. */
+    @Throws(Exception::class)
+    suspend fun clearMark(): ReaderFrame {
+        mark = null
+        return show(position ?: error("not laid out"))
+    }
+
     // ── 책갈피 ────────────────────────────────────────────────────────────
 
     /** 꽂은 책갈피(책 차례대로). */
@@ -265,6 +317,7 @@ class IosBookReader private constructor(
             PagePainter.render(
                 page, text, measurer(spec), spec.viewportWidthPx.toDouble(), spec.viewportHeightPx.toDouble(),
                 paper, ink, pictures(target.spineIndex, page), PictureBlend.forPaper(paper, blendPictures),
+                mark = mark?.takeIf { it.first == target.spineIndex }?.second, markColor = accent,
             )
         }
         return ReaderFrame(

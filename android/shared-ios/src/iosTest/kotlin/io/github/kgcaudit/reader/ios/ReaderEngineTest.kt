@@ -243,6 +243,58 @@ class ReaderEngineTest {
     }
 
     @Test
+    fun `search finds a word in every chapter and opening a hit shows the page that holds it`() = runTest {
+        val path = "$root/tiny.epub"
+        tinyEpub().writeTo(path)
+        val reader = IosBookReader.open(path, "app:tiny.epub", "tiny.epub", ReadingStore("$root/r.tsv"), "$root/pages", "1")
+        reader.layOut(spec(18f), 0xFFFFFF, 0, true)
+        assertEquals(2, reader.chapterCount())
+        val first = reader.searchChapter(0, "등대")
+        val second = reader.searchChapter(1, "아침")
+        assertEquals(30, first.size, "one hit per paragraph")
+        assertEquals("첫째 장", first.first().section)
+        assertEquals("둘째 장", second.first().section)
+        // 결과의 %는 뒤로 갈수록 커진다 — 모두 같은 %면 목록에서 어디쯤인지 알 수 없다.
+        assertTrue(first.last().percent > first.first().percent)
+        assertTrue(second.first().percent > first.last().percent)
+        val hit = first.last()
+        assertEquals("등대", hit.context.substring(hit.contextMatchStart, hit.contextMatchStart + 2))
+        val frame = reader.goToHit(hit.spine, hit.start, hit.endExclusive)
+        assertEquals(0, frame.spineIndex)
+        assertTrue(frame.pageIndex > 0, "the last hit is not on the first page")
+        // 칠을 지워도 같은 쪽에 머문다.
+        assertEquals(frame.pageIndex, reader.clearMark().pageIndex)
+    }
+
+    @Test
+    fun `an empty or missing word and a chapter that does not exist find nothing instead of failing`() = runTest {
+        val path = "$root/tiny.epub"
+        tinyEpub().writeTo(path)
+        val reader = IosBookReader.open(path, "app:tiny.epub", "tiny.epub", ReadingStore("$root/r.tsv"), "$root/pages", "1")
+        reader.layOut(spec(18f), 0xFFFFFF, 0, true)
+        assertTrue(reader.searchChapter(0, "").isEmpty())
+        assertTrue(reader.searchChapter(0, "책에없는말").isEmpty())
+        assertTrue(reader.searchChapter(99, "등대").isEmpty())
+    }
+
+    @Test
+    fun `the search mark covers the found word on the page and nothing outside it`() = runTest {
+        val spec = spec(18f)
+        val measurer = CoreTextMeasurer.forSpec(spec)
+        val chapter = io.github.kgcaudit.reader.layout.html.TextChapter.parse(
+            "바닷가 마을에 등대가 있었다. 비가 내리는 아침이었다.", io.github.kgcaudit.reader.layout.html.StyleContext.of(spec),
+        )
+        val text = chapter.text
+        val page = io.github.kgcaudit.reader.layout.Paginator(spec, measurer).paginate(chapter.text, chapter.blocks).first()
+        val at = text.indexOf("등대")
+        val boxes = PagePainter.rangeBoxes(page, text, measurer, at, at + 2)
+        assertEquals(1, boxes.size)
+        // 쪽 밖 구간(장의 다른 쪽에 있는 찾은 말)은 칠하지 않는다.
+        assertTrue(PagePainter.rangeBoxes(page, text, measurer, text.length + 5, text.length + 9).isEmpty())
+        assertTrue(PagePainter.rangeBoxes(page, text, measurer, 3, 3).isEmpty())
+    }
+
+    @Test
     fun `wider line spacing and margins give the book more pages`() = runTest {
         // 짧은 책은 쪽 수가 우연히 같을 수 있다(40문단에서 8쪽 · 8쪽). 차이가 쌓이도록 길게.
         val path = writeText("long.txt", (1..6).joinToString("\n") { book })

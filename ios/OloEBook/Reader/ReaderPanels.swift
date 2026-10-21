@@ -33,6 +33,12 @@ struct ReaderPanels: View {
                 SidePanel(wide: wide, insets: insets, dismiss: model.back) {
                     FontsScreen(model: model, prefs: prefs, back: model.back)
                 }
+            case .search:
+                SidePanel(wide: wide, insets: insets, dismiss: model.back) {
+                    SearchScreen(search: model.search, onSearch: { model.startSearch() },
+                                 onOpen: { i in Task { await model.openHit(i) } }, onBack: model.back,
+                                 onCleared: { Task { await model.endSearch() } })
+                }
             case .contents:
                 SidePanel(wide: wide, insets: insets, dismiss: model.back) {
                     ContentsScreen(model: model, tab: $contentsTab)
@@ -137,8 +143,8 @@ private struct ReaderBar: View {
                 Text("\(frame.spine + 1) / \(frame.chapters)장").font(CpFont.caption).foregroundStyle(CpColor.textMuted)
             }
             Spacer(minLength: 8)
-            // 찾기 · 듣기는 판 구상안을 정한 뒤에 붙인다(지금은 흐리게 — 누를 수 없다).
-            CpIconButton(icon: .search, label: "책에서 찾기", enabled: false) {}
+            // 듣기는 판 구상안을 정한 뒤에 붙인다(지금은 흐리게 — 누를 수 없다).
+            CpIconButton(icon: .search, label: "책에서 찾기") { model.panel = .search }
             CpIconButton(icon: .headphones, label: "듣기", enabled: false) {}
             CpIconButton(icon: frame.bookmarked ? .bookmarkFilled : .bookmark,
                          label: frame.bookmarked ? "책갈피 빼기" : "책갈피 꽂기",
