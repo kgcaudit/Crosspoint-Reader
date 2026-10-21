@@ -98,6 +98,34 @@ object PagePainter {
         }
     }
 
+    /**
+     * 두 쪽 보기의 펼침(구상안 27): 왼쪽 쪽을 [leftInset] 에, 오른쪽 쪽을 그 옆([pageWidth] 뒤)에 놓고 가운데에 책등 선 하나(지면
+     * 글자색 13%, 안드로이드와 같다). [right] 가 없으면(홀수 쪽으로 끝난 장) 오른쪽은 빈 지면이다.
+     */
+    fun spread(
+        left: UIImage,
+        right: UIImage?,
+        fullWidth: Double,
+        heightPt: Double,
+        leftInset: Double,
+        pageWidth: Double,
+        paper: Int,
+        ink: Int,
+        spineTop: Double,
+        spineBottom: Double,
+    ): UIImage {
+        val format = UIGraphicsImageRendererFormat.preferredFormat().apply { opaque = true }
+        return UIGraphicsImageRenderer(size = CGSizeMake(fullWidth, heightPt), format = format).imageWithActions { context ->
+            val cg = context?.CGContext ?: return@imageWithActions
+            fill(cg, paper, 1.0)
+            CGContextFillRect(cg, CGRectMake(0.0, 0.0, fullWidth, heightPt))
+            left.drawInRect(CGRectMake(leftInset, 0.0, pageWidth, heightPt))
+            right?.drawInRect(CGRectMake(leftInset + pageWidth, 0.0, pageWidth, heightPt))
+            fill(cg, ink, 0.13)
+            CGContextFillRect(cg, CGRectMake(leftInset + pageWidth - 0.5, spineTop, 1.0, (spineBottom - spineTop).coerceAtLeast(0.0)))
+        }
+    }
+
     /** 글자 없는 쪽(읽을 수 없는 장 등). */
     fun blank(widthPt: Double, heightPt: Double, paper: Int): UIImage {
         val format = UIGraphicsImageRendererFormat.preferredFormat().apply { opaque = true }

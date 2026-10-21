@@ -67,9 +67,19 @@ class ReaderFrame(
     val bookmarked: Boolean,
     /** 링크로 건너온 쪽이다 — "읽던 곳으로" 칩을 띄운다. */
     val canReturn: Boolean = false,
-    /** 이 쪽의 글자 구간(장 안). 듣기가 "보이는 쪽에서 시작하는 첫 문장" 을 찾고, 사람이 넘긴 쪽에 듣던 문장이 있는지 본다. */
+    /**
+     * 보이는 글자 구간(장 안, 두 쪽이면 두 쪽을 합친 것). 듣기가 "보이는 쪽에서 시작하는 첫 문장" 을 찾고, 사람이 넘긴 쪽에 듣던
+     * 문장이 있는지 보고, 읽는 빠르기가 "이 쪽에 글자가 몇 개였나" 를 센다.
+     */
     val pageStart: Int = 0,
     val pageEnd: Int = 0,
+    /** 두 쪽 보기에서 오른쪽 쪽이 있다(아래 줄 "3–4 / 12"). 홀수 쪽으로 끝난 장의 마지막 펼침이면 false. */
+    val hasRight: Boolean = false,
+    /** 이 자리를 담은 목차 항목(아래 줄 "장 제목"). 목차가 없으면 "n장". */
+    val section: String = "",
+    /** 보이는 쪽 뒤로 이 장 · 책에 남은 글자(남은 시간). 책은 뒤 장의 파일 크기로 어림한다(공통 `charsAfterChapter`). */
+    val charsLeftChapter: Int = 0,
+    val charsLeftBook: Long = 0,
 )
 
 /** 듣기가 읽을 한 문장(장 안 글자 구간, 공통 `Sentence`). */
@@ -156,8 +166,29 @@ class IosBookReader private constructor(
     /** 링크로 건너가기 전에 읽던 곳. 목차 · 진도 · 책갈피 · 찾기로 다른 곳에 가면 뜻을 잃어 지운다. */
     private var returnTo: Locator.Reflow? = null
 
-    /** 지금 보이는 쪽 — 누른 자리의 링크를 찾는다. */
-    private var shown: Pair<io.github.kgcaudit.reader.layout.Page, Int>? = null
+    /**
+     * 지금 보이는 쪽들과 그 쪽이 놓인 가로 자리(두 쪽 보기면 둘). 누른 자리 · 고른 구간 상자는 화면 전체 좌표로 오가고, 어느 쪽인지는
+     * 여기서 가린다 — 화면이 반을 갈라 따로 물으면 링크 · 칠 · 고르기마다 같은 셈을 되풀이한다.
+     */
+    private var shown: Shown? = null
+
+    private class Shown(val spine: Int, val pages: List<Pair<Page, Float>>) {
+        /** [x] 가 놓인 쪽(오른쪽 쪽의 왼 끝을 넘으면 오른쪽)과 그 쪽 안 좌표. */
+        fun at(x: Float): Pair<Page, Float>? {
+            val hit = pages.lastOrNull { x >= it.second } ?: pages.firstOrNull() ?: return null
+            return hit.first to (x - hit.second)
+        }
+        val start: Int get() = pages.first().first.startChar
+        val end: Int get() = pages.last().first.endCharExclusive
+    }
+
+    /** 두 쪽 보기(구상안 27): 한 쪽 폭은 [spec] 의 폭, 화면 폭은 [spreadWidth], 왼쪽 쪽은 [spreadInset] 에서 시작한다. */
+    private var spread = false
+    private var spreadWidth = 0f
+    private var spreadInset = 0f
+    /** 지금 펼침의 오른쪽 쪽(없으면 null). 진도 · 책갈피가 펼침 전체를 본다. */
+    private var right: ReadingPosition? = null
+    private val charsAfter = HashMap<Int, Long>()
 
     /** 칠해 둔 찾은 말(장 · 글자 구간). 그 장의 쪽을 그릴 때만 칠한다. */
     private var mark: Pair<Int, IntRange>? = null
@@ -232,7 +263,14 @@ class IosBookReader private constructor(
         accentText: Int = 0x9A4A2C,
         /** 형광펜 숨김(모든 보기 설정): 그리지도, 눌러 열지도 않는다. 지우지는 않는다. */
         showHighlights: Boolean = true,
+        /** 두 쪽 보기. 켜면 [spec] 은 한 쪽 크기이고, [fullWidth] · [leftInset] 은 화면 폭 · 왼쪽 쪽이 시작하는 자리. */
+        twoPages: Boolean = false,
+        fullWidth: Float = 0f,
+        leftInset: Float = 0f,
     ): ReaderFrame {
+        spread = twoPages
+        spreadWidth = fullWidth
+        spreadInset = leftInset
         this.showHighlights = showHighlights
         this.accent = accent
         this.accentText = accentText
@@ -255,14 +293,16 @@ class IosBookReader private constructor(
     /** 다음 쪽. 책 끝이면 null. */
     @Throws(Exception::class)
     suspend fun next(): ReaderFrame? {
-        val next = layout().next(position ?: return null) ?: return null
+        val p = position ?: return null
+        val next = (if (spread) layout().nextSpread(p) else layout().next(p)) ?: return null
         return show(next)
     }
 
     /** 앞 쪽. 책 처음이면 null. */
     @Throws(Exception::class)
     suspend fun previous(): ReaderFrame? {
-        val previous = layout().previous(position ?: return null) ?: return null
+        val p = position ?: return null
+        val previous = (if (spread) layout().previousSpread(p) else layout().previous(p)) ?: return null
         return show(previous)
     }
 
@@ -279,7 +319,8 @@ class IosBookReader private constructor(
     suspend fun toggleBookmark(): ReaderFrame {
         val s = session ?: error("not laid out")
         val p = position ?: error("not laid out")
-        if (!s.removeBookmarkAt(p)) s.addBookmark(p)
+        // 펼침이면 두 쪽 어디에 꽂힌 책갈피든 뺀다 — 왼쪽만 보면 오른쪽 쪽의 책갈피가 리본으로 보이는데 눌러도 빠지지 않는다.
+        if (!s.removeBookmarkAt(p, right ?: p)) s.addBookmark(p)
         return show(p)
     }
 
@@ -350,17 +391,19 @@ class IosBookReader private constructor(
     /** 지금 쪽의 ([x], [y]) 에 가장 가까운 글자 자리. 글자가 없는 쪽(그림뿐)이면 -1. */
     @Throws(Exception::class)
     suspend fun charAt(x: Float, y: Float, after: Boolean): Int {
-        val (page, spine) = shown ?: return -1
-        val text = layout().chapterText(spine) ?: return -1
-        return PagePainter.charAt(page, text, measurer(spec!!), x, y, after) ?: -1
+        val s = shown ?: return -1
+        val (page, px) = s.at(x) ?: return -1
+        val text = layout().chapterText(s.spine) ?: return -1
+        return PagePainter.charAt(page, text, measurer(spec!!), px, y, after) ?: -1
     }
 
     /** 길게 누른 자리의 낱말 [시작, 끝). 글자가 없으면 빈 배열. */
     @Throws(Exception::class)
     suspend fun wordAt(x: Float, y: Float): List<Int> {
-        val (page, spine) = shown ?: return emptyList()
-        val text = layout().chapterText(spine) ?: return emptyList()
-        val at = PagePainter.charAt(page, text, measurer(spec!!), x, y) ?: return emptyList()
+        val s = shown ?: return emptyList()
+        val (page, px) = s.at(x) ?: return emptyList()
+        val text = layout().chapterText(s.spine) ?: return emptyList()
+        val at = PagePainter.charAt(page, text, measurer(spec!!), px, y) ?: return emptyList()
         val word = PagePainter.wordAt(text, at)
         return if (word.isEmpty()) emptyList() else listOf(word.first, word.last + 1)
     }
@@ -368,9 +411,12 @@ class IosBookReader private constructor(
     /** 지금 쪽에서 글자 구간이 차지하는 네모들(고른 구간 칠 · 손잡이 · 메뉴 자리). 쪽 밖이면 빈 목록. */
     @Throws(Exception::class)
     suspend fun boxes(start: Int, end: Int): List<PagePainter.Box> {
-        val (page, spine) = shown ?: return emptyList()
-        val text = layout().chapterText(spine) ?: return emptyList()
-        return PagePainter.rangeBoxes(page, text, measurer(spec!!), start, end)
+        val s = shown ?: return emptyList()
+        val text = layout().chapterText(s.spine) ?: return emptyList()
+        val m = measurer(spec!!)
+        return s.pages.flatMap { (page, dx) ->
+            PagePainter.rangeBoxes(page, text, m, start, end).map { PagePainter.Box(it.left + dx, it.top, it.right + dx, it.bottom) }
+        }
     }
 
     /**
@@ -379,11 +425,12 @@ class IosBookReader private constructor(
      */
     @Throws(Exception::class)
     suspend fun selectionState(start: Int, end: Int): SelectionState {
-        val (page, spine) = shown ?: return SelectionState(false, 0)
-        val p = position ?: return SelectionState(false, 0)
-        val text = layout().chapterText(spine) ?: return SelectionState(false, 0)
-        val can = end >= lastVisible(text, page.startChar, page.endCharExclusive) && p.pageIndex < p.pageCount - 1
-        return SelectionState(can, (page.startChar - start).coerceAtLeast(0))
+        val s = shown ?: return SelectionState(false, 0)
+        val p = right ?: position ?: return SelectionState(false, 0)
+        val text = layout().chapterText(s.spine) ?: return SelectionState(false, 0)
+        // 두 쪽이면 오른쪽 쪽 끝에 닿아야 "이어서" — 왼쪽 쪽 끝은 바로 옆 쪽으로 이어 고르면 된다.
+        val can = end >= lastVisible(text, s.start, s.end) && p.pageIndex < p.pageCount - 1
+        return SelectionState(can, (s.start - start).coerceAtLeast(0))
     }
 
     /**
@@ -393,10 +440,11 @@ class IosBookReader private constructor(
     @Throws(Exception::class)
     suspend fun continueSelection(start: Int, end: Int): ContinuedSelection? {
         val p = position ?: return null
-        if (p.pageIndex >= p.pageCount - 1) return null
+        if ((right ?: p).pageIndex >= p.pageCount - 1) return null
         val l = layout()
-        val frame = show(l.next(p) ?: return null)
-        val (page, spine) = shown ?: return null
+        val frame = show((if (spread) l.nextSpread(p) else l.next(p)) ?: return null)
+        val (page, _) = shown?.pages?.firstOrNull() ?: return null
+        val spine = shown!!.spine
         val text = l.chapterText(spine) ?: return null
         val shownEnd = page.endCharExclusive.coerceAtMost(text.length)
         val sentences = if (page.startChar >= shownEnd) emptyList() else io.github.kgcaudit.reader.layout.book.splitSentences(
@@ -417,7 +465,7 @@ class IosBookReader private constructor(
     /** 지금 장의 글자 구간(복사 · 공유 · 사전 · 메모 판의 인용). */
     @Throws(Exception::class)
     suspend fun textOf(start: Int, end: Int): String {
-        val (_, spine) = shown ?: return ""
+        val spine = shown?.spine ?: return ""
         val text = layout().chapterText(spine) ?: return ""
         return text.substring(start.coerceIn(0, text.length), end.coerceIn(0, text.length))
     }
@@ -428,7 +476,7 @@ class IosBookReader private constructor(
      */
     @Throws(Exception::class)
     suspend fun highlight(start: Int, end: Int, color: Int, note: String?): ReaderFrame {
-        val (_, spine) = shown ?: error("not laid out")
+        val spine = shown?.spine ?: error("not laid out")
         val l = layout()
         val text = l.chapterText(spine) ?: return show(position!!)
         val from = start.coerceIn(0, text.length)
@@ -489,12 +537,13 @@ class IosBookReader private constructor(
 
     /** 지금 쪽에서 ([x], [y]) 의 칠(숨김이면 없다). 겹치면 나중에 칠한 것. */
     private suspend fun noteAt(x: Float, y: Float): Annotation? {
-        val (page, spine) = shown ?: return null
-        val text = layout().chapterText(spine) ?: return null
+        val s = shown ?: return null
+        val (page, px) = s.at(x) ?: return null
+        val text = layout().chapterText(s.spine) ?: return null
         val m = measurer(spec!!)
-        return visibleNotes(spine).lastOrNull { a ->
+        return visibleNotes(s.spine).lastOrNull { a ->
             PagePainter.rangeBoxes(page, text, m, a.start.charOffset, a.end.charOffset)
-                .any { x >= it.left && x <= it.right && y >= it.top && y <= it.bottom }
+                .any { px >= it.left && px <= it.right && y >= it.top && y <= it.bottom }
         }
     }
 
@@ -506,15 +555,17 @@ class IosBookReader private constructor(
      */
     @Throws(Exception::class)
     suspend fun tapLink(x: Float, y: Float): LinkAction? {
-        val (page, spine) = shown ?: return null
+        val s = shown ?: return null
+        val spine = s.spine
+        val (page, px) = s.at(x) ?: return null
         val l = layout()
         val text = l.chapterText(spine) ?: return null
         val m = measurer(spec!!)
-        val link = PagePainter.linkAt(page, text, m, l.links(spine), x, y)
+        val link = PagePainter.linkAt(page, text, m, l.links(spine), px, y)
         // 칠한 곳을 누르면 그 칠의 메뉴. 다만 링크 글자 바로 위를 눌렀으면 링크가 먼저 — 각주 표시가 칠 안에 있어도 열린다.
         // 링크의 넉넉한 누름 자리(48)보다는 칠한 글자가 앞선다(안드로이드와 같다).
         val onLinkText = link != null && PagePainter.rangeBoxes(page, text, m, link.start, link.endExclusive)
-            .any { x >= it.left && x <= it.right && y >= it.top && y <= it.bottom }
+            .any { px >= it.left && px <= it.right && y >= it.top && y <= it.bottom }
         if (!onLinkText) noteAt(x, y)?.let { return LinkAction("note", note = row(it)) }
         link ?: return null
         val label = text.substring(link.start.coerceIn(0, text.length), link.endExclusive.coerceIn(0, text.length)).trim()
@@ -550,12 +601,14 @@ class IosBookReader private constructor(
 
     /** 시험용: 지금 쪽의 링크마다 (주소, 글자 네모 가운데). 시험이 그 자리를 "누른다". */
     internal suspend fun linkCenters(): List<Pair<String, Pair<Float, Float>>> {
-        val (page, spine) = shown ?: return emptyList()
+        val s = shown ?: return emptyList()
         val l = layout()
-        val text = l.chapterText(spine) ?: return emptyList()
-        return l.links(spine).mapNotNull { link ->
-            PagePainter.rangeBoxes(page, text, measurer(spec!!), link.start, link.endExclusive).firstOrNull()
-                ?.let { link.href to (it.centerX to it.centerY) }
+        val text = l.chapterText(s.spine) ?: return emptyList()
+        return s.pages.flatMap { (page, dx) ->
+            l.links(s.spine).mapNotNull { link ->
+                PagePainter.rangeBoxes(page, text, measurer(spec!!), link.start, link.endExclusive).firstOrNull()
+                    ?.let { link.href to (it.centerX + dx to it.centerY) }
+            }
         }
     }
 
@@ -647,8 +700,8 @@ class IosBookReader private constructor(
     suspend fun speak(spine: Int, start: Int, end: Int, follow: Boolean): ReaderFrame {
         speaking = spine to (start until end)
         val here = position ?: error("not laid out")
-        val page = shown?.first
-        val visible = here.spineIndex == spine && page != null && start in page.startChar until page.endCharExclusive
+        val s = shown
+        val visible = here.spineIndex == spine && s != null && start in s.start until s.end
         if (follow && !visible) {
             returnTo = null
             return show(layout().resolve(Locator.Reflow(spine, start)))
@@ -710,35 +763,65 @@ class IosBookReader private constructor(
     private suspend fun show(target: ReadingPosition): ReaderFrame {
         val l = layout()
         val s = session!!
-        val page = l.page(target.spineIndex, target.pageIndex)
-        val saved = s.saveProgress(target)
-        position = target
-        val image = render(target, page)
-        shown = page?.let { it to target.spineIndex }
+        // 두 쪽이면 이 쪽이 든 펼침의 왼쪽부터 — 목차 · 책갈피 · 찾기가 오른쪽 쪽을 가리켜도 그 펼침이 보인다.
+        val left = if (spread) l.spreadStart(target) else target
+        val rightPos = if (spread) l.spreadRight(left) else null
+        val page = l.page(left.spineIndex, left.pageIndex)
+        val rightPage = rightPos?.let { l.page(it.spineIndex, it.pageIndex) }
+        // 오른쪽 쪽이 책의 마지막 쪽이면 100% — 왼쪽으로만 셈하면 다 읽어도 끝이 아니다.
+        val saved = s.saveProgress(left, rightPos ?: left)
+        position = left
+        right = rightPos
+        val image = composite(left, page, rightPos, rightPage)
+        val dx = if (spread) spreadInset else 0f
+        shown = page?.let { Shown(left.spineIndex, listOfNotNull(it to dx, rightPage?.let { r -> r to dx + spec!!.viewportWidthPx })) }
+        val end = (rightPage ?: page)?.endCharExclusive ?: 0
+        val chapterLeft = (runCatching { l.chapterLength(left.spineIndex) }.getOrDefault(0) - end).coerceAtLeast(0)
+        val after = charsAfter.getOrPut(left.spineIndex) { runCatching { l.charsAfterChapter(left.spineIndex) }.getOrDefault(0L) }
+        val toc = outline()
         return ReaderFrame(
             image = image,
-            spineIndex = target.spineIndex,
+            spineIndex = left.spineIndex,
             chapterCount = l.spine().size,
-            pageIndex = target.pageIndex,
-            pageCount = target.pageCount,
+            pageIndex = left.pageIndex,
+            pageCount = left.pageCount,
             percent = saved.percent,
-            bookmarked = s.isBookmarked(target),
+            bookmarked = s.isBookmarked(left, rightPos ?: left),
             canReturn = returnTo != null,
             pageStart = page?.startChar ?: 0,
-            pageEnd = page?.endCharExclusive ?: 0,
+            pageEnd = end,
+            hasRight = rightPos != null,
+            section = toc.getOrNull(currentIndex(toc, left.spineIndex))?.label ?: "${left.spineIndex + 1}장",
+            charsLeftChapter = chapterLeft,
+            charsLeftBook = chapterLeft + after,
         )
     }
 
     /**
-     * 앞 · 뒤 쪽 그림만(자리 · 진도를 옮기지 않는다). iOS 기본 말림이 손가락을 따라가려면 넘기기 **전에** 넘어올 쪽 그림이 있어야
-     * 한다 — 끌기 시작한 뒤에 짜면 말림이 멈칫한다. 책의 처음 · 끝이면 null(말리지 않는다).
+     * 앞 · 뒤 쪽(두 쪽이면 펼침) 그림만(자리 · 진도를 옮기지 않는다). iOS 기본 말림이 손가락을 따라가려면 넘기기 **전에** 넘어올
+     * 쪽 그림이 있어야 한다 — 끌기 시작한 뒤에 짜면 말림이 멈칫한다. 책의 처음 · 끝이면 null(말리지 않는다).
      */
     @Throws(Exception::class)
     suspend fun peek(step: Int): UIImage? {
         val p = position ?: return null
         val l = layout()
-        val target = (if (step > 0) l.next(p) else l.previous(p)) ?: return null
-        return render(target, l.page(target.spineIndex, target.pageIndex))
+        val target = if (spread) (if (step > 0) l.nextSpread(p) else l.previousSpread(p)) else (if (step > 0) l.next(p) else l.previous(p))
+        target ?: return null
+        val rightPos = if (spread) l.spreadRight(target) else null
+        return composite(target, l.page(target.spineIndex, target.pageIndex), rightPos, rightPos?.let { l.page(it.spineIndex, it.pageIndex) })
+    }
+
+    /** 한 쪽, 또는 두 쪽 보기면 펼침 한 장(가운데 책등). */
+    private suspend fun composite(left: ReadingPosition, page: Page?, rightPos: ReadingPosition?, rightPage: Page?): UIImage {
+        val leftImage = render(left, page)
+        if (!spread) return leftImage
+        val spec = spec!!
+        return PagePainter.spread(
+            leftImage, rightPos?.let { render(it, rightPage) }, spreadWidth.toDouble(), spec.viewportHeightPx.toDouble(),
+            spreadInset.toDouble(), spec.viewportWidthPx.toDouble(), paper, ink,
+            // 책등은 리본 자리(56)의 절반 아래에서 아랫여백 위까지(안드로이드와 같다).
+            spineTop = 28.0, spineBottom = (spec.viewportHeightPx - spec.margin.bottom).toDouble(),
+        )
     }
 
     /** 한 쪽의 그림(칠 · 각주 표시 · 찾은 말 · 메모 쪽지까지). */

@@ -48,6 +48,21 @@ final class ReaderPrefs: ObservableObject {
     /// 자동 넘김: 0 끔(기본) · 1 15초 · 2 30초 · 3 60초.
     @Published var autoTurn: Int { didSet { save(autoTurn, "autoTurn") } }
     static let autoTurnSeconds = [0, 15, 30, 60]
+    /// 두 쪽 보기(구상안 27): 가로(기본 켬) · 세로(넓은 화면에서만, 기본 켬). 안드로이드 `ScreenPrefs` 와 같다.
+    @Published var twoPagesLandscape: Bool { didSet { save(twoPagesLandscape, "twoPagesLandscape") } }
+    @Published var twoPagesPortrait: Bool { didSet { save(twoPagesPortrait, "twoPagesPortrait") } }
+    /// 아래 줄 왼쪽 · 가운데 · 오른쪽(구상안 28A). 기본은 지금까지와 같은 책 제목 · 쪽 · %.
+    @Published var footer: [FooterItem] {
+        didSet { for (i, key) in ["footerLeft", "footerCenter", "footerRight"].enumerated() { save(footer[i].rawValue, key) } }
+    }
+
+    /// 세로 두 쪽을 쓸 수 있는 넓은 화면(안드로이드 sw600dp). iPhone 은 가로로 들어도 짧은 변이 600 이 안 된다.
+    static let wideScreen: CGFloat = 600
+
+    /// 이 크기에서 두 쪽으로 보이는가. 폭이 높이보다 크면 가로.
+    func twoPages(_ size: CGSize) -> Bool {
+        size.width > size.height ? twoPagesLandscape : twoPagesPortrait && min(size.width, size.height) >= Self.wideScreen
+    }
 
     private let defaults = UserDefaults.standard
 
@@ -80,6 +95,12 @@ final class ReaderPrefs: ObservableObject {
         listenVoice = d.string(forKey: "reader.listenVoice")
         listenJoin = int("listenJoin", 0, 0...1)
         autoTurn = int("autoTurn", 0, 0...3)
+        twoPagesLandscape = d.object(forKey: "reader.twoPagesLandscape") as? Bool ?? true
+        twoPagesPortrait = d.object(forKey: "reader.twoPagesPortrait") as? Bool ?? true
+        // 모르는 이름(옛 판 · 다른 앱의 새 항목)은 그 자리의 기본값으로.
+        footer = zip(["footerLeft", "footerCenter", "footerRight"], [FooterItem.bookTitle, .page, .percent]).map { key, fallback in
+            FooterItem(rawValue: d.string(forKey: "reader.\(key)") ?? "") ?? fallback
+        }
     }
 
     /// 실제로 쓰이는 글꼴 파일. 고른 글꼴이 목록에 없으면(뺀 글꼴 · 읽지 못하는 파일) 휴대폰 글꼴 — 글꼴 ID 를 남겨 두면 캐시 키는
@@ -96,15 +117,18 @@ final class ReaderPrefs: ObservableObject {
     /// 빠뜨리면 캐시 키가 같아서 설정을 바꿨는데 옛 쪽이 보인다(CLAUDE.md 규칙 4).
     /// [bookFonts] 는 이 책에 쓸 수 있는 글꼴이 있는지. 출판사 글꼴로 짜면 책이 정하지 않은 곳은 휴대폰 글꼴이다 — 고른
     /// 사용자 글꼴과 섞으면 어느 것이 책의 모양인지 알 수 없다(안드로이드 `bodyFont`). 고른 글꼴은 지우지 않는다.
-    func spec(size: CGSize, insets: EdgeInsets, bookFonts: Bool) -> LayoutSpec {
+    /// [twoPages] 면 한 쪽 크기: 양옆 안전 영역을 뺀 폭의 절반. 안전 영역은 바깥쪽에만 두고 여백은 쪽마다 — 쪽마다 안전 영역을 넣으면
+    /// 가운데 책등 쪽에도 노치 폭만큼 빈 곳이 생긴다.
+    func spec(size: CGSize, insets: EdgeInsets, bookFonts: Bool, twoPages: Bool = false) -> LayoutSpec {
         let book = usesBookFonts(bookFonts)
+        let width = twoPages ? (size.width - insets.leading - insets.trailing) / 2 : size.width
         return
         ReadingSpec.shared.of(
-            widthPt: Float(size.width), heightPt: Float(size.height),
-            safeLeft: Float(insets.leading), safeTop: Float(insets.top),
+            widthPt: Float(width), heightPt: Float(size.height),
+            safeLeft: twoPages ? 0 : Float(insets.leading), safeTop: Float(insets.top),
             // 아래 안전 영역은 더하지 않는다: 아래 줄이 화면 끝에서 14 에 서고 홈 표시줄은 읽는 동안 숨는다(구상안 13A). 더하면
             // 본문이 34 만큼 덜 들어가 같은 크기 화면의 안드로이드와 쪽 수가 갈라진다.
-            safeRight: Float(insets.trailing), safeBottom: 0,
+            safeRight: twoPages ? 0 : Float(insets.trailing), safeBottom: 0,
             fontSize: Float(fontSize),
             lineSpacing: ReaderPrefs.lineSpacings[lineSpacing],
             sideMargin: ReaderPrefs.margins[margin],

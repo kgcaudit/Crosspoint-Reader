@@ -28,7 +28,15 @@ struct ReaderPanels: View {
                 }
             case .settings:
                 SidePanel(wide: wide, insets: insets, dismiss: model.back) {
-                    ViewSettingsScreen(prefs: prefs, back: model.back)
+                    ViewSettingsScreen(prefs: prefs, back: model.back, openFooter: { model.panel = .footer })
+                }
+            case .footer:
+                SidePanel(wide: wide, insets: insets, dismiss: model.back) {
+                    FooterSettingsScreen(prefs: prefs, pick: { model.footerSlot = $0; model.panel = .footerItem }, back: model.back)
+                }
+            case .footerItem:
+                SidePanel(wide: wide, insets: insets, dismiss: model.back) {
+                    FooterItemScreen(prefs: prefs, slot: model.footerSlot, back: model.back)
                 }
             case .fonts:
                 SidePanel(wide: wide, insets: insets, dismiss: model.back) {
@@ -220,6 +228,7 @@ private struct ViewPanelRows: View {
 private struct ViewSettingsScreen: View {
     @ObservedObject var prefs: ReaderPrefs
     let back: () -> Void
+    let openFooter: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -254,15 +263,33 @@ private struct ViewSettingsScreen: View {
                         .padding(.leading, CpMetrics.levelIndent)
                     CpCaption(text: "자동 넘김은 가운데를 누르면 멈춥니다. 듣기와 함께 켜면 듣기가 넘김을 맡습니다.")
                         .padding(.leading, CpMetrics.levelIndent)
+                    // 화면(안드로이드 차례: 형광펜 · 메모 → 두 쪽 보기 → 화면 켜짐 유지 → 하단 정보).
                     section("화면")
+                    // 숨겨도 지우지 않는다 — 다시 보이면 그대로 있다.
+                    CpChoice(label: "형광펜 · 메모", options: ["보임", "숨김"], selected: prefs.showHighlights ? 0 : 1) { prefs.showHighlights = $0 == 0 }
+                        .padding(.leading, CpMetrics.levelIndent)
+                    CpChoice(label: "가로에서 두 쪽 보기", options: ["켬", "끔"], selected: prefs.twoPagesLandscape ? 0 : 1) {
+                        prefs.twoPagesLandscape = $0 == 0
+                    }
+                    .padding(.leading, CpMetrics.levelIndent)
+                    // 휴대폰에서는 흐리게 두고 누를 수 없다 — 숨기면 iPad 에서 본 설정을 찾지 못하고, 누를 수 있으면 바뀌는 것이 없어
+                    // 고장으로 보인다(안드로이드와 같다).
+                    CpChoice(label: "세로에서 두 쪽 보기", options: ["켬", "끔"], selected: prefs.twoPagesPortrait ? 0 : 1) {
+                        prefs.twoPagesPortrait = $0 == 0
+                    }
+                    .padding(.leading, CpMetrics.levelIndent)
+                    .opacity(wideDevice ? 1 : 0.45)
+                    .allowsHitTesting(wideDevice)
+                    if !wideDevice {
+                        CpCaption(text: "넓은 화면(iPad)에서만 쓸 수 있습니다").padding(.leading, CpMetrics.levelIndent)
+                    }
                     CpChoice(label: "화면 켜짐 유지", options: ["휴대폰", "10분", "항상"], selected: prefs.keepScreenOn.rawValue) {
                         prefs.keepScreenOn = ReaderPrefs.KeepScreenOn(rawValue: $0) ?? .system
                     }
                     .padding(.leading, CpMetrics.levelIndent)
                     CpCaption(text: "10분은 마지막으로 넘긴 뒤 10분입니다. 읽다 잠들어도 밤새 켜져 있지 않습니다.")
                         .padding(.leading, CpMetrics.levelIndent)
-                    // 숨겨도 지우지 않는다 — 다시 보이면 그대로 있다.
-                    CpChoice(label: "형광펜 · 메모", options: ["보임", "숨김"], selected: prefs.showHighlights ? 0 : 1) { prefs.showHighlights = $0 == 0 }
+                    CpLinkRow(label: "하단 정보", value: footerSummary, action: openFooter)
                         .padding(.leading, CpMetrics.levelIndent)
                 }
                 .padding(.bottom, 24)
@@ -272,6 +299,18 @@ private struct ViewSettingsScreen: View {
 
     private func section(_ title: String) -> some View {
         CpSectionLabel(text: title).padding(.horizontal, CpMetrics.gutter).padding(.top, 18).padding(.bottom, 6)
+    }
+
+    /// 세로 두 쪽을 쓸 수 있는 기기(짧은 변 600 이상 — iPad).
+    private var wideDevice: Bool {
+        let b = UIScreen.main.bounds
+        return min(b.width, b.height) >= ReaderPrefs.wideScreen
+    }
+
+    /// "책 제목 · 쪽 · %". 다 비면 "없음".
+    private var footerSummary: String {
+        let parts = prefs.footer.filter { $0 != .none }.map(\.short)
+        return parts.isEmpty ? "없음" : parts.joined(separator: " · ")
     }
 }
 
