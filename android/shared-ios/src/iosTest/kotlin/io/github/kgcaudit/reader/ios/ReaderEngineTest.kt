@@ -295,6 +295,20 @@ class ReaderEngineTest {
     }
 
     @Test
+    fun `peeking at the next page draws it without moving the reading place`() = runTest {
+        val path = writeText("book.txt", book)
+        val store = ReadingStore("$root/r.tsv")
+        val reader = IosBookReader.open(path, "app:book.txt", "book.txt", store, "$root/pages", "1")
+        reader.layOut(spec(18f), 0xFFFFFF, 0, true)
+        // 말림이 손가락을 따라가려면 넘어올 쪽 그림이 먼저 있어야 한다 — 그런데 미리 그렸다고 읽던 자리가 옮겨지면 안 된다.
+        assertNotNull(reader.peek(1))
+        assertNull(reader.peek(-1), "the first page has nothing before it")
+        val saved = store.get(io.github.kgcaudit.reader.document.BookId("app:book.txt"))
+        assertEquals(0f, saved?.percent ?: 0f)
+        assertEquals(1, reader.next()?.pageIndex)
+    }
+
+    @Test
     fun `wider line spacing and margins give the book more pages`() = runTest {
         // 짧은 책은 쪽 수가 우연히 같을 수 있다(40문단에서 8쪽 · 8쪽). 차이가 쌓이도록 길게.
         val path = writeText("long.txt", (1..6).joinToString("\n") { book })

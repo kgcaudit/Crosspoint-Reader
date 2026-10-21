@@ -39,6 +39,7 @@ actor ReaderEngine {
         PageFrame(try await reader.jumpTo(spine: Int32(spine), anchor: anchor, markLength: Int32(markLength)))
     }
     func returnBack() async throws -> PageFrame? { try await reader.returnBack().map(PageFrame.init) }
+    func peek(_ step: Int) async -> UIImage? { try? await reader.peek(step: Int32(step)) }
 
     // 형광펜 · 메모
     func charAt(_ p: CGPoint, after: Bool) async throws -> Int { Int(try await reader.charAt(x: Float(p.x), y: Float(p.y), after: after)) }
@@ -219,7 +220,55 @@ final class ReaderModel: ObservableObject {
         selection = nil
         tapped = nil
         direction = step
-        withAnimation(.easeOut(duration: 0.22)) { frame = next }
+        turnCount += 1
+        // 사람이 넘긴 쪽만 효과 · 소리(안드로이드 PageTurnState.request) — 글자 크기 · 회전 · 목차 이동은 순간 이동이다(바뀐 조판이
+        // 말리면 "넘긴 것" 으로 읽힌다).
+        flipFor = "\(next.spine):\(next.page)"
+        if turnEffect == 0 || turnEffect == 4 || UIAccessibility.isReduceMotionEnabled {
+            frame = next
+        } else {
+            withAnimation(.easeOut(duration: turnEffect == 1 ? 0.25 : 0.22)) { frame = next }
+        }
+        feedback(step)
+    }
+
+    // ── 넘김 효과 · 소리 · 진동(구상안 23A) ──────────────────────────────────
+
+    /// 0 없음 · 1 서서히 · 2 밀기 · 3 덮기 · 4 말림.
+    var turnEffect = 4
+    var turnSound = 0
+    var turnHaptic = false
+    var screenWidth: CGFloat = 0
+    var landscape = false
+    /// 넘긴 차례(덮기에서 새 쪽 · 옛 쪽의 겹침 차례를 정한다).
+    @Published private(set) var turnCount = 0
+    /// 사람이 넘겨 보이게 된 쪽의 열쇠 — 말림은 이 쪽으로 바뀔 때만 만다.
+    @Published private(set) var flipFor = ""
+    /// 말림이 손가락을 따라가게 미리 그린 앞 · 뒤 쪽.
+    @Published private(set) var prevImage: UIImage?
+    @Published private(set) var nextImage: UIImage?
+
+    /// 손가락으로 다 말았다: 자리를 옮긴다(그림은 이미 넘어가 있다).
+    func commitFlip(_ step: Int) async {
+        guard let engine else { return }
+        let next = try? await (step > 0 ? engine.next() : engine.previous())
+        guard let next else { return }
+        selection = nil
+        tapped = nil
+        lastActivity = Date()
+        direction = step
+        frame = next
+        feedback(step)
+    }
+
+    func prefetch() async {
+        guard let engine, turnEffect == 4 else { prevImage = nil; nextImage = nil; return }
+        nextImage = await engine.peek(1)
+        prevImage = await engine.peek(-1)
+    }
+
+    private func feedback(_ step: Int) {
+        TurnFeedback.shared.turned(sound: turnSound, haptic: turnHaptic, forward: step > 0, widthPt: screenWidth, landscape: landscape)
     }
 
     func seek(_ percent: Double) async {
@@ -479,6 +528,7 @@ struct ReaderView: View {
     @StateObject private var brightness = ScreenBrightness()
     @Environment(\.colorScheme) private var scheme
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     #if DEBUG
     @State private var debugApplied = false
     #endif
@@ -492,15 +542,26 @@ struct ReaderView: View {
             ZStack {
                 paper.paperColor
                 if let frame = model.frame {
-                    Image(uiImage: frame.image).resizable()
-                        .id("\(frame.spine):\(frame.page)")
-                        .transition(.asymmetric(insertion: .move(edge: model.direction > 0 ? .trailing : .leading),
-                                                removal: .move(edge: model.direction > 0 ? .leading : .trailing)))
-                        .accessibilityLabel("\(model.title), \(frame.page + 1)쪽")
+                    let key = "\(frame.spine):\(frame.page)"
+                    if curl {
+                        CurlPager(image: frame.image, key: key, previous: model.prevImage, next: model.nextImage,
+                                  paper: UIColor(paper.paperColor), animate: model.flipFor == key ? model.direction : 0,
+                                  onFlip: { step in Task { await model.commitFlip(step) } },
+                                  onTap: { p in pageTap(p, size: full, insets: insets) },
+                                  onLongPress: { p in Task { await model.select(at: p) } })
+                            .accessibilityLabel("\(model.title), \(frame.page + 1)쪽")
+                    } else {
+                        Image(uiImage: frame.image).resizable()
+                            .id(key)
+                            .transition(pageTransition)
+                            .zIndex(Double(model.turnCount) * (model.direction > 0 ? 1 : -1))
+                            .accessibilityLabel("\(model.title), \(frame.page + 1)쪽")
+                    }
                     // 윗여백 안에서 끝나 글자를 가리지 않는다. 노치 · 다이내믹 아일랜드가 있으면 그 아래로.
                     if frame.bookmarked {
                         CpRibbon().padding(.top, insets.top).padding(.trailing, 20 + insets.trailing)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                            .allowsHitTesting(false)
                     }
                     // 아래 줄은 화면 끝에서 14(구상안 13A, 안드로이드와 같다) — 읽는 동안 홈 표시줄을 숨긴다. 좌우는 본문 여백 선:
                     // 안드로이드의 16 은 iPhone 의 둥근 모서리에 글자가 잘린다.
@@ -508,6 +569,7 @@ struct ReaderView: View {
                         .padding(.horizontal, CGFloat(ReaderPrefs.margins[prefs.margin]) + max(insets.leading, insets.trailing))
                         .frame(maxHeight: .infinity, alignment: .bottom)
                         .padding(.bottom, 14)
+                        .allowsHitTesting(false)
                 }
                 TurnZones(cornerTop: insets.top, cornerRight: insets.trailing,
                           turn: { step in Task { await model.turn(step) } },
@@ -515,6 +577,8 @@ struct ReaderView: View {
                           longPress: { point in Task { await model.select(at: point) } },
                           bookmark: { Task { await model.toggleBookmark() } },
                           toggleMenu: { withAnimation(.easeOut(duration: 0.18)) { model.panel = model.panel == .none ? .bar : .none } })
+                    // 말림이면 끌기는 말림이 받는다(위에 제스처 층이 있으면 그 층이 끌기를 가로챈다). 누름은 말림이 pageTap 으로 넘긴다.
+                    .allowsHitTesting(!curl)
                 if model.selection != nil || model.tapped != nil {
                     SelectionLayer(model: model, title: model.title, topInset: insets.top)
                 }
@@ -610,6 +674,17 @@ struct ReaderView: View {
                 #endif
             }
             .task(id: KeepAwakeKey(mode: prefs.keepScreenOn, activity: model.lastActivity)) { await keepAwake() }
+            .task(id: TurnKey(effect: prefs.pageTurn, sound: prefs.turnSound, haptic: prefs.turnHaptic, width: full.width, height: full.height)) {
+                model.turnEffect = prefs.pageTurn
+                model.turnSound = prefs.turnSound
+                model.turnHaptic = prefs.turnHaptic
+                model.screenWidth = full.width
+                model.landscape = full.width > full.height
+            }
+            // 말림이면 쪽이 바뀔 때마다 앞 · 뒤 쪽을 미리 그린다.
+            .task(id: "\(model.frame?.spine ?? -1):\(model.frame?.page ?? -1):\(curl):\(model.frame?.image.hash ?? 0)") {
+                await model.prefetch()
+            }
         }
         .sheet(item: $model.lookUp) { DictionaryView(term: $0.text).ignoresSafeArea() }
         .sheet(item: $model.shareOut) { ShareView(text: $0.text).presentationDetents([.medium, .large]) }
@@ -649,6 +724,46 @@ struct ReaderView: View {
         let paper: Paper
         let blend: Bool
         let highlights: Bool
+    }
+
+    private struct TurnKey: Equatable {
+        let effect: Int
+        let sound: Int
+        let haptic: Bool
+        let width: CGFloat
+        let height: CGFloat
+    }
+
+    /// 말림을 쓰는가. 휴대폰 "동작 줄이기" 면 효과 없이 넘긴다.
+    private var curl: Bool { prefs.pageTurn == 4 && !reduceMotion }
+
+    /// 넘김 효과별 전환(사람이 넘겼을 때만 움직인다 — 다른 쪽 바꿈은 애니메이션 없이 바뀐다).
+    private var pageTransition: AnyTransition {
+        let forward = model.direction > 0
+        switch reduceMotion ? 0 : prefs.pageTurn {
+        case 1: return .opacity
+        case 2: return .asymmetric(insertion: .move(edge: forward ? .trailing : .leading), removal: .move(edge: forward ? .leading : .trailing))
+        // 덮기: 다음 쪽이 오른쪽에서 들어와 지금 쪽을 덮는다. 앞 쪽으로 갈 때는 지금 쪽이 오른쪽으로 걷혀 앞 쪽이 드러난다.
+        case 3: return forward ? .asymmetric(insertion: .move(edge: .trailing), removal: .identity)
+                               : .asymmetric(insertion: .identity, removal: .move(edge: .trailing))
+        default: return .identity
+        }
+    }
+
+    /// 지면 누름(말림에서도 같은 길): 오른쪽 위 모서리는 책갈피, 그다음 링크 · 칠, 아니면 왼쪽 30% 앞 쪽 · 오른쪽 30% 다음 쪽 · 가운데 메뉴.
+    private func pageTap(_ p: CGPoint, size: CGSize, insets: EdgeInsets) {
+        if p.x > size.width - insets.trailing - 56 && p.y < insets.top + 56 {
+            Task { await model.toggleBookmark() }
+            return
+        }
+        let x = p.x / size.width
+        Task {
+            await model.tap(at: p) {
+                if x < 0.3 { Task { await model.turn(-1) } } else if x > 0.7 { Task { await model.turn(1) } } else {
+                    withAnimation(.easeOut(duration: 0.18)) { model.panel = model.panel == .none ? .bar : .none }
+                }
+            }
+        }
     }
 
     private struct KeepAwakeKey: Equatable {

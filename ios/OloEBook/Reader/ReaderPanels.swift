@@ -1,5 +1,6 @@
 import CoreText
 import SwiftUI
+import UIKit
 
 /// 리더 위의 판들. 휴대폰은 전체 화면, 폭 600 이상(iPad · 가로)은 목차 · 보기 설정을 오른쪽 옆 판(400)으로 —
 /// 안드로이드 `CpFullScreen` 과 같다(태블릿에서 휴대폰 화면을 가운데 늘여 두지 않는다, UI 규칙 2).
@@ -225,6 +226,22 @@ private struct ViewSettingsScreen: View {
                         .padding(.leading, CpMetrics.levelIndent)
                     CpChoice(label: "문단 간격", options: ["좁게", "보통", "넓게"], selected: prefs.paragraphSpacing) { prefs.paragraphSpacing = $0 }
                         .padding(.leading, CpMetrics.levelIndent)
+                    // 넘기기(구상안 23A, 안드로이드 차례: 문단 → 넘기기 → 화면).
+                    section("넘기기")
+                    CpChoice(label: "넘김 효과", options: ["없음", "서서히", "밀기", "덮기", "말림"], selected: prefs.pageTurn) { prefs.pageTurn = $0 }
+                        .padding(.leading, CpMetrics.levelIndent)
+                    CpChoice(label: "넘김 소리", options: TurnFeedback.names, selected: prefs.turnSound) {
+                        prefs.turnSound = $0
+                        TurnFeedback.shared.preview($0)
+                    }
+                    .padding(.leading, CpMetrics.levelIndent)
+                    CpCaption(text: "무음 스위치 · 다른 소리가 나는 중에는 내지 않습니다.\n이어폰 · 가로 · 넓은 화면에서는 넘어가는 쪽에서 들립니다.")
+                        .padding(.leading, CpMetrics.levelIndent)
+                    CpChoice(label: "넘김 진동", options: ["켬", "끔"], selected: prefs.turnHaptic ? 0 : 1) {
+                        prefs.turnHaptic = $0 == 0
+                        if $0 == 0 { UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.6) }
+                    }
+                    .padding(.leading, CpMetrics.levelIndent)
                     section("화면")
                     CpChoice(label: "화면 켜짐 유지", options: ["휴대폰", "10분", "항상"], selected: prefs.keepScreenOn.rawValue) {
                         prefs.keepScreenOn = ReaderPrefs.KeepScreenOn(rawValue: $0) ?? .system

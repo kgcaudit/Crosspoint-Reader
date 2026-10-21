@@ -26,6 +26,12 @@ final class ReaderPrefs: ObservableObject {
     @Published var indentOff: Bool { didSet { save(indentOff, "indentOff") } }
     @Published var paragraphSpacing: Int { didSet { save(paragraphSpacing, "paragraphSpacing") } }
     @Published var keepScreenOn: KeepScreenOn { didSet { save(keepScreenOn.rawValue, "keepScreenOn") } }
+    /// 넘김 효과: 0 없음 · 1 서서히 · 2 밀기 · 3 덮기 · 4 말림(기본, 안드로이드 0.32).
+    @Published var pageTurn: Int { didSet { save(pageTurn, "pageTurn") } }
+    /// 넘김 소리: 0 끔(기본) · 1 사락 · 2 휙 · 3 톡.
+    @Published var turnSound: Int { didSet { save(turnSound, "turnSound") } }
+    /// 넘김 진동(기본 끔).
+    @Published var turnHaptic: Bool { didSet { save(turnHaptic, "turnHaptic") } }
     /// 형광펜 · 메모 보임(모든 보기 설정). 숨기면 그리지도, 눌러 열지도 않는다 — 지우지는 않는다.
     @Published var showHighlights: Bool { didSet { defaults.set(showHighlights, forKey: "reader.showHighlights") } }
     /// 본문 글꼴: nil = 휴대폰 글꼴, 아니면 넣은 글꼴의 파일 이름(`FontLibrary`).
@@ -54,6 +60,9 @@ final class ReaderPrefs: ObservableObject {
         keepScreenOn = KeepScreenOn(rawValue: int("keepScreenOn", 0, 0...2)) ?? .system
         font = d.string(forKey: "reader.font")
         showHighlights = d.object(forKey: "reader.showHighlights") as? Bool ?? true
+        pageTurn = int("pageTurn", 4, 0...4)
+        turnSound = int("turnSound", 0, 0...3)
+        turnHaptic = d.bool(forKey: "reader.turnHaptic")
         publisherFonts = d.object(forKey: "reader.publisherFonts") as? Bool ?? true
     }
 

@@ -641,11 +641,40 @@ class IosBookReader private constructor(
         val l = layout()
         val s = session!!
         val page = l.page(target.spineIndex, target.pageIndex)
-        val text = l.chapterText(target.spineIndex) ?: ""
         val saved = s.saveProgress(target)
         position = target
+        val image = render(target, page)
+        shown = page?.let { it to target.spineIndex }
+        return ReaderFrame(
+            image = image,
+            spineIndex = target.spineIndex,
+            chapterCount = l.spine().size,
+            pageIndex = target.pageIndex,
+            pageCount = target.pageCount,
+            percent = saved.percent,
+            bookmarked = s.isBookmarked(target),
+            canReturn = returnTo != null,
+        )
+    }
+
+    /**
+     * 앞 · 뒤 쪽 그림만(자리 · 진도를 옮기지 않는다). iOS 기본 말림이 손가락을 따라가려면 넘기기 **전에** 넘어올 쪽 그림이 있어야
+     * 한다 — 끌기 시작한 뒤에 짜면 말림이 멈칫한다. 책의 처음 · 끝이면 null(말리지 않는다).
+     */
+    @Throws(Exception::class)
+    suspend fun peek(step: Int): UIImage? {
+        val p = position ?: return null
+        val l = layout()
+        val target = (if (step > 0) l.next(p) else l.previous(p)) ?: return null
+        return render(target, l.page(target.spineIndex, target.pageIndex))
+    }
+
+    /** 한 쪽의 그림(칠 · 각주 표시 · 찾은 말 · 메모 쪽지까지). */
+    private suspend fun render(target: ReadingPosition, page: Page?): UIImage {
+        val l = layout()
+        val text = l.chapterText(target.spineIndex) ?: ""
         val spec = spec!!
-        val image = if (page == null) {
+        return if (page == null) {
             PagePainter.blank(spec.viewportWidthPx.toDouble(), spec.viewportHeightPx.toDouble(), paper)
         } else {
             PagePainter.render(
@@ -661,17 +690,6 @@ class IosBookReader private constructor(
                     .map { it.end.charOffset to if (darkPaper) PEN_BASE[it.color.ordinal] else PEN_DEEP[it.color.ordinal] },
             )
         }
-        shown = page?.let { it to target.spineIndex }
-        return ReaderFrame(
-            image = image,
-            spineIndex = target.spineIndex,
-            chapterCount = l.spine().size,
-            pageIndex = target.pageIndex,
-            pageCount = target.pageCount,
-            percent = saved.percent,
-            bookmarked = s.isBookmarked(target),
-            canReturn = returnTo != null,
-        )
     }
 
     /** 쪽의 그림. 읽을 수 없는 그림은 빈 칸으로 둔다 — 그림 하나 때문에 쪽이 안 열리면 안 된다(CLAUDE.md 규칙 6). */
