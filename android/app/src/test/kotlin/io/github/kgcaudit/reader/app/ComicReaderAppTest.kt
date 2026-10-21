@@ -34,6 +34,7 @@ import java.io.File
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -211,6 +212,24 @@ class ComicReaderAppTest {
         // 앞 쪽은 밀어서 — 오→왼 책은 왼쪽으로 밀면 앞 쪽이다.
         compose.onRoot().performTouchInput { swipeLeft() }
         waitFor(page(2))
+    }
+
+    @Test
+    @Config(qualifiers = "w400dp-h1600dp-xhdpi")
+    fun `the touch zone settings of a right to left comic describe the mirrored sides`() {
+        // 0.54.9 사용자 결정: 오→왼 만화에서 연 터치 영역은 실제 동작대로 적는다(그 전에는 "왼쪽 앞 쪽" — 실제와 반대).
+        runBlocking { app.container.data.comics.setRightToLeft(app.container.data.comics.works().first().single(), true) }
+        openVolume("1권")
+        waitFor(page(1))
+        compose.onRoot().performTouchInput { click(center) }
+        click(hasText("보기"))
+        click(hasText("모든 보기 설정"))
+        click(hasText("터치 영역"))
+        waitFor(hasText("이 작품은 오→왼으로 읽습니다 — 좌우가 바뀝니다"))
+        assertTrue(has(hasText("오른쪽 앞 쪽 · 왼쪽 다음 쪽")), "오→왼인데 기본의 설명이 뒤집히지 않았다")
+        assertTrue(has(hasText("앞 쪽은 왼쪽으로 밀어서", substring = true)), "한 손 설명에 미는 방향이 없다")
+        assertFalse(has(hasText("왼쪽 앞 쪽 · 오른쪽 다음 쪽")), "오→왼 화면에 왼→오 설명이 남았다")
+        shot("comic-touch-zones-rtl")
     }
 
     @Test

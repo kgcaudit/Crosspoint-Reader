@@ -157,11 +157,27 @@ enum class KeepScreenOn(val label: String) {
 }
 
 /** 지면을 누를 때 어디가 앞 쪽 · 다음 쪽인가. 가운데 40% 는 언제나 메뉴다. */
-enum class TouchZones(val label: String, val description: String) {
-    Default("기본", "왼쪽 앞 쪽 · 오른쪽 다음 쪽"),
-    Reversed("좌우 바꾸기", "왼쪽 다음 쪽 · 오른쪽 앞 쪽"),
+enum class TouchZones(val label: String) {
+    Default("기본"),
+    Reversed("좌우 바꾸기"),
     /** 큰 휴대폰을 한 손으로 들고 엄지가 닿는 쪽만 누르는 사람. 앞 쪽은 밀어서 간다. */
-    OneHand("한 손(양쪽 다음)", "어느 쪽을 눌러도 다음 쪽, 앞 쪽은 밀어서"),
+    OneHand("한 손(양쪽 다음)"),
+    ;
+
+    /**
+     * 설정 줄의 설명. 오→왼 만화에서는 자리가 뒤집히므로([forward]) 글도 뒤집는다(0.54.9 사용자 결정) — 0.54.8 까지는 오→왼
+     * 만화에서 열어도 "왼쪽 앞 쪽" 이라 적혀, 실제로는 왼쪽이 다음 쪽인데 글과 그림이 반대였다. 한 손은 미는 방향까지 적는다:
+     * 앞 쪽으로 가는 밀기는 읽는 방향을 따라 뒤집힌다.
+     */
+    fun description(rightToLeft: Boolean = false): String {
+        val (prevSide, nextSide) = if (rightToLeft) "오른쪽" to "왼쪽" else "왼쪽" to "오른쪽"
+        return when (this) {
+            Default -> "$prevSide 앞 쪽 · $nextSide 다음 쪽"
+            Reversed -> "$prevSide 다음 쪽 · $nextSide 앞 쪽"
+            // 앞 쪽은 읽는 방향의 반대로 민다: 왼→오 책은 오른쪽으로, 오→왼 책은 왼쪽으로.
+            OneHand -> "어느 쪽을 눌러도 다음 쪽 · 앞 쪽은 ${if (rightToLeft) "왼쪽" else "오른쪽"}으로 밀어서"
+        }
+    }
 }
 
 enum class TapAction { Previous, Next, Menu, Bookmark }

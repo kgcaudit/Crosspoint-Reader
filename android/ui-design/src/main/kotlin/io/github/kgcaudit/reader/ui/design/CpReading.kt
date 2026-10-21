@@ -643,6 +643,8 @@ fun CpViewSettingsScreen(
     reader: CpReaderKind = if (pdf) CpReaderKind.Pdf else CpReaderKind.Book,
     /** 작품 · 책마다 고른 표지의 수와 모두 지우기(구상안 5). null 이면 표지 줄 아래에 그 줄들을 두지 않는다. */
     ownCovers: CpOwnCovers? = null,
+    /** 오→왼으로 읽는 만화에서 열었다. 터치 영역의 글 · 그림을 실제 동작대로 뒤집는다(0.54.9). */
+    rightToLeft: Boolean = false,
 ) {
     var sub by remember { mutableStateOf(SettingsPage.Main) }
     // 표지 "모두 지우기" 를 묻는 중. 판은 굴러가는 목록 밖(화면 위)에 띄운다 — 목록 안에 두면 판이 목록 높이에 갇힌다.
@@ -759,7 +761,7 @@ fun CpViewSettingsScreen(
         }
             if (askClear && ownCovers != null) ClearCoversPopup(ownCovers) { askClear = false }
         }
-        SettingsPage.Touch -> TouchZonePicker(prefs.touch, { onChange(prefs.copy(touch = it)); sub = SettingsPage.Main }) {
+        SettingsPage.Touch -> TouchZonePicker(prefs.touch, rightToLeft, { onChange(prefs.copy(touch = it)); sub = SettingsPage.Main }) {
             sub = SettingsPage.Main
         }
         SettingsPage.Footer -> FooterSettings(prefs.footer, { onChange(prefs.copy(footer = it)) }) { sub = SettingsPage.Main }
@@ -769,13 +771,22 @@ fun CpViewSettingsScreen(
 private enum class SettingsPage { Main, Touch, Footer }
 
 @Composable
-private fun TouchZonePicker(current: TouchZones, onPick: (TouchZones) -> Unit, onBack: () -> Unit) {
+private fun TouchZonePicker(current: TouchZones, rightToLeft: Boolean, onPick: (TouchZones) -> Unit, onBack: () -> Unit) {
     CpFullScreen {
         CpHeader(title = "터치 영역", onBack = onBack)
         Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+            // 좌우가 뒤집힌 까닭을 먼저 말한다 — 말없이 글만 바뀌면 설정이 저절로 바뀐 것처럼 보인다.
+            if (rightToLeft) {
+                CpText(
+                    "이 작품은 오→왼으로 읽습니다 — 좌우가 바뀝니다",
+                    CpTheme.type.caption, CpTheme.colors.textMuted,
+                    Modifier.padding(horizontal = CpTheme.metrics.gutter, vertical = 6.dp),
+                    maxLines = 2,
+                )
+            }
             TouchZones.entries.forEach { zones ->
-                CpRadioRow(title = zones.label, selected = zones == current, onClick = { onPick(zones) }, subtitle = zones.description) {
-                    MiniZones(zones)
+                CpRadioRow(title = zones.label, selected = zones == current, onClick = { onPick(zones) }, subtitle = zones.description(rightToLeft)) {
+                    MiniZones(zones, rightToLeft)
                     Spacer(Modifier.width(12.dp))
                 }
             }
@@ -783,17 +794,17 @@ private fun TouchZonePicker(current: TouchZones, onPick: (TouchZones) -> Unit, o
     }
 }
 
-/** 터치 영역 그림: 앞 쪽(푸른 회색) · 메뉴 · 다음 쪽(클레이). 말보다 그림이 빨리 읽힌다. */
+/**
+ * 터치 영역 그림: 앞 쪽(푸른 회색) · 메뉴 · 다음 쪽(클레이). 말보다 그림이 빨리 읽힌다. 색은 실제 넘김 판단([forward])에서
+ * 가져온다 — 따로 적으면 오→왼에서 글은 고쳐도 그림이 반대로 남는다.
+ */
 @Composable
-private fun MiniZones(zones: TouchZones) {
+private fun MiniZones(zones: TouchZones, rightToLeft: Boolean) {
     val prev = Color(0xFF5B6B7A)
     val menu = Color(0xFFC9C0B6)
     val next = CpTheme.colors.accent
-    val cols = when (zones) {
-        TouchZones.Default -> listOf(prev, menu, next)
-        TouchZones.Reversed -> listOf(next, menu, prev)
-        TouchZones.OneHand -> listOf(next, menu, next)
-    }
+    fun side(x: Float) = if (zones.forward(zones.actionAt(x, 0.5f, 1f, 0f), rightToLeft) == true) next else prev
+    val cols = listOf(side(0.1f), menu, side(0.9f))
     Row(
         Modifier.size(width = 36.dp, height = 60.dp).clip(RoundedCornerShape(6.dp))
             .border(1.dp, CpTheme.colors.outline, RoundedCornerShape(6.dp)),

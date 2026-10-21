@@ -2,6 +2,7 @@ package io.github.kgcaudit.reader.ui.design
 
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /** 지면을 누른 자리 → 동작. 터치 영역 설정과 오른쪽 위 모서리(책갈피)를 본다. */
 class TouchZonesTest {
@@ -48,6 +49,26 @@ class TouchZonesTest {
         // 넘기기가 아닌 자리.
         assertEquals(null, TouchZones.OneHand.go(500f, rtl = true))
         assertEquals(null, TouchZones.OneHand.forward(TapAction.Bookmark, rightToLeft = true))
+    }
+
+    @Test
+    fun `each description names the sides the way the taps really go, in both reading directions`() {
+        // 0.54.8 까지 오→왼 만화에서도 "왼쪽 앞 쪽" 이라 적혀, 실제(왼쪽이 다음)와 반대였다. 글은 판단([forward])과 맞대 본다 —
+        // 따로 적으면 한쪽만 고쳐져 다시 어긋난다.
+        for (rtl in listOf(false, true)) for (zones in TouchZones.entries) {
+            val text = zones.description(rtl)
+            val leftNext = zones.forward(zones.at(100f), rtl) == true
+            val rightNext = zones.forward(zones.at(900f), rtl) == true
+            val where = "${zones.name} · ${if (rtl) "오→왼" else "왼→오"}: $text"
+            when {
+                leftNext && rightNext -> assertTrue("어느 쪽을 눌러도 다음 쪽" in text, where)
+                leftNext -> assertTrue("왼쪽 다음 쪽" in text && "오른쪽 앞 쪽" in text, where)
+                rightNext -> assertTrue("오른쪽 다음 쪽" in text && "왼쪽 앞 쪽" in text, where)
+            }
+        }
+        // 한 손은 앞 쪽으로 미는 방향까지 — 읽는 방향의 반대.
+        assertTrue("오른쪽으로 밀어서" in TouchZones.OneHand.description(rightToLeft = false))
+        assertTrue("왼쪽으로 밀어서" in TouchZones.OneHand.description(rightToLeft = true))
     }
 
     @Test
