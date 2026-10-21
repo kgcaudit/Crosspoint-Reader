@@ -20,6 +20,10 @@ struct TextSelection: Equatable {
     let start: Int
     let end: Int
     let boxes: [CGRect]
+    /// 고른 끝이 쪽 끝에 닿았고 이 장에 뒤 쪽이 있다 — 메뉴 끝에 "이어서 ›".
+    var canContinue = false
+    /// 시작이 앞 쪽에 있으면 그 글자 수(시작 손잡이를 그리지 않는다).
+    var charsBefore = 0
 }
 
 /// 형광펜 한 줄(Kotlin `NoteRow`).
@@ -34,6 +38,8 @@ struct HighlightItem: Identifiable, Hashable {
     let percent: Double
     let section: String
     let created: Date
+    /// "5–6쪽에 걸침"(쪽을 넘어 칠했을 때).
+    let pageSpan: String?
 
     init(_ r: NoteRow) {
         id = r.id
@@ -46,6 +52,7 @@ struct HighlightItem: Identifiable, Hashable {
         percent = Double(r.percent)
         section = r.section
         created = Date(timeIntervalSince1970: Double(r.createdAtEpochMs) / 1000)
+        pageSpan = r.pageSpan
     }
 }
 
@@ -111,6 +118,8 @@ struct FloatingMenu: View {
     let words: [String]
     let onPen: (Int) -> Void
     let onWord: (String) -> Void
+    /// 눈에 띄게 할 낱말("이어서 ›" — 쪽 끝에서만 새로 생기는 낱말이라 흰색이면 지나친다).
+    var accentWord: String? = nil
     @State private var size: CGSize = .zero
 
     var body: some View {
@@ -134,7 +143,8 @@ struct FloatingMenu: View {
                 ForEach(words, id: \.self) { word in
                     Button { onWord(word) } label: {
                         Text(word).font(CpFont.label)
-                            .foregroundStyle(word == "지우기" ? Color(CpColor.uiColor(0xFFB0A0)) : .white)
+                            .foregroundStyle(word == "지우기" ? Color(CpColor.uiColor(0xFFB0A0))
+                                             : word == accentWord ? Color(CpColor.uiColor(0xFFC7A8)) : .white)
                             .padding(.horizontal, 12).frame(minHeight: CpMetrics.touchTarget).contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -156,11 +166,13 @@ struct FloatingMenu: View {
 struct SelectionLayer: View {
     @ObservedObject var model: ReaderModel
     let title: String
+    var topInset: CGFloat = 0
     @State private var dragging: Bool?
     /// 끄는 동안 손가락이 손잡이를 가리지 않게, 잡은 자리와 손잡이 가운데의 차이를 두고 따라간다.
     @State private var grab: CGSize = .zero
 
     private let r: CGFloat = 9
+    private let continueWord = "이어서 ›"
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -171,8 +183,23 @@ struct SelectionLayer: View {
                 .allowsHitTesting(false)
                 handles(sel)
                 Color.clear.contentShape(Rectangle()).gesture(drag(sel))
-                FloatingMenu(anchor: bounds(sel.boxes), current: nil, words: ["메모", "복사", "공유", "사전"],
-                             onPen: { p in Task { await model.paint(pen: p) } }, onWord: { w in Task { await word(w) } })
+                if sel.charsBefore > 0 {
+                    // 시작 손잡이가 보이지 않는 까닭을 알린다.
+                    HStack(spacing: 4) {
+                        CpIconView(icon: .back, size: 14, color: .white)
+                        Text("앞 쪽에서 이어 고르는 중 · \(sel.charsBefore)자").font(CpFont.caption).foregroundStyle(.white)
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 5)
+                    .background(Color(CpColor.uiColor(0x302A24)).opacity(0.9))
+                    .clipShape(RoundedRectangle(cornerRadius: CpMetrics.cornerMedium))
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, topInset + 4)
+                    .allowsHitTesting(false)
+                }
+                FloatingMenu(anchor: bounds(sel.boxes), current: nil,
+                             words: ["메모", "복사", "공유", "사전"] + (sel.canContinue ? [continueWord] : []),
+                             onPen: { p in Task { await model.paint(pen: p) } }, onWord: { w in Task { await word(w) } },
+                             accentWord: continueWord)
             } else if let t = model.tapped {
                 Color.clear.contentShape(Rectangle()).onTapGesture { model.clearSelection() }
                 FloatingMenu(anchor: bounds(t.boxes), current: t.item.pen, words: ["메모", "복사", "공유", "지우기"],
@@ -190,14 +217,17 @@ struct SelectionLayer: View {
     private func handles(_ sel: TextSelection) -> some View {
         let (a, b) = centres(sel)
         let first = sel.boxes.first!, last = sel.boxes.last!
+        let showStart = sel.charsBefore == 0
         Path { p in
-            p.move(to: CGPoint(x: first.minX, y: first.minY)); p.addLine(to: CGPoint(x: first.minX, y: first.maxY + 2))
+            if showStart { p.move(to: CGPoint(x: first.minX, y: first.minY)); p.addLine(to: CGPoint(x: first.minX, y: first.maxY + 2)) }
             p.move(to: CGPoint(x: last.maxX, y: last.minY)); p.addLine(to: CGPoint(x: last.maxX, y: last.maxY + 2))
         }
         .stroke(CpColor.accent, lineWidth: 2)
         .allowsHitTesting(false)
-        Circle().fill(CpColor.accent).frame(width: r * 2, height: r * 2).offset(x: a.x - r, y: a.y - r)
-            .allowsHitTesting(false).accessibilityLabel("고르기 시작 손잡이")
+        if showStart {
+            Circle().fill(CpColor.accent).frame(width: r * 2, height: r * 2).offset(x: a.x - r, y: a.y - r)
+                .allowsHitTesting(false).accessibilityLabel("고르기 시작 손잡이")
+        }
         Circle().fill(CpColor.accent).frame(width: r * 2, height: r * 2).offset(x: b.x - r, y: b.y - r)
             .allowsHitTesting(false).accessibilityLabel("고르기 끝 손잡이")
     }
@@ -207,7 +237,8 @@ struct SelectionLayer: View {
             .onChanged { v in
                 if dragging == nil {
                     let (a, b) = centres(sel)
-                    let da = hypot(v.startLocation.x - a.x, v.startLocation.y - a.y)
+                    // 시작이 앞 쪽에 있으면 시작 손잡이는 없다 — 끝 손잡이만 잡힌다.
+                    let da = sel.charsBefore > 0 ? .greatestFiniteMagnitude : hypot(v.startLocation.x - a.x, v.startLocation.y - a.y)
                     let db = hypot(v.startLocation.x - b.x, v.startLocation.y - b.y)
                     // 손잡이에서 30 안쪽을 잡았을 때만 끈다. 아니면 누름(고르기 풀기)으로 본다.
                     guard min(da, db) < 30 else { return }
@@ -246,6 +277,8 @@ struct SelectionLayer: View {
             model.clearSelection()
         case "지우기":
             if let t = model.tapped { await model.removeHighlight(t.item) }
+        case continueWord:
+            await model.continueSelection()
         default: break
         }
     }

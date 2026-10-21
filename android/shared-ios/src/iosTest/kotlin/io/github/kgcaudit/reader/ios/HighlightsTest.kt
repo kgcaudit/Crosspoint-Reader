@@ -119,6 +119,37 @@ class HighlightsTest {
         assertNotEquals(before.right - before.left, after.first().right - after.first().left)
     }
 
+    @Test
+    fun `selecting to the end of a page offers to continue and carries the selection onto the next page`() = runTest {
+        val reader = open()
+        val start = reader.wordAt(60f, firstLineY(reader))[0]
+        // 쪽 오른쪽 아래 끝 = 이 쪽의 마지막 글자.
+        val end = reader.charAt(359f, 639f, after = true)
+        assertTrue(reader.selectionState(start, end).canContinue)
+        // 쪽 가운데에서 끝나면 "이어서" 가 없다 — 이어 고를 까닭이 없다.
+        assertTrue(!reader.selectionState(start, start + 3).canContinue)
+        val carried = assertNotNull(reader.continueSelection(start, end))
+        assertEquals(1, carried.frame.pageIndex)
+        assertEquals(start, carried.start)
+        assertTrue(carried.end > end, "the end reaches into the new page")
+        // 새 쪽에서는 시작이 앞 쪽에 있다 — 시작 손잡이 대신 "앞 쪽에서 이어 고르는 중".
+        assertTrue(reader.selectionState(carried.start, carried.end).charsBefore > 0)
+        reader.highlight(carried.start, carried.end, 3, null)
+        assertEquals("1–2쪽에 걸침", reader.noteRows().single().pageSpan)
+    }
+
+    @Test
+    fun `the last page of a chapter does not continue and a one page highlight has no span`() = runTest {
+        val reader = open()
+        reader.seek(100f)
+        val end = reader.charAt(359f, 639f, after = true)
+        val start = (end - 4).coerceAtLeast(0)
+        assertTrue(!reader.selectionState(start, end).canContinue)
+        assertNull(reader.continueSelection(start, end))
+        reader.highlight(start, end, 0, null)
+        assertNull(reader.noteRows().single().pageSpan)
+    }
+
     private fun spec(size: Float) = ReadingSpec.of(360f, 640f, 0f, 0f, 0f, 0f, size)
 
     /** 첫 쪽 첫 줄의 높이(글자 네모 가운데). */

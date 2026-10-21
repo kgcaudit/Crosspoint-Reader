@@ -51,6 +51,14 @@ actor ReaderEngine {
             CGRect(x: CGFloat($0.left), y: CGFloat($0.top), width: CGFloat($0.right - $0.left), height: CGFloat($0.bottom - $0.top))
         }
     }
+    func selectionState(_ start: Int, _ end: Int) async throws -> (Bool, Int) {
+        let st = try await reader.selectionState(start: Int32(start), end: Int32(end))
+        return (st.canContinue, Int(st.charsBefore))
+    }
+    func continueSelection(_ start: Int, _ end: Int) async throws -> (PageFrame, Int, Int)? {
+        guard let c = try await reader.continueSelection(start: Int32(start), end: Int32(end)) else { return nil }
+        return (PageFrame(c.frame), Int(c.start), Int(c.end))
+    }
     func textOf(_ start: Int, _ end: Int) async throws -> String { try await reader.textOf(start: Int32(start), end: Int32(end)) }
     func highlight(_ start: Int, _ end: Int, pen: Int, note: String?) async throws -> PageFrame {
         PageFrame(try await reader.highlight(start: Int32(start), end: Int32(end), color: Int32(pen), note: note))
@@ -207,6 +215,9 @@ final class ReaderModel: ObservableObject {
         lastActivity = Date()
         let next = try? await (step > 0 ? engine.next() : engine.previous())
         guard let next else { return } // 책의 처음 · 끝: 아무 일도 없다.
+        // 쪽이 바뀌면 고르기를 푼다(이어 고르기는 "이어서 ›" 로만 — 그냥 넘기면 고르던 것을 들고 가지 않는다).
+        selection = nil
+        tapped = nil
         direction = step
         withAnimation(.easeOut(duration: 0.22)) { frame = next }
     }
@@ -271,7 +282,16 @@ final class ReaderModel: ObservableObject {
     private func setSelection(_ start: Int, _ end: Int) async {
         guard let engine, end > start else { return }
         let boxes = (try? await engine.boxes(start, end)) ?? []
-        selection = boxes.isEmpty ? nil : TextSelection(start: start, end: end, boxes: boxes)
+        let (can, before) = (try? await engine.selectionState(start, end)) ?? (false, 0)
+        selection = boxes.isEmpty ? nil : TextSelection(start: start, end: end, boxes: boxes, canContinue: can, charsBefore: before)
+    }
+
+    /// "이어서 ›": 쪽을 넘기고 고른 것을 그대로 들고 간다(끝은 새 쪽 첫 문장 끝까지).
+    func continueSelection() async {
+        guard let engine, let sel = selection, let (f, s, e) = try? await engine.continueSelection(sel.start, sel.end) else { return }
+        direction = 1
+        frame = f
+        await setSelection(s, e)
     }
 
     /// 손잡이를 끈 자리 → 새 구간. 시작 손잡이는 끝을 넘지 못하고 끝 손잡이는 시작을 넘지 못한다(최소 한 글자) — 넘기면 구간이
@@ -492,7 +512,7 @@ struct ReaderView: View {
                           bookmark: { Task { await model.toggleBookmark() } },
                           toggleMenu: { withAnimation(.easeOut(duration: 0.18)) { model.panel = model.panel == .none ? .bar : .none } })
                 if model.selection != nil || model.tapped != nil {
-                    SelectionLayer(model: model, title: model.title)
+                    SelectionLayer(model: model, title: model.title, topInset: insets.top)
                 }
                 ReaderPanels(model: model, prefs: prefs, brightness: brightness, insets: insets, wide: full.width >= 600,
                              close: close)

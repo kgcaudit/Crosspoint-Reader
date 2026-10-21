@@ -558,7 +558,7 @@ private struct NoteEntryRow: View {
     private var whereLabel: String {
         switch entry {
         case .bookmark(let b): b.whereLabel
-        case .highlight(let h): noteWhere(h.percent, h.created)
+        case .highlight(let h): noteWhere(h.percent, h.created, span: h.pageSpan)
         }
     }
 
@@ -652,9 +652,9 @@ private struct NoteEntryRow: View {
 }
 
 /// "3% · 2026.10.21."(안드로이드 `noteWhere`).
-func noteWhere(_ percent: Double, _ date: Date) -> String {
+func noteWhere(_ percent: Double, _ date: Date, span: String? = nil) -> String {
     let f = DateFormatter()
     f.locale = Locale(identifier: "ko_KR")
     f.dateFormat = "yyyy.MM.dd."
-    return "\(Int(percent.rounded()))% · \(f.string(from: date))"
+    return ["\(Int(percent.rounded()))%", span, f.string(from: date)].compactMap { $0 }.joined(separator: " · ")
 }

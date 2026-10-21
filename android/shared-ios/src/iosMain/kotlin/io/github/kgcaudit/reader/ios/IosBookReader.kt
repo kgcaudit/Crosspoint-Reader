@@ -84,7 +84,18 @@ class NoteRow(
     val percent: Float,
     val section: String,
     val createdAtEpochMs: Long,
+    /** 쪽을 넘어 칠했으면 "5–6쪽에 걸침", 한 쪽 안이면 null. */
+    val pageSpan: String? = null,
 )
+
+/**
+ * 고른 구간의 처지(이어 고르기, 안드로이드 0.17). [canContinue] 면 메뉴 끝에 "이어서 ›", [charsBefore] 가 0 보다 크면 시작이 앞 쪽에
+ * 있다 — 시작 손잡이를 그리지 않고 "앞 쪽에서 이어 고르는 중 · N자" 를 띄운다.
+ */
+class SelectionState(val canContinue: Boolean, val charsBefore: Int)
+
+/** "이어서 ›" 를 눌렀다: 넘긴 쪽과 들고 온 구간. */
+class ContinuedSelection(val frame: ReaderFrame, val start: Int, val end: Int)
 
 /**
  * 누른 링크가 한 일(안드로이드 `openLink`). [kind] 는 "footnote"(각주 판을 띄운다: [title] · [text], 가기는 [spine] · [anchor]),
@@ -308,8 +319,21 @@ class IosBookReader private constructor(
             runCatching { l.percentAt(a.start.spine, a.start.charOffset) }.getOrDefault(0f),
             toc.getOrNull(currentIndex(toc, a.start.spine))?.label ?: "${a.start.spine + 1}장",
             a.createdAtEpochMs,
+            pageSpan(a),
         )
     }
+
+    /**
+     * 쪽을 넘어 칠했으면 "5–6쪽에 걸침"(안드로이드 `pagesOf`). 끝은 칠 바깥의 첫 글자라 한 글자 앞으로 찾는다 — 그대로 찾으면
+     * 쪽 끝에서 멈춘 칠이 다음 쪽에 걸친 것으로 보인다.
+     */
+    private suspend fun pageSpan(a: Annotation): String? = runCatching {
+        val l = layout()
+        val first = l.resolve(a.start)
+        val last = l.resolve(Locator.Reflow(a.end.spine, (a.end.charOffset - 1).coerceAtLeast(0)))
+        if (first.spineIndex != last.spineIndex || first.pageIndex == last.pageIndex) null
+        else "${first.pageIndex + 1}–${last.pageIndex + 1}쪽에 걸침"
+    }.getOrNull()
 
     /** 지금 쪽의 ([x], [y]) 에 가장 가까운 글자 자리. 글자가 없는 쪽(그림뿐)이면 -1. */
     @Throws(Exception::class)
@@ -335,6 +359,47 @@ class IosBookReader private constructor(
         val (page, spine) = shown ?: return emptyList()
         val text = layout().chapterText(spine) ?: return emptyList()
         return PagePainter.rangeBoxes(page, text, measurer(spec!!), start, end)
+    }
+
+    /**
+     * 고른 구간의 처지. "이어서" 는 고른 끝이 보이는 쪽의 마지막 글자(끝 공백 빼고)에 닿았고 이 장에 뒤 쪽이 있을 때만 — 장을
+     * 넘는 칠은 저장 형식상 가능하지만 장 끝은 대개 뜻의 끝이다.
+     */
+    @Throws(Exception::class)
+    suspend fun selectionState(start: Int, end: Int): SelectionState {
+        val (page, spine) = shown ?: return SelectionState(false, 0)
+        val p = position ?: return SelectionState(false, 0)
+        val text = layout().chapterText(spine) ?: return SelectionState(false, 0)
+        val can = end >= lastVisible(text, page.startChar, page.endCharExclusive) && p.pageIndex < p.pageCount - 1
+        return SelectionState(can, (page.startChar - start).coerceAtLeast(0))
+    }
+
+    /**
+     * "이어서 ›": 쪽을 넘기고 고른 것을 그대로 들고 간다. 시작은 그대로, 끝은 새 쪽 첫머리부터 시작하는 문장의 끝 — 대개 거기까지가
+     * 이어 고르려던 곳이고, 아니면 끝 손잡이로 줄이거나 늘린다(빈손으로 넘어오면 무엇을 고르던 중인지 안 보인다). 장 끝이면 null.
+     */
+    @Throws(Exception::class)
+    suspend fun continueSelection(start: Int, end: Int): ContinuedSelection? {
+        val p = position ?: return null
+        if (p.pageIndex >= p.pageCount - 1) return null
+        val l = layout()
+        val frame = show(l.next(p) ?: return null)
+        val (page, spine) = shown ?: return null
+        val text = l.chapterText(spine) ?: return null
+        val shownEnd = page.endCharExclusive.coerceAtMost(text.length)
+        val sentences = if (page.startChar >= shownEnd) emptyList() else io.github.kgcaudit.reader.layout.book.splitSentences(
+            text.substring(page.startChar, shownEnd),
+            l.paragraphStarts(spine).map { it - page.startChar }.filter { it > 0 }.toSet(),
+        )
+        val newEnd = sentences.firstOrNull()?.let { page.startChar + it.endExclusive } ?: lastVisible(text, page.startChar, shownEnd)
+        return ContinuedSelection(frame, start, maxOf(newEnd, end))
+    }
+
+    /** 보이는 쪽의 마지막 글자 뒤 자리(끝의 공백은 뺀다). */
+    private fun lastVisible(text: String, shownStart: Int, shownEnd: Int): Int {
+        var e = shownEnd.coerceAtMost(text.length)
+        while (e > shownStart && text[e - 1].isWhitespace()) e--
+        return e
     }
 
     /** 지금 장의 글자 구간(복사 · 공유 · 사전 · 메모 판의 인용). */
