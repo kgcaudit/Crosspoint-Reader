@@ -75,6 +75,10 @@ class AboutTest {
         compose.activityRule.scenario.recreate()
         waitFor(hasText("어린 왕자", substring = true))
         shot("90-library-info-button")
+        // 더 보기 판을 연 모습도 남긴다 — 디자인 인계(`design-handoff/screens/`)와 iOS 서재가 이 그림을 본보기로 쓴다.
+        compose.onAllNodes(hasContentDescription("더 보기"), useUnmergedTree = true)[0].performClick()
+        waitFor(hasContentDescription("앱 정보"))
+        shot("90b-library-more")
         compose.libraryMenu("앱 정보")
         // 폰에 깔린 판을 여기서 본다 — 빌드 파일의 판 번호가 그대로 나와야 한다.
         waitFor(hasText("판 ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})", substring = true))

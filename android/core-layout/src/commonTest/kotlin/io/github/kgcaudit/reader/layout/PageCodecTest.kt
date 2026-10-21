@@ -166,7 +166,7 @@ class PageCodecTest {
         // 엉뚱한 화면을 그리는 것보다 캐시를 버리고 다시 조판하는 게 낫다.
         assertNull(PageCodec.decodeIndex(ByteArray(0)))
         assertNull(PageCodec.decodeIndex(ByteArray(8)))
-        assertNull(PageCodec.decodeIndex("완전히 다른 파일 내용이다".toByteArray()))
+        assertNull(PageCodec.decodeIndex("완전히 다른 파일 내용이다".encodeToByteArray()))
     }
 
     @Test

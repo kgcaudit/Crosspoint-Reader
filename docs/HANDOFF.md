@@ -291,6 +291,20 @@ ReadingSession(layout, data.bookmarks, data.progress)
   찍은 본보기 화면 12장 — 사용자 책 표지는 넣지 않는다). 값은 코드(`CpTheme.kt` 등)에서 옮겼고, 코드가 원본이다.
   디자인 판을 그린 시험 코드는 구상안 규칙대로 저장소에 넣지 않았다.
 
+**디자인 인계 본보기 화면을 지금 판으로** (2026-10-21, iOS 세션 요청 · 앱 동작 바뀜 없음)
+
+- `docs/design-handoff/screens/` 12장이 0.25 무렵 것이라 iOS 가 옛 서재를 본보기로 삼았다. 같은 이름으로 다시 찍고, 서재 책장 · 더 보기 판 ·
+  만화 탭(격자 · 목록 · 책장) · 작품 화면 · 터치 영역 7장을 더했다. 모두 시험용 가짜 책이다.
+- 더 보기 판은 찍는 시험이 없어 `AboutTest` 에 한 장(`90b-library-more`)을 더했다. 화면이 바뀌는 판을 낼 때 이 묶음도 다시 옮긴다.
+
+**공통 시험을 `commonTest` 로** (2026-10-21, iOS 세션 요청 · 앱 동작 바뀜 없음, 판 그대로)
+
+- `:document` · `:core-layout` 의 `jvmTest` 중 JVM 전용 기능을 쓰지 않는 39개를 `src/commonTest` 로 옮겼다. 맥에서는 같은 시험이
+  `iosSimulatorArm64Test` 로도 돈다 — 두 앱이 같은 책을 다르게 조판하면 여기서 걸린다.
+- 옮기며 고친 JVM 의존: `String.format` → `padStart`, `toByteArray` → `encodeToByteArray`, `Math.round` → `kotlin.math.round`,
+  `toSortedMap` → `sortedBy`, `Character.isLowSurrogate` → `Char.isLowSurrogate`. 시험용 zip · 그림 짓기 · 파일을 쓰는 시험은 `jvmTest` 에 남는다.
+- 공통 시험에 `java.*` 를 쓰면 리눅스에서도 `compileTestKotlinJvm` 이 아니라 맥의 iOS 컴파일에서 깨진다 — 새 시험은 되도록 `commonTest` 에, JVM 이 필요할 때만 `jvmTest` 에.
+
 **0.54.9 — 터치 영역의 글 · 그림을 읽기 방향대로** (2026-10-20, 사용자 지적 · 권고안 확정. 구상안 `touch/01-touch-rtl` · `02-touch-both.png`)
 
 - 오→왼 만화에서 터치 영역을 열어도 "왼쪽 앞 쪽 · 오른쪽 다음 쪽" 이고 그림 색도 그대로라, 실제 동작(왼쪽이 다음)과 반대였다.

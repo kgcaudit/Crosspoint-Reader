@@ -76,7 +76,7 @@ class GoldenPaginationTest {
         appendLine("실제 조판 결과 ${pages.size}페이지:")
         pages.forEach { page ->
             appendLine("  p${page.index} [${page.startChar}, ${page.endCharExclusive})")
-            page.runs.groupBy { it.baselineYPx }.toSortedMap().forEach { (_, runs) ->
+            page.runs.groupBy { it.baselineYPx }.entries.sortedBy { it.key }.forEach { (_, runs) ->
                 // 조각이 아니라 구간으로 복원한다 — 조각은 줄 끝 공백을 제외하므로
                 // 이어 붙이면 공백이 사라진 것처럼 보인다.
                 val line = chapter.substring(runs.first().start, runs.last().endExclusive)
