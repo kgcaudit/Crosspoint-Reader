@@ -59,6 +59,7 @@ iOS 쪽 actual 은 `document/src/iosTest` · `core-layout/src/iosTest` 가 시�
 | `BookFaces` | 출판사 글꼴(안드로이드 `BookTypefaces` 짝): 책 글꼴을 캐시 폴더로 꺼내고, 보통 · 굵게를 안드로이드와 같은 규칙으로(굵은 파일 하나뿐인 가족은 다시 굵히지 않음), 지문을 `bookFontsKey` 로. 측정기는 서식의 `face` 번호로 고른다 |
 | 형광펜(`IosBookReader` · `ReadingStore.annotations`) | 고르기는 `charAt` · `wordAt`(안드로이드 `PageHits` 와 같은 셈), 칠은 `highlight`(같은 구간이면 색 · 메모만 바꾼다) · `recolor` · `setNote` · `removeNote`. 쪽 그림에 칠 · 메모 쪽지, 고른 구간 · 손잡이 · 메뉴는 Swift 가 겹쳐 그린다(고르는 동안 쪽을 다시 그리지 않게) |
 | `NotesExport` | 독서노트 내보내기 글(글 · 마크다운 · 감싸기 · 파일 이름) — 안드로이드 `exportNotes` · `exportMarkdown` 와 같은 글. 두 앱이 같은 파일을 내야 한다 |
+| `ReadingStore` 읽은 시간 · `IosBookReader.info` | `T` 줄(책 · 날 · 방식, 음수 버림 · 하루 상한, 모르는 방식은 남기고 셈에서만 뺀다) · `addTime` · `times`. `info(path, displayName)`: EPUB 의 제목 · 저자(없으면 파일 이름, 깨진 책도 파일 이름) |
 | `IosBookReader` 두 쪽 · 하단 정보 | `layOut(twoPages, fullWidth, leftInset)` · `PagePainter.spread`. `ReaderFrame` 에 `hasRight` · `section` · `charsLeftChapter` · `charsLeftBook`(공통 `chapterLength` · `charsAfterChapter`, 장마다 한 번 셈) |
 | `IosBookReader` 듣기 | `speechSentences`(공통 `splitSentences` + 문단 시작) · `spoken`(공통 `speakable` + `joinWords`) · `speak`(문장 칠 + 그 문장이 든 쪽으로, 이미 보이면 그대로) · `stopSpeaking`. 칠은 형광펜 **아래** 강조색 18%(검은 지면 30%). `ReaderFrame.pageStart` · `pageEnd` 로 "보이는 쪽에서 시작하는 첫 문장" 을 찾는다 |
 | `TurnFx` | 넘김 소리의 자리(디자인 인계 §6-7): 쓸림 조건 · 방향 · 같은 세기 스테레오 · 모노 WAV → 쓸린 WAV. 안드로이드 `PageTurnFx` 와 같은 셈 |
@@ -96,7 +97,7 @@ macOS 26.6 (Apple Silicon) · Xcode 27.1 · iOS 시뮬레이터 27.0/27.1 · JDK
 | 연결 프로그램으로 열기(다른 앱의 파일) | ✅ | ◐ | EPUB · TXT 를 `받은 파일` 폴더로 들여와 바로 연다(같은 이름 · 크기면 다시 복사 안 함). 실기기 확인 전 |
 | 책 · 만화 탭, 만화 세 갈래(만화 · 웹툰 · 그림책) | ✅ | ⬜ | |
 | 격자 · 목록 · 원목 책장 보기 | ✅ | ✅ | 2026-10-21 구상안 9 · 10 · 11 로 0.54.8 에 맞춤: 머리 없앰 · 도구 한 줄(순서 ▾ · 찾기 · 격자\|목록\|책장 · 더 보기) · 원목 책장(값은 `WoodShelf.kt` 그대로, 결 난수만 다름) · 대신 표지 띠 · 순서 판(OLO). 더 보기의 독서 기록 줄은 그 기능을 만들 때 |
-| 읽는 책 · 읽은 책 · 읽을 책, 책 찾기 | ✅ | ◐ | 갈래(0.43 이름 · 안드로이드 순서) · 순서 ✅, 세 갈래 모두 같은 보기 · 줄바꿈(0.38) ✅. 책 찾기 ⬜(단추는 흐리게). 저자 줄 ⬜ — iOS 는 아직 책 정보를 읽지 않아 형식을 보인다 |
+| 읽는 책 · 읽은 책 · 읽을 책, 책 찾기 | ✅ | ✅ | 갈래(0.43 이름 · 안드로이드 순서) · 순서 ✅, 세 갈래 모두 같은 보기 · 줄바꿈(0.38) ✅. 서재 이름은 책 안의 제목 · 저자(구상안 29A — 전에는 파일 이름이었다, 제목이 없으면 확장자 뗀 파일 이름, 판마다 `Caches/book-info.json` 에 기억). 책 찾기(29A) ✅: 제목 · 저자 · 파일 이름, 소문자 · 공백 무시 · **한글을 모아 쓴 꼴(NFC)로 맞춘 뒤** 견준다(맥에서 받은 파일 이름은 NFD 일 수 있다 — 안드로이드에는 없는 단계), 갈래 차례 · 가나다순, 맞은 곳 칠, 찾던 말은 닫아도 남는다 |
 | 작품 묶기 · 작품 정리 · 압축 속 압축을 권으로 | ✅ | ⬜ | |
 | 표지 고르기(반쪽 · 왼/오/통째로) | ✅ | ⬜ | |
 | 옮긴 파일의 기록 잇기 | ✅ | ⬜ | |
@@ -145,7 +146,7 @@ macOS 26.6 (Apple Silicon) · Xcode 27.1 · iOS 시뮬레이터 27.0/27.1 · JDK
 | 화면 켜짐 유지 | ✅ | ✅ | 휴대폰 · 10분(마지막 넘김 뒤) · 항상. `isIdleTimerDisabled` |
 | 화면 회전 고정 | ✅ | ⬜ | |
 | 폴더블 · 태블릿 반응형(좁음 · 중간 · 넓음) | ✅ | ⬜ | `RESPONSIVE_PLAN.md` 의 표를 iPhone · iPad 에 그대로 |
-| 독서 기록 · 통계 | ✅ | ⬜ | |
+| 독서 기록 · 통계 | ✅ | ◐ | 책 ✅(구상안 30): 서재 › 더 보기 › 독서 기록. 타일 · 달력 · 올해 다 읽은 것 · 가장 오래 읽은 책 · 따로 센 시간(없는 쪽은 뺀다 — 안드로이드는 "1분 미만" 으로 보인다), 넓은 화면(840 이상) 두 판. 재기는 `PageClock` 규칙(쪽마다 5분까지, 건너뛰기 전 쪽은 버림, 앱이 뒤로 가면 멈춤, 듣기는 1분마다 끊어 LISTEN, 자동 넘김은 AUTO). 저장은 `ReadingStore` 의 `T bookId day mode millis`(하루 24시간 상한) — 백업을 만들 때 안드로이드의 `time` 칸과 같은 값이 된다. 만화 · 웹툰 시간 ⬜(만화를 만들 때) |
 
 ---
 

@@ -201,8 +201,22 @@ enum TurnCause { case jump, forward, backward, machine }
 @MainActor
 final class ReaderModel: ObservableObject {
     @Published private(set) var frame: PageFrame? {
-        didSet { if frame?.key != oldValue?.key { sampleTurn() } }
+        didSet {
+            guard frame?.key != oldValue?.key else { return }
+            let cause = turnCause
+            turnCause = .jump
+            sampleTurn(cause)
+            // 읽은 시간: 사람 · 자동이 넘겼으면 앞 쪽 시간을 적고, 건너뛰었으면 버린다(구상안 30).
+            if let key = frame?.key { clock?.pageChanged(to: key, counted: cause != .jump) }
+        }
     }
+    /// 읽은 시간(구상안 30). 책을 열 때 만든다.
+    private(set) var clock: ReadingClock?
+    private var bookId: String?
+    private var store: ReadingStore?
+    /// 듣기를 잰 시작(1분마다 끊어 적는다 — 화면을 끈 채 몇 시간 들어도 앱이 죽으면 그 시간을 다 잃지 않게).
+    private var listenSince: Date?
+    private var listenLaps: Task<Void, Never>?
     @Published private(set) var failure: String?
     @Published var panel = ReaderPanel.none
     /// 넘긴 방향(+1 다음, −1 앞). 쪽이 들어오는 쪽을 정한다.
@@ -223,12 +237,41 @@ final class ReaderModel: ObservableObject {
     init() {
         // 조종판 · 칠 · 결과 막대 자리가 듣기 상태를 따라 바뀐다 — 듣기의 바뀜을 리더의 바뀜으로 넘긴다.
         listenWatch = listening.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        playingWatch = listening.$playing.removeDuplicates().sink { [weak self] playing in self?.listenChanged(playing) }
+    }
+
+    private var playingWatch: AnyCancellable?
+
+    /// 들은 시간(LISTEN): 소리가 나는 동안만. 멈추면 그때까지를 적는다.
+    private func listenChanged(_ playing: Bool) {
+        lapListen()
+        listenLaps?.cancel()
+        listenSince = playing ? Date() : nil
+        guard playing else { return }
+        listenLaps = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                if Task.isCancelled { return }
+                self?.lapListen()
+            }
+        }
+    }
+
+    private func lapListen() {
+        guard let since = listenSince, let store, let bookId else { return }
+        let now = Date()
+        listenSince = now
+        let ms = Int64(now.timeIntervalSince(since) * 1000)
+        if ms > 0 { store.addTime(bookId: bookId, day: epochDay(now), mode: ReadingMode.listen.rawValue, millis: ms) }
     }
 
     func open(_ book: LibraryBook, library: Library) async {
         guard engine == nil else { return }
         endAccess = library.beginAccess(book)
         let store = library.store, cache = library.pageCache
+        self.store = store
+        bookId = book.id
+        clock = ReadingClock(store: store, bookId: book.id)
         do {
             let reader = try await Task.detached(priority: .userInitiated) {
                 try IosBookReader.companion.open(path: book.url.path, bookId: book.id, displayName: book.displayName,
@@ -333,9 +376,7 @@ final class ReaderModel: ObservableObject {
 
     /// 쪽이 바뀌었다(안드로이드 `TurnSampler`). 자동 넘김 · 듣기가 넘긴 쪽, 건너뛴 쪽은 세지 않는다 — 기계의 빠르기나 목차를 고르던
     /// 시간이 섞이면 남은 시간이 엉뚱해진다. 기계가 넘기다 사람이 이어받으면 그때부터 다시 잰다.
-    private func sampleTurn() {
-        let cause = turnCause
-        turnCause = .jump
+    private func sampleTurn(_ cause: TurnCause) {
         if cause == .forward, let start = sampleStart {
             speed.record(units: start.chars, seconds: Date().timeIntervalSince(start.at))
             speed.save()
@@ -621,7 +662,10 @@ final class ReaderModel: ObservableObject {
     }
 
     func close() async {
+        clock?.pause()
         if listening.active { listening.close() }
+        lapListen()
+        listenLaps?.cancel()
         await engine?.close()
         endAccess?()
         endAccess = nil
@@ -844,6 +888,8 @@ struct ReaderView: View {
                 // 책 끝이면 멈춘다 — 알약이 "멈춰 있음" 으로 남아 왜 서 있는지 보인다.
                 if !(await model.turn(1, quiet: true)) { model.autoPaused = true }
             }
+            // 읽은 시간의 주체: 듣는 중이면 듣기(따로 센다), 자동 넘김이 돌면 자동, 아니면 사람.
+            .onChange(of: clockMode, initial: true) { _, mode in model.clock?.setMode(mode) }
             // 사람이 쪽을 옮겼다 — 듣던 문장이 그 쪽에 없으면 그 쪽의 첫 문장으로(듣기가 넘긴 쪽이면 문장이 거기 있어 그대로다).
             .onChange(of: model.frame?.key) { _, _ in
                 if let f = model.frame { model.listening.onPageShown(spine: f.spine, start: f.pageStart, end: f.pageEnd) }
@@ -873,6 +919,9 @@ struct ReaderView: View {
         .onChange(of: scenePhase) { _, phase in
             // 다른 앱으로 나가면 휴대폰 밝기로 되돌리고, 돌아오면 이 책의 밝기를 다시 건다.
             if phase == .active { brightness.reapply() } else { brightness.restore() }
+            // 읽은 시간: 앱이 뒤로 간 동안은 세지 않는다.
+            if phase == .background { model.clock?.pause() }
+            if phase == .active { model.clock?.resume() }
             // 화면을 끈 채 듣는 동안 쪽이 넘어갔다 — 돌아와서 보던 쪽이 바뀐 까닭을 모르면 놀란다.
             if phase == .background { leftAt = model.frame?.key }
             if phase == .active, let left = leftAt {
@@ -912,6 +961,10 @@ struct ReaderView: View {
         let blend: Bool
         let highlights: Bool
         let spread: Spread?
+    }
+
+    private var clockMode: ReadingMode {
+        model.listening.playing ? .listen : autoRunning ? .auto : .read
     }
 
     /// 이 화면 크기에서 두 쪽으로 보이는가(구상안 27).

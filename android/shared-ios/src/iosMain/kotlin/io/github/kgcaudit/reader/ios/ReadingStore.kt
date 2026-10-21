@@ -31,6 +31,12 @@ data class ShelfRecord(
 )
 
 /**
+ * 읽은 시간 한 줄(구상안 30, 안드로이드 `reading_time` 표): 책 · 날(epoch day, 그 기기의 날짜) · 방식마다 하나. [mode] 는
+ * "READ" · "LISTEN" · "AUTO" — 모르는 방식도 버리지 않고 남긴다(새 판이 더한 방식을 옛 판이 지우면 안 된다), 셈에서만 뺀다.
+ */
+data class TimeRecord(val bookId: String, val day: Long, val mode: String, val millis: Long)
+
+/**
  * 읽은 자리 · 책갈피 · 연 때 · 다 읽은 때를 한 파일에 둔다(iOS). 안드로이드는 Room 의 progress · bookmarks · recent 표다 —
  * 칸은 같게 두어 나중에 기록 백업 형식(두 앱이 서로 옮길 수 있어야 한다)을 맞추기 쉽게 한다.
  *
@@ -42,6 +48,7 @@ data class ShelfRecord(
  * - `B id bookId locator createdAt snippet`
  * - `R bookId openedAt finishedAt|-`
  * - `A id bookId start end color createdAt snippet note` — note 칸이 없으면 메모 없음. 빈 메모는 만들지 않는다(공통 `withNote`)
+ * - `T bookId day mode millis` — 읽은 시간(책 · 날 · 방식마다 한 줄)
  *
  * 여러 스레드(조판 · 서재)에서 함께 부르므로 잠근다.
  */
@@ -54,6 +61,7 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
     private var nextBookmarkId = 1L
     private val notes = ArrayList<Annotation>()
     private var nextNoteId = 1L
+    private val times = LinkedHashMap<Triple<String, Long, String>, Long>()
 
     /**
      * 형광펜 보관소. 함수 이름(forBook · add · remove)이 책갈피 규약과 같아 한 클래스에 함께 둘 수 없다 — 같은 파일 · 같은
@@ -151,6 +159,22 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
         }
     }
 
+    // ── 읽은 시간 ─────────────────────────────────────────────────────────
+
+    /**
+     * 읽은 시간을 더한다. 음수는 버리고(시계가 뒤로 감), 한 줄이 하루(24시간)를 넘지 않게 자른다 — 잘못 잰 값 하나가 통계를 수십
+     * 시간으로 부풀리면 기록 전체를 믿을 수 없게 된다(안드로이드 `ReadingTime.add` 와 같다).
+     */
+    fun addTime(bookId: String, day: Long, mode: String, millis: Long) = locked {
+        if (millis <= 0) return@locked
+        val key = Triple(bookId, day, mode)
+        times[key] = ((times[key] ?: 0L) + millis).coerceAtMost(DAY_MS)
+        persist()
+    }
+
+    /** 모든 시간 줄(통계가 한 번에 묻는다). */
+    fun times(): List<TimeRecord> = locked { times.map { (k, v) -> TimeRecord(k.first, k.second, k.third, v) } }
+
     private fun order(locator: Locator): Long = when (locator) {
         is Locator.Reflow -> locator.spine.toLong() * Int.MAX_VALUE + locator.charOffset
         is Locator.FixedPage -> locator.page.toLong() * 1_000_000 + locator.yPermille * 1000L + locator.xPermille
@@ -184,6 +208,10 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
                         notes.add(Annotation(id, BookId(f[2]), start, end, color, f.getOrNull(8), f[7], f[6].toLong()))
                         if (id >= nextNoteId) nextNoteId = id + 1
                     }
+                    "T" -> {
+                        val ms = f[4].toLong()
+                        if (ms > 0) times[Triple(f[1], f[2].toLong(), f[3])] = ms.coerceAtMost(DAY_MS)
+                    }
                     "R" -> {
                         opened[f[1]] = f[2].toLong()
                         f[3].takeIf { it != "-" }?.let { finished[f[1]] = it.toLong() }
@@ -210,6 +238,7 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
         for (id in opened.keys + finished.keys.filter { it !in opened }) {
             row("R", id, (opened[id] ?: finished.getValue(id)).toString(), finished[id]?.toString() ?: "-")
         }
+        for ((k, v) in times) row("T", k.first, k.second.toString(), k.third, v.toString())
         val dir = path.substringBeforeLast('/')
         NSFileManager.defaultManager.createDirectoryAtPath(dir, withIntermediateDirectories = true, attributes = null, error = null)
         @Suppress("CAST_NEVER_SUCCEEDS")
@@ -218,6 +247,7 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
 
     private companion object {
         const val FINISHED_PERCENT = 99.95f
+        const val DAY_MS = 24L * 60 * 60 * 1000
 
         fun escape(value: String): String = buildString {
             for (c in value) when (c) {

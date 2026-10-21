@@ -15,6 +15,12 @@ struct LibraryBook: Identifiable, Hashable {
     let added: Date
     /// 연결한 폴더의 책이면 그 폴더(읽는 동안 접근을 열어 둬야 한다).
     let folderId: String?
+    /// 책 안의 제목 · 저자(구상안 29A). 제목이 없으면 확장자를 뗀 파일 이름.
+    var title = ""
+    var author: String?
+
+    /// 서재에 보이는 이름(안드로이드 `label`): 책 제목, 모르면 파일 이름.
+    var label: String { title.isEmpty ? displayName : title }
 
     enum Format: String { case epub = "EPUB", txt = "TXT" }
 
@@ -99,11 +105,39 @@ final class Library: ObservableObject {
     func refresh() async {
         scanning = true
         let folders = self.folders
-        let found = await Task.detached(priority: .userInitiated) { Library.scan(folders: folders) }.value
+        let known = infos
+        let (found, seen) = await Task.detached(priority: .userInitiated) { Library.scan(folders: folders, known: known) }.value
         books = found
+        infos = seen
+        Library.saveInfos(seen)
         reloadRecords()
         scanning = false
     }
+
+    // MARK: 이름표(구상안 29A)
+
+    /// 책 안의 제목 · 저자를 판(크기 · 고친 때)마다 기억한다. 훑을 때마다 EPUB 수백 권을 열면 서재가 몇 초씩 늦게 뜬다.
+    struct Info: Codable, Sendable {
+        let title: String
+        let author: String?
+    }
+
+    private var infos: [String: Info] = Library.loadInfos()
+
+    private nonisolated static var infoFile: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("book-info.json")
+    }
+
+    private static func loadInfos() -> [String: Info] {
+        // 망가진 파일이면 비우고 다시 읽는다 — 이름표는 책에서 언제든 다시 얻는다.
+        (try? Data(contentsOf: infoFile)).flatMap { try? JSONDecoder().decode([String: Info].self, from: $0) } ?? [:]
+    }
+
+    private static func saveInfos(_ infos: [String: Info]) {
+        if let data = try? JSONEncoder().encode(infos) { try? data.write(to: infoFile, options: .atomic) }
+    }
+
+    private nonisolated static func infoKey(_ book: LibraryBook) -> String { "\(book.id)|\(book.edition)" }
 
     /// 읽고 돌아왔을 때 — 파일은 그대로고 기록만 바뀌었다.
     func reloadRecords() {
@@ -112,16 +146,32 @@ final class Library: ObservableObject {
         arrange()
     }
 
-    private nonisolated static func scan(folders: [LinkedFolder]) -> [LibraryBook] {
-        var out = scan(root: appFolder, prefix: "app:", folderId: nil)
+    /// 책들과 그 이름표. 이름표는 폴더 접근이 열려 있는 이 자리에서 읽는다(연결한 폴더는 훑는 동안만 열린다).
+    private nonisolated static func scan(folders: [LinkedFolder], known: [String: Info]) -> ([LibraryBook], [String: Info]) {
+        var seen: [String: Info] = [:]
+        func named(_ books: [LibraryBook]) -> [LibraryBook] {
+            books.map { book in
+                let key = infoKey(book)
+                let info = known[key] ?? {
+                    let i = IosBookReader.companion.info(path: book.url.path, displayName: book.displayName)
+                    return Info(title: i.title, author: i.author)
+                }()
+                seen[key] = info
+                var b = book
+                b.title = info.title
+                b.author = info.author
+                return b
+            }
+        }
+        var out = named(scan(root: appFolder, prefix: "app:", folderId: nil))
         for folder in folders {
             var stale = false
             guard let url = try? URL(resolvingBookmarkData: folder.bookmark, bookmarkDataIsStale: &stale) else { continue }
             let access = url.startAccessingSecurityScopedResource()
             defer { if access { url.stopAccessingSecurityScopedResource() } }
-            out += scan(root: url, prefix: "link:\(folder.id):", folderId: folder.id)
+            out += named(scan(root: url, prefix: "link:\(folder.id):", folderId: folder.id))
         }
-        return out
+        return (out, seen)
     }
 
     private nonisolated static func scan(root: URL, prefix: String, folderId: String?) -> [LibraryBook] {
@@ -177,7 +227,7 @@ final class Library: ObservableObject {
 
     private func sorted(_ items: [ShelfItem], recent: ((ShelfItem, ShelfItem) -> Bool)?) -> [ShelfItem] {
         let byName: (ShelfItem, ShelfItem) -> Bool = {
-            $0.book.displayName.compare($1.book.displayName, options: [.numeric, .caseInsensitive], locale: Locale(identifier: "ko_KR")) == .orderedAscending
+            $0.book.label.compare($1.book.label, options: [.numeric, .caseInsensitive], locale: Locale(identifier: "ko_KR")) == .orderedAscending
         }
         switch sort {
         case .recent: return items.sorted(by: recent ?? byName)

@@ -14,6 +14,10 @@ struct LibraryView: View {
     @State private var showMore = false
     @State private var showSort = false
     @State private var pickingFolder = false
+    /// 책 찾기 · 독서 기록(구상안 29A · 30). 찾던 말은 닫아도 남는다 — 다시 열면 그대로(안드로이드와 같다).
+    @State private var searching = false
+    @State private var query = ""
+    @State private var showStats = false
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -27,7 +31,7 @@ struct LibraryView: View {
                     }
                     ImportWays(library: library, linkFolder: { pickingFolder = true })
                 } else {
-                    LibraryTools(library: library, onSort: { showSort = true }, onMore: { showMore = true })
+                    LibraryTools(library: library, onSort: { showSort = true }, onSearch: { searching = true }, onMore: { showMore = true })
                     if library.scanning { CpProgressBar(fraction: 0.35).padding(.horizontal, CpMetrics.gutter) }
                     LibraryShelves(library: library, open: open)
                 }
@@ -39,6 +43,7 @@ struct LibraryView: View {
                 MoreMenu(items: [
                     (.refresh, "새로고침", { Task { await library.refresh() } }),
                     (.folder, "책 폴더", { showFolders = true }),
+                    (.timer, "독서 기록", { showStats = true }),
                     (.info, "앱 정보", { showInfo = true }),
                 ], dismiss: { showMore = false })
                 .padding(.top, 4 + CpMetrics.touchTarget).padding(.trailing, 8)
@@ -58,6 +63,14 @@ struct LibraryView: View {
                     }
                 }
             }
+            if searching {
+                LibrarySearchScreen(library: library, query: $query, open: open, back: { searching = false })
+                    .transition(.move(edge: .trailing))
+            }
+            if showStats {
+                ReadingStatsScreen(library: library, open: { showStats = false; open($0) }, back: { showStats = false })
+                    .transition(.move(edge: .trailing))
+            }
             if showFolders {
                 FoldersPopup(library: library, addFolder: { showFolders = false; pickingFolder = true },
                              dismiss: { showFolders = false })
@@ -71,6 +84,14 @@ struct LibraryView: View {
                 }
             }
         }
+        #if DEBUG
+        // 화면 확인용: -olo-book-search <말> 은 책 찾기, -olo-stats 는 독서 기록을 연다. 출시 빌드에는 없다.
+        .onAppear {
+            let args = CommandLine.arguments
+            if let i = args.firstIndex(of: "-olo-book-search"), i + 1 < args.count { query = args[i + 1]; searching = true }
+            if args.contains("-olo-stats") { showStats = true }
+        }
+        #endif
         .fileImporter(isPresented: $pickingFolder, allowedContentTypes: [.folder]) { result in
             if case let .success(url) = result { Task { await library.link(folder: url) } }
         }
@@ -82,6 +103,7 @@ struct LibraryView: View {
 private struct LibraryTools: View {
     @ObservedObject var library: Library
     let onSort: () -> Void
+    let onSearch: () -> Void
     let onMore: () -> Void
 
     var body: some View {
@@ -98,8 +120,7 @@ private struct LibraryTools: View {
             .buttonStyle(.plain)
             .accessibilityLabel("순서: \(library.sort.rawValue)")
             Spacer(minLength: 0)
-            // 책 찾기는 판 구상안을 정한 뒤에 붙인다(지금은 흐리게 — 리더의 찾기 · 듣기와 같다).
-            CpIconButton(icon: .search, label: "책 찾기", enabled: false) {}
+            CpIconButton(icon: .search, label: "책 찾기", action: onSearch)
             CpIconToggle(options: [(LibraryLayout.grid, CpIcon.grid, "격자로 보기"), (.list, CpIcon.rows, "목록으로 보기"),
                                    (.shelf, CpIcon.shelf, "책장으로 보기")],
                          selection: $library.layout)
@@ -110,7 +131,7 @@ private struct LibraryTools: View {
     }
 }
 
-/// 더 보기 판: 오른쪽 위에 떠서 서재를 밀어내지 않는다. 독서 기록 줄은 iOS 에 그 기능이 생기면 더한다.
+/// 더 보기 판: 오른쪽 위에 떠서 서재를 밀어내지 않는다.
 private struct MoreMenu: View {
     let items: [(CpIcon, String, () -> Void)]
     let dismiss: () -> Void
@@ -246,7 +267,7 @@ extension Array {
     }
 }
 
-private extension View {
+extension View {
     /// 책 한 권을 누르는 곳으로. 화면 읽기는 이름 · 진도 · 다 읽음을 한 번에 읽는다.
     func bookButton(_ item: ShelfItem, action: @escaping () -> Void) -> some View {
         Button(action: action) { self.contentShape(Rectangle()) }
@@ -261,7 +282,7 @@ extension ShelfItem {
     var isReading: Bool { openedAt != nil && finishedAt == nil }
 
     var spokenLabel: String {
-        var s = book.displayName
+        var s = book.label
         if isReading, let p = percent { s += ", \(Int(p.rounded()))% 읽음" }
         if finishedAt != nil { s += ", 다 읽음" }
         return s
@@ -286,7 +307,7 @@ struct BookCell: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             BookCover(book: item.book, library: library)
-            Text(item.book.displayName).font(CpFont.label).foregroundStyle(CpColor.text).lineLimit(1).padding(.top, 8)
+            Text(item.book.label).font(CpFont.label).foregroundStyle(CpColor.text).lineLimit(1).padding(.top, 8)
             BookStatus(item: item, grid: true)
         }
         .frame(width: width, alignment: .leading)
@@ -310,7 +331,9 @@ private struct BookStatus: View {
             .padding(.top, 6)
             .padding(.trailing, grid ? 0 : 12)
         } else if grid {
-            Text(item.book.format.rawValue).font(CpFont.caption).foregroundStyle(CpColor.textMuted).padding(.top, 4)
+            // 저자를 알면 저자(구상안 29A 로 책 정보를 읽는다), 모르면 형식.
+            Text(item.book.author ?? item.book.format.rawValue).font(CpFont.caption).foregroundStyle(CpColor.textMuted)
+                .lineLimit(1).padding(.top, 4)
         }
     }
 }
@@ -325,7 +348,7 @@ struct BookRow: View {
         HStack(alignment: .top, spacing: 14) {
             BookCover(book: item.book, library: library, small: true).frame(width: 56)
             VStack(alignment: .leading, spacing: 0) {
-                Text(item.book.displayName).font(CpFont.body).foregroundStyle(CpColor.text).lineLimit(2)
+                Text(item.book.label).font(CpFont.body).foregroundStyle(CpColor.text).lineLimit(2)
                 BookStatus(item: item, grid: false)
                 HStack(spacing: 0) {
                     Text(item.book.format.rawValue).font(CpFont.caption).foregroundStyle(CpColor.textMuted)
@@ -386,7 +409,7 @@ struct BookCover: View {
                 CpIconView(icon: book.format == .epub ? .book : .text, size: 18, color: .white)
             } else {
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(book.displayName).font(CpFont.body).foregroundStyle(.white).lineLimit(3)
+                    Text(book.label).font(CpFont.body).foregroundStyle(.white).lineLimit(3)
                         .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(Color.black.opacity(0.6))
                     Spacer(minLength: 0)
                     Text(book.format.rawValue).font(CpFont.caption).foregroundStyle(.white)

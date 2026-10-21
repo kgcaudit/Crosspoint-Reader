@@ -82,6 +82,9 @@ class ReaderFrame(
     val charsLeftBook: Long = 0,
 )
 
+/** 서재에 보일 책 이름 · 저자. */
+class BookInfo(val title: String, val author: String?)
+
 /** 듣기가 읽을 한 문장(장 안 글자 구간, 공통 `Sentence`). */
 class SpeechSentence(val start: Int, val end: Int)
 
@@ -902,6 +905,23 @@ class IosBookReader private constructor(
             }
             store.markOpened(bookId)
             return IosBookReader(document, store, cacheDir, edition)
+        }
+
+        /**
+         * 서재 이름표(구상안 29A): 책 안의 제목 · 저자. 제목이 없으면 확장자를 뗀 파일 이름(공통 `EpubDocument` 와 같은 규칙). TXT 는
+         * 파일을 읽지 않고 파일 이름 — 수 MB 글을 서재를 훑을 때마다 열 까닭이 없다. 읽을 수 없는 책도 파일 이름으로(null 이 아니다).
+         */
+        fun info(path: String, displayName: String): BookInfo {
+            val plain = BookInfo(displayName.substringBeforeLast('.', displayName), null)
+            if (BookFormat.fromFileName(displayName) != BookFormat.EPUB) return plain
+            return runCatching {
+                val document = EpubDocument.open(BookId("info"), displayName, FileSeekableSource(path))
+                try {
+                    BookInfo(document.meta.title, document.meta.author)
+                } finally {
+                    document.close()
+                }
+            }.getOrDefault(plain)
         }
 
         /** EPUB 표지 그림. 없거나 읽을 수 없으면 null(서재는 이름 표지를 그린다). */
