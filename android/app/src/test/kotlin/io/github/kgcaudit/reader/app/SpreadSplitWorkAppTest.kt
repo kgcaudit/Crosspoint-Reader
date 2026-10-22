@@ -1,5 +1,9 @@
 package io.github.kgcaudit.reader.app
 
+import io.github.kgcaudit.reader.ui.design.WIDE_SKETCH_TOGETHER
+import io.github.kgcaudit.reader.ui.design.WIDE_SKETCH_HALVES
+import io.github.kgcaudit.reader.ui.design.WIDE_TOGETHER
+import io.github.kgcaudit.reader.ui.design.WIDE_HALVES
 import androidx.compose.ui.test.isSelected
 import io.github.kgcaudit.reader.ui.design.WIDE_CHOSEN_NOTE
 import io.github.kgcaudit.reader.ui.design.WIDE_AUTO_NOTE
@@ -257,7 +261,7 @@ class SpreadSplitWorkAppTest {
     }
 
     @Test
-    fun `a wide picture is two pages by itself and calling it one sheet keeps only that work whole until set back to automatic`() {
+    fun `a wide picture shows one page at a time by itself and choosing two pages keeps only that work together until set back to automatic`() {
         // 아무것도 고르지 않은 작품: 가로로 긴 2쪽은 자동으로 두 쪽 그림 — 한 쪽 보기에서 반씩 넘어간다.
         open("별")
         waitForColor(red, "1쪽이 아니다")
@@ -270,21 +274,22 @@ class SpreadSplitWorkAppTest {
         assertTrue(middleY(node(hasText("넓은 그림")).fetchSemanticsNode()) > middleY(node(hasText("세로에서 두 쪽 보기")).fetchSemanticsNode()))
         assertEquals(startX("세로에서 두 쪽 보기"), startX("넓은 그림"), 1f, "넓은 그림 줄이 두 쪽 보기 줄과 다른 자리에서 시작한다")
         // 자동 판단이 고른 칸이 처음부터 골라져 있고, 자동이라고 말한다. 없어진 말("펼침면 · 따름 · 이 작품")은 판에 없다.
-        assertTrue(picked("두 쪽"), "자동 판단(두 쪽)이 골라져 있지 않다")
+        assertTrue(picked(WIDE_HALVES), "자동 판단(한 쪽)이 골라져 있지 않다")
         assertTrue(has(hasText(WIDE_AUTO_NOTE)), "자동으로 판단했다는 설명이 없다")
         for (gone in listOf("펼침면 나누기", "이 작품", "따름")) assertFalse(has(hasText(gone)), "없앤 말 \"$gone\" 이 남았다")
-        // 어떻게 보이는지 그림 줄: 두 쪽 그림은 한 쪽 보기에서 반씩, 두 쪽 보기에서 함께.
-        assertTrue(has(hasText("반씩 차례로")) && has(hasText("두 쪽을 함께(한 장 그대로)")))
+        // 단추 이름이 보이는 모습이다(0.55.3): 고른 "한 쪽" 아래 그림 줄도 한 쪽씩. 0.55.1 은 "두 쪽" 이 골라진 채 한 쪽씩 보였다.
+        assertTrue(has(hasText(WIDE_SKETCH_HALVES)), "한 쪽을 골랐는데 그림 줄이 한 쪽씩이라고 하지 않는다")
+        assertFalse(has(hasText(WIDE_SKETCH_TOGETHER)))
 
-        choose("넓은 그림", "한 장")
+        choose("넓은 그림", WIDE_TOGETHER)
         compose.waitUntil(10_000) { work("별").splitSpreads == false }
         // 보던 2쪽이 곧바로 통째로 서고, 그림 줄도 한 장으로 바뀐다. 고른 값이라고 말하고 되돌릴 길을 준다.
         waitFor(hasText(WIDE_CHOSEN_NOTE))
-        assertTrue(picked("한 장"), "한 장을 눌렀는데 골라지지 않았다")
-        assertFalse(has(hasText("반씩 차례로")), "한 장을 골랐는데 그림 줄이 반씩이라고 한다")
+        assertTrue(picked(WIDE_TOGETHER), "두 쪽을 눌렀는데 골라지지 않았다")
+        assertTrue(has(hasText(WIDE_SKETCH_TOGETHER)) && !has(hasText(WIDE_SKETCH_HALVES)), "두 쪽을 골랐는데 그림 줄이 함께라고 하지 않는다")
         save(screen(), "split-work-panel.png")
         back(); back()
-        assertSubtitle("2 / 4쪽", "한 장을 골랐는데 2쪽이 반으로 남았다")
+        assertSubtitle("2 / 4쪽", "두 쪽을 골랐는데 2쪽이 반으로 남았다")
 
         // 다른 작품(달)은 고르지 않아 자동 그대로 — 별에 고른 값이 번지지 않는다.
         assertEquals(null, work("달").splitSpreads)
@@ -292,7 +297,7 @@ class SpreadSplitWorkAppTest {
         compose.waitUntil(30_000) { has(hasContentDescription("달 작품")) }
         open("달", fresh = false)
         next()
-        waitForColor(blue, "별에 고른 한 장이 달까지 번졌다(2쪽이 왼쪽 반이 아니다)")
+        waitForColor(blue, "별에 고른 두 쪽이 달까지 번졌다(2쪽이 왼쪽 반이 아니다)")
 
         // 별을 자동으로 되돌리면 다시 두 쪽 — 반씩 넘어간다.
         back(); back()

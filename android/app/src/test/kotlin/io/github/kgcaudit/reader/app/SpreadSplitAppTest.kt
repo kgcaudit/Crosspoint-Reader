@@ -147,7 +147,7 @@ class SpreadSplitAppTest {
     }
 
     @Test
-    fun `calling the wide picture one sheet shows the whole spread at the same page and a half bookmark is the book's page`() {
+    fun `choosing two pages together shows the whole spread at the same page and a half bookmark is the book's page`() {
         open()
         next(); next()
         waitForColor(green, "오른쪽 반에 오지 않았다")
@@ -158,7 +158,7 @@ class SpreadSplitAppTest {
         click(hasText("보기"))
         waitFor(hasText("넓은 그림"))
         val y = node(hasText("넓은 그림")).fetchSemanticsNode().boundsInRoot.center.y
-        compose.onAllNodes(hasText("한 장"), useUnmergedTree = true).let { nodes ->
+        compose.onAllNodes(hasText(io.github.kgcaudit.reader.ui.design.WIDE_TOGETHER), useUnmergedTree = true).let { nodes ->
             val k = nodes.fetchSemanticsNodes().indexOfFirst { kotlin.math.abs(it.boundsInRoot.center.y - y) < 30f }
             nodes[k].performClick()
         }
