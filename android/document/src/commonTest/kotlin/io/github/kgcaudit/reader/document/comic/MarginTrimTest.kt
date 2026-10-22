@@ -108,7 +108,7 @@ class MarginTrimTest {
     }
 
     @Test
-    fun `white, grey, scanner black and yellowed paper still count as paper`() {
+    fun `white - grey - scanner black and yellowed paper still count as paper`() {
         val papers = mapOf(
             "흰색" to rgb(255, 255, 255),
             "JPEG 흰색" to rgb(250, 251, 249),

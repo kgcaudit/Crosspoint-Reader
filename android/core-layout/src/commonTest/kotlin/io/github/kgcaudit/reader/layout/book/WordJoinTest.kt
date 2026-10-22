@@ -26,7 +26,7 @@ class WordJoinTest {
     )
 
     @Test
-    fun `fast reading joins only where the meaning clearly continues, as in the confirmed mockup`() {
+    fun `fast reading joins only where the meaning clearly continues - as in the confirmed mockup`() {
         for ((off, light) in cases) assertEquals(light, joinWords(off, WordJoin.Light))
     }
 
@@ -45,7 +45,7 @@ class WordJoinTest {
     }
 
     @Test
-    fun `it never joins across punctuation, quotes or foreign words`() {
+    fun `it never joins across punctuation - quotes or foreign words`() {
         // 쉼표 · 마침표 뒤, 여는 따옴표 앞은 쉬어야 뜻이 산다. 영어 낱말을 붙이면 한 낱말로 읽는다.
         // "말했다." 뒤는 붙이지 않고, 그 뒤의 "그 사람이" 는 붙인다.
         assertEquals("그는 말했다. 그사람이 왔다.", joinWords("그는 말했다. 그 사람이 왔다.", WordJoin.Light))

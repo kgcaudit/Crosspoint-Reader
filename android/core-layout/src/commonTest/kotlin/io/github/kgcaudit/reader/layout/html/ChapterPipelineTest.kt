@@ -74,7 +74,7 @@ class ChapterPipelineTest {
         flatMap { it.runs }.first { offset in it.start until it.endExclusive }
 
     @Test
-    fun `the whole chapter reaches the page, in order and without gaps`() {
+    fun `the whole chapter reaches the page - in order and without gaps`() {
         val chapter = chapter()
         val pages = pages(chapter)
 
@@ -90,7 +90,7 @@ class ChapterPipelineTest {
     }
 
     @Test
-    fun `every drawn run points at real text, in reading order`() {
+    fun `every drawn run points at real text - in reading order`() {
         val chapter = chapter()
         var cursor = 0
         var count = 0

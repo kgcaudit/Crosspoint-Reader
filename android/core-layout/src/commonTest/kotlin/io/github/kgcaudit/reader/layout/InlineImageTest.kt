@@ -82,7 +82,7 @@ class InlineImageTest {
     }
 
     @Test
-    fun `the picture keeps exactly the one character it had, so saved places do not move`() {
+    fun `the picture keeps exactly the one character it had - so saved places do not move`() {
         // 그림마다 문단을 끊던 판과 정규화 텍스트가 같아야 이미 꽂은 책갈피 · 형광펜이 그대로다.
         val c = chapter("<p>외자 <img src=\"g.png\"/> 가 든 문장</p>")
         assertEquals("외자￼가 든 문장", c.text)

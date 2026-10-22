@@ -14,7 +14,7 @@ class LinkTest {
     private fun Chapter.label(link: Link) = text.substring(link.start, link.endExclusive)
 
     @Test
-    fun `a link covers exactly its own letters, not the space before it`() {
+    fun `a link covers exactly its own letters - not the space before it`() {
         // 앞 공백까지 잡으면 누르는 칸 · 칠하는 칸이 한 칸 앞으로 삐져나온다.
         val c = parse("""<html><body><p>보아 구렁이 <a href="#n1">1</a> 그림이었다.</p></body></html>""")
         val link = c.links.single()

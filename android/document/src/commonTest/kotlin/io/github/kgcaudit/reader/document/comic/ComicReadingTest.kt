@@ -27,7 +27,7 @@ class ComicReadingTest {
     }
 
     @Test
-    fun `the direction chosen for a work beats comic info, and nothing chosen reads left to right`() {
+    fun `the direction chosen for a work beats comic info - and nothing chosen reads left to right`() {
         val manga = listOf(archive("m", "작품 01권.cbz", ComicInfo(rightToLeft = true)), archive("n", "작품 02권.cbz"))
         assertTrue(ComicReading.rightToLeft(ComicShelf.group(manga).single()))
         val key = ComicShelf.group(manga).single().key
@@ -38,7 +38,7 @@ class ComicReadingTest {
     }
 
     @Test
-    fun `the next volume follows in order, also from the other copy, and the last has none`() {
+    fun `the next volume follows in order - also from the other copy - and the last has none`() {
         assertEquals("2권", ComicReading.nextAfter(work, "1")?.label)
         val third = work.entries.single { it.label == "3권" }
         val other = (listOf(third.unit) + third.copies).first { it.id != third.unit.id }.id
@@ -48,7 +48,7 @@ class ComicReadingTest {
     }
 
     @Test
-    fun `resume picks the latest opened volume, or the next one once it is finished`() {
+    fun `resume picks the latest opened volume - or the next one once it is finished`() {
         assertNull(ComicReading.resume(work, emptyMap()))
         val reading = mapOf("1" to ComicProgress(179, 180, 10, finishedAtEpochMs = 10), "2" to ComicProgress(44, 182, 20))
         assertEquals("2권" to 44, ComicReading.resume(work, reading)!!.let { it.first.label to it.second!!.page })
@@ -62,7 +62,7 @@ class ComicReadingTest {
     }
 
     @Test
-    fun `progress fraction never leaves zero to one, even for broken counts`() {
+    fun `progress fraction never leaves zero to one - even for broken counts`() {
         assertEquals(0.5f, ComicProgress(50, 101, 0).fraction)
         assertEquals(1f, ComicProgress(500, 10, 0).fraction)
         assertEquals(0f, ComicProgress(0, 0, 0).fraction)

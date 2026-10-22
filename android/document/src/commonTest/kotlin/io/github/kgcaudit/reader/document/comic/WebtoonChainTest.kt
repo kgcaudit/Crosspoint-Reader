@@ -31,7 +31,7 @@ class WebtoonChainTest {
     }
 
     @Test
-    fun `a place written as episode, picture and fraction comes back to the same height`() {
+    fun `a place written as episode - picture and fraction comes back to the same height`() {
         for (y in listOf(0f, 750f, 1999f, 2050f, 2300f)) {
             val (k, i, f) = chain.at(y)
             assertEquals(y, chain.offsetOf(k, i, f), 0.5f, "$y 에서 적은 자리가 미끄러졌다")
@@ -57,7 +57,7 @@ class WebtoonChainTest {
     }
 
     @Test
-    fun `a frame over two pictures takes both, not just a sliver of the first`() {
+    fun `a frame over two pictures takes both - not just a sliver of the first`() {
         // 기둥 폭 100: 그림 두 장(높이 300 · 500). 틀이 앞 그림 끝 2px 에 걸치고 뒤 그림으로 내려간다.
         val chain = WebtoonChain(listOf(WebtoonColumn(listOf(ImageSize(100, 300), ImageSize(100, 500)), 100f)), seam = 40f)
         val pieces = chain.pieces(0, 298f, 443f)

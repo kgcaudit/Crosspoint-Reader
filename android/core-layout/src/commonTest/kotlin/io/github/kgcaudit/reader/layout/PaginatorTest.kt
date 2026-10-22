@@ -393,7 +393,7 @@ class PaginatorTest {
     // ── 레코드 수 ───────────────────────────────────────────────────
 
     @Test
-    fun `korean pages produce about one run per line, not one per character`() {
+    fun `korean pages produce about one run per line - not one per character`() {
         // 글자 단위 줄바꿈은 토큰을 글자마다 만든다. 병합이 없으면 880자 페이지가
         // 런 880개가 되어 캐시가 20배로 부풀고 그리기도 글자마다 호출이 된다.
         // 페이지 넘김 16ms 예산에 직접 걸리는 성질이라 테스트로 고정한다.

@@ -1,5 +1,6 @@
 package io.github.kgcaudit.reader.document.epub
 
+import io.github.kgcaudit.reader.document.io.StringInput
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -8,7 +9,7 @@ import kotlin.test.assertTrue
 class NcxParserTest {
 
     private fun parse(xml: String, baseDir: String = "OEBPS") =
-        NcxParser.parse(xml.reader(), baseDir)
+        NcxParser.parse(xml.input(), baseDir)
 
     @Test
     fun `flat nav points become depth zero entries in document order`() {
@@ -134,7 +135,7 @@ class NcxParserTest {
 class NavParserTest {
 
     private fun parse(xml: String, baseDir: String = "OEBPS") =
-        NavParser.parse(xml.reader(), baseDir)
+        NavParser.parse(xml.input(), baseDir)
 
     @Test
     fun `the toc nav is read and ol nesting becomes depth`() {
@@ -200,7 +201,7 @@ class NavParserTest {
     }
 
     @Test
-    fun `a span inside a link is part of the label, not a new entry`() {
+    fun `a span inside a link is part of the label - not a new entry`() {
         // Sigil·InDesign 이 흔히 만드는 모양. <span> 을 새 항목으로 보면 아직 빈 <a> 가 먼저 버려져
         // 목차 줄이 통째로 사라진다.
         val entries = parse(
@@ -211,7 +212,7 @@ class NavParserTest {
     }
 
     @Test
-    fun `a span heading without an href is dropped, its children are kept`() {
+    fun `a span heading without an href is dropped - its children are kept`() {
         // 링크 없는 상위 제목은 이동할 곳이 없으므로 목록에 넣지 않는다.
         val entries = parse(
             """
@@ -267,3 +268,6 @@ class NavParserTest {
         assertNull(entries.single().fragment)
     }
 }
+
+/** 공통 시험이라 JVM 의 String.reader() 를 쓰지 않는다 — iOS 에서 시험이 컴파일되지 않았다(iOS 세션 요청, 2026-10-21). */
+private fun String.input() = StringInput(this)

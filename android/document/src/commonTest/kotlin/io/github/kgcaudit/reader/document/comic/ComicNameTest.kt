@@ -49,7 +49,7 @@ class ComicNameTest {
     }
 
     @Test
-    fun `a range is an omnibus, not its last volume`() {
+    fun `a range is an omnibus - not its last volume`() {
         // 줄표(–)는 맥 · 워드가 붙임표 대신 넣는다.
         for (name in listOf("별을 줍는 아이 4-6권 합본.zip", "별을 줍는 아이 4~6권.zip", "별을 줍는 아이 4–6권.zip")) {
             val n = p(name)
@@ -63,7 +63,7 @@ class ComicNameTest {
     }
 
     @Test
-    fun `chapters, parts and english markers are read`() {
+    fun `chapters - parts and english markers are read`() {
         assertEquals(17.0, p("전학생 17화").chapter)
         assertEquals(3.0, p("전학생 제3회").chapter)
         assertEquals(2, p("나 혼자 2부 15화.cbz").part)
@@ -76,7 +76,7 @@ class ComicNameTest {
     }
 
     @Test
-    fun `specials are marked and zero is a special, not a missing number`() {
+    fun `specials are marked and zero is a special - not a missing number`() {
         assertTrue(p("별을 줍는 아이 외전.cbz").special)
         assertNull(p("별을 줍는 아이 외전.cbz").volume)
         assertTrue(p("Title SP01.cbz").special)
@@ -97,7 +97,7 @@ class ComicNameTest {
     }
 
     @Test
-    fun `the name key ignores spacing, case, symbols and full-width letters`() {
+    fun `the name key ignores spacing - case - symbols and full-width letters`() {
         assertEquals(ComicName.key("별을 줍는 아이"), ComicName.key("별을줍는아이"))
         assertEquals(ComicName.key("One Piece"), ComicName.key("ONE_PIECE".replace('_', ' ')))
         assertEquals(ComicName.key("ＯＮＥ ＰＩＥＣＥ"), ComicName.key("one piece"))

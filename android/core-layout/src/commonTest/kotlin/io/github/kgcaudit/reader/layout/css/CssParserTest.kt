@@ -9,7 +9,7 @@ import kotlin.test.assertTrue
 class CssLengthTest {
 
     @Test
-    fun `units are parsed, with rem distinguished from em`() {
+    fun `units are parsed - with rem distinguished from em`() {
         assertEquals(CssLength(1.5f, CssUnit.Em), CssLength.parse("1.5em"))
         assertEquals(CssLength(1.5f, CssUnit.Rem), CssLength.parse("1.5rem"))
         assertEquals(CssLength(12f, CssUnit.Pt), CssLength.parse("12pt"))
@@ -59,7 +59,7 @@ class CssParserTest {
     }
 
     @Test
-    fun `explicit normal values are recorded as false, not as absent`() {
+    fun `explicit normal values are recorded as false - not as absent`() {
         // null 과 false 를 구분하지 않으면 `em { font-style: normal }` 이 바깥의
         // 기울임을 되돌리지 못한다.
         val d = declarations("font-style: normal; font-weight: normal")
@@ -77,7 +77,7 @@ class CssParserTest {
     }
 
     @Test
-    fun `font sizes become a scale, whatever the unit`() {
+    fun `font sizes become a scale - whatever the unit`() {
         assertEquals(1.5f, declarations("font-size: 1.5em").fontSizeScale)
         assertEquals(0.8f, declarations("font-size: 80%").fontSizeScale)
         assertEquals(1.5f, declarations("font-size: 24px").fontSizeScale)
@@ -181,14 +181,14 @@ class CssParserTest {
     }
 
     @Test
-    fun `comments are removed, including an unclosed one`() {
+    fun `comments are removed - including an unclosed one`() {
         val sheet = CssParser.parse("/* 주석 */ p { text-align: center } /* 끝나지 않은 주석 p { text-align: left }")
         assertEquals(TextAlign.Center, sheet.declarationsFor(listOf(ElementInfo("p"))).textAlign)
         assertEquals(1, sheet.rules.size)
     }
 
     @Test
-    fun `at-rules are skipped whole, wherever they sit`() {
+    fun `at-rules are skipped whole - wherever they sit`() {
         // @media 를 선택자로 오인하면 안쪽 규칙이 통째로 잘못 붙는다.
         val css = """
             @charset "utf-8";

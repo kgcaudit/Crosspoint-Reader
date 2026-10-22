@@ -25,7 +25,7 @@ class ComicSpreadsTest {
     }
 
     @Test
-    fun `a nearly square page pairs like a portrait page, with the same threshold as spread splitting`() {
+    fun `a nearly square page pairs like a portrait page - with the same threshold as spread splitting`() {
         // 1.1 배 넓은 쪽(정사각에 가까운 표지 · 그림)은 펼침면이 아니다 — 나누기가 반으로 자르지 않는 쪽을 두 쪽 보기가 혼자
         // 세우면, 같은 쪽이 보기마다 다른 종류가 된다.
         val square = ImageSize(1980, 1800)

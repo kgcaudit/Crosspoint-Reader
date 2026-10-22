@@ -75,7 +75,7 @@ class ChapterParserTest {
     // ── 인라인 서식 ─────────────────────────────────────────────────
 
     @Test
-    fun `inline tags give runs their style, and nesting combines`() {
+    fun `inline tags give runs their style - and nesting combines`() {
         val chapter = parse("<p>보통<b>굵게<i>둘다</i></b></p>")
         val runs = chapter.paragraphs().single().runs
         assertEquals(3, runs.size)
@@ -126,7 +126,7 @@ class ChapterParserTest {
     // ── 블록 서식 ───────────────────────────────────────────────────
 
     @Test
-    fun `headings get their default size, weight and alignment`() {
+    fun `headings get their default size - weight and alignment`() {
         val chapter = parse("<h1>제목</h1>")
         val heading = chapter.paragraphs().single()
         assertEquals(2f, heading.runs.single().style.sizeScale)
@@ -265,7 +265,7 @@ class ChapterParserTest {
     // ── 버리는 것 ───────────────────────────────────────────────────
 
     @Test
-    fun `script, head and display none are dropped whole`() {
+    fun `script - head and display none are dropped whole`() {
         val chapter = parse(
             """
             <html><head><title>제목</title></head>

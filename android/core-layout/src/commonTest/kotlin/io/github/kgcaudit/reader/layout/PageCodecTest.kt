@@ -69,7 +69,7 @@ class PageCodecTest {
     }
 
     @Test
-    fun `float positions survive exactly, including fractional pixels`() {
+    fun `float positions survive exactly - including fractional pixels`() {
         // 양쪽정렬이 소수점 위치를 만든다. 반올림해 저장하면 글자가 조금씩 밀린다.
         val positions = listOf(0f, 0.25f, 33.333333f, -1.5f, 1234.5678f)
         val page = Page(
