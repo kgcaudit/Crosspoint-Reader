@@ -161,4 +161,30 @@ class PdfTextTest {
         // 쪽 끝의 긴 문장: 머리는 보이고 아래가 화면 밖이어도 이미 끝이면 거꾸로 올리지 않는다.
         assertNull(IosPdfText.follow(1500.0, 2100.0, 1400.0, 600.0, 1400.0))
     }
+
+    @Test
+    fun `a box on a page turned clockwise lands where the turned picture shows it`() {
+        // 돌리기 전 쪽의 왼쪽 위 구석 글자(가로 0.1 ~ 0.2, 세로 0.0 ~ 0.05).
+        val box = floatArrayOf(0.1f, 0f, 0.2f, 0.05f)
+        fun at(rotation: Int) = IosPdfText.rotated(box[0], box[1], box[2], box[3], rotation).toList()
+        assertEquals(box.toList(), at(0))
+        // 시계 방향 90도: 왼쪽 위는 오른쪽 위로 간다.
+        assertEquals(listOf(0.95f, 0.1f, 1f, 0.2f), at(90))
+        // 180도: 오른쪽 아래.
+        assertEquals(listOf(0.8f, 0.95f, 0.9f, 1f), at(180))
+        // 270도: 왼쪽 아래.
+        assertEquals(listOf(0f, 0.8f, 0.05f, 0.9f), at(270))
+        // 음수 · 360 넘는 값도 같은 방향(PDF 의 /Rotate 는 -90 · 450 도 쓴다).
+        assertEquals(at(270), at(-90))
+        assertEquals(at(90), at(450))
+    }
+
+    @Test
+    fun `a turned box keeps its corners in order`() {
+        // 왼쪽 < 오른쪽, 위 < 아래 — 뒤집힌 네모는 칠도, 누른 자리 찾기도 비어 버린다.
+        for (r in listOf(0, 90, 180, 270)) {
+            val (l, t, rr, b) = IosPdfText.rotated(0.3f, 0.4f, 0.5f, 0.45f, r).toList()
+            assertTrue(l < rr && t < b, "rotation $r")
+        }
+    }
 }

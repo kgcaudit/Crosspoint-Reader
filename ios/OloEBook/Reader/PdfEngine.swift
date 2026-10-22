@@ -401,7 +401,8 @@ actor PdfEngine: BookEngine, ZoomSource {
     private var speakingRange: (page: Int, start: Int, end: Int)?
     private var readableCache: Bool?
 
-    /// 쪽의 글자 층: PDFKit 의 글과 글자 네모(쪽 비율, 왼쪽 위가 0)를 공통 `PageText` 로. 회전한 쪽은 자리 없이 글만(찾기 · 듣기는 된다).
+    /// 쪽의 글자 층: PDFKit 의 글과 글자 네모(쪽 비율, 왼쪽 위가 0)를 공통 `PageText` 로. 회전한 쪽은 네모를 보이는 방향으로 돌린다
+    /// (Kotlin `IosPdfText.rotated`) — 쪽 그림이 돌아 그려지기 때문이다.
     /// 몇 쪽만 쥐고 있는다 — 글자마다 네모를 재는 일이 쪽마다 수천 번이다.
     func layer(_ p: Int) -> PageText {
         if let l = layers[p] { return l }
@@ -410,7 +411,8 @@ actor PdfEngine: BookEngine, ZoomSource {
         let n = (text as NSString).length
         let box = page.bounds(for: .mediaBox)
         var boxes = KotlinFloatArray(size: 0)
-        if page.rotation % 360 == 0, box.width > 0, box.height > 0, n > 0 {
+        let turn = Int32(page.rotation)
+        if box.width > 0, box.height > 0, n > 0 {
             boxes = KotlinFloatArray(size: Int32(n * 4))
             for i in 0..<n {
                 // 글자 네모는 그 글자를 고른 네모로 잰다. `characterBounds(at:)` 는 번호가 `page.string` 과 어긋나는 PDF 가 있고
@@ -423,10 +425,10 @@ actor PdfEngine: BookEngine, ZoomSource {
                 if r.isNull || r.isEmpty || !r.minX.isFinite {
                     for j in 0..<4 { boxes.set(index: k + Int32(j), value: .nan) }
                 } else {
-                    boxes.set(index: k, value: Float((r.minX - box.minX) / box.width))
-                    boxes.set(index: k + 1, value: Float((box.maxY - r.maxY) / box.height))
-                    boxes.set(index: k + 2, value: Float((r.maxX - box.minX) / box.width))
-                    boxes.set(index: k + 3, value: Float((box.maxY - r.minY) / box.height))
+                    let q = IosPdfText.shared.rotated(l: Float((r.minX - box.minX) / box.width), t: Float((box.maxY - r.maxY) / box.height),
+                                                      r: Float((r.maxX - box.minX) / box.width), b: Float((box.maxY - r.minY) / box.height),
+                                                      rotation: turn)
+                    for j in 0..<4 { boxes.set(index: k + Int32(j), value: q.get(index: Int32(j))) }
                 }
             }
         }

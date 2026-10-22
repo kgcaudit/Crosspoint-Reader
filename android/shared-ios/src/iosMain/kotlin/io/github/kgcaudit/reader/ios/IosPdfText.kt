@@ -87,6 +87,18 @@ object IosPdfText {
     fun rects(layer: PageText, start: Int, end: Int): List<FloatArray> =
         layer.rects(start.coerceIn(0, layer.length), end.coerceIn(0, layer.length)).map { floatArrayOf(it.left, it.top, it.right, it.bottom) }
 
+    /**
+     * 글자 네모(돌리기 전 쪽 비율, 왼쪽 위가 0 — l, t, r, b)를 화면에 보이는 방향으로. [rotation] 은 PDF 의 `/Rotate`(시계 방향,
+     * 90 의 배수). 돌린 쪽은 그림이 돌아 그려지므로 네모도 같이 돌려야 칠 · 찾은 말이 글자 위에 앉는다 — 돌리지 않으면 회전한 쪽에서는
+     * 글자 자리를 쓸 수 없어 칠을 하지 못했다.
+     */
+    fun rotated(l: Float, t: Float, r: Float, b: Float, rotation: Int): FloatArray = when (((rotation % 360) + 360) % 360) {
+        90 -> floatArrayOf(1f - b, l, 1f - t, r)
+        180 -> floatArrayOf(1f - r, 1f - b, 1f - l, 1f - t)
+        270 -> floatArrayOf(t, 1f - r, b, 1f - l)
+        else -> floatArrayOf(l, t, r, b)
+    }
+
     /** [start] ~ [end] 가 쪽에서 차지하는 높이(쪽 비율의 위 · 아래). 글자 네모가 없으면 null(회전한 쪽 등). */
     fun span(layer: PageText, start: Int, end: Int): FloatArray? {
         val r = rects(layer, start, end)
