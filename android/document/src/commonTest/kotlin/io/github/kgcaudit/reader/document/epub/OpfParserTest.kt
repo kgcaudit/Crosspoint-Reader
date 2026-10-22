@@ -1,5 +1,6 @@
 package io.github.kgcaudit.reader.document.epub
 
+import io.github.kgcaudit.reader.document.io.StringInput
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -8,7 +9,7 @@ import kotlin.test.assertTrue
 class OpfParserTest {
 
     private fun parse(xml: String, opfPath: String = "OEBPS/content.opf") =
-        OpfParser.parse(xml.reader(), opfPath)
+        OpfParser.parse(xml.input(), opfPath)
 
     private val epub3 = """
         <?xml version="1.0" encoding="UTF-8"?>
@@ -52,7 +53,7 @@ class OpfParserTest {
     }
 
     @Test
-    fun `spine order follows the document, not the manifest`() {
+    fun `spine order follows the document - not the manifest`() {
         val opf = parse(epub3)
         assertEquals(listOf("OEBPS/text/ch1.xhtml", "OEBPS/text/ch2.xhtml"), opf.spineItems.map { it.href })
     }
@@ -225,3 +226,6 @@ class OpfParserTest {
         assertEquals("OEBPS/c.jpg", opf.coverImageItem?.href)
     }
 }
+
+/** 공통 시험이라 JVM 의 String.reader() 를 쓰지 않는다 — iOS 에서 시험이 컴파일되지 않았다(iOS 세션 요청, 2026-10-21). */
+private fun String.input() = StringInput(this)

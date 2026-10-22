@@ -13,7 +13,7 @@ class BookLinksTest {
     private fun para(text: String, from: Int, to: Int) = Block.Paragraph(listOf(InlineRun(from, to)), io.github.kgcaudit.reader.layout.BlockStyle.Default)
 
     @Test
-    fun `a footnote with a picture in its sentence shows a space, not a box glyph`() {
+    fun `a footnote with a picture in its sentence shows a space - not a box glyph`() {
         // 문장 속 그림이 이제 문단 안에 남는다. 각주 판은 글만 그리므로 그림 글자를 그대로 두면 "￼" 가 찍힌다.
         val text = "1) 회사\uFFFC로고 설명."
         val note = noteText(text, listOf(para(text, 0, text.length)), listOf(0), 0)

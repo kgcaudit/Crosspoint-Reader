@@ -1,5 +1,6 @@
 package io.github.kgcaudit.reader.document.epub
 
+import io.github.kgcaudit.reader.document.io.StringInput
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -10,7 +11,7 @@ class PictureBookTest {
     private fun page(body: String, head: String = "<title>제목이 길어도 세지 않는다 제목이 길어도 세지 않는다</title>") =
         "<html><head>$head<style>p { color: red }</style></head><body>$body</body></html>"
 
-    private fun scan(path: String, xhtml: String) = PictureBooks.scan(path, xhtml.reader())
+    private fun scan(path: String, xhtml: String) = PictureBooks.scan(path, xhtml.input())
 
     @Test
     fun `a chapter's pictures are found from img and svg image and resolved against the chapter`() {
@@ -49,7 +50,7 @@ class PictureBookTest {
     }
 
     @Test
-    fun `broken markup, data pictures and duplicated pictures do not break the pages`() {
+    fun `broken markup - data pictures and duplicated pictures do not break the pages`() {
         // 닫히지 않은 태그 · 꺼낼 수 없는 data: 그림 · 같은 그림을 두 번 부르는 마크업.
         val broken = scan("a.xhtml", "<html><body><div><img src=\"x.png\"><img src=\"data:image/png;base64,AAAA\"/><img src=\"x.png\"/>")
         assertEquals(listOf("x.png", "x.png"), broken.images)
@@ -72,9 +73,12 @@ class PictureBookTest {
         fun opf(spine: String) = """<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0">
             <metadata/><manifest><item id="a" href="a.xhtml" media-type="application/xhtml+xml"/></manifest>
             $spine<itemref idref="a"/></spine></package>"""
-        assertEquals(true, OpfParser.parse(opf("<spine page-progression-direction=\"rtl\">").reader(), "OEBPS/content.opf").rightToLeft)
-        assertEquals(false, OpfParser.parse(opf("<spine page-progression-direction=\"ltr\">").reader(), "OEBPS/content.opf").rightToLeft)
+        assertEquals(true, OpfParser.parse(opf("<spine page-progression-direction=\"rtl\">").input(), "OEBPS/content.opf").rightToLeft)
+        assertEquals(false, OpfParser.parse(opf("<spine page-progression-direction=\"ltr\">").input(), "OEBPS/content.opf").rightToLeft)
         // 적혀 있지 않으면 모름(null) — 왼→오로 정한 것과 다르다.
-        assertNull(OpfParser.parse(opf("<spine>").reader(), "OEBPS/content.opf").rightToLeft)
+        assertNull(OpfParser.parse(opf("<spine>").input(), "OEBPS/content.opf").rightToLeft)
     }
 }
+
+/** 공통 시험이라 JVM 의 String.reader() 를 쓰지 않는다 — iOS 에서 시험이 컴파일되지 않았다(iOS 세션 요청, 2026-10-21). */
+private fun String.input() = StringInput(this)

@@ -60,7 +60,7 @@ class ComicContentsTest {
     }
 
     @Test
-    fun `the cover is the picture named cover, else the first page`() {
+    fun `the cover is the picture named cover - else the first page`() {
         assertEquals("x/cover.jpg", ComicContents.ofArchive(listOf("x/001.jpg", "x/cover.jpg"), true)!!.cover)
         assertEquals("001.jpg", ComicContents.ofArchive(listOf("002.jpg", "001.jpg"), true)!!.cover)
     }

@@ -23,7 +23,7 @@ class BookFormatTest {
     }
 
     @Test
-    fun `a name without a real extension has none, wherever it is read`() {
+    fun `a name without a real extension has none - wherever it is read`() {
         // 곳마다 손으로 꺼내던 때 점 없는 "zip" 이 확장자 "zip" 으로 읽혀 압축 속 권이 됐다(0.48.0).
         assertNull(extensionOf("zip"))
         assertNull(extensionOf("폴더/zip"))

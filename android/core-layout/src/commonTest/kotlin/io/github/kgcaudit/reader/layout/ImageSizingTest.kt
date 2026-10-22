@@ -80,7 +80,7 @@ class ImageSizingTest {
     }
 
     @Test
-    fun `a page image taller than the screen is shrunk to fit, not squashed`() {
+    fun `a page image taller than the screen is shrunk to fit - not squashed`() {
         // 판권 페이지 그림 600×1008: 폭에 맞추면 1888px 로 지면(1736)을 넘는다.
         val image = place(600, 1008, width = pct(100f))
         assertEquals(contentH, image.heightPx, 1f)

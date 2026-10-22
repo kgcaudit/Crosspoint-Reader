@@ -86,7 +86,7 @@ class CssSelectorTest {
     }
 
     @Test
-    fun `pseudo-classes and attribute selectors are stripped, keeping the rest`() {
+    fun `pseudo-classes and attribute selectors are stripped - keeping the rest`() {
         assertTrue(matches("p:first-child", el("p")))
         assertTrue(matches("p[lang]", el("p")))
         assertTrue(matches("p[lang=\"ko\"].quote", el("p", classes = "quote")))
@@ -147,7 +147,7 @@ class StylesheetCascadeTest {
     }
 
     @Test
-    fun `properties from different rules are combined, not replaced`() {
+    fun `properties from different rules are combined - not replaced`() {
         // 낮은 우선순위 규칙이 건드리지 않은 속성은 살아남아야 한다.
         val sheet = CssParser.parse(
             """

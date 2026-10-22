@@ -138,7 +138,7 @@ class GreedyLineBreakerTest {
     }
 
     @Test
-    fun `justification stretches only real word gaps, not gaps between cjk characters`() {
+    fun `justification stretches only real word gaps - not gaps between cjk characters`() {
         // 이게 이 엔진의 핵심 판단이다. CJK 글자 사이까지 늘리면 문단 전체가 균일
         // 자간으로 렌더되고, 그건 한국어 조판에서 틀린 결과다.
         val text = "한글 두 어절이 있다"

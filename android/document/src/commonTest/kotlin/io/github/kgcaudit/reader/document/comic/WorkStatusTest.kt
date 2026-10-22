@@ -22,7 +22,7 @@ class WorkStatusTest {
     private fun open(at: Long) = ComicProgress(10, 100, at)
 
     @Test
-    fun `a work nobody opened is to read, one with a volume left is reading, and all done is finished`() {
+    fun `a work nobody opened is to read - one with a volume left is reading - and all done is finished`() {
         assertEquals(WorkShelf.TO_READ, WorkStatuses.of(work(), emptyMap()).shelf)
         // 1권만 들춰 봤어도 읽는 중 — 권마다 나누면 한 작품이 세 갈래에 흩어진다.
         assertEquals(WorkShelf.READING, WorkStatuses.of(work(), mapOf("1" to open(5))).shelf)
@@ -76,7 +76,7 @@ class WorkStatusTest {
     }
 
     @Test
-    fun `moving back to reading or to read is kept, but opening again after moving to read wins`() {
+    fun `moving back to reading or to read is kept - but opening again after moving to read wins`() {
         val all = mapOf("1" to done(5), "2" to done(6), "3" to done(9))
         assertEquals(WorkShelf.READING, WorkStatuses.of(work(mark = ShelfMark.Reading(20)), all).shelf)
         assertEquals(WorkShelf.TO_READ, WorkStatuses.of(work(mark = ShelfMark.ToRead(20)), mapOf("1" to open(5))).shelf)

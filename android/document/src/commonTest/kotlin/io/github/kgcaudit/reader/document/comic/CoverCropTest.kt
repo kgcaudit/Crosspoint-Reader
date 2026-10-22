@@ -23,14 +23,14 @@ class CoverCropTest {
     }
 
     @Test
-    fun `the cover starts at the first panel, not at the blank top`() {
+    fun `the cover starts at the first panel - not at the blank top`() {
         // 웹툰 첫 그림은 흰 바탕 몇백 줄 뒤에 첫 칸이 나온다 — 그 흰 바탕을 표지로 쓰면 빈 표지다.
         val rows = List(10) { row(white) } + listOf(row(ink)) + List(5) { row(white) }
         assertEquals(10, CoverCrop.firstContentRow(rows))
     }
 
     @Test
-    fun `a dark background is the background, and a near white JPEG row is still blank`() {
+    fun `a dark background is the background - and a near white JPEG row is still blank`() {
         val black = 0xFF000000.toInt()
         val rows = List(4) { row(black) } + listOf(IntArray(8) { if (it == 3) white else black })
         assertEquals(4, CoverCrop.firstContentRow(rows), "검은 바탕 작품에서 바탕을 내용으로 봤다")
@@ -40,13 +40,13 @@ class CoverCropTest {
     }
 
     @Test
-    fun `a picture that is all background starts at the top, and no rows means the top`() {
+    fun `a picture that is all background starts at the top - and no rows means the top`() {
         assertEquals(0, CoverCrop.firstContentRow(List(6) { row(white) }))
         assertEquals(0, CoverCrop.firstContentRow(emptyList()))
     }
 
     @Test
-    fun `the window has the cover shape, a small margin above, and stays inside the picture`() {
+    fun `the window has the cover shape - a small margin above - and stays inside the picture`() {
         val size = ImageSize(800, 9000)
         val w = CoverCrop.window(size, contentTop = 400)
         assertEquals(1160, w.last - w.first + 1, "표지 비율이 아니다")
@@ -60,7 +60,7 @@ class CoverCropTest {
     }
 
     @Test
-    fun `a wide first picture keeps only the front cover, right for left-to-right and left for right-to-left`() {
+    fun `a wide first picture keeps only the front cover - right for left-to-right and left for right-to-left`() {
         // 앞 · 뒤표지를 한 장에 스캔한 것(1400×1000). 왼→오 책은 오른쪽 반이 앞표지, 책등 쪽 2%(28px)를 더 깎는다.
         assertEquals(728 until 1400, CoverCrop.front(1400, 1000, rightToLeft = false))
         // 오→왼(일본 만화)은 왼쪽 반이 앞표지다. 같은 쪽을 쓰면 뒤표지(바코드 · 줄거리)가 서재에 선다.
@@ -80,7 +80,7 @@ class CoverCropTest {
     }
 
     @Test
-    fun `a jacket with flaps keeps the cover-shaped piece next to the spine, not the flap`() {
+    fun `a jacket with flaps keeps the cover-shaped piece next to the spine - not the flap`() {
         // 날개까지 펼친 겉싸개(2500×1000). 반으로만 자르면 1250×1000 — 여전히 가로로 길어 표지 칸에서 납작하다.
         val ltr = CoverCrop.front(2500, 1000, rightToLeft = false)
         val rtl = CoverCrop.front(2500, 1000, rightToLeft = true)

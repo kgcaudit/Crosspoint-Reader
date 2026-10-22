@@ -65,7 +65,7 @@ class StyleResolverTest {
     }
 
     @Test
-    fun `alignment and indent are inherited, margins accumulate`() {
+    fun `alignment and indent are inherited - margins accumulate`() {
         val r = resolver()
         val outer = r.inherit(InheritedStyle.Root, CssParser.parseDeclarations("text-align: center; margin-left: 2em"))
         val inner = r.inherit(outer, CssParser.parseDeclarations("margin-left: 1em"))

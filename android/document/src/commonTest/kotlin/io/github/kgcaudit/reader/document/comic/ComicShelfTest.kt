@@ -57,7 +57,7 @@ class ComicShelfTest {
     }
 
     @Test
-    fun `the chosen copy is the one read, and survives regrouping`() {
+    fun `the chosen copy is the one read - and survives regrouping`() {
         val first = ComicShelf.group(scattered).single { it.title == "별을 줍는 아이" }.entries.single { it.label == "3권" }
         val other = first.copies.single().id
         val again = ComicShelf.group(scattered.reversed(), ComicOverrides(preferred = mapOf(first.slot to other)))

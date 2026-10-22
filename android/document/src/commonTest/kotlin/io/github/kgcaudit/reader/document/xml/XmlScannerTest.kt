@@ -1,12 +1,13 @@
 package io.github.kgcaudit.reader.document.xml
 
+import io.github.kgcaudit.reader.document.io.StringInput
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class XmlScannerTest {
 
-    private fun scan(xml: String): List<XmlEvent> = XmlScanner(xml.reader()).events().toList()
+    private fun scan(xml: String): List<XmlEvent> = XmlScanner(xml.input()).events().toList()
 
     /** 텍스트 이벤트만 이어 붙인다. 본문이 온전히 나오는지 보는 데 쓴다. */
     private fun textOf(xml: String): String =
@@ -290,3 +291,6 @@ class XmlScannerTest {
         assertEquals("a&b", starts("<img src=a&b>").single().attribute("src"))
     }
 }
+
+/** 공통 시험이라 JVM 의 String.reader() 를 쓰지 않는다 — iOS 에서 시험이 컴파일되지 않았다(iOS 세션 요청, 2026-10-21). */
+private fun String.input() = StringInput(this)
