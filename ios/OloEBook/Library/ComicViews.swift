@@ -246,8 +246,10 @@ struct ComicShelves: View {
                 line(item)
             }
             Spacer(minLength: 0)
+            // 책 목록과 같은 보이는 문(구상안 43 ④) — 길게 누름과 같은 작품 판.
+            CpIconButton(icon: .more, label: "\(item.work.title) 더 보기", color: CpColor.textMuted) { menu(item.work) }
         }
-        .padding(.horizontal, CpMetrics.gutter).padding(.vertical, 10)
+        .padding(.leading, CpMetrics.gutter).padding(.trailing, 4).padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .workButton("\(item.work.title) 작품", longPress: { menu(item.work) }) { tap(item) }
     }

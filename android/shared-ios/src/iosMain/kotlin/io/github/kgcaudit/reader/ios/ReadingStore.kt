@@ -166,6 +166,31 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
         persist()
     }
 
+    /**
+     * 다 읽음을 손으로 표시하거나(시각) 푼다(null) — 서재에서 책을 길게 눌러 갈래를 옮긴다(구상안 43, 안드로이드 `Library.setFinished`).
+     * 한 번도 열지 않은 책도 표시할 수 있다(종이책으로 읽은 책). 그때 연 때도 함께 적는다 — 없으면 푼 뒤에 읽는 책이 아니라 읽을 책으로
+     * 떨어진다. 푼 책은 연 기록이 남아 읽는 책이 된다.
+     */
+    fun setFinished(bookId: String, finishedAtEpochMs: Long?, nowEpochMs: Long) = locked {
+        if (finishedAtEpochMs != null) {
+            opened.getOrPut(bookId) { nowEpochMs }
+            finished[bookId] = finishedAtEpochMs
+        } else {
+            finished.remove(bookId)
+        }
+        persist()
+    }
+
+    /**
+     * 읽을 책으로 되돌린다(안드로이드 `returnToUnread`): 연 때 · 다 읽은 때만 지운다. 읽던 자리 · 책갈피 · 형광펜 · 읽은 시간은 남긴다 —
+     * 갈래만 옮기려 했는데 노트가 사라지면 되돌릴 수 없다. 다시 열면 남은 자리에서 이어진다.
+     */
+    fun returnToUnread(bookId: String) = locked {
+        opened.remove(bookId)
+        finished.remove(bookId)
+        persist()
+    }
+
     /** [ids] 각각의 기록. 서재가 한 번에 묻는다 — 책마다 잠그면 수백 권에서 느려진다. */
     fun shelf(ids: List<String>): List<ShelfRecord> = locked {
         val counts = bookmarks.groupingBy { it.bookId.value }.eachCount()

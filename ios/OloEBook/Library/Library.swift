@@ -215,6 +215,18 @@ final class Library: ObservableObject {
     func renameWork(_ work: Work, title: String) { store.renameWork(work: work, title: title); arrangeComics() }
     func preferCopy(_ entry: WorkEntry, unitId: String) { store.preferCopy(entry: entry, unitId: unitId); arrangeComics() }
 
+    // 책 갈래 옮기기(구상안 43): 앱 기록에 적고 서재를 다시 짠다. 읽던 자리 · 독서노트는 그대로다.
+    func setFinished(_ book: LibraryBook, _ finished: Bool) {
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
+        store.setFinished(bookId: book.id, finishedAtEpochMs: finished ? KotlinLong(value: now) : nil, nowEpochMs: now)
+        reloadRecords()
+    }
+
+    func returnToUnread(_ book: LibraryBook) { store.returnToUnread(bookId: book.id); reloadRecords() }
+
+    /// 판이 떠 있는 동안 갈래가 바뀌어도 지금 줄을 본다.
+    func shelfItem(_ id: String) -> ShelfItem? { (reading + finished + toRead).first { $0.id == id } }
+
     func work(of unitId: String) -> Work? { works.first { w in w.entries.contains { e in e.unit.id == unitId || e.copies.contains { $0.id == unitId } } } }
 
     /// 만화 권을 리더가 여는 꼴로.

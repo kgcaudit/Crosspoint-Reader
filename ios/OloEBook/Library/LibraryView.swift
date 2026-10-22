@@ -23,6 +23,8 @@ struct LibraryView: View {
     @State private var openedWork: String?
     /// 길게 누른 작품(구상안 40 — 갈래 옮기기 판).
     @State private var menuWork: String?
+    /// 길게 누르거나 목록 줄 ⋮ 를 누른 책(구상안 43).
+    @State private var menuBook: String?
     @State private var libraryToast: String?
 
     var body: some View {
@@ -46,10 +48,10 @@ struct LibraryView: View {
                     LibraryTools(library: library, onSort: { showSort = true }, onSearch: { searching = true }, onMore: { showMore = true })
                     if library.scanning { CpProgressBar(fraction: 0.35).padding(.horizontal, CpMetrics.gutter) }
                     if library.works.isEmpty {
-                        LibraryShelves(library: library, open: open)
+                        LibraryShelves(library: library, open: open, menu: { menuBook = $0.id })
                     } else {
                         TabView(selection: $tab) {
-                            LibraryShelves(library: library, open: open).tag(0)
+                            LibraryShelves(library: library, open: open, menu: { menuBook = $0.id }).tag(0)
                             ComicShelves(library: library, open: open, openWork: { openedWork = $0.key }, menu: { menuWork = $0.key }).tag(1)
                         }
                         .tabViewStyle(.page(indexDisplayMode: .never))
@@ -88,7 +90,7 @@ struct LibraryView: View {
                     .transition(.move(edge: .trailing))
             }
             if searching {
-                LibrarySearchScreen(library: library, query: $query, open: open, back: { searching = false })
+                LibrarySearchScreen(library: library, query: $query, open: open, menu: { menuBook = $0.id }, back: { searching = false })
                     .transition(.move(edge: .trailing))
             }
             if showStats {
@@ -102,6 +104,12 @@ struct LibraryView: View {
             if let key = menuWork {
                 WorkMenu(library: library, workKey: key, openWork: { menuWork = nil; openedWork = key }, close: { menuWork = nil }) { message in
                     menuWork = nil
+                    libraryToast = message
+                }
+            }
+            if let id = menuBook {
+                BookMenu(library: library, bookId: id, close: { menuBook = nil }) { message in
+                    menuBook = nil
                     libraryToast = message
                 }
             }
@@ -222,6 +230,8 @@ enum LibraryGrid {
 private struct LibraryShelves: View {
     @ObservedObject var library: Library
     let open: (LibraryBook) -> Void
+    /// 길게 누르거나 목록 줄 ⋮ — 갈래 판(구상안 43).
+    let menu: (ShelfItem) -> Void
 
     private struct Section: Identifiable {
         let id: String
@@ -254,7 +264,7 @@ private struct LibraryShelves: View {
                                     ShelfBoard(label: i == 0 ? section.title : nil)
                                     WoodRow(items: rows[i], width: width) { item in
                                         BookCover(book: item.book, library: library, shadow: true)
-                                            .bookButton(item) { open(item.book) }
+                                            .bookButton(item, menu: { menu(item) }) { open(item.book) }
                                     }
                                 }
                             }
@@ -279,13 +289,13 @@ private struct LibraryShelves: View {
                             if library.layout == .grid {
                                 ForEach(items.chunked(columns), id: \.first!.id) { row in
                                     HStack(alignment: .top, spacing: LibraryGrid.gap) {
-                                        ForEach(row) { BookCell(item: $0, library: library, width: width) { open($0) } }
+                                        ForEach(row) { item in BookCell(item: item, library: library, width: width, menu: { menu(item) }) { open($0) } }
                                     }
                                     .padding(.horizontal, CpMetrics.gutter).padding(.vertical, 9)
                                 }
                             } else {
                                 LazyVStack(alignment: .leading, spacing: 0) {
-                                    ForEach(items) { item in BookRow(item: item, library: library) { open(item.book) } }
+                                    ForEach(items) { item in BookRow(item: item, library: library, menu: { menu(item) }) { open(item.book) } }
                                 }
                             }
                         }
@@ -308,12 +318,25 @@ extension Array {
 
 extension View {
     /// 책 한 권을 누르는 곳으로. 화면 읽기는 이름 · 진도 · 다 읽음을 한 번에 읽는다.
-    func bookButton(_ item: ShelfItem, action: @escaping () -> Void) -> some View {
-        Button(action: action) { self.contentShape(Rectangle()) }
-            .buttonStyle(.plain)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(item.spokenLabel)
-            .accessibilityAddTraits(.isButton)
+    /// [menu] 가 있으면 길게 눌러 갈래 판(구상안 43). 단추(Button)에 길게 누름을 겹치면 손을 뗄 때 누름도 불려 판이 뜨자마자 책이
+    /// 열린다 — 작품 칸(`workButton`)처럼 두 몸짓을 나란히 받는다.
+    @ViewBuilder
+    func bookButton(_ item: ShelfItem, menu: (() -> Void)? = nil, action: @escaping () -> Void) -> some View {
+        if let menu {
+            self.contentShape(Rectangle())
+                .onTapGesture(perform: action)
+                .onLongPressGesture(minimumDuration: 0.45, perform: menu)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(item.spokenLabel)
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction(named: "갈래 옮기기", menu)
+        } else {
+            Button(action: action) { self.contentShape(Rectangle()) }
+                .buttonStyle(.plain)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(item.spokenLabel)
+                .accessibilityAddTraits(.isButton)
+        }
     }
 }
 
@@ -341,6 +364,7 @@ struct BookCell: View {
     let item: ShelfItem
     let library: Library
     let width: CGFloat
+    let menu: () -> Void
     let action: (LibraryBook) -> Void
 
     var body: some View {
@@ -350,7 +374,7 @@ struct BookCell: View {
             BookStatus(item: item, grid: true)
         }
         .frame(width: width, alignment: .leading)
-        .bookButton(item) { action(item.book) }
+        .bookButton(item, menu: menu) { action(item.book) }
     }
 }
 
@@ -381,6 +405,7 @@ private struct BookStatus: View {
 struct BookRow: View {
     let item: ShelfItem
     let library: Library
+    let menu: () -> Void
     let action: () -> Void
 
     var body: some View {
@@ -403,10 +428,12 @@ struct BookRow: View {
                 }
             }
             Spacer(minLength: 0)
+            // 길게 누름은 손에 익지 않으면 찾기 어렵다 — 목록에는 보이는 문을 둔다(안드로이드 `DetailRow`). 격자 · 책장은 칸이 좁아 두지 않는다.
+            CpIconButton(icon: .more, label: "\(item.book.label) 더 보기", color: CpColor.textMuted, action: menu)
         }
         .padding(.leading, CpMetrics.gutter).padding(.trailing, 4).padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .bookButton(item, action: action)
+        .bookButton(item, menu: menu, action: action)
     }
 }
 
@@ -541,5 +568,57 @@ struct FoldersPopup: View {
         return Group {
             if let action { Button(action: action) { content }.buttonStyle(.plain) } else { content.accessibilityElement(children: .combine) }
         }
+    }
+}
+
+/// 책을 길게 누르거나 목록 줄 ⋮(구상안 43 · A, 안드로이드 `CoverMenu`): 갈래 옮기기. 표지 고르기 · 만화로 보기 줄은 그 기능과 함께 —
+/// 지금 두면 눌러도 아무 일이 없는 줄이 된다. 설명 줄은 표지 대신 형식 · 지금 갈래를 말한다(어디서 어디로 옮기는지).
+struct BookMenu: View {
+    @ObservedObject var library: Library
+    let bookId: String
+    let close: () -> Void
+    let done: (String) -> Void
+
+    var body: some View {
+        if let item = library.shelfItem(bookId) { menu(item) }
+    }
+
+    private func menu(_ item: ShelfItem) -> some View {
+        let book = item.book
+        let finished = item.finishedAt != nil
+        // 책 이름 뒤에 조사를 붙이지 않는다 — 받침에 따라 을/를이 갈려 틀리기 쉽다(안드로이드와 같다).
+        let name = "‘\(book.label)’"
+        return CpPopup(onDismiss: close) {
+            Text(book.label).font(CpFont.title).foregroundStyle(CpColor.text).lineLimit(2)
+            Text(state(item)).font(CpFont.body).foregroundStyle(CpColor.textMuted)
+            VStack(spacing: 0) {
+                if finished {
+                    CpListRow(icon: .book, tile: CpColor.tileOther, title: "읽는 책으로 옮기기") {
+                        library.setFinished(book, false)
+                        done("\(name) — 읽는 책으로 옮겼습니다")
+                    }
+                } else {
+                    CpListRow(icon: .bookmark, tile: CpColor.tileOther, title: "읽은 책으로 옮기기") {
+                        library.setFinished(book, true)
+                        done("\(name) — 읽은 책으로 옮겼습니다")
+                    }
+                }
+                // 읽을 책에 있는 책은 이미 거기 있다.
+                if item.openedAt != nil || finished {
+                    CpListRow(icon: .back, tile: CpColor.tileOther, title: "읽을 책으로 옮기기") {
+                        library.returnToUnread(book)
+                        done("\(name) — 읽을 책으로 옮겼습니다")
+                    }
+                }
+            }
+            HStack { Spacer(); CpButton(title: "닫기", kind: .secondary, action: close) }
+        }
+    }
+
+    private func state(_ item: ShelfItem) -> String {
+        let kind = item.book.format.rawValue
+        if let at = item.finishedAt { return "\(kind) · 다 읽음 · \(monthDay(at))" }
+        if item.isReading { return "\(kind) · 읽는 중 \(Int((item.percent ?? 0).rounded()))%" }
+        return "\(kind) · 읽을 책"
     }
 }

@@ -49,6 +49,8 @@ struct LibrarySearchScreen: View {
     @ObservedObject var library: Library
     @Binding var query: String
     let open: (LibraryBook) -> Void
+    /// 길게 누른 책 — 서재와 같은 갈래 판(구상안 43, 안드로이드 `HitRow` 의 길게 누름).
+    let menu: (ShelfItem) -> Void
     let back: () -> Void
 
     var body: some View {
@@ -71,7 +73,7 @@ struct LibrarySearchScreen: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(hits) { item in
-                            HitRow(item: item, query: query, library: library) { open(item.book) }
+                            HitRow(item: item, query: query, library: library, menu: { menu(item) }) { open(item.book) }
                         }
                     }
                     .padding(.bottom, 24)
@@ -88,6 +90,7 @@ private struct HitRow: View {
     let item: ShelfItem
     let query: String
     let library: Library
+    let menu: () -> Void
     let action: () -> Void
 
     var body: some View {
@@ -112,7 +115,7 @@ private struct HitRow: View {
         }
         .padding(.horizontal, CpMetrics.gutter).padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .bookButton(item, action: action)
+        .bookButton(item, menu: menu, action: action)
     }
 
     private var tag: String {
