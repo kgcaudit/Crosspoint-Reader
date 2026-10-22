@@ -258,9 +258,9 @@ class OpenWithComicTest {
         // "넓은 그림" 줄도 같은 작품에 적는다.
         waitFor(hasText("넓은 그림"))
         val splitY = node(hasText("넓은 그림")).fetchSemanticsNode().boundsInRoot.center.y
-        compose.onAllNodes(hasText("한 장")).let { nodes ->
+        compose.onAllNodes(hasText(io.github.kgcaudit.reader.ui.design.WIDE_TOGETHER)).let { nodes ->
             val k = nodes.fetchSemanticsNodes().indexOfFirst { kotlin.math.abs(it.boundsInRoot.center.y - splitY) < 60f }
-            assertTrue(k >= 0, "넓은 그림 줄에 \"한 장\" 이 없다")
+            assertTrue(k >= 0, "넓은 그림 줄에 \"두 쪽\" 이 없다")
             nodes[k].performClick()
         }
         compose.waitUntil(10_000) { runBlocking { data.comics.works().first().single().splitSpreads } == false }

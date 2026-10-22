@@ -597,25 +597,26 @@ fun CpCoverRow(coverAlone: Boolean, onChange: (Boolean) -> Unit, scope: String, 
 }
 
 /**
- * 보기 판의 "넓은 그림" 줄(0.55.1, 2026-10-22 사용자 확정 구상안): 이 작품의 가로로 긴 그림이 두 쪽이 담긴 것인지, 원래 한 장인지.
+ * 보기 판의 "넓은 그림" 줄: 두 쪽이 담긴 넓은 그림을 한 쪽 보기에서 어떻게 볼지 — **한 쪽**(반씩 차례로) · **두 쪽**(함께 한 화면에).
  *
- * 0.55.0 까지는 "펼침면 나누기 켬 · 끔"(모든 만화) 아래에 "이 작품 따름 · 나눔 · 통째로" 를 달았다. 그림이 무엇인지와 어떻게 볼지를
- * 한 줄에 섞어, 사용자가 "펼침면 · 따름 · 이 작품" 모두 와닿지 않는다고 했다. 어떻게 볼지는 이미 두 쪽 보기가 정한다 — 여기서는
- * 그림이 무엇인지만 고른다. 앱이 자동으로 판단한 값이 처음부터 골라져 있어, 틀렸을 때만 누른다.
+ * 0.55.1 에는 단추가 "두 쪽 · 한 장"(그림이 무엇인가)이었다. 바로 아래 그림 줄의 "한 쪽 보기 · 두 쪽 보기"(보는 방식)와 같은 말을
+ * 다른 뜻으로 써, "두 쪽" 을 누르면 한 쪽씩 보이고 "한 장" 을 누르면 두 쪽이 보였다 — 사용자가 단추 이름과 보이는 모습이 거꾸로라고
+ * 지적했다(0.55.3, 사용자 결정 A). 단추는 이제 보이는 모습의 이름이다. 두 쪽 보기에서는 어느 쪽이든 두 쪽이 함께라, 그림 줄은
+ * 단추가 실제로 바꾸는 한 쪽 보기 하나만 보인다.
  *
- * 고른 값을 바로 그림으로 보인다(한 쪽 보기 · 두 쪽 보기에서 어떻게 서는지) — 말로만 풀면 "두 쪽" 이 무엇을 바꾸는지 안 보였다.
+ * 앱이 자동으로 고른 값(넓은 그림은 한 쪽씩)이 처음부터 골라져 있어, 아닐 때만 누른다.
  *
- * @param split 이 작품에 고른 값: 두 쪽 true · 한 장 false · 고르지 않음(자동) null.
+ * @param split 이 작품에 고른 값: 한 쪽(나눔) true · 두 쪽(함께) false · 고르지 않음(자동) null.
  * @param onChange null 은 자동으로 되돌리기.
  */
 @Composable
 fun CpWideRow(split: Boolean?, onChange: (Boolean?) -> Unit, modifier: Modifier = Modifier) {
     val c = CpTheme.colors
     val m = CpTheme.metrics
-    val two = split ?: true
+    val halves = split ?: true
     val note = Modifier.padding(start = m.gutter, end = m.gutter, bottom = 6.dp)
     Column(modifier.fillMaxWidth()) {
-        CpChoice("넓은 그림", listOf("두 쪽", "한 장"), if (two) 0 else 1, { onChange(it == 0) })
+        CpChoice("넓은 그림", listOf(WIDE_HALVES, WIDE_TOGETHER), if (halves) 0 else 1, { onChange(it == 0) })
         if (split == null) {
             CpText(WIDE_AUTO_NOTE, CpTheme.type.caption, c.textMuted, note, maxLines = 3)
         } else {
@@ -625,44 +626,45 @@ fun CpWideRow(split: Boolean?, onChange: (Boolean?) -> Unit, modifier: Modifier 
                 maxLines = 2,
             )
         }
-        WideSketch(two, Modifier.padding(start = m.gutter, end = m.gutter, bottom = 8.dp))
+        WideSketch(halves, Modifier.padding(start = m.gutter, end = m.gutter, bottom = 8.dp))
     }
 }
 
+/** 넓은 그림 단추: 한 쪽 보기에서 반씩 차례로. */
+const val WIDE_HALVES = "한 쪽"
+
+/** 넓은 그림 단추: 한 쪽 보기에서도 두 쪽을 함께. */
+const val WIDE_TOGETHER = "두 쪽"
+
 /** 고르지 않았을 때(자동) 설명. 시험이 같은 글을 찾는다. */
-const val WIDE_AUTO_NOTE = "자동으로 판단했습니다 — 가로로 긴 그림을 두 쪽이 담긴 것으로 봅니다. 아니면 \"한 장\" 을 누르세요."
+const val WIDE_AUTO_NOTE = "자동으로 골랐습니다 — 두 쪽이 담긴 넓은 그림을 한 쪽씩 봅니다."
 
 /** 이 작품에 고른 뒤의 설명. 누르면 자동으로 되돌린다. */
 const val WIDE_CHOSEN_NOTE = "이 작품에 고른 값입니다(모든 권). 자동으로 되돌리기"
 
-/** 한 쪽 보기 · 두 쪽 보기에서 넓은 그림이 어떻게 서는지 작은 그림. 두 쪽 그림은 가운데 접힌 자리에 선을 긋는다. */
+/** 한 쪽 보기에서 넓은 그림이 어떻게 서는지 작은 그림. 두 쪽이 함께면 가운데 접힌 자리에 선을 긋는다. */
 @Composable
-private fun WideSketch(two: Boolean, modifier: Modifier) {
+private fun WideSketch(halves: Boolean, modifier: Modifier) {
     val c = CpTheme.colors
     @Composable
     fun sheet(w: Dp, fold: Boolean) = Box(Modifier.size(w, SKETCH_H).background(c.accentContainer).border(1.dp, c.outline)) {
         if (fold) Box(Modifier.align(Alignment.Center).width(1.dp).fillMaxHeight().background(c.text.copy(alpha = 0.5f)))
     }
-    @Composable
-    fun line(label: String, says: String, picture: @Composable () -> Unit) = Row(Modifier.padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
-        CpText(label, CpTheme.type.caption, c.text, Modifier.width(78.dp))
-        picture()
-        CpText(says, CpTheme.type.caption, c.textMuted, Modifier.padding(start = 10.dp), maxLines = 2)
-    }
-    Column(modifier.semantics(mergeDescendants = true) {}) {
-        if (two) {
-            line("한 쪽 보기", "반씩 차례로") {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    sheet(SKETCH_H * 0.72f, false); CpText("→", CpTheme.type.caption, c.textMuted, Modifier.padding(horizontal = 6.dp)); sheet(SKETCH_H * 0.72f, false)
-                }
-            }
-            line("두 쪽 보기", "두 쪽을 함께(한 장 그대로)") { sheet(SKETCH_H * 1.44f, true) }
+    Row(modifier.semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
+        if (halves) {
+            sheet(SKETCH_H * 0.72f, false)
+            CpText("→", CpTheme.type.caption, c.textMuted, Modifier.padding(horizontal = 6.dp))
+            sheet(SKETCH_H * 0.72f, false)
+            CpText(WIDE_SKETCH_HALVES, CpTheme.type.caption, c.textMuted, Modifier.padding(start = 10.dp), maxLines = 2)
         } else {
-            line("한 쪽 보기", "한 장 그대로") { sheet(SKETCH_H * 1.44f, false) }
-            line("두 쪽 보기", "한 장 그대로") { sheet(SKETCH_H * 1.44f, false) }
+            sheet(SKETCH_H * 1.44f, true)
+            CpText(WIDE_SKETCH_TOGETHER, CpTheme.type.caption, c.textMuted, Modifier.padding(start = 10.dp), maxLines = 2)
         }
     }
 }
+
+const val WIDE_SKETCH_HALVES = "한 쪽씩 차례로"
+const val WIDE_SKETCH_TOGETHER = "두 쪽을 함께 한 화면에"
 
 private val SKETCH_H = 42.dp
 
