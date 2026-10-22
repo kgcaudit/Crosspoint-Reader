@@ -362,6 +362,23 @@ final class ReaderModel: ObservableObject {
                 return
             }
         }
+        // PDF 를 만화로(구상안 46 ②): 고를 때만(1A). 만화로 열지 못하면(암호 · 깨진 파일) PDF 보기로 연다.
+        if book.format == .pdf, library.bookView(book.id) == "COMIC" {
+            self.library = library
+            let url = book.url, id = book.id, label = book.label
+            if let comic = try? await Task.detached(priority: .userInitiated, operation: {
+                try ComicEngine(pdf: url, bookId: id, title: label, store: store)
+            }).value {
+                store.markOpened(bookId: id)
+                title = label
+                comicLabel = label
+                bookComic = true
+                bookComicRTL = library.bookRightToLeft(id)
+                engine = comic
+                isComic = true
+                return
+            }
+        }
         if book.format == .pdf {
             do {
                 let pdf = try await PdfEngine(url: book.url, bookId: book.id, displayName: book.displayName, store: store)

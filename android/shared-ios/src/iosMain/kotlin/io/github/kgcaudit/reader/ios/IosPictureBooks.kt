@@ -48,44 +48,18 @@ class UnitComicPlace(private val store: ReadingStore, private val unitId: String
 }
 
 /**
- * 그림책을 만화 뷰어로(안드로이드 `BookComic.ofPictures`): 쪽 = 그림, 자리는 (그림이 든 장, 장 안에서 몇 번째 그림). 책의 자리 ·
- * 책갈피를 그대로 쓴다 — 책으로 보기와 만화로 보기를 오가도 읽던 곳 · 책갈피가 이어진다. 만화의 진도 표에는 쓰지 않는다.
+ * 책을 만화 뷰어로 본다(안드로이드 `BookComic`): 책의 자리 · 책갈피를 그대로 쓴다 — 책으로 보기와 만화로 보기를 오가도 읽던 곳 ·
+ * 책갈피 · 다 읽음이 이어진다. 만화의 진도 표에는 쓰지 않는다. 쪽 ↔ 자리 짝만 책 종류마다 다르다.
  */
-class BookComicPlace(private val store: ReadingStore, private val bookId: String, private val pages: List<PictureBook.Page>) : IosComicPlace {
-    private val ordinal = IntArray(pages.size)
-    private val perChapter = HashMap<Int, Int>()
+abstract class BookPlace(private val store: ReadingStore, private val bookId: String) : IosComicPlace {
+    abstract fun locatorOf(page: Int): Locator
 
-    init {
-        pages.forEachIndexed { i, p ->
-            ordinal[i] = perChapter[p.spineIndex] ?: 0
-            perChapter[p.spineIndex] = ordinal[i] + 1
-        }
-    }
-
-    fun locatorOf(page: Int): Locator {
-        val i = page.coerceIn(0, maxOf(pages.size - 1, 0))
-        return Locator.Reflow(pages[i].spineIndex, ordinal[i])
-    }
-
-    /**
-     * 책 자리가 가리키는 쪽. 같은 장 안: 만화로 보기가 적은 순번이면 그 그림, 글자 자리(책으로 보기)면 장의 첫 그림 — 글자 자리를
-     * 그림 순번으로 읽으면 엉뚱한 쪽으로 갔다. 그림 없는 장(판권)이면 그 뒤의 첫 쪽, 끝 너머면 마지막. 다른 종류의 자리면 null.
-     */
-    fun pageOf(locator: Locator): Int? {
-        val r = locator as? Locator.Reflow ?: return null
-        if (pages.isEmpty()) return null
-        val first = pages.indexOfFirst { it.spineIndex >= r.spine }
-        return when {
-            first < 0 -> pages.lastIndex
-            pages[first].spineIndex != r.spine -> first
-            r.charOffset < (perChapter[r.spine] ?: 0) -> first + r.charOffset
-            else -> first
-        }
-    }
+    /** 책 자리가 가리키는 쪽. 이 보기로 나타낼 수 없는 자리(다른 종류)면 null. */
+    abstract fun pageOf(locator: Locator): Int?
 
     override fun start(pageCount: Int): ComicStart? {
         val p = store.progressOf(bookId) ?: return null
-        val at = pageOf(p.locator) ?: return null
+        val at = pageOf(p.locator)?.coerceIn(0, maxOf(pageCount - 1, 0)) ?: return null
         // 다 읽고 끝에 멈춘 책을 다시 열면 처음부터 — 만화와 같다.
         if (p.percent >= FINISHED && at >= pageCount - 1) return null
         return ComicStart(at, SpreadSplit.Half.WHOLE)
@@ -124,6 +98,49 @@ class BookComicPlace(private val store: ReadingStore, private val bookId: String
             atEnd -> 100f
             count <= 1 -> 0f
             else -> minOf(page * 100f / (count - 1), NOT_YET_FINISHED)
+        }
+    }
+}
+
+/** PDF 를 만화로(안드로이드 `BookComic.ofPdf`, 구상안 46 ②): 쪽 = 쪽. PDF 보기가 적은 쪽 안 세로 자리는 버린다(쪽 머리부터). */
+class PdfComicPlace(store: ReadingStore, bookId: String, private val pageCount: Int) : BookPlace(store, bookId) {
+    override fun locatorOf(page: Int): Locator = Locator.FixedPage(page.coerceIn(0, maxOf(pageCount - 1, 0)))
+
+    override fun pageOf(locator: Locator): Int? = (locator as? Locator.FixedPage)?.page?.coerceIn(0, maxOf(pageCount - 1, 0))
+}
+
+/**
+ * 그림책을 만화 뷰어로(안드로이드 `BookComic.ofPictures`): 쪽 = 그림, 자리는 (그림이 든 장, 장 안에서 몇 번째 그림).
+ */
+class BookComicPlace(store: ReadingStore, bookId: String, private val pages: List<PictureBook.Page>) : BookPlace(store, bookId) {
+    private val ordinal = IntArray(pages.size)
+    private val perChapter = HashMap<Int, Int>()
+
+    init {
+        pages.forEachIndexed { i, p ->
+            ordinal[i] = perChapter[p.spineIndex] ?: 0
+            perChapter[p.spineIndex] = ordinal[i] + 1
+        }
+    }
+
+    override fun locatorOf(page: Int): Locator {
+        val i = page.coerceIn(0, maxOf(pages.size - 1, 0))
+        return Locator.Reflow(pages[i].spineIndex, ordinal[i])
+    }
+
+    /**
+     * 책 자리가 가리키는 쪽. 같은 장 안: 만화로 보기가 적은 순번이면 그 그림, 글자 자리(책으로 보기)면 장의 첫 그림 — 글자 자리를
+     * 그림 순번으로 읽으면 엉뚱한 쪽으로 갔다. 그림 없는 장(판권)이면 그 뒤의 첫 쪽, 끝 너머면 마지막. 다른 종류의 자리면 null.
+     */
+    override fun pageOf(locator: Locator): Int? {
+        val r = locator as? Locator.Reflow ?: return null
+        if (pages.isEmpty()) return null
+        val first = pages.indexOfFirst { it.spineIndex >= r.spine }
+        return when {
+            first < 0 -> pages.lastIndex
+            pages[first].spineIndex != r.spine -> first
+            r.charOffset < (perChapter[r.spine] ?: 0) -> first + r.charOffset
+            else -> first
         }
     }
 }

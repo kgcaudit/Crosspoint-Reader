@@ -149,9 +149,11 @@ struct BookMenu: View {
                         done("\(name) — 읽을 책으로 옮겼습니다")
                     }
                 }
-                if picture == true {
-                    // 만화로 보는 중이면 "책으로 보기", 아니면 "만화로 보기"(안드로이드 `CoverMenu`). 책 이름 뒤에 조사는 붙이지 않는다.
-                    let comic = IosPictureBooks.shared.opensAsComic(view: library.bookView(book.id), pdf: false, picture: true)
+                if book.format == .pdf || picture == true {
+                    // 만화로 보는 중이면 "책으로 보기", 아니면 "만화로 보기"(안드로이드 `CoverMenu`). PDF 는 판별하지 않고 늘 고를 수 있다
+                    // (46 · 1A). 책 이름 뒤에 조사는 붙이지 않는다.
+                    let comic = IosPictureBooks.shared.opensAsComic(view: library.bookView(book.id), pdf: book.format == .pdf,
+                                                                    picture: picture == true)
                     CpListRow(icon: comic ? .book : .grid, tile: CpColor.tileOther, title: comic ? "책으로 보기" : "만화로 보기") {
                         library.setBookView(book, comic: !comic)
                         done("\(name) — \(comic ? "책으로" : "만화로") 봅니다")

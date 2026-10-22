@@ -1,11 +1,66 @@
 import CoreImage
 import ImageIO
 import OloCore
+import PDFKit
 import SwiftUI
 import UIKit
 
 /// 만화의 쪽 밖 바탕(안드로이드 `COMIC_BACKDROP` 0x141311) — 쪽 그림 둘레가 이 색이고, 메뉴도 이 밝기를 따라 어둡다.
 let comicPaper = Paper(paper: 0x141311, ink: 0xE8E3DA, inkMuted: 0xB9B2A8, dark: true)
+
+/// 만화 뷰어가 쪽 그림을 받는 곳(구상안 46): 압축 · 그림 폴더 · 그림책은 그림 바이트를 솎아 풀고, PDF 는 쪽을 그린다. 뷰어의 판
+/// 짜기 · 자르기 · 색은 어느 쪽이든 같다.
+protocol ComicPageSource: AnyObject, Sendable {
+    var pageCount: Int { get }
+    /// 쪽마다 크기(Kotlin 목록 그대로 — 짝짓기에 다시 넘긴다). 모르는 쪽은 비어 있다.
+    func sizes() -> [Any]
+    /// [i] 쪽을 긴 변 [maxPixel] 안으로. 못 읽으면 nil — 그 쪽만 "그리지 못했습니다".
+    func image(_ i: Int, maxPixel: CGFloat) -> UIImage?
+    func close()
+}
+
+/// 압축 · 그림 폴더 · 그림책 EPUB 의 그림.
+final class ArchivePages: ComicPageSource, @unchecked Sendable {
+    private let book: IosComicBook
+    init(_ book: IosComicBook) { self.book = book }
+    var pageCount: Int { Int(book.pageCount) }
+    func sizes() -> [Any] { ComicImages.sizes(book) }
+    func image(_ i: Int, maxPixel: CGFloat) -> UIImage? {
+        book.data(i: Int32(i)).flatMap { ComicImages.decode($0 as Data, maxPixel: maxPixel) }
+    }
+    func close() { book.close() }
+}
+
+/// PDF 의 쪽을 그림으로(구상안 46 ②, 안드로이드 `PdfBook.renderPage`): 흰 바탕에 쪽 전체를 긴 변 [maxPixel] 안으로. 지면색은 섞지
+/// 않는다 — 만화 뷰어는 늘 어두운 바탕이고, 색 보정은 뷰어가 건다.
+final class PdfComicPages: ComicPageSource, @unchecked Sendable {
+    private let doc: PDFDocument
+    init?(url: URL) {
+        guard let doc = PDFDocument(url: url), !doc.isLocked, doc.pageCount > 0 else { return nil }
+        self.doc = doc
+    }
+    var pageCount: Int { doc.pageCount }
+    func sizes() -> [Any] {
+        (0..<doc.pageCount).map { i -> Any in
+            guard let page = doc.page(at: i) else { return NSNull() }
+            let s = PdfPages.size(of: page)
+            return ImageSize(width: Int32(s.width.rounded()), height: Int32(s.height.rounded()))
+        }
+    }
+    func image(_ i: Int, maxPixel: CGFloat) -> UIImage? {
+        guard let page = doc.page(at: i) else { return nil }
+        let s = PdfPages.size(of: page)
+        let k = maxPixel / max(s.width, s.height, 1)
+        let target = CGSize(width: max((s.width * k).rounded(), 1), height: max((s.height * k).rounded(), 1))
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: target, format: format).image { ctx in
+            PdfPages.draw(page, in: CGRect(origin: .zero, size: target), cg: ctx.cgContext, paper: comicPaper, blend: false)
+        }
+    }
+    func close() {}
+}
 
 /// 그림 바이트를 화면 크기에 맞춰 솎아 푼다(ImageIO). 원본 크기로 풀면 스캔본 한 쪽이 수십 MB 다.
 enum ComicImages {
@@ -121,7 +176,7 @@ struct ComicGridInfo {
 /// 진도는 판의 **마지막 쪽**으로 적는다 — 두 쪽 판이면 오른쪽(오→왼이면 왼쪽) 쪽까지 읽은 것이다(안드로이드와 같다). 펼침면의 반을 보는
 /// 중이면 그 반(실제 쪽 LEFT · RIGHT)도 적는다.
 actor ComicEngine: BookEngine, ZoomSource {
-    private let book: IosComicBook
+    private let source: ComicPageSource
     private let store: ReadingStore
     /// 자리 · 책갈피를 적는 곳 — 만화 권은 권의 기록, 그림책은 책의 기록(구상안 46).
     private let place: IosComicPlace
@@ -152,17 +207,23 @@ actor ComicEngine: BookEngine, ZoomSource {
             IosComicBook.companion.openArchive(path: file.url.path)
         }
         guard let opened else { throw ComicOpenError.broken }
-        try self.init(book: opened, place: UnitComicPlace(store: store, unitId: unitId), unitId: unitId, title: title, store: store)
+        try self.init(source: ArchivePages(opened), place: UnitComicPlace(store: store, unitId: unitId), unitId: unitId, title: title, store: store)
     }
 
     /// 그림책 EPUB 의 그림들을 만화로(구상안 46). 자리는 책의 것.
     init(picturesOf path: String, pictures: PictureBook, bookId: String, title: String, store: ReadingStore) throws {
         guard let opened = IosComicBook.companion.openPictures(path: path, paths: pictures.pages.map(\.path)) else { throw ComicOpenError.broken }
-        try self.init(book: opened, place: BookComicPlace(store: store, bookId: bookId, pages: pictures.pages), unitId: bookId, title: title, store: store)
+        try self.init(source: ArchivePages(opened), place: BookComicPlace(store: store, bookId: bookId, pages: pictures.pages), unitId: bookId, title: title, store: store)
     }
 
-    private init(book opened: IosComicBook, place: IosComicPlace, unitId: String, title: String, store: ReadingStore) throws {
-        book = opened
+    /// PDF 를 만화로(구상안 46 ②) — 쪽을 그려서. 자리는 PDF 의 쪽 자리. 암호 · 깨진 PDF 는 열지 않는다(부르는 쪽이 PDF 보기로 연다).
+    init(pdf url: URL, bookId: String, title: String, store: ReadingStore) throws {
+        guard let pages = PdfComicPages(url: url) else { throw ComicOpenError.broken }
+        try self.init(source: pages, place: PdfComicPlace(store: store, bookId: bookId, pageCount: Int32(pages.pageCount)), unitId: bookId, title: title, store: store)
+    }
+
+    private init(source opened: ComicPageSource, place: IosComicPlace, unitId: String, title: String, store: ReadingStore) throws {
+        source = opened
         self.store = store
         self.place = place
         self.unitId = unitId
@@ -178,7 +239,7 @@ actor ComicEngine: BookEngine, ZoomSource {
 
     private func arrange() {
         if rawSizes.isEmpty {
-            rawSizes = ComicImages.sizes(book)
+            rawSizes = source.sizes()
             sizes = rawSizes.map { $0 as? ImageSize }
         }
         guard let spec, pageCount > 0 else { units = (0..<max(pageCount, 1)).map { [SpreadSplit.Part(page: Int32($0), half: .whole)] }; return }
@@ -225,9 +286,9 @@ actor ComicEngine: BookEngine, ZoomSource {
     /// 쪽 그림(화면 높이에 맞춘 크기로 솎아 풀어 둔다 — 앞뒤 판까지만 남긴다).
     private func image(_ p: Int) -> UIImage? {
         if let img = images[p] { return img }
-        guard let spec, let data = book.data(i: Int32(p)) else { broken.insert(p); return nil }
+        guard let spec else { broken.insert(p); return nil }
         let px = max(spec.size.width, spec.size.height) * UIScreen.main.scale
-        guard let img = ComicImages.decode(data as Data, maxPixel: px) else { broken.insert(p); return nil }
+        guard let img = source.image(p, maxPixel: px) else { broken.insert(p); return nil }
         broken.remove(p)
         if images.count > 8 {
             let keep = Set((units.indices.filter { abs($0 - index) <= 1 }).flatMap { pages(units[$0]) })
@@ -306,7 +367,7 @@ actor ComicEngine: BookEngine, ZoomSource {
     /// 쪽마다 그림 크기(Kotlin 목록 그대로 — 보는 방식 판별 · 웹툰 배치에 넘긴다).
     func rawSizeList() -> [Any] {
         if rawSizes.isEmpty {
-            rawSizes = ComicImages.sizes(book)
+            rawSizes = source.sizes()
             sizes = rawSizes.map { $0 as? ImageSize }
         }
         return rawSizes
@@ -391,7 +452,7 @@ actor ComicEngine: BookEngine, ZoomSource {
 
     /// 쪽 목록의 작은 그림. [half] 면 그 반만.
     func thumbnail(_ p: Int, height: CGFloat, half: SpreadSplit.Half = .whole) -> UIImage? {
-        guard let data = book.data(i: Int32(p)), let img = ComicImages.decode(data as Data, maxPixel: height * 2 * UIScreen.main.scale) else { return nil }
+        guard let img = source.image(p, maxPixel: height * 2 * UIScreen.main.scale) else { return nil }
         return half == .whole ? img : ComicImages.cut(img, half: half, frame: MarginTrim.Frame.companion.WHOLE)
     }
 
@@ -399,7 +460,7 @@ actor ComicEngine: BookEngine, ZoomSource {
     func zoomed(_ p: Int, size: CGSize, zoom: CGFloat) -> UIImage? {
         guard units.indices.contains(index), let unit = Optional(units[index]), unit.count == 1 else { return nil }
         let px = max(size.width, size.height) * zoom * UIScreen.main.scale * (unit[0].half == .whole ? 1 : 2)
-        return pieces(unit) { q in book.data(i: Int32(q)).flatMap { ComicImages.decode($0 as Data, maxPixel: px) } }.first ?? nil
+        return pieces(unit) { q in source.image(q, maxPixel: px) }.first ?? nil
     }
 
     /// 표지 고르기(구상안 44 ④): 지금 판의 앞 조각 — 쪽 · 보이는 반 · 통째로 보이는 넓은 쪽인가 · 화면 위 자리. 자리는 한 쪽 보기에
@@ -415,7 +476,7 @@ actor ComicEngine: BookEngine, ZoomSource {
     /// 표지로 쓸 그림: 쪽 [p] 의 [half](여백 자르기 · 색 보정 없이 — 표지는 책의 그림 그대로). 넓은 쪽의 반도 높이 480 이 나오게
     /// 긴 변 1920 으로 푼다.
     func coverImage(_ p: Int, half: SpreadSplit.Half) -> UIImage? {
-        guard let data = book.data(i: Int32(p)), let img = ComicImages.decode(data as Data, maxPixel: 1920) else { return nil }
+        guard let img = source.image(p, maxPixel: 1920) else { return nil }
         return half == .whole ? img : ComicImages.cut(img, half: half, frame: MarginTrim.Frame.companion.WHOLE)
     }
 
@@ -428,7 +489,7 @@ actor ComicEngine: BookEngine, ZoomSource {
     }
 
     nonisolated func close() {
-        book.close()
+        source.close()
     }
 }
 

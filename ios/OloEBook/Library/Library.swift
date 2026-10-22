@@ -296,8 +296,9 @@ final class Library: ObservableObject {
 
     /// 서재 표지를 앞 반으로 자를 방향 — 만화로 보는 그림책만(책으로 보면 표지 전체). nil 이면 자르지 않는다.
     func bookFace(_ book: LibraryBook) -> Bool? {
-        guard cachedPictureBook(book) == true,
-              IosPictureBooks.shared.opensAsComic(view: bookView(book.id), pdf: false, picture: true) else { return nil }
+        let pdf = book.format == .pdf
+        let picture = cachedPictureBook(book) == true
+        guard pdf || picture, IosPictureBooks.shared.opensAsComic(view: bookView(book.id), pdf: pdf, picture: picture) else { return nil }
         return bookRightToLeft(book.id)
     }
 

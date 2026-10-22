@@ -55,10 +55,10 @@ class PictureBookViewTest {
 
     @Test
     fun `only the true end counts as finished`() {
-        assertEquals(100f, BookComicPlace.percentAt(3, 4, atEnd = true))
-        assertEquals(50f, BookComicPlace.percentAt(2, 5, atEnd = false))
+        assertEquals(100f, BookPlace.percentAt(3, 4, atEnd = true))
+        assertEquals(50f, BookPlace.percentAt(2, 5, atEnd = false))
         // 마지막 쪽이어도 펼침면의 첫 반이면 끝이 아니다 — 다 읽음 문턱(99.95)에 닿으면 반만 보고 다 읽은 책이 됐다.
-        assertTrue(BookComicPlace.percentAt(3, 4, atEnd = false) < 99.95f)
+        assertTrue(BookPlace.percentAt(3, 4, atEnd = false) < 99.95f)
     }
 
     @Test
@@ -69,7 +69,7 @@ class PictureBookViewTest {
         // 다시 켠 뒤에도 책의 자리로 남는다(만화 진도 표가 아니라).
         val again = ReadingStore("$root/r.tsv")
         assertEquals(Locator.Reflow(0, 1), again.progressOf(id)?.locator)
-        assertEquals(BookComicPlace.percentAt(2, 4, atEnd = false), again.progressOf(id)?.percent)
+        assertEquals(BookPlace.percentAt(2, 4, atEnd = false), again.progressOf(id)?.percent)
         assertTrue(again.comicProgress().isEmpty())
         // 반은 버린다 — 그 쪽의 처음부터.
         assertEquals(ComicStart(1, SpreadSplit.Half.WHOLE), place(again).start(4))
@@ -137,5 +137,21 @@ class PictureBookViewTest {
         unit.save(first = 4, last = 5, pageCount = 10, atEnd = false, half = SpreadSplit.Half.WHOLE)
         assertEquals(5, store.comicProgress()["app:만화/1권.cbz"]?.page)
         assertNull(store.progressOf("app:만화/1권.cbz"))
+    }
+
+    @Test
+    fun `a PDF viewed as a comic keeps the PDF page as its place`() {
+        val store = ReadingStore("$root/r.tsv")
+        val pdf = PdfComicPlace(store, "app:스캔.pdf", 4)
+        // PDF 보기가 적은 쪽(쪽 안 세로 자리까지)도 그 쪽으로, 쪽 수 밖은 끝 쪽으로.
+        assertEquals(2, pdf.pageOf(Locator.FixedPage(2, 0, 640)))
+        assertEquals(3, pdf.pageOf(Locator.FixedPage(7)))
+        // 그림책의 자리는 PDF 의 자리가 아니다.
+        assertNull(pdf.pageOf(Locator.Reflow(0, 0)))
+        pdf.save(first = 1, last = 2, pageCount = 4, atEnd = false, half = SpreadSplit.Half.WHOLE)
+        assertEquals(Locator.FixedPage(1), store.progressOf("app:스캔.pdf")?.locator)
+        assertTrue(store.comicProgress().isEmpty())
+        assertTrue(pdf.toggle(listOf(2)))
+        assertEquals(Locator.FixedPage(2), store.bookmarksOf("app:스캔.pdf").single().locator)
     }
 }
