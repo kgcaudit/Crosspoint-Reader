@@ -339,6 +339,8 @@ final class ReaderModel: ObservableObject {
                 let pdf = try await PdfEngine(url: book.url, bookId: book.id, displayName: book.displayName, store: store)
                 self.engine = pdf
                 isPdf = true
+                // PDF 는 쪽 단위 빠르기(안드로이드 `speed.pages`) — 글자 빠르기로 쪽 수를 셈하면 "1분 미만" 이 된다.
+                speed = ReadingSpeed.load(.pages)
                 title = pdf.title
                 author = pdf.author
             } catch let error as PdfOpenError {
@@ -669,7 +671,8 @@ final class ReaderModel: ObservableObject {
             speed.save()
         }
         guard let frame, cause == .forward || cause == .backward else { sampleStart = nil; return }
-        sampleStart = (Date(), frame.pageEnd - frame.pageStart)
+        // 분량: 책은 그 쪽의 글자, PDF 는 보인 쪽 수(두 쪽이면 2 — 안드로이드 `state.shown.size`).
+        sampleStart = (Date(), frame.isPdf ? (frame.hasRight ? 2 : 1) : frame.pageEnd - frame.pageStart)
     }
 
     func prefetch() async {

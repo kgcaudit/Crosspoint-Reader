@@ -64,11 +64,15 @@ enum FooterText {
     static func chapterLeft(_ pages: Int) -> String { pages == 0 ? "이 장 마지막 쪽" : "이 장 \(pages)쪽 남음" }
 }
 
-/// 읽는 빠르기(안드로이드 `ReadingSpeed`): 분당 글자. 사람이 바로 다음 쪽으로 넘긴 것만 표본으로(2초 ~ 10분 머문 쪽), 지수 평균
-/// 0.2. 세 번 재기 전에는 모른다(nil — 빈칸). 모든 책에 하나다.
+/// 읽는 빠르기(안드로이드 `ReadingSpeed`): 분당 글자(책) · 분당 쪽(PDF). 사람이 바로 다음 쪽으로 넘긴 것만 표본으로(2초 ~ 10분
+/// 머문 쪽), 지수 평균 0.2. 세 번 재기 전에는 모른다(nil — 빈칸). 갈래마다 모든 책에 하나다 — 단위가 달라 섞으면 둘 다 틀린다.
 struct ReadingSpeed: Equatable {
+    /// 저장 열쇠(안드로이드 `speed.chars` · `speed.pages` 와 같은 갈래).
+    enum Kind: String { case chars = "speedChars", pages = "speedPages" }
+
     var unitsPerMinute: Double?
     var samples: Int
+    var kind: Kind = .chars
 
     static let minSamples = 3
     static let alpha = 0.2
@@ -86,17 +90,18 @@ struct ReadingSpeed: Equatable {
     }
 
     /// UserDefaults 에서. 망가진 값(무한대 · 음수)은 모르는 것으로 — 그 값으로 셈하면 "0분" 이나 수천 시간이 뜬다.
-    static func load() -> ReadingSpeed {
+    static func load(_ kind: Kind = .chars) -> ReadingSpeed {
         let d = UserDefaults.standard
+        let key = "reader.\(kind.rawValue)"
         // double(forKey:) 로 읽는다 — 글자로 저장된 값(설정 가져오기 · 실행 인자)도 숫자로 읽힌다.
-        let v = d.object(forKey: "reader.speedChars") == nil ? nil : d.double(forKey: "reader.speedChars")
+        let v = d.object(forKey: key) == nil ? nil : d.double(forKey: key)
         let ok = v.map { $0.isFinite && $0 > 0 } ?? false
-        return ReadingSpeed(unitsPerMinute: ok ? v : nil, samples: ok ? max(d.integer(forKey: "reader.speedChars.samples"), 0) : 0)
+        return ReadingSpeed(unitsPerMinute: ok ? v : nil, samples: ok ? max(d.integer(forKey: "\(key).samples"), 0) : 0, kind: kind)
     }
 
     func save() {
-        UserDefaults.standard.set(unitsPerMinute, forKey: "reader.speedChars")
-        UserDefaults.standard.set(samples, forKey: "reader.speedChars.samples")
+        UserDefaults.standard.set(unitsPerMinute, forKey: "reader.\(kind.rawValue)")
+        UserDefaults.standard.set(samples, forKey: "reader.\(kind.rawValue).samples")
     }
 }
 
@@ -149,11 +154,13 @@ struct ReadingFooter: View {
             return frame.pageLabel.map { "\($0) · \(n)" } ?? n
         case .percent: return "\(Int(frame.percent.rounded()))%"
         case .chapterLeft: return FooterText.chapterLeft(frame.pagesLeft ?? max(frame.pages - frame.page - 1 - (frame.hasRight ? 1 : 0), 0))
-        // PDF 의 남은 시간(쪽 단위 빠르기)은 아직 — 빈칸(charsLeft 가 −1).
+        // 남은 시간: 책은 글자, PDF 는 쪽으로 잰다(글자를 읽을 수 없다 — 안드로이드와 같다). 두 쪽이면 오른쪽 쪽 뒤부터 남은 것.
         case .chapterTime:
-            return frame.charsLeftChapter < 0 ? "" : speed.minutes(for: frame.charsLeftChapter).map { "이 장 \(FooterText.minutes($0)) 남음" } ?? ""
+            let left = frame.isPdf ? frame.pagesLeft ?? -1 : frame.charsLeftChapter
+            return left < 0 ? "" : speed.minutes(for: left).map { "이 장 \(FooterText.minutes($0)) 남음" } ?? ""
         case .bookTime:
-            return frame.charsLeftBook < 0 ? "" : speed.minutes(for: frame.charsLeftBook).map { "책 \(FooterText.minutes($0)) 남음" } ?? ""
+            let left = frame.isPdf ? frame.pages - 1 - frame.page - (frame.hasRight ? 1 : 0) : frame.charsLeftBook
+            return left < 0 ? "" : speed.minutes(for: left).map { "책 \(FooterText.minutes($0)) 남음" } ?? ""
         }
     }
 }
