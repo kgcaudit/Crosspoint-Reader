@@ -87,6 +87,27 @@ object IosPdfText {
     fun rects(layer: PageText, start: Int, end: Int): List<FloatArray> =
         layer.rects(start.coerceIn(0, layer.length), end.coerceIn(0, layer.length)).map { floatArrayOf(it.left, it.top, it.right, it.bottom) }
 
+    /** [start] ~ [end] 가 쪽에서 차지하는 높이(쪽 비율의 위 · 아래). 글자 네모가 없으면 null(회전한 쪽 등). */
+    fun span(layer: PageText, start: Int, end: Int): FloatArray? {
+        val r = rects(layer, start, end)
+        if (r.isEmpty()) return null
+        return floatArrayOf(r.minOf { it[1] }, r.maxOf { it[3] })
+    }
+
+    /**
+     * 듣는 문장 따라가기(폭 맞춤 · 이어서, 공통 `PageViewport.reveal` 과 같은 규칙). 기둥(쪽을 위에서 잰 점)의 [top] ~ [bottom] 이
+     * 화면([viewTop] 부터 [viewHeight])을 벗어나면 그 위를 화면 높이 30% 자리에 두는 새 화면 위를, 다 보이면 null 을 준다 — 문장마다
+     * 화면이 출렁이면 읽을 수 없다. 30% 는 가운데보다 위라야 뒤따를 글이 더 보이기 때문. 새 자리는 0 ~ [maxTop] 안.
+     */
+    fun follow(top: Double, bottom: Double, viewTop: Double, viewHeight: Double, maxTop: Double): Double? {
+        if (top >= viewTop && bottom <= viewTop + viewHeight) return null
+        val next = (top - viewHeight * 0.3).coerceIn(0.0, maxOf(maxTop, 0.0))
+        // 문장 머리가 이미 보이면 화면을 거꾸로 올리지 않는다 — 쪽 끝의 긴 문장(아래가 화면에 다 들지 않는다)에서 읽던 줄이 아래로
+        // 밀려 내려갔다(공통 `reveal` 은 이 경우에도 옮긴다).
+        if (top >= viewTop && top <= viewTop + viewHeight && next < viewTop) return null
+        return if (kotlin.math.abs(next - viewTop) < 0.5) null else next
+    }
+
     /** 누른 자리(쪽 비율)에 걸린 칠. 없으면 −1. 줄 높이 안쪽만 — 칠 옆 여백을 눌러 메뉴가 뜨면 넘기려던 손이 막힌다. */
     fun tintAt(layer: PageText, tints: List<PdfTint>, x: Float, y: Float): Int {
         for ((k, t) in tints.withIndex()) {

@@ -635,6 +635,12 @@ actor PdfEngine: BookEngine, ZoomSource {
         return try await show(page, y: yPermille)
     }
 
+    /// 듣는 문장이 그 쪽에서 차지하는 높이(쪽 비율). 폭 맞춤 · 이어서가 화면 밖으로 나간 문장을 따라간다. 글자 네모가 없으면 nil.
+    func speakingSpan() -> (page: Int, top: CGFloat, bottom: CGFloat)? {
+        guard let r = speakingRange, let s = IosPdfText.shared.span(layer: layer(r.page), start: Int32(r.start), end: Int32(r.end)) else { return nil }
+        return (r.page, CGFloat(s.get(index: 0)), CGFloat(s.get(index: 1)))
+    }
+
     func stopSpeaking() async throws -> PageFrame {
         speakingRange = nil
         return try await show(page, y: yPermille)

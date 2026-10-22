@@ -140,4 +140,25 @@ class PdfTextTest {
         book.removeNote(row.id)
         assertTrue(book.noteRows().isEmpty())
     }
+
+    @Test
+    fun `a spoken sentence already on screen does not move the page`() {
+        assertNull(IosPdfText.follow(top = 300.0, bottom = 340.0, viewTop = 200.0, viewHeight = 600.0, maxTop = 2000.0))
+    }
+
+    @Test
+    fun `a spoken sentence below the screen comes up to a third from the top`() {
+        assertEquals(1000.0 - 600.0 * 0.3, IosPdfText.follow(1000.0, 1040.0, 200.0, 600.0, 2000.0)!!, 1e-9)
+        // 위로 벗어난 문장(앞으로 돌아갔다)도 같은 자리로 — 쪽 머리 위로는 가지 않는다.
+        assertEquals(400.0 - 180.0, IosPdfText.follow(400.0, 440.0, 500.0, 600.0, 2000.0)!!, 1e-9)
+        assertEquals(0.0, IosPdfText.follow(100.0, 140.0, 500.0, 600.0, 2000.0)!!, 1e-9)
+    }
+
+    @Test
+    fun `following stops at the end of the page`() {
+        // 쪽 끝 문장: 끝을 넘겨 옮기면 쪽 아래 빈 바탕이 보인다.
+        assertEquals(1400.0, IosPdfText.follow(1950.0, 1990.0, 200.0, 600.0, 1400.0)!!, 1e-9)
+        // 쪽 끝의 긴 문장: 머리는 보이고 아래가 화면 밖이어도 이미 끝이면 거꾸로 올리지 않는다.
+        assertNull(IosPdfText.follow(1500.0, 2100.0, 1400.0, 600.0, 1400.0))
+    }
 }

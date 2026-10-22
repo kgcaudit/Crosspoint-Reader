@@ -84,6 +84,10 @@ struct PdfContinuousView: UIViewRepresentable {
     let onSettle: (Int, Int, Int) -> Void
     /// 굴리는 중: 가운데 쪽(알약).
     let onScroll: (Int) -> Void
+    /// 듣는 문장(쪽 · 쪽 비율 위 · 아래) — [reveal] 의 번호가 바뀌면 화면 밖일 때만 보이게 옮긴다.
+    var reveal: (page: Int, top: CGFloat, bottom: CGFloat, token: Int) = (0, 0, 0, 0)
+    /// 옮길 자리 셈(위, 아래, 화면 위, 화면 높이, 끝) → 새 화면 위 또는 nil(Kotlin `IosPdfText.follow`).
+    var follow: (CGFloat, CGFloat, CGFloat, CGFloat, CGFloat) -> CGFloat? = { _, _, _, _, _ in nil }
 
     static let spacing: CGFloat = 14
 
@@ -120,6 +124,10 @@ struct PdfContinuousView: UIViewRepresentable {
             c.stepToken = stepToken
             c.stepBy(step, in: sv)
         }
+        if c.revealToken != reveal.token {
+            c.revealToken = reveal.token
+            c.reveal(page: reveal.page, top: reveal.top, bottom: reveal.bottom, in: sv)
+        }
     }
 
     final class Coordinator: NSObject, UIScrollViewDelegate, UIGestureRecognizerDelegate {
@@ -127,6 +135,7 @@ struct PdfContinuousView: UIViewRepresentable {
         weak var scroll: UIScrollView?
         var jumpToken = -1
         var stepToken = 0
+        var revealToken = 0
         private var tops: [CGFloat] = []
         private var heights: [CGFloat] = []
         private var views: [Int: UIImageView] = [:]
@@ -177,6 +186,21 @@ struct PdfContinuousView: UIViewRepresentable {
             fill(sv)
         }
 
+        private var litPage: Int?
+
+        /// 듣는 문장이 화면(쪽을 놓는 칸) 밖이면 칸 높이 30% 자리로 부드럽게. 칠도 새로 — 쪽 그림은 처음 한 번만 그려 두므로, 다시
+        /// 그리지 않으면 문장이 바뀌어도 첫 문장의 칠이 남거나 칠이 아예 보이지 않았다.
+        func reveal(page: Int, top: CGFloat, bottom: CGFloat, in sv: UIScrollView) {
+            guard page < tops.count else { return }
+            for p in Set([page, litPage].compactMap { $0 }) { redraw(p) }
+            litPage = page
+            guard top >= 0 else { return }
+            let a = tops[page] + heights[page] * top - parent.area.minY
+            let b = tops[page] + heights[page] * bottom - parent.area.minY
+            guard let next = parent.follow(a, b, sv.contentOffset.y, parent.area.height, max(sv.contentSize.height - sv.bounds.height, 0)) else { return }
+            sv.setContentOffset(CGPoint(x: 0, y: clampOffset(next, sv)), animated: true)
+        }
+
         func stepBy(_ step: Int, in sv: UIScrollView) {
             let from = goal ?? sv.contentOffset.y
             let to = clampOffset(from + CGFloat(step) * parent.area.height * 0.9, sv)
@@ -208,6 +232,15 @@ struct PdfContinuousView: UIViewRepresentable {
                     v?.image = img
                     if img == nil { v?.addSubview(Self.broken(v?.bounds ?? .zero)) }
                 }
+            }
+        }
+
+        /// 놓인 쪽 하나를 다시 그린다(칠이 바뀌었다). 화면 가까이 없으면 할 일이 없다 — 가까이 오면 새로 그린다.
+        private func redraw(_ i: Int) {
+            guard let v = views[i] else { return }
+            let width = laidWidth
+            Task { @MainActor [weak v] in
+                if let img = await self.parent.image(i, width) { v?.image = img }
             }
         }
 

@@ -386,6 +386,8 @@ final class ReaderModel: ObservableObject {
     @Published private(set) var pdfPill = 0
     /// 이어서: 목차 · 진도 · 책갈피로 옮겼다(화면이 그 쪽 머리로 굴린다). 사람이 굴려 바뀐 쪽은 올리지 않는다.
     @Published private(set) var continuousJump = 0
+    /// 이어서 보기에서 화면 밖으로 나간 듣는 문장(쪽 · 쪽 비율 위 · 아래 · 번호) — 굴리는 뷰가 보이게 옮긴다.
+    @Published private(set) var continuousReveal: (page: Int, top: CGFloat, bottom: CGFloat, token: Int) = (0, 0, 0, 0)
     /// 이어서: 화면 90% 굴리기(+1 · −1)와 그 표.
     @Published private(set) var continuousStep = (step: 0, token: 0)
     /// 이어서: 굴리는 중의 가운데 쪽(알약).
@@ -1007,6 +1009,8 @@ final class ReaderModel: ObservableObject {
         listenSheet = false
         if listening.active { listening.close() }
         if let engine, let f = try? await engine.stopSpeaking() { frame = f }
+        // 이어서 보기의 쪽 그림에 남은 문장 칠을 지운다(위 −1 = 옮기지 않고 다시 그리기만).
+        if isPdf && pdfFit == .continuous { continuousReveal = (continuousReveal.page, -1, -1, continuousReveal.token + 1) }
     }
 
     func close() async {
@@ -1030,7 +1034,20 @@ extension ReaderModel: ListenSource {
     func follow(_ spine: Int, _ sentence: SpokenSentence, follow: Bool) async {
         guard let engine, listening.active, let f = try? await engine.speak(spine, sentence, follow: follow) else { return }
         if f.key != frame?.key { selection = nil; tapped = nil; direction = 1; turnCause = .machine }
+        // 이어서 보기는 다음 쪽이 이미 화면에 보일 수 있다 — 쪽 머리로 뛰지 않고, 아래에서 문장이 보이게만 옮긴다.
+        if isPdf && pdfFit == .continuous && f.page != frame?.page { fromScroll = true }
         frame = f
+        guard follow, isPdf, pdfFit != .page, let pdf = engine as? PdfEngine, let span = await pdf.speakingSpan() else { return }
+        // 화면 밖으로 나간 문장을 따라간다(폭 맞춤 · 이어서, Kotlin `IosPdfText.follow`). 쪽 전체 보기는 쪽이 늘 다 보인다.
+        if pdfFit == .width, span.page == frame?.page {
+            let h = pdfStripHeight
+            if let next = IosPdfText.shared.follow(top: Double(span.top * h), bottom: Double(span.bottom * h), viewTop: Double(pdfOffset),
+                                                   viewHeight: Double(pdfArea.height), maxTop: Double(pdfMaxOffset)) {
+                withAnimation(CpMotion.enter(CpMotion.barIn)) { pdfOffset = CGFloat(next) }
+            }
+        } else if pdfFit == .continuous {
+            continuousReveal = (span.page, span.top, span.bottom, continuousReveal.token + 1)
+        }
     }
 }
 
@@ -1076,7 +1093,12 @@ struct ReaderView: View {
                                           onTap: { p in pageTap(p, size: full, insets: insets) },
                                           onSwipe: { s in Task { await model.swipe(s) } },
                                           onSettle: { t, y, c in Task { await model.continuousSettled(top: t, y: y, center: c) } },
-                                          onScroll: { c in model.continuousScrolled(center: c) })
+                                          onScroll: { c in model.continuousScrolled(center: c) },
+                                          reveal: model.continuousReveal,
+                                          follow: { t, b, v, h, m in
+                                              IosPdfText.shared.follow(top: Double(t), bottom: Double(b), viewTop: Double(v), viewHeight: Double(h), maxTop: Double(m))
+                                                  .map { CGFloat(truncating: $0) }
+                                          })
                             .ignoresSafeArea()
                             // 쪽을 놓는 칸 밖(노치 · 아래 줄)에는 보이지 않게 — 아래 줄 글자가 쪽 글자와 겹쳤다.
                             .mask(Rectangle().frame(height: model.pdfArea.height).position(x: full.width / 2, y: model.pdfArea.midY).ignoresSafeArea())
