@@ -164,4 +164,23 @@ class ComicSplitPagesTest {
         val whole = assertNotNull(runBlocking { pages.page(0, 300, 420, ComicTrim.Off) })
         assertTrue(left.width < whole.width, "여백을 전혀 걷지 않았다")
     }
+
+    @Test
+    fun `a spread whose header hides its size is still measured and split into two pages`() {
+        // 머리로 크기를 못 읽는 그림(여기서는 SOF 앞에 4MB 넘는 덧붙인 조각이 있는 JPEG — 머리 읽기는 4MB 에서 멈춘다)도 화면에는
+        // 나온다. 0.55.1 까지는 크기를 몰라 넓은 그림으로 판정되지 않고, 두 쪽 그림의 오른쪽 반을 건너뛰고 다음 그림으로 갔다.
+        val b = Bitmap.createBitmap(1200, 840, Bitmap.Config.ARGB_8888).apply { eraseColor(blue) }
+        val jpeg = ByteArrayOutputStream().also { b.compress(Bitmap.CompressFormat.JPEG, 80, it) }.toByteArray()
+        val pad = ByteArrayOutputStream()
+        repeat(70) { pad.write(byteArrayOf(0xFF.toByte(), 0xEF.toByte(), 0xFF.toByte(), 0xFF.toByte())); pad.write(ByteArray(0xFFFD)) }
+        val hidden = jpeg.copyOfRange(0, 2) + pad.toByteArray() + jpeg.copyOfRange(2, jpeg.size)
+        assertNull(io.github.kgcaudit.reader.document.image.ImageHeader.read(hidden.inputStream()), "시험 그림의 크기가 머리로 읽혔다 — 시험이 아무것도 재지 않는다")
+        val sizes = runBlocking { book(listOf(spread(600, 900), hidden)).sizes() }
+        assertEquals(ImageSize(1200, 840), sizes[1])
+        assertEquals(
+            listOf(SpreadSplit.Part(0, SpreadSplit.Half.WHOLE), SpreadSplit.Part(1, SpreadSplit.Half.LEFT), SpreadSplit.Part(1, SpreadSplit.Half.RIGHT)),
+            SpreadSplit.parts(sizes, rightToLeft = false),
+            "크기를 잰 펼침면이 두 반으로 나뉘지 않았다",
+        )
+    }
 }
