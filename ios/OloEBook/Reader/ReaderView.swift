@@ -231,7 +231,7 @@ struct FootnoteItem: Identifiable {
 }
 
 /// 리더 위에 열린 판(안드로이드 `Panel`). 뒤로 가기: 목차 · 보기 → 메뉴, 보기 설정 · 글꼴 → 보기, 메뉴 → 지면.
-enum ReaderPanel { case none, bar, view, settings, fonts, contents, search, export, voices, footer, footerItem, pageGrid, comicMarks }
+enum ReaderPanel { case none, bar, view, settings, fonts, contents, search, export, voices, footer, footerItem, touchZones, pageGrid, comicMarks }
 
 /// 쪽이 바뀐 까닭(읽는 빠르기 표본). 사람이 바로 다음 쪽으로 넘긴 것만 잰다.
 enum TurnCause { case jump, forward, backward, machine }
@@ -914,7 +914,7 @@ final class ReaderModel: ObservableObject {
     func back() {
         switch panel {
         case .settings, .fonts: panel = .view
-        case .footer: panel = .settings
+        case .footer, .touchZones: panel = .settings
         case .footerItem: panel = .footer
         case .export: panel = .contents
         // 듣는 중이면 듣기 판으로 돌아온다 — 판에서 "목소리" 를 눌러 왔다.
@@ -972,8 +972,8 @@ extension ReaderModel: ListenSource {
     }
 }
 
-/// 리더(구상안 2A · 4A · 6A 확정). 지면은 화면 전체 — 왼쪽 30% 를 누르면 앞 쪽, 오른쪽 30% 는 다음 쪽, 가운데 40% 는 메뉴
-/// (안드로이드 터치 영역 "기본"). 옆으로 밀어도 넘어간다.
+/// 리더(구상안 2A · 4A · 6A 확정). 지면은 화면 전체 — 양쪽 30% 는 넘김(어느 쪽이 다음인지는 터치 영역, 구상안 37), 가운데 40% 는
+/// 메뉴. 옆으로 밀어도 넘어간다.
 struct ReaderView: View {
     let book: LibraryBook
     let library: Library
@@ -1046,6 +1046,9 @@ struct ReaderView: View {
                             .id(key)
                             .transition(pageTransition)
                             .zIndex(Double(model.turnCount) * (model.direction > 0 ? 1 : -1))
+                            // 넘길 때마다 zIndex 가 커져 첫 넘김 뒤 그림이 넘김 자리(TurnZones) 위로 올라온다 — 그림이 누름을 받으면
+                            // "말림" 밖의 효과(없음 · 서서히 · 밀기 · 덮기)에서 두 번째 누름부터 아무 일도 없었다.
+                            .allowsHitTesting(false)
                             .accessibilityLabel("\(model.title), \(frame.page + 1)쪽")
                     }
                     // 윗여백 안에서 끝나 글자를 가리지 않는다. 노치 · 다이내믹 아일랜드가 있으면 그 아래로.
@@ -1069,8 +1072,8 @@ struct ReaderView: View {
                     }
                 }
                 // 오→왼(만화): 왼쪽을 누르거나 오른쪽으로 밀면 다음 쪽 — 넘김 자리만 뒤집고 그림은 그대로.
-                TurnZones(cornerTop: insets.top, cornerRight: insets.trailing,
-                          turn: { step in Task { await model.turn(rtl ? -step : step) } },
+                TurnZones(cornerTop: insets.top, cornerRight: insets.trailing, zones: zones, rightToLeft: rtl,
+                          turn: { step in Task { await model.turn(step) } },
                           tap: { point, otherwise in Task { await model.tap(at: point, otherwise: otherwise) } },
                           longPress: { point in Task { await model.select(at: point) } },
                           bookmark: { Task { await model.toggleBookmark() } },
@@ -1226,7 +1229,8 @@ struct ReaderView: View {
                     }
                     if let i = args.firstIndex(of: "-olo-panel"), i + 1 < args.count {
                         model.panel = ["bar": .bar, "view": .view, "settings": .settings, "fonts": .fonts, "contents": .contents,
-                                       "voices": .voices, "footer": .footer, "footerItem": .footerItem][args[i + 1]] ?? .none
+                                       "voices": .voices, "footer": .footer, "footerItem": .footerItem,
+                                       "touchZones": .touchZones][args[i + 1]] ?? .none
                     }
                 }
                 #endif
@@ -1378,16 +1382,17 @@ struct ReaderView: View {
             Task { await model.toggleBookmark() }
             return
         }
-        let x = p.x / size.width
-        let back = rtl ? 1 : -1
+        let step = Int(zones.step(x: Double(p.x / size.width), rightToLeft: rtl))
         Task {
             await model.tap(at: p) {
-                if x < 0.3 { Task { await model.turn(back) } } else if x > 0.7 { Task { await model.turn(-back) } } else {
+                if step != 0 { Task { await model.turn(step) } } else {
                     withAnimation(.easeOut(duration: 0.18)) { model.panel = model.panel == .none ? .bar : .none }
                 }
             }
         }
     }
+
+    private var zones: TouchZones { TouchZones.companion.of(index: Int32(prefs.touchZones)) }
 
     private struct KeepAwakeKey: Equatable {
         let mode: ReaderPrefs.KeepScreenOn
@@ -1422,6 +1427,10 @@ private struct TurnZones: View {
     /// 오른쪽 위 모서리(책갈피 자리)의 위 · 오른쪽 기준. 리본이 안전 영역 아래에 서므로 누르는 자리도 같이 내린다.
     let cornerTop: CGFloat
     let cornerRight: CGFloat
+    /// 어느 쪽이 다음인가(구상안 37). 오→왼 만화면 자리를 뒤집는다 — 한 손만은 늘 다음(공통 규칙 `TouchZones.step`).
+    let zones: TouchZones
+    let rightToLeft: Bool
+    /// 읽는 순서로 몇 쪽(1 다음 · -1 앞). 누름 · 손쉬운 사용 동작이 부른다.
     let turn: (Int) -> Void
     /// 누름: 먼저 그 자리의 링크를 묻고, 링크가 아니면 두 번째 함수(넘김 · 메뉴)를 부른다.
     let tap: (CGPoint, @escaping () -> Void) -> Void
@@ -1478,7 +1487,8 @@ private struct TurnZones: View {
                         }
                         let dx = v.translation.width
                         if abs(dx) > 40 && abs(dx) > abs(v.translation.height) {
-                            (swipe ?? turn)(dx < 0 ? 1 : -1) // 왼쪽으로 밀면 다음 쪽(종이를 넘기는 방향).
+                            // 왼쪽으로 밀면 다음 쪽(종이를 넘기는 방향). 밀기는 화면 방향이라 오→왼이면 뒤집는다.
+                            (swipe ?? { turn(rightToLeft ? -$0 : $0) })(dx < 0 ? 1 : -1)
                         } else if abs(dx) < 10 && abs(v.translation.height) < 10 {
                             // 오른쪽 위 모서리는 책갈피(안드로이드와 같다) — 리본이 있는 곳을 누르면 빠진다.
                             if v.location.x > g.size.width - cornerRight - corner && v.location.y < cornerTop + corner {
@@ -1497,7 +1507,7 @@ private struct TurnZones: View {
         }
         .accessibilityElement()
         .accessibilityLabel("지면")
-        .accessibilityHint("왼쪽은 앞 쪽, 오른쪽은 다음 쪽, 가운데는 메뉴, 오른쪽 위 모서리는 책갈피")
+        .accessibilityHint("\(zones.description(rightToLeft: rightToLeft)), 가운데는 메뉴, 오른쪽 위 모서리는 책갈피")
         .accessibilityAction(named: "다음 쪽") { turn(1) }
         .accessibilityAction(named: "앞 쪽") { turn(-1) }
         .accessibilityAction(named: "메뉴") { toggleMenu() }
@@ -1507,9 +1517,9 @@ private struct TurnZones: View {
     /// 한 번 누름. 확대를 받으면 두 번째 누름을 0.3초 기다린다 — 두 번이면 그 자리를 2.5배로.
     private func single(_ at: CGPoint, width: CGFloat) {
         let run = {
-            let x = at.x / width
+            let step = Int(zones.step(x: Double(at.x / width), rightToLeft: rightToLeft))
             tap(at) {
-                if x < 0.3 { turn(-1) } else if x > 0.7 { turn(1) } else { toggleMenu() }
+                if step != 0 { turn(step) } else { toggleMenu() }
             }
         }
         guard let zoom else { run(); return }

@@ -30,7 +30,11 @@ struct ReaderPanels: View {
                 SidePanel(wide: wide, insets: insets, dismiss: model.back) {
                     ViewSettingsScreen(prefs: prefs, isPdf: model.isPdf, isComic: model.isComic,
                                        coverCount: model.isComic ? model.comicCoverCount : prefs.pdfCoverByBook.count,
-                                       back: model.back, openFooter: { model.panel = .footer })
+                                       back: model.back, openFooter: { model.panel = .footer }, openTouch: { model.panel = .touchZones })
+                }
+            case .touchZones:
+                SidePanel(wide: wide, insets: insets, dismiss: model.back) {
+                    TouchZonesScreen(prefs: prefs, rightToLeft: model.isComic && model.comicWork?.rtl == true, back: model.back)
                 }
             case .footer:
                 SidePanel(wide: wide, insets: insets, dismiss: model.back) {
@@ -318,6 +322,7 @@ private struct ViewSettingsScreen: View {
     var coverCount = 0
     let back: () -> Void
     let openFooter: () -> Void
+    let openTouch: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -336,6 +341,9 @@ private struct ViewSettingsScreen: View {
                     }
                     // 넘기기(구상안 23A, 안드로이드 차례: 문단 → 넘기기 → 화면).
                     section("넘기기")
+                    // 안드로이드의 "음량 단추로 넘기기" 는 두지 않는다(구상안 37 · 2A) — iOS 에는 앱이 음량 단추를 가로챌 공식 길이 없다.
+                    CpLinkRow(label: "터치 영역", value: TouchZonesScreen.label(prefs.touchZones), action: openTouch)
+                        .padding(.leading, CpMetrics.levelIndent)
                     CpChoice(label: "넘김 효과", options: ["없음", "서서히", "밀기", "덮기", "말림"], selected: prefs.pageTurn) { prefs.pageTurn = $0 }
                         .padding(.leading, CpMetrics.levelIndent)
                     CpChoice(label: "넘김 소리", options: TurnFeedback.names, selected: prefs.turnSound) {

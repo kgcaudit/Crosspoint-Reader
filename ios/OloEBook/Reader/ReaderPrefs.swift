@@ -47,6 +47,8 @@ final class ReaderPrefs: ObservableObject {
     @Published var listenJoin: Int { didSet { save(listenJoin, "listenJoin") } }
     /// 자동 넘김: 0 끔(기본) · 1 15초 · 2 30초 · 3 60초.
     @Published var autoTurn: Int { didSet { save(autoTurn, "autoTurn") } }
+    /// 터치 영역(구상안 37): 0 기본 · 1 좌우 바꾸기 · 2 한 손. 책 · PDF · 만화가 함께 쓴다(안드로이드와 같다).
+    @Published var touchZones: Int { didSet { save(touchZones, "touchZones") } }
     static let autoTurnSeconds = [0, 15, 30, 60]
     /// 두 쪽 보기(구상안 27): 가로(기본 켬) · 세로(넓은 화면에서만, 기본 켬). 안드로이드 `ScreenPrefs` 와 같다.
     @Published var twoPagesLandscape: Bool { didSet { save(twoPagesLandscape, "twoPagesLandscape") } }
@@ -104,6 +106,7 @@ final class ReaderPrefs: ObservableObject {
         listenVoice = d.string(forKey: "reader.listenVoice")
         listenJoin = int("listenJoin", 0, 0...1)
         autoTurn = int("autoTurn", 0, 0...3)
+        touchZones = int("touchZones", 0, 0...2)
         pdfFit = int("pdfFit", 0, 0...2)
         pdfCoverAlone = d.object(forKey: "reader.pdfCoverAlone") as? Bool ?? true
         pdfCoverByBook = d.dictionary(forKey: "reader.pdfCoverByBook") as? [String: Bool] ?? [:]
