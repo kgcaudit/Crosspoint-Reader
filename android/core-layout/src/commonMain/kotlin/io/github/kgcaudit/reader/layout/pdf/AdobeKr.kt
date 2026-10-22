@@ -1,4 +1,4 @@
-package io.github.kgcaudit.reader.pdf
+package io.github.kgcaudit.reader.layout.pdf
 
 /*
  * 아래 표는 Adobe cmap-resources 의 Adobe-KR-9 / UniAKR-UTF16-H 에서 뽑은 CID → 유니코드 표다

@@ -113,7 +113,7 @@ class AboutTest {
         listOf("Redistributions of source code", "Redistributions in binary form", "Neither the name of Adobe", "EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE")
             .forEach { assertTrue(it in adobe, "Adobe 고지문에 \"$it\" 이 없다") }
         // 앱에 싣는 고지문은 표를 넣은 코드(AdobeKr.kt) 머리의 것과 같아야 한다 — 표를 새 판으로 바꾸고 이 파일을 잊으면 걸린다.
-        val source = File("../reader-pdf/src/main/kotlin/io/github/kgcaudit/reader/pdf/AdobeKr.kt").readText()
+        val source = File("../core-layout/src/commonMain/kotlin/io/github/kgcaudit/reader/layout/pdf/AdobeKr.kt").readText()
             .substringAfter("-----------------------------------------------------------").substringBefore("-----------------------------------------------------------")
             .lines().joinToString(" ") { it.removePrefix(" *").trim() }
         fun words(s: String) = s.split(Regex("\\s+")).filter { it.isNotEmpty() }

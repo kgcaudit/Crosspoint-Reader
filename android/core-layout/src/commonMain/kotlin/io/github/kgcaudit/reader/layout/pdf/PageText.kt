@@ -1,4 +1,4 @@
-package io.github.kgcaudit.reader.pdf
+package io.github.kgcaudit.reader.layout.pdf
 
 import io.github.kgcaudit.reader.layout.book.Sentence
 import io.github.kgcaudit.reader.layout.book.splitSentences
@@ -90,7 +90,7 @@ class PageText(val text: String, private val boxes: FloatArray, val source: Stri
             }
             if (twin) (out ?: text.toCharArray().also { out = it })[i] = SILENT
         }
-        return out?.let { withText(String(it)) } ?: this
+        return out?.let { withText(it.concatToString()) } ?: this
     }
 
     /** 같은 네모에 고친 글([BrokenHangul]). 글 길이가 같아야 한다 — 네모는 글자 자리로 짝지어진다. */
@@ -120,7 +120,7 @@ class PageText(val text: String, private val boxes: FloatArray, val source: Stri
         if (!changed) return this
         val out = FloatArray(boxes.size)
         for (i in order.indices) for (j in 0 until 4) out[i * 4 + j] = boxes[order[i] * 4 + j]
-        return PageText(String(CharArray(text.length) { text[order[it]] }), out, String(CharArray(text.length) { source[order[it]] }))
+        return PageText(CharArray(text.length) { text[order[it]] }.concatToString(), out, CharArray(text.length) { source[order[it]] }.concatToString())
     }
 
     /** 글자 [i] 의 네모. 자리를 모르면 null. */
@@ -248,7 +248,7 @@ class PageText(val text: String, private val boxes: FloatArray, val source: Stri
         val codes = (from until to).joinToString(" ") { i ->
             val b = box(i)
             val at = if (b == null) "-" else "${((b.left + b.right) * 500).toInt()},${((b.top + b.bottom) * 500).toInt()}"
-            "%04X:%s".format(source[i].code, at)
+            "${source[i].code.toString(16).uppercase().padStart(4, '0')}:$at"
         }
         return "$quote\n\n[진단 · 엔진이 준 글자 번호:위치] $codes"
     }
@@ -421,7 +421,7 @@ class PageText(val text: String, private val boxes: FloatArray, val source: Stri
             if (!hangul && !hyphen) continue
             if (hangul && endsWord(prev, cur)) continue
             val from = if (hyphen) prev.endExclusive - 1 else prev.endExclusive
-            for (i in from until cur.start) out.setCharAt(i, SILENT)
+            for (i in from until cur.start) out[i] = SILENT
         }
         return out.toString()
     }

@@ -26,7 +26,7 @@ import io.github.kgcaudit.reader.document.pdf.TestPdf.Companion.pages
 import io.github.kgcaudit.reader.document.pdf.TestPdf.Companion.utf16
 import io.github.kgcaudit.reader.listen.ListenHub
 import io.github.kgcaudit.reader.listen.ListenKit
-import io.github.kgcaudit.reader.pdf.PageText
+import io.github.kgcaudit.reader.layout.pdf.PageText
 import io.github.kgcaudit.reader.reflow.ReaderPrefs
 import io.github.kgcaudit.reader.ui.design.PaperTheme
 import io.github.kgcaudit.reader.ui.design.Pen

@@ -1,5 +1,8 @@
 package io.github.kgcaudit.reader.pdf
 
+import io.github.kgcaudit.reader.layout.pdf.BROKEN_WORD_MARK
+import io.github.kgcaudit.reader.layout.pdf.PageText
+import io.github.kgcaudit.reader.layout.pdf.BrokenHangul
 /**
  * 엔진에 **글자 번호 하나씩** 물어 글자 층(글 + 글자마다의 네모)을 맞춘다.
  *
@@ -33,5 +36,3 @@ internal fun assembleLayer(bound: Int, select: (from: Int, to: Int) -> Pair<Stri
 /** 엔진이 번호 2 대신 주는 글. */
 internal const val BROKEN_WORD = "-\r\n"
 
-/** 번호 2 를 되돌린 글자. [BrokenHangul] 이 망가진 낱말 밖에서는 하이픈으로 바꾼다. */
-internal const val BROKEN_WORD_MARK = '\u0002'

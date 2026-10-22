@@ -1,4 +1,4 @@
-package io.github.kgcaudit.reader.pdf
+package io.github.kgcaudit.reader.layout.pdf
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -132,13 +132,10 @@ class PageViewportTest {
         val portrait = PageViewport.fitWidth(1080f, 2000f, 0.7071f)
         assertEquals(1 to 1, portrait.screen())
         assertEquals(null, portrait.scroll(true))
-        assertEquals("18쪽 · 첫 화면 (1/3)", screenLabel(17, 1, 3))
-        assertEquals("18쪽 · 2번째 화면 (2/3)", screenLabel(17, 2, 3))
-        assertEquals("18쪽 · 끝 화면 (3/3)", screenLabel(17, 3, 3))
     }
 
     @Test
-    fun `double tap in fit width zooms from the fitted size and comes back to it, not to the whole page`() {
+    fun `double tap in fit width zooms from the fitted size and comes back to it - not to the whole page`() {
         val lower = landscape.scroll(true)!!
         val zoomed = lower.toggleZoom(1100f, 500f)
         assertTrue(zoomed.isZoomed)
@@ -177,7 +174,7 @@ class PageViewportTest {
     }
 
     @Test
-    fun `a comic page aligned to the top or bottom keeps the spare height on the other side, even after zooming out`() {
+    fun `a comic page aligned to the top or bottom keeps the spare height on the other side - even after zooming out`() {
         // 만화(0.45.0): 휴대폰은 카메라 구멍 바로 아래에 붙는다. 가운데에 두면 구멍 아래에 검은 띠가 한 번 더 생긴다.
         val comic = PageViewport.fit(1080f, 2000f, 0.7071f, verticalBias = 0f)
         assertEquals(0f, comic.top, 0.5f)

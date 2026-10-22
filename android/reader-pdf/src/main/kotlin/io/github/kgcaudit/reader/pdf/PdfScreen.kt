@@ -1,5 +1,8 @@
 package io.github.kgcaudit.reader.pdf
 
+import io.github.kgcaudit.reader.layout.pdf.PageViewport
+import io.github.kgcaudit.reader.layout.pdf.PageRegion
+import io.github.kgcaudit.reader.layout.pdf.layerHits
 import io.github.kgcaudit.reader.ui.design.CpPanelHost
 import android.graphics.Bitmap
 import androidx.activity.compose.BackHandler

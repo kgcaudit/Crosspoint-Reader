@@ -1,4 +1,4 @@
-package io.github.kgcaudit.reader.pdf
+package io.github.kgcaudit.reader.layout.pdf
 
 import kotlin.math.abs
 import kotlin.math.sign
@@ -82,7 +82,7 @@ object BrokenHangul {
             loneMarks(text, from, to, out)
             hideUnlikely(text, from, to, out)
         }
-        return hyphens(String(out))
+        return hyphens(out.concatToString())
     }
 
     /** 망가진 낱말 밖에 남은 번호 2 표시([BROKEN_WORD_MARK])는 줄 끝 하이픈이다. */
@@ -232,3 +232,6 @@ object BrokenHangul {
     /** 우리말 글에 가장 흔한 글자들. 되살린 글이 이것으로 차 있어야 망가진 글로 본다. */
     private val COMMON = "이다는의에을고하가한지로서기리도게사대어자아수나들인일요있것그".toSet()
 }
+
+/** 번호 2 를 되돌린 글자. [BrokenHangul] 이 망가진 낱말 밖에서는 하이픈으로 바꾼다. */
+const val BROKEN_WORD_MARK = '\u0002'

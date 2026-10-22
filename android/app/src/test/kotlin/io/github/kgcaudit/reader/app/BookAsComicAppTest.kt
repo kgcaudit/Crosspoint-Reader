@@ -15,7 +15,7 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.test.core.app.ApplicationProvider
 import io.github.kgcaudit.reader.data.library.BookView
 import io.github.kgcaudit.reader.document.Locator
-import io.github.kgcaudit.reader.pdf.PageRegion
+import io.github.kgcaudit.reader.layout.pdf.PageRegion
 import io.github.kgcaudit.reader.pdf.PdfSource
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
