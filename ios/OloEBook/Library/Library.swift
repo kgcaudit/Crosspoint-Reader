@@ -109,17 +109,34 @@ final class Library: ObservableObject {
         scanning = true
         let folders = self.folders
         let known = infos
-        let (found, seen) = await Task.detached(priority: .userInitiated) { Library.scan(folders: folders, known: known) }.value
-        let (units, files) = await Task.detached(priority: .userInitiated) { Library.scanComics(folders: folders) }.value
+        let (found, seen, readBooks) = await Task.detached(priority: .userInitiated) { Library.scan(folders: folders, known: known) }.value
+        let (units, files, readComics) = await Task.detached(priority: .userInitiated) { Library.scanComics(folders: folders) }.value
         comicUnits = units
         comicFiles = files
         books = found
         infos = seen
         Library.saveInfos(seen)
+        adoptMoved(read: readBooks.filter(readComics.contains))
         // 백업에서 기다리던 책 · 만화가 이제 보이면 붙인다(책 폴더를 추가한 뒤 등).
         _ = backup.resumePending(shelf: shelfBooks, comics: shelfComics)
         reloadRecords()
         scanning = false
+    }
+
+    /// 옮긴 파일의 기록 잇기(안드로이드 0.50.0, 1A 2A 3A): 사라진 파일의 기록을 같은 이름 · 크기로 다시 나타난 파일로 옮긴다. [read] 는
+    /// 이번에 책 · 만화 훑기가 모두 실제로 읽은 폴더의 id 머리 — 접근이 끊긴 폴더의 파일을 사라진 것으로 치면, 같은 파일이 다른 폴더에
+    /// 하나 있을 때 기록이 그리로 넘어가 버린다. 알림은 띄우지 않는다(안드로이드와 같다).
+    private func adoptMoved(read: [String]) {
+        let visible = books.map { KnownFile(id: $0.id, kind: KnownFile.companion.BOOK, name: $0.displayName, size: KotlinLong(value: $0.sizeBytes), pages: nil) }
+            + comicUnits.map { KnownFile(id: $0.id, kind: $0.kind.name, name: $0.name, size: $0.sizeBytes, pages: $0.pageCount) }
+        for pair in store.adoptMoved(visible: visible, scanned: read) {
+            // 고른 표지도 따라간다 — 책은 책 id, 만화는 빼낸 작품(`#own:` 권 id)만 권 id 를 열쇠로 쓴다.
+            if pair.comic {
+                CoverStore.shared.move(IosCovers.shared.workId(workKey: "#own:" + pair.from), to: IosCovers.shared.workId(workKey: "#own:" + pair.to))
+            } else {
+                CoverStore.shared.move(pair.from, to: pair.to)
+            }
+        }
     }
 
     // MARK: 기록 백업(구상안 31A)
@@ -252,13 +269,15 @@ final class Library: ObservableObject {
 
     /// 만화 단위를 훑는다: cbz · cbt · 그림만 든 zip(35A — cbr · cb7 은 아직 아니다), 그림 3장 이상 든 폴더. 무엇이 만화인지는 공통
     /// `ComicContents` 가 정한다.
-    private nonisolated static func scanComics(folders: [LinkedFolder]) -> ([ComicUnit], [String: ComicFile]) {
+    private nonisolated static func scanComics(folders: [LinkedFolder]) -> ([ComicUnit], [String: ComicFile], [String]) {
         var units: [ComicUnit] = []
         var files: [String: ComicFile] = [:]
+        var read: [String] = []
         func walk(_ root: URL, _ prefix: String, _ folderId: String?) {
             let keys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey, .creationDateKey, .contentModificationDateKey]
             guard let walker = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys,
                                                               options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return }
+            read.append(prefix)
             let rootPath = root.standardizedFileURL.path
             var byFolder: [String: [String]] = [:]
             for case let url as URL in walker {
@@ -298,11 +317,11 @@ final class Library: ObservableObject {
             defer { if access { url.stopAccessingSecurityScopedResource() } }
             walk(url, "link:\(folder.id):", folder.id)
         }
-        return (units, files)
+        return (units, files, read)
     }
 
     /// 책들과 그 이름표. 이름표는 폴더 접근이 열려 있는 이 자리에서 읽는다(연결한 폴더는 훑는 동안만 열린다).
-    private nonisolated static func scan(folders: [LinkedFolder], known: [String: Info]) -> ([LibraryBook], [String: Info]) {
+    private nonisolated static func scan(folders: [LinkedFolder], known: [String: Info]) -> ([LibraryBook], [String: Info], [String]) {
         var seen: [String: Info] = [:]
         func named(_ books: [LibraryBook]) -> [LibraryBook] {
             books.map { book in
@@ -318,21 +337,31 @@ final class Library: ObservableObject {
                 return b
             }
         }
-        var out = named(scan(root: appFolder, prefix: "app:", folderId: nil))
+        var read: [String] = []
+        var out: [LibraryBook] = []
+        if let found = scan(root: appFolder, prefix: "app:", folderId: nil) {
+            out = named(found)
+            read.append("app:")
+        }
         for folder in folders {
             var stale = false
             guard let url = try? URL(resolvingBookmarkData: folder.bookmark, bookmarkDataIsStale: &stale) else { continue }
             let access = url.startAccessingSecurityScopedResource()
             defer { if access { url.stopAccessingSecurityScopedResource() } }
-            out += named(scan(root: url, prefix: "link:\(folder.id):", folderId: folder.id))
+            // 읽지 못한 폴더(권한이 끊겼다 등)는 "읽은 폴더" 에 넣지 않는다 — 그 파일들을 사라진 것으로 치지 않게.
+            if let found = scan(root: url, prefix: "link:\(folder.id):", folderId: folder.id) {
+                out += named(found)
+                read.append("link:\(folder.id):")
+            }
         }
-        return (out, seen)
+        return (out, seen, read)
     }
 
-    private nonisolated static func scan(root: URL, prefix: String, folderId: String?) -> [LibraryBook] {
+    /// 읽지 못하면 nil(빈 폴더와 가린다).
+    private nonisolated static func scan(root: URL, prefix: String, folderId: String?) -> [LibraryBook]? {
         let keys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey, .creationDateKey]
         guard let walker = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys,
-                                                          options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return [] }
+                                                          options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return nil }
         let rootPath = root.standardizedFileURL.path
         var out: [LibraryBook] = []
         for case let url as URL in walker {

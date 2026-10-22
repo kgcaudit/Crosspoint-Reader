@@ -28,6 +28,19 @@ import platform.Foundation.NSUTF8StringEncoding
 import platform.Foundation.stringWithContentsOfFile
 import platform.Foundation.writeToFile
 
+/**
+ * 옮긴 파일 짝짓기(안드로이드 0.50.0 `adoptMoved`)에 쓰는 파일의 됨됨이. [kind] 는 책이면 "BOOK", 만화 권이면 `ComicUnitKind` 이름 —
+ * 책과 만화, 압축과 폴더는 서로 짝짓지 않는다. [size] 는 파일 크기, 그림 폴더는 크기가 없어 [pages](그림 수)로 가린다.
+ */
+data class KnownFile(val id: String, val kind: String, val name: String, val size: Long?, val pages: Int?) {
+    companion object {
+        const val BOOK = "BOOK"
+    }
+}
+
+/** 기록을 옮긴 짝(옛 id → 새 id). [comic] 이면 만화 권 — 고른 표지 열쇠가 다르다. */
+data class MovedPair(val from: String, val to: String, val comic: Boolean)
+
 /** 서재의 한 줄에 필요한 읽기 기록. [openedAtEpochMs] 가 null 이면 아직 열지 않은 책(읽을 책). */
 data class ShelfRecord(
     val bookId: String,
@@ -59,6 +72,7 @@ data class TimeRecord(val bookId: String, val day: Long, val mode: String, val m
  * - `C unitId page pageCount updatedAt finishedAt|- offset|- half|-` — 만화 권의 읽은 쪽(안드로이드 `comic_progress`). offset ·
  *   half 는 안드로이드 백업에서 온 웹툰 자리 · 펼침면 반으로, iOS 1단계는 쓰지 않고 간직만 한다(옛 줄에는 없다)
  * - `K unitId page createdAt` — 만화 책갈피(쪽 단위, 발췌 글이 없다)
+ * - `F id kind name size|- pages|-` — 기록이 있는 파일의 이름 · 크기(옮긴 파일 짝짓기). 파일이 사라져도 무엇이었는지 알아야 짝을 찾는다
  * - `O kind subject value` — 만화 작품 설정(안드로이드 `comic_overrides`). iOS 가 쓰는 것은 RTL · COVER · SHELF · TITLE, 백업에서 온
  *   VIEW · SPLIT 은 간직했다가 다시 백업에 담는다
  *
@@ -77,6 +91,7 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
     private val comics = LinkedHashMap<String, ComicProgress>()
     private val comicMarks = ArrayList<Triple<String, Int, Long>>()
     private val comicSettings = LinkedHashMap<Pair<String, String>, String>()
+    private val known = LinkedHashMap<String, KnownFile>()
 
     /**
      * 형광펜 보관소. 함수 이름(forBook · add · remove)이 책갈피 규약과 같아 한 클래스에 함께 둘 수 없다 — 같은 파일 · 같은
@@ -275,11 +290,8 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
      * 백업의 만화 기록을 이 권에 합친다(안드로이드 `mergeComicInto`). 읽은 쪽은 백업이 더 뒤일 때만, 다 읽은 때는 이 휴대폰에 없을
      * 때만(끝낸 날이 백업의 날로 바뀌지 않게), 책갈피는 같은 쪽이 없을 때만, 읽은 시간은 날 · 방식마다 큰 쪽.
      */
-    fun mergeComic(unitId: String, c: BackupComic) = locked {
-        for (t in c.time) {
-            val key = Triple(unitId, t.day, t.mode)
-            times[key] = maxOf(times[key] ?: 0L, t.ms).coerceAtMost(DAY_MS)
-        }
+    fun mergeComic(unitId: String, c: BackupComic, addTime: Boolean = false) = locked {
+        for (t in c.time) addTime(unitId, t, addTime)
         val page = c.page
         if (page != null) {
             val old = comics[unitId]
@@ -398,7 +410,7 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
      * 고쳤다는 것만으로는 이기지 않는다), 연 때는 나중 것, 다 읽은 때는 이 휴대폰에 없을 때만, 책갈피는 같은 자리가 없을 때만, 형광펜은
      * 같은 구간이 있으면 이 휴대폰의 색을 두고 메모만 비었으면 채운다, 읽은 시간은 날 · 방식마다 큰 쪽(두 번 가져와도 늘지 않는다).
      */
-    fun merge(bookId: String, b: BackupBook) = locked {
+    fun merge(bookId: String, b: BackupBook, addTime: Boolean = false) = locked {
         val id = BookId(bookId)
         b.progress?.let { incoming ->
             val local = progress[bookId]
@@ -432,11 +444,104 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
                 nextNoteId++
             }
         }
-        for (t in b.time) {
-            val key = Triple(bookId, t.day, t.mode)
-            times[key] = maxOf(times[key] ?: 0L, t.ms).coerceAtMost(DAY_MS)
-        }
+        for (t in b.time) addTime(bookId, t, addTime)
         persist()
+    }
+
+    /**
+     * 읽은 시간 합치기. 백업은 큰 쪽(같은 백업을 두 번 가져와도 늘지 않게), 옮긴 파일은 더한다 — 옛 자리 · 새 자리에서 읽은 시간은 둘 다
+     * 실제로 읽은 시간이고, 옛 줄은 지우므로 두 번 세지 않는다(안드로이드 `mergeTime`). 하루 한도는 그대로.
+     */
+    private fun addTime(id: String, t: BackupTime, add: Boolean) {
+        val key = Triple(id, t.day, t.mode)
+        val now = times[key] ?: 0L
+        times[key] = (if (add) now + t.ms else maxOf(now, t.ms)).coerceAtMost(DAY_MS)
+    }
+
+    // ── 옮긴 파일(안드로이드 0.50.0) ──────────────────────────────────────
+
+    private fun hasRecords(id: String): Boolean =
+        id in progress || id in opened || id in finished || id in comics ||
+            bookmarks.any { it.bookId.value == id } || notes.any { it.bookId.value == id } ||
+            comicMarks.any { it.first == id } || times.keys.any { it.first == id }
+
+    /** 같은 파일의 열쇠: 종류 · 이름(한글을 모아 쓴 꼴, 구상안 1A) · 크기(폴더는 그림 수). 크기도 그림 수도 모르면 null — 짝짓지 않는다. */
+    private fun matchKey(f: KnownFile): Triple<String, String, Long>? = when {
+        f.size != null && f.size >= 0 -> Triple(f.kind, nfc(f.name), f.size)
+        f.pages != null && f.pages > 0 -> Triple(f.kind, nfc(f.name), -f.pages - 1L)
+        else -> null
+    }
+
+    /**
+     * 사라진 파일의 기록을 옮겨 간 파일로 잇는다. [visible] 은 이번에 훑은 모든 파일, [scanned] 는 이번에 실제로 읽은 폴더의 id 머리
+     * ("app:", "link:폴더:"). 묻지 않고 옮기므로 백업 가져오기보다 엄격하다(안드로이드와 같다):
+     * - 사라진 쪽: 읽은 폴더 안에 있었고 지금 보이지 않으며 기록이 있는 파일. 접근이 끊긴 폴더 · 서재에서 뺀 폴더의 파일은 사라진 것으로
+     *   치지 않는다(구상안 2A) — 다시 추가하면 그 자리에서 그대로 이어져야 한다.
+     * - 짝: 같은 열쇠의 사라진 파일도, 보이는 파일도 하나일 때만. 둘 중 무엇인지 고르지 않는다 — 잘못 붙인 기록은 되돌릴 수 없다.
+     * - 옛 자리에 아직 보이면 복사본이라 각자 기록을 둔다(사라진 쪽이 아니다).
+     * 합치기는 백업 가져오기와 같고 시간만 더한다. 옛 id 의 기록 · 작품 설정 열쇠를 새 id 로 옮긴다.
+     */
+    fun adoptMoved(visible: List<KnownFile>, scanned: List<String>): List<MovedPair> = locked {
+        val now = visible.associateBy { it.id }
+        val before = LinkedHashMap(known)
+        for (f in visible) if (hasRecords(f.id)) known[f.id] = f
+        // 기록도 파일도 없어진 것은 잊는다 — 남겨 두면 언젠가 같은 이름 · 크기의 다른 파일에 빈 기록을 붙이려 든다.
+        known.keys.filter { it !in now && !hasRecords(it) }.forEach { known.remove(it) }
+        val gone = known.values.filter { it.id !in now && scanned.any { p -> it.id.startsWith(p) } }
+        val goneCount = gone.mapNotNull(::matchKey).groupingBy { it }.eachCount()
+        val byKey = visible.groupBy(::matchKey)
+        val pairs = ArrayList<MovedPair>()
+        for (old in gone) {
+            val key = matchKey(old) ?: continue
+            if (goneCount[key] != 1) continue
+            val target = byKey[key]?.singleOrNull() ?: continue
+            if (target.id == old.id) continue
+            val comic = old.kind != KnownFile.BOOK
+            if (comic) {
+                recordOfComic(old.id, old.name, old.size)?.let { mergeComic(target.id, it, addTime = true) }
+            } else {
+                recordOf(old.id, old.name, old.size, null, null)?.let { merge(target.id, it, addTime = true) }
+            }
+            forget(old.id)
+            moveSettings(old.id, target.id)
+            known.remove(old.id)
+            known[target.id] = target
+            pairs += MovedPair(old.id, target.id, comic)
+        }
+        // 훑을 때마다 쓰지 않는다 — 바뀐 것이 있을 때만.
+        if (pairs.isNotEmpty() || known != before) persist()
+        pairs
+    }
+
+    /** 옛 id 의 기록을 모두 지운다(옮긴 뒤). 남기면 파일이 옛 자리로 돌아왔을 때 기록이 둘로 갈린다. */
+    private fun forget(id: String) {
+        progress.remove(id)
+        opened.remove(id)
+        finished.remove(id)
+        comics.remove(id)
+        bookmarks.removeAll { it.bookId.value == id }
+        notes.removeAll { it.bookId.value == id }
+        comicMarks.removeAll { it.first == id }
+        times.keys.filter { it.first == id }.forEach { times.remove(it) }
+    }
+
+    /**
+     * 작품 설정 중 옛 id 를 가리키는 것(빼낸 권의 `#own:` 작품 열쇠 · 어느 작품에 묶였나 · 고른 사본)을 새 id 로. 새 쪽에 같은 설정이
+     * 이미 있으면 그것을 둔다(안드로이드 `moveOverrides`).
+     */
+    private fun moveSettings(old: String, new: String) {
+        fun swap(v: String) = when (v) {
+            old -> new
+            OWN_PREFIX + old -> OWN_PREFIX + new
+            else -> v
+        }
+        for ((k, v) in comicSettings.map { it.key to it.value }) {
+            val subject = swap(k.second)
+            val value = swap(v)
+            if (subject == k.second && value == v) continue
+            comicSettings.remove(k)
+            if ((k.first to subject) !in comicSettings) comicSettings[k.first to subject] = value
+        }
     }
 
     private fun order(locator: Locator): Long = when (locator) {
@@ -452,7 +557,7 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
             val raw = line.split('\t').map(::unescape)
             // 책 id 는 한글을 모아 쓴 꼴(NFC)로. iOS 가 폴더를 훑어 주는 경로는 풀어 쓴 꼴(NFD)이라 옛 판은 그 꼴로 적었다 — Swift 는 두
             // 꼴을 같은 글로 보지만 여기(Kotlin)는 다른 글로 봐, 같은 책의 기록이 둘로 갈라졌다.
-            val idAt = when (raw.firstOrNull()) { "P", "R", "T", "C", "K" -> 1; "B", "A" -> 2; else -> -1 }
+            val idAt = when (raw.firstOrNull()) { "P", "R", "T", "C", "K", "F" -> 1; "B", "A" -> 2; else -> -1 }
             val f = if (idAt in raw.indices) raw.toMutableList().also { it[idAt] = nfc(it[idAt]) } else raw
             // 깨진 줄은 그 줄만 버린다 — 기록 하나 때문에 서재 전체가 비면 안 된다.
             runCatching {
@@ -488,6 +593,7 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
                     }
                     "K" -> comicMarks.add(Triple(f[1], f[2].toInt().also { require(it >= 0) }, f[3].toLong()))
                     "O" -> comicSettings[f[1] to f[2]] = f[3]
+                    "F" -> known[f[1]] = KnownFile(f[1], f[2], f[3], f[4].takeIf { it != "-" }?.toLong(), f[5].takeIf { it != "-" }?.toInt())
                     "T" -> {
                         val ms = f[4].toLong()
                         if (ms > 0) times[Triple(f[1], f[2].toLong(), f[3])] = ms.coerceAtMost(DAY_MS)
@@ -524,6 +630,7 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
         )
         for ((id, page, at) in comicMarks) row("K", id, page.toString(), at.toString())
         for ((k, v) in comicSettings) row("O", k.first, k.second, v)
+        for (f in known.values) row("F", f.id, f.kind, f.name, f.size?.toString() ?: "-", f.pages?.toString() ?: "-")
         val dir = path.substringBeforeLast('/')
         NSFileManager.defaultManager.createDirectoryAtPath(dir, withIntermediateDirectories = true, attributes = null, error = null)
         @Suppress("CAST_NEVER_SUCCEEDS")

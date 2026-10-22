@@ -70,6 +70,15 @@ final class CoverStore: ObservableObject, @unchecked Sendable {
         return write(id, out)
     }
 
+    /// 옮긴 파일을 따라 고른 표지도 옮긴다. 새 자리에 이미 고른 표지가 있으면 그것을 둔다(안드로이드 `moveCustom`).
+    func move(_ from: String, to: String) {
+        let src = url(from), dst = url(to)
+        guard FileManager.default.fileExists(atPath: src.path), !FileManager.default.fileExists(atPath: dst.path) else { return }
+        guard (try? FileManager.default.moveItem(at: src, to: dst)) != nil else { return }
+        changed(from)
+        changed(to)
+    }
+
     func clear(_ id: String) {
         try? FileManager.default.removeItem(at: url(id))
         changed(id)
