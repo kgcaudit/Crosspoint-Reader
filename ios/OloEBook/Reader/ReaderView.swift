@@ -567,6 +567,14 @@ final class ReaderModel: ObservableObject {
     /// 표지를 작품마다 바꾼 수(모든 보기 설정의 풀이).
     var comicCoverCount: Int { library?.store.comicOverrides().coverAlone.count ?? 0 }
 
+    /// PDF 에 읽을 글이 있나. 없으면(스캔본) 안내를 띄우고 false(구상안 34A). 책 · 만화는 늘 true.
+    func pdfTextOrNotice() async -> Bool {
+        guard let pdf = engine as? PdfEngine else { return true }
+        if await pdf.hasText() { return true }
+        say("이 PDF는 글자가 그림으로 되어 있어(스캔본) 찾기 · 듣기 · 형광펜을 쓸 수 없습니다")
+        return false
+    }
+
     /// 쪽이 고정된 책(PDF · 만화) — 확대 · 쪽 칸 · 넘김 자리가 같은 길이다.
     var isFixed: Bool { isPdf || isComic }
 
@@ -1062,7 +1070,7 @@ struct ReaderView: View {
                         PdfContinuousView(aspects: model.pdfAspects, area: model.pdfArea, gap: UIColor(paper.gapColor),
                                           paper: UIColor(paper.paperColor), target: (frame.page, frame.pdfY), jumpToken: model.continuousJump,
                                           step: model.continuousStep.step, stepToken: model.continuousStep.token,
-                                          image: { i, w in await pdf.strip(i, width: w) },
+                                          image: { i, w in await pdf.continuousStrip(i, width: w) },
                                           onTap: { p in pageTap(p, size: full, insets: insets) },
                                           onSwipe: { s in Task { await model.swipe(s) } },
                                           onSettle: { t, y, c in Task { await model.continuousSettled(top: t, y: y, center: c) } },

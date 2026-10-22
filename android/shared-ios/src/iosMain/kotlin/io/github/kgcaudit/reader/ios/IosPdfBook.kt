@@ -1,6 +1,8 @@
 package io.github.kgcaudit.reader.ios
 
+import io.github.kgcaudit.reader.document.Annotation
 import io.github.kgcaudit.reader.document.BookId
+import io.github.kgcaudit.reader.document.HighlightColor
 import io.github.kgcaudit.reader.document.Bookmark
 import io.github.kgcaudit.reader.document.Locator
 import io.github.kgcaudit.reader.document.ReadingProgress
@@ -100,6 +102,57 @@ class IosPdfBook private constructor(
     }
 
     suspend fun removeBookmark(id: Long) = store.remove(id)
+
+    // ── 형광펜(구상안 34A) ────────────────────────────────────────────────
+
+    /**
+     * 이 쪽에 앉은 칠들. 자리는 [Locator.Reflow] 에 쪽 번호와 그 쪽 글자 층의 번호(안드로이드 `PdfReader.highlight` 와 같다 — PDF 는 글이
+     * 다시 흐르지 않아 (쪽, 글자) 가 늘 같은 글자다). 한 쪽 안의 칠만.
+     */
+    suspend fun tintsOn(page: Int): List<PdfTint> = notes().filter { it.start.spine == page && it.end.spine == page }
+        .map { PdfTint(it.start.charOffset, it.end.charOffset, it.color.ordinal, it.note != null) }
+
+    suspend fun notesOn(page: Int): List<NoteRow> = notes().filter { it.start.spine == page && it.end.spine == page }.map(::row)
+
+    /** 칠한다. 같은 구간이 이미 있으면 색 · 메모만 바꾼다(둘이면 지울 때 하나가 남는다). 빈 구간은 무시. */
+    suspend fun highlight(page: Int, start: Int, end: Int, color: Int, note: String?, snippet: String) {
+        if (start >= end || page !in 0 until pageCount) return
+        val pen = HighlightColor.entries.getOrElse(color) { HighlightColor.Yellow }
+        val from = Locator.Reflow(page, start)
+        val to = Locator.Reflow(page, end)
+        val same = notes().firstOrNull { it.start == from && it.end == to }
+        if (same != null) {
+            store.annotations.update(same.copy(color = pen).withNote(note ?: same.note))
+        } else {
+            store.annotations.add(Annotation(Annotation.NO_ID, BookId(bookId), from, to, pen, null, snippet.take(200), currentTimeMillis()).withNote(note))
+        }
+    }
+
+    suspend fun recolor(id: Long, color: Int) {
+        notes().firstOrNull { it.id == id }?.let { a -> store.annotations.update(a.copy(color = HighlightColor.entries.getOrElse(color) { a.color })) }
+    }
+
+    suspend fun setNote(id: Long, note: String?) {
+        notes().firstOrNull { it.id == id }?.let { store.annotations.update(it.withNote(note)) }
+    }
+
+    suspend fun removeNote(id: Long) = store.annotations.remove(id)
+
+    /** 독서노트의 줄들(쪽 차례). 시작 · 끝은 화면의 묶은 번호([IosPdfText.encode]). */
+    suspend fun noteRows(): List<NoteRow> = notes().sortedWith(compareBy({ it.start.spine }, { it.start.charOffset })).map(::row)
+
+    suspend fun notePage(id: Long): Int? = notes().firstOrNull { it.id == id }?.start?.spine
+
+    private suspend fun notes(): List<Annotation> = store.annotations.forBook(BookId(bookId))
+
+    private fun row(a: Annotation): NoteRow {
+        val page = a.start.spine
+        return NoteRow(
+            a.id, page, IosPdfText.encode(page, a.start.charOffset), IosPdfText.encode(page, a.end.charOffset), a.color.ordinal,
+            a.snippet, a.note, ((page + 1) * 100f / pageCount).coerceIn(0f, 100f), section(page).ifEmpty { "${pageName(page)}쪽" },
+            a.createdAtEpochMs,
+        )
+    }
 
     companion object {
         /**

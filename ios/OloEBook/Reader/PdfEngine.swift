@@ -172,7 +172,8 @@ actor PdfEngine: BookEngine, ZoomSource {
         let last = shown.last ?? page
         let percent = try await book.save(page: Int32(page), yPermille: Int32(y), lastShown: Int32(last))
         let marked = try await book.isBookmarked(first: Int32(page), last: Int32(last)).boolValue
-        let image = render(shown)
+        await loadTints(shown)
+        let image = render(shown, current: true)
         lastImage = image
         var f = frame(shown, percent: Double(percent.floatValue), bookmarked: marked, image: image)
         f.pdfY = y
@@ -189,23 +190,32 @@ actor PdfEngine: BookEngine, ZoomSource {
 
     /// 화면 한 장: 지면 위에 쪽(두 쪽이면 책등에 붙인 둘, 혼자인 쪽은 `SpreadSlot` 자리). 폭 맞춤이면 쪽 폭을 화면 폭에 맞춘
     /// 긴 그림 한 장(화면이 위아래로 옮겨 보인다).
-    private func render(_ shown: [Int]) -> UIImage {
+    /// [current] 면 지금 화면의 쪽이다 — 넘김 효과가 앞뒤 쪽을 미리 그릴 때 쪽 자리 기록을 덮어쓰면, 누른 자리를 이웃 쪽의 글자로 읽었다.
+    private func render(_ shown: [Int], current: Bool = false) -> UIImage {
         guard let spec else { return UIImage() }
         if spec.fit == .width, let p = shown.first { return strip(p, width: spec.pageArea.width) ?? UIImage() }
         let format = UIGraphicsImageRendererFormat.preferred()
         format.opaque = true
         let area = spec.pageArea
-        return UIGraphicsImageRenderer(size: spec.size, format: format).image { ctx in
+        var placed: [(Int, CGRect)] = []
+        let image = UIGraphicsImageRenderer(size: spec.size, format: format).image { ctx in
             let cg = ctx.cgContext
             cg.setFillColor(UIColor(spec.paper.paperColor).cgColor)
             cg.fill(CGRect(origin: .zero, size: spec.size))
             let pages = shown.compactMap { doc.page(at: $0) }
+            /// 쪽을 그리고 그 위에 칠 · 찾은 말 · 듣는 문장(구상안 34A).
+            func put(_ i: Int, _ rect: CGRect) {
+                guard pages.indices.contains(i) else { return }
+                PdfPages.draw(pages[i], in: rect, cg: cg, paper: spec.paper, blend: spec.blend)
+                paintMarks(shown[i], in: rect, cg: cg)
+                placed.append((shown[i], rect))
+            }
             if spec.twoPages {
                 let left = CGRect(x: area.minX, y: area.minY, width: area.width / 2, height: area.height)
                 let right = left.offsetBy(dx: area.width / 2, dy: 0)
                 if pages.count == 2 {
-                    PdfPages.draw(pages[0], in: PdfPages.fit(PdfPages.size(of: pages[0]), in: left, align: -1), cg: cg, paper: spec.paper, blend: spec.blend)
-                    PdfPages.draw(pages[1], in: PdfPages.fit(PdfPages.size(of: pages[1]), in: right, align: 1), cg: cg, paper: spec.paper, blend: spec.blend)
+                    put(0, PdfPages.fit(PdfPages.size(of: pages[0]), in: left, align: -1))
+                    put(1, PdfPages.fit(PdfPages.size(of: pages[1]), in: right, align: 1))
                 } else if let only = pages.first {
                     // 혼자인 쪽: 표지는 오른쪽 반, 혼자 남은 마지막 쪽은 왼쪽 반, 가로로 긴 쪽은 가운데(공통 SpreadSlot).
                     let s = PdfPages.size(of: only)
@@ -216,13 +226,18 @@ actor PdfEngine: BookEngine, ZoomSource {
                     case .earlier: PdfPages.fit(s, in: left, align: -1)
                     default: PdfPages.fit(s, in: area)
                     }
-                    PdfPages.draw(only, in: rect, cg: cg, paper: spec.paper, blend: spec.blend)
+                    put(0, rect)
                 }
             } else if let only = pages.first {
-                PdfPages.draw(only, in: PdfPages.fit(PdfPages.size(of: only), in: area), cg: cg, paper: spec.paper, blend: spec.blend)
+                put(0, PdfPages.fit(PdfPages.size(of: only), in: area))
             }
         }
+        if current { placedPages = placed }
+        return image
     }
+
+    /// 마지막으로 낸 화면 한 장에서 쪽마다 놓인 자리(쪽 전체 보기 — 누른 자리를 쪽 안 글자로 바꾼다).
+    private var placedPages: [(Int, CGRect)] = []
 
     // MARK: 폭 · 이어서 · 확대(구상안 33)
 
@@ -242,7 +257,14 @@ actor PdfEngine: BookEngine, ZoomSource {
         format.opaque = true
         return UIGraphicsImageRenderer(size: size, format: format).image { ctx in
             PdfPages.draw(page, in: CGRect(origin: .zero, size: size), cg: ctx.cgContext, paper: spec.paper, blend: spec.blend)
+            paintMarks(p, in: CGRect(origin: .zero, size: size), cg: ctx.cgContext)
         }
+    }
+
+    /// 이어서 보기의 쪽 띠: 칠을 먼저 읽어 두고 그린다.
+    func continuousStrip(_ p: Int, width: CGFloat) async -> UIImage? {
+        await loadTints([p])
+        return strip(p, width: width)
     }
 
     /// 쪽마다 높이 ÷ 폭(이어서의 자리 잡기). 재지 못하면 A판형.
@@ -267,6 +289,7 @@ actor PdfEngine: BookEngine, ZoomSource {
         format.opaque = true
         return UIGraphicsImageRenderer(size: target, format: format).image { ctx in
             PdfPages.draw(page, in: CGRect(origin: .zero, size: target), cg: ctx.cgContext, paper: spec.paper, blend: spec.blend)
+            paintMarks(p, in: CGRect(origin: .zero, size: target), cg: ctx.cgContext)
         }
     }
 
@@ -359,4 +382,261 @@ actor PdfEngine: BookEngine, ZoomSource {
     }
 
     nonisolated func close() {}
+
+    // MARK: 글자 층(구상안 34A)
+
+    private var layers: [Int: PageText] = [:]
+    private var layerOrder: [Int] = []
+    private var tints: [Int: [PdfTint]] = [:]
+    private var showTints = true
+    /// 찾은 말(쪽, 층 구간)과 듣는 문장.
+    private var mark: (page: Int, start: Int, end: Int)?
+    private var speakingRange: (page: Int, start: Int, end: Int)?
+    private var readableCache: Bool?
+
+    /// 쪽의 글자 층: PDFKit 의 글과 글자 네모(쪽 비율, 왼쪽 위가 0)를 공통 `PageText` 로. 회전한 쪽은 자리 없이 글만(찾기 · 듣기는 된다).
+    /// 몇 쪽만 쥐고 있는다 — 글자마다 네모를 재는 일이 쪽마다 수천 번이다.
+    func layer(_ p: Int) -> PageText {
+        if let l = layers[p] { return l }
+        guard let page = doc.page(at: p) else { return PageText.companion.EMPTY }
+        let text = page.string ?? ""
+        let n = (text as NSString).length
+        let box = page.bounds(for: .mediaBox)
+        var boxes = KotlinFloatArray(size: 0)
+        if page.rotation % 360 == 0, box.width > 0, box.height > 0, n > 0 {
+            boxes = KotlinFloatArray(size: Int32(n * 4))
+            for i in 0..<n {
+                // 글자 네모는 그 글자를 고른 네모로 잰다. `characterBounds(at:)` 는 번호가 `page.string` 과 어긋나는 PDF 가 있고
+                // (줄바꿈을 다르게 센다 — 찾은 말의 칠이 몇 글자 뒤에 앉았다), 높이를 0 으로 주기도 한다.
+                // 고르기 네모는 줄 간격보다 조금 높아 이웃 줄과 겹친다 — 그대로 두면 여러 줄이 한 줄로 묶여 칠이 세 줄 높이가 됐다.
+                // 가운데 2/3 만 쓴다(글자 몸의 높이쯤).
+                let sel = page.selection(for: NSRange(location: i, length: 1))?.bounds(for: page) ?? .null
+                let r = sel.isNull ? sel : sel.insetBy(dx: 0, dy: sel.height / 6)
+                let k = Int32(i * 4)
+                if r.isNull || r.isEmpty || !r.minX.isFinite {
+                    for j in 0..<4 { boxes.set(index: k + Int32(j), value: .nan) }
+                } else {
+                    boxes.set(index: k, value: Float((r.minX - box.minX) / box.width))
+                    boxes.set(index: k + 1, value: Float((box.maxY - r.maxY) / box.height))
+                    boxes.set(index: k + 2, value: Float((r.maxX - box.minX) / box.width))
+                    boxes.set(index: k + 3, value: Float((box.maxY - r.minY) / box.height))
+                }
+            }
+        }
+        let l = IosPdfText.shared.layer(text: text, boxes: boxes)
+        layers[p] = l
+        layerOrder.append(p)
+        if layerOrder.count > 8 { layers[layerOrder.removeFirst()] = nil }
+        return l
+    }
+
+    private func loadTints(_ pages: [Int]) async {
+        for p in pages where tints[p] == nil {
+            tints[p] = (try? await book.tintsOn(page: Int32(p))) ?? []
+        }
+    }
+
+    private func refreshTints() async {
+        tints = [:]
+    }
+
+    /// 쪽 위의 칠 · 찾은 말 · 듣는 문장 · 메모 쪽지(쪽이 놓인 [rect] 에 맞춰).
+    private func paintMarks(_ p: Int, in rect: CGRect, cg: CGContext) {
+        let t = showTints ? (tints[p] ?? []) : []
+        let m = mark.flatMap { $0.page == p ? ints($0.start, $0.end) : nil }
+        let s = speakingRange.flatMap { $0.page == p ? ints($0.start, $0.end) : nil }
+        if t.isEmpty && m == nil && s == nil { return }
+        let boxes = IosPdfText.shared.paint(layer: layer(p), tints: t, mark: m, speaking: s, dark: spec?.paper.dark == true, accent: 0xB95B3B)
+        for b in boxes {
+            let color = UIColor(red: CGFloat((b.rgb >> 16) & 0xFF) / 255, green: CGFloat((b.rgb >> 8) & 0xFF) / 255,
+                                blue: CGFloat(b.rgb & 0xFF) / 255, alpha: CGFloat(b.alpha))
+            let x0 = rect.minX + CGFloat(b.left) * rect.width, y0 = rect.minY + CGFloat(b.top) * rect.height
+            let h = CGFloat(b.bottom - b.top) * rect.height
+            cg.setFillColor(color.cgColor)
+            if b.memo {
+                // 메모 쪽지: 끝 글자 오른쪽 위의 작은 네모(책과 같은 자리).
+                let size = max(h * 0.55, 5)
+                cg.fill(CGRect(x: x0 + size * 0.1, y: y0 - size * 0.75, width: size, height: size))
+            } else {
+                cg.setBlendMode(.multiply)
+                cg.fill(CGRect(x: x0, y: y0, width: CGFloat(b.right - b.left) * rect.width, height: h))
+                cg.setBlendMode(.normal)
+            }
+        }
+    }
+
+    private func ints(_ a: Int, _ b: Int) -> KotlinIntArray {
+        let k = KotlinIntArray(size: 2)
+        k.set(index: 0, value: Int32(a))
+        k.set(index: 1, value: Int32(b))
+        return k
+    }
+
+    /// 사람이 읽을 글이 있는 PDF 인가(스캔본 안내 — 안드로이드 `hasText`): 지금 쪽 + 앞 12쪽 중 하나라도.
+    func hasText() -> Bool {
+        if let r = readableCache { return r }
+        let pages = Array(Set([page] + Array(0..<min(pageCount, 12))))
+        let r = pages.contains { IosPdfText.shared.readable(text: doc.page(at: $0)?.string ?? "") }
+        readableCache = r
+        return r
+    }
+
+    /// 화면 점 → (쪽, 쪽 비율 x, y). 쪽 전체 보기에서만 — 폭 · 이어서는 화면이 쪽을 옮겨 보여 자리를 셀 수 없다(고르기 · 칠은 쪽 전체에서).
+    private func pageAt(_ point: CGPoint) -> (Int, Float, Float)? {
+        guard spec?.fit == .page else { return nil }
+        for (p, r) in placedPages where r.insetBy(dx: -12, dy: -12).contains(point) {
+            return (p, Float((point.x - r.minX) / r.width), Float((point.y - r.minY) / r.height))
+        }
+        return nil
+    }
+
+    private func rectOf(_ p: Int) -> CGRect? { placedPages.first { $0.0 == p }?.1 }
+
+    func setShowHighlights(_ on: Bool) { showTints = on }
+
+    func chapterCount() async throws -> Int { pageCount }
+
+    func searchChapter(_ spine: Int, _ query: String, firstId: Int) async throws -> [SearchItem] {
+        let text = doc.page(at: spine)?.string ?? ""
+        let section = book.section(page: Int32(spine))
+        return IosPdfText.shared.search(text: text, page: Int32(spine), query: query).enumerated().map { i, r in
+            SearchItem(id: firstId + i, spine: spine, start: Int(r.start), end: Int(r.endExclusive), context: r.context,
+                       matchStart: Int(r.contextMatchStart), percent: Double(spine + 1) * 100 / Double(pageCount),
+                       section: section.isEmpty ? "\(spine + 1)쪽" : section)
+        }
+    }
+
+    /// 찾은 곳으로: 그 쪽에서 몇 번째인지로 층의 구간을 칠한다(쪽 글과 층은 번호가 다를 수 있다 — 안드로이드와 같다). 폭 맞춤이면
+    /// 찾은 말이 화면 위 30% 쯤에 오게 쪽 안을 옮긴다.
+    func goToHit(_ item: SearchItem) async throws -> PageFrame {
+        let text = doc.page(at: item.spine)?.string ?? ""
+        let query = (IosPdfText.shared.searchText(text: text) as NSString).substring(with: NSRange(location: item.start, length: max(item.end - item.start, 0)))
+        let ordinal = IosPdfText.shared.search(text: text, page: Int32(item.spine), query: query).filter { Int($0.start) < item.start }.count
+        let l = layer(item.spine)
+        if let r = IosPdfText.shared.hit(layer: l, query: query, ordinal: Int32(ordinal)) {
+            mark = (item.spine, Int(r.get(index: 0)), Int(r.get(index: 1)))
+        } else {
+            mark = nil
+        }
+        var y = 0
+        if spec?.fit == .width, let m = mark, let top = IosPdfText.shared.rects(layer: l, start: Int32(m.start), end: Int32(m.end)).first?.get(index: 1),
+           let spec, let pg = doc.page(at: item.spine) {
+            let s = PdfPages.size(of: pg)
+            let stripH = spec.pageArea.width * s.height / s.width
+            let view = spec.pageArea.height
+            let topPt = CGFloat(top) * stripH - view * 0.3
+            y = Int((max(min(topPt, stripH - view), 0) / max(stripH, 1) * 1000).rounded())
+        }
+        return try await show(item.spine, y: y)
+    }
+
+    func clearMark() async throws -> PageFrame {
+        mark = nil
+        return try await show(page, y: yPermille)
+    }
+
+    // 고르기 · 칠(쪽 전체 보기, 한 쪽 안에서만 — 결정 2). 번호는 쪽과 묶은 수(`IosPdfText.encode`).
+
+    func charAt(_ p: CGPoint, after: Bool) async throws -> Int {
+        guard let (pg, x, y) = pageAt(p) else { return -1 }
+        let i = Int(IosPdfText.shared.charAt(layer: layer(pg), x: x, y: y, after: after))
+        return i < 0 ? -1 : Int(IosPdfText.shared.encode(page: Int32(pg), char: Int32(i)))
+    }
+
+    func wordAt(_ p: CGPoint) async throws -> (Int, Int)? {
+        guard let (pg, x, y) = pageAt(p) else { return nil }
+        let l = layer(pg)
+        let i = Int(IosPdfText.shared.charAt(layer: l, x: x, y: y, after: false))
+        guard i >= 0 else { return nil }
+        let w = IosPdfText.shared.wordAt(layer: l, i: Int32(i))
+        return (Int(IosPdfText.shared.encode(page: Int32(pg), char: w.get(index: 0))), Int(IosPdfText.shared.encode(page: Int32(pg), char: w.get(index: 1))))
+    }
+
+    func boxes(_ start: Int, _ end: Int) async throws -> [CGRect] {
+        let pg = Int(IosPdfText.shared.pageOf(index: Int32(start)))
+        guard pg == Int(IosPdfText.shared.pageOf(index: Int32(max(end - 1, start)))), let r = rectOf(pg) else { return [] }
+        let s = IosPdfText.shared.charOf(index: Int32(start)), e = s + Int32(max(end - start, 0))
+        return IosPdfText.shared.rects(layer: layer(pg), start: s, end: e).map { b in
+            CGRect(x: r.minX + CGFloat(b.get(index: 0)) * r.width, y: r.minY + CGFloat(b.get(index: 1)) * r.height,
+                   width: CGFloat(b.get(index: 2) - b.get(index: 0)) * r.width, height: CGFloat(b.get(index: 3) - b.get(index: 1)) * r.height)
+        }
+    }
+
+    func textOf(_ start: Int, _ end: Int) async throws -> String {
+        let pg = Int(IosPdfText.shared.pageOf(index: Int32(start)))
+        let l = layer(pg)
+        let s = Int(IosPdfText.shared.charOf(index: Int32(start))), e = min(s + max(end - start, 0), Int(l.length))
+        return l.quote(start: Int32(s), endExclusive: Int32(e))
+    }
+
+    func highlight(_ start: Int, _ end: Int, pen: Int, note: String?) async throws -> PageFrame {
+        let pg = Int(IosPdfText.shared.pageOf(index: Int32(start)))
+        let s = Int(IosPdfText.shared.charOf(index: Int32(start)))
+        let e = s + max(end - start, 0)
+        let snippet = layer(pg).quote(start: Int32(s), endExclusive: Int32(min(e, Int(layer(pg).length))))
+        try await book.highlight(page: Int32(pg), start: Int32(s), end: Int32(e), color: Int32(pen), note: note, snippet: snippet)
+        tints[pg] = nil
+        return try await show(page, y: yPermille)
+    }
+
+    func recolor(_ id: Int64, pen: Int) async throws -> PageFrame {
+        try await book.recolor(id: id, color: Int32(pen))
+        tints = [:]
+        return try await show(page, y: yPermille)
+    }
+
+    func setNote(_ id: Int64, _ note: String?) async throws -> PageFrame {
+        try await book.setNote(id: id, note: note)
+        tints = [:]
+        return try await show(page, y: yPermille)
+    }
+
+    func removeNote(_ id: Int64) async throws -> PageFrame {
+        try await book.removeNote(id: id)
+        tints = [:]
+        return try await show(page, y: yPermille)
+    }
+
+    func noteRows() async throws -> [HighlightItem] { try await book.noteRows().map(HighlightItem.init) }
+
+    func goToNote(_ id: Int64) async throws -> PageFrame? {
+        guard let p = try await book.notePage(id: id) else { return nil }
+        return try await show(Int(truncating: p))
+    }
+
+    /// 누름: 칠을 누르면 그 칠의 메뉴(책과 같은 "note" 동작). 쪽 전체 보기에서만.
+    func tapLink(_ x: Double, _ y: Double) async throws -> LinkAction? {
+        guard showTints, let (pg, fx, fy) = pageAt(CGPoint(x: x, y: y)) else { return nil }
+        await loadTints([pg])
+        let t = tints[pg] ?? []
+        let k = Int(IosPdfText.shared.tintAt(layer: layer(pg), tints: t, x: fx, y: fy))
+        guard k >= 0 else { return nil }
+        let rows = try await book.notesOn(page: Int32(pg))
+        let hit = t[k]
+        guard let row = rows.first(where: { IosPdfText.shared.charOf(index: $0.start) == hit.start && IosPdfText.shared.charOf(index: $0.end) == hit.end }) else { return nil }
+        return LinkAction(kind: "note", title: "", text: "", url: "", spine: Int32(pg), anchor: nil, frame: nil, note: row)
+    }
+
+    // 듣기(구상안 34A): 쪽마다, 머리말 · 쪽 번호 줄은 빼고(공통 `PageText.speech`).
+
+    func speechSentences(_ spine: Int) async -> [SpokenSentence] {
+        let s = IosPdfText.shared.sentences(layer: layer(spine))
+        return stride(from: 0, to: Int(s.size) - 1, by: 2).map { SpokenSentence(start: Int(s.get(index: Int32($0))), end: Int(s.get(index: Int32($0 + 1)))) }
+    }
+
+    func spoken(_ spine: Int, _ s: SpokenSentence, join: Int) async -> String {
+        IosPdfText.shared.spoken(layer: layer(spine), start: Int32(s.start), end: Int32(s.end))
+    }
+
+    func speak(_ spine: Int, _ s: SpokenSentence, follow: Bool) async throws -> PageFrame {
+        speakingRange = (spine, s.start, s.end)
+        let here = spread(page)
+        if follow && !here.contains(spine) { return try await show(spine) }
+        return try await show(page, y: yPermille)
+    }
+
+    func stopSpeaking() async throws -> PageFrame {
+        speakingRange = nil
+        return try await show(page, y: yPermille)
+    }
 }

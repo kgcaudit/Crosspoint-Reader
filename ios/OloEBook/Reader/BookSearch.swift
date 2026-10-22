@@ -32,6 +32,8 @@ final class BookSearch: ObservableObject {
     @Published private(set) var searched = 0
     @Published private(set) var units = 0
     @Published private(set) var running = false
+    /// 찾는 단위: 책은 장, PDF 는 쪽(구상안 34A).
+    @Published private(set) var unit = "장"
     /// 지금 보고 있는 결과. -1 이면 결과 막대를 띄우지 않는다.
     @Published var current = -1
 
@@ -44,6 +46,7 @@ final class BookSearch: ObservableObject {
         results = []
         current = -1
         searched = 0
+        unit = engine.isPdf ? "쪽" : "장"
         if q.isEmpty { running = false; return }
         running = true
         task = Task { [weak self] in
@@ -74,9 +77,9 @@ final class BookSearch: ObservableObject {
 
     /// 찾기 화면 위의 한 줄.
     var summary: String {
-        if running { return "찾는 중… \(searched) / \(units)장 · 지금까지 \(results.count)곳" }
+        if running { return "찾는 중… \(searched) / \(units)\(unit) · 지금까지 \(results.count)곳" }
         if searched > 0 && results.isEmpty { return "찾지 못했습니다" }
-        if searched > 0 { return "\(results.count)곳 · \(Set(results.map(\.spine)).count)장에서" }
+        if searched > 0 { return "\(results.count)곳 · \(Set(results.map(\.spine)).count)\(unit)에서" }
         return ""
     }
 
@@ -153,7 +156,9 @@ struct SearchScreen: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(item.marked).font(CpFont.body).foregroundStyle(CpColor.text).lineSpacing(5).lineLimit(2)
                                     .multilineTextAlignment(.leading)
-                                Text("\(Int(item.percent.rounded()))%").font(CpFont.caption).foregroundStyle(CpColor.textMuted)
+                                // PDF 는 결과 줄 끝에 쪽(구상안 34A) — 쪽을 펴 볼 사람에게 %는 뜻이 없다.
+                                Text(search.unit == "쪽" ? "\(item.spine + 1)쪽" : "\(Int(item.percent.rounded()))%")
+                                    .font(CpFont.caption).foregroundStyle(CpColor.textMuted)
                             }
                             .padding(.leading, CpMetrics.gutter + CpMetrics.levelIndent).padding(.trailing, CpMetrics.gutter)
                             .padding(.vertical, 10)

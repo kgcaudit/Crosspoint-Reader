@@ -207,9 +207,15 @@ private struct ReaderBar: View {
             Spacer(minLength: 8)
             // PDF 의 찾기 · 듣기는 글자 층을 만든 뒤(2단계) — 그때까지 흐리게.
             if !frame.isComic {
-            CpIconButton(icon: .search, label: "책에서 찾기", enabled: !frame.isPdf) { model.panel = .search }
-            CpIconButton(icon: .headphones, label: "듣기", enabled: !frame.isPdf) {
-                Task { await model.listen(rate: prefs.listenRate, voice: prefs.listenVoice, join: prefs.listenJoin) }
+            // PDF(구상안 34A): 단추는 늘 두고, 글자가 그림뿐인 PDF(스캔본)면 누를 때 까닭을 알린다 — 흐린 단추는 고장으로 읽힌다.
+            CpIconButton(icon: .search, label: "책에서 찾기") {
+                Task { if await model.pdfTextOrNotice() { model.panel = .search } }
+            }
+            CpIconButton(icon: .headphones, label: "듣기") {
+                Task {
+                    guard await model.pdfTextOrNotice() else { return }
+                    await model.listen(rate: prefs.listenRate, voice: prefs.listenVoice, join: prefs.listenJoin)
+                }
             }
             }
             CpIconButton(icon: frame.bookmarked ? .bookmarkFilled : .bookmark,
