@@ -421,6 +421,13 @@ struct ViewSettingsScreen: View {
                     }
                     // 화면(안드로이드 차례: 형광펜 · 메모 → 두 쪽 보기 → 화면 켜짐 유지 → 하단 정보).
                     section("화면")
+                    // 화면 회전(구상안 45): 휴대폰만 — iPad 는 창 크기를 바꾸는 앱이 방향을 고정할 수 없다(45 · 2A).
+                    if UIDevice.current.userInterfaceIdiom == .phone {
+                        CpChoice(label: "화면 회전", options: ReaderPrefs.rotationLabels, selected: prefs.rotation) { prefs.rotation = $0 }
+                            .padding(.leading, CpMetrics.levelIndent)
+                        CpCaption(text: ReaderPrefs.rotationNote)
+                            .padding(.leading, CpMetrics.levelIndent).padding(.bottom, 4)
+                    }
                     // 숨겨도 지우지 않는다 — 다시 보이면 그대로 있다. PDF 의 형광펜은 2단계.
                     if !isPdf && !isComic {
                         CpChoice(label: "형광펜 · 메모", options: ["보임", "숨김"], selected: prefs.showHighlights ? 0 : 1) { prefs.showHighlights = $0 == 0 }

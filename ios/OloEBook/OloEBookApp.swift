@@ -1,7 +1,15 @@
 import SwiftUI
 
+/// 화면 방향을 앱이 정한다(구상안 45). 시스템이 창마다 이 값을 묻는다.
+final class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+        ScreenRotation.mask
+    }
+}
+
 @main
 struct OloEBookApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var library = Library()
     @State private var reading: LibraryBook?
     /// 보던 장면에서 표지를 고르는 작품(구상안 44). nil 이면 그냥 읽기.
@@ -10,6 +18,8 @@ struct OloEBookApp: App {
     init() {
         // 글꼴 폴더를 측정기에 알린다 — 첫 조판보다 먼저여야 고른 글꼴로 첫 쪽이 짜인다.
         _ = FontLibrary.shared
+        // 서재부터 고른 방향으로 연다(설정은 읽기 화면에 있지만 앱 전체에 걸린다 — 안드로이드와 같다).
+        ScreenRotation.apply(UserDefaults.standard.integer(forKey: "reader.rotation"))
     }
 
     var body: some Scene {

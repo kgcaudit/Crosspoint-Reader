@@ -49,6 +49,8 @@ final class ReaderPrefs: ObservableObject {
     @Published var autoTurn: Int { didSet { save(autoTurn, "autoTurn") } }
     /// 터치 영역(구상안 37): 0 기본 · 1 좌우 바꾸기 · 2 한 손. 책 · PDF · 만화가 함께 쓴다(안드로이드와 같다).
     @Published var touchZones: Int { didSet { save(touchZones, "touchZones") } }
+    /// 화면 회전(구상안 45): 0 자동 · 1 세로 · 2 가로. 앱 전체(서재까지)에 곧바로 건다.
+    @Published var rotation: Int { didSet { save(rotation, "rotation"); ScreenRotation.apply(rotation) } }
     static let autoTurnSeconds = [0, 15, 30, 60]
     /// 두 쪽 보기(구상안 27): 가로(기본 켬) · 세로(넓은 화면에서만, 기본 켬). 안드로이드 `ScreenPrefs` 와 같다.
     @Published var twoPagesLandscape: Bool { didSet { save(twoPagesLandscape, "twoPagesLandscape") } }
@@ -118,6 +120,7 @@ final class ReaderPrefs: ObservableObject {
         listenJoin = int("listenJoin", 0, 0...1)
         autoTurn = int("autoTurn", 0, 0...3)
         touchZones = int("touchZones", 0, 0...2)
+        rotation = int("rotation", 0, 0...2)
         pdfFit = int("pdfFit", 0, 0...2)
         pdfCoverAlone = d.object(forKey: "reader.pdfCoverAlone") as? Bool ?? true
         // bool(forKey:) 로 읽는다 — 글자로 들어온 값(실행 인자 "1" 등)은 `as? Bool` 로 읽히지 않아 기본값으로 돌아갔다.
@@ -216,4 +219,31 @@ final class ScreenBrightness: ObservableObject {
         restore()
         value = nil
     }
+}
+
+/// 화면 회전 고정(구상안 45, 안드로이드 `applyRotation`). 자동은 iPhone 의 방향 잠금을 따른다 — iOS 앱은 그 잠금을 넘을 수 없다.
+/// 가로 고정은 양쪽 가로 모두 — 뒤집어 들면 따라 돈다(거꾸로 선 글자는 읽을 수 없다). iPad 는 늘 자동(Kotlin `IosRotation.applied`).
+@MainActor
+enum ScreenRotation {
+    static var mask: UIInterfaceOrientationMask = UIDevice.current.userInterfaceIdiom == .phone ? .allButUpsideDown : .all
+
+    static func apply(_ saved: Int) {
+        let phone = UIDevice.current.userInterfaceIdiom == .phone
+        mask = switch Int(IosRotation.shared.applied(saved: Int32(saved), phone: phone)) {
+        case Int(IosRotation.shared.PORTRAIT): .portrait
+        case Int(IosRotation.shared.LANDSCAPE): .landscape
+        default: phone ? .allButUpsideDown : .all
+        }
+        // 고른 즉시 돈다 — 다음에 기기를 돌릴 때까지 기다리면 눌렀는데 아무 일이 없는 것처럼 보인다.
+        for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
+            scene.windows.forEach { $0.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations() }
+            scene.requestGeometryUpdate(.iOS(interfaceOrientations: mask))
+        }
+    }
+}
+
+extension ReaderPrefs {
+    /// 설정 줄의 글(OloCore 를 들이지 않는 판이 쓴다 — OloCore 의 `Text` 가 SwiftUI 의 것과 이름이 겹친다).
+    static var rotationLabels: [String] { IosRotation.shared.LABELS }
+    static var rotationNote: String { IosRotation.shared.AUTO_NOTE }
 }
