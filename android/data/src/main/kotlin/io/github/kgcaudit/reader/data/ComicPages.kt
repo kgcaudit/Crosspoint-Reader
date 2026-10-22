@@ -40,9 +40,21 @@ class ComicPages(
      * 앞 몇 KB 만 읽으니 화 하나(그림 수십 장)를 여는 데 오래 걸리지 않는다.
      */
     fun size(index: Int): ImageSize? = if (renderer != null) renderer.size(index) else try {
-        names.getOrNull(index)?.let(opener)?.use { ImageHeader.read(it) }
+        names.getOrNull(index)?.let(opener)?.use { ImageHeader.read(it) } ?: boundsOf(index)
     } catch (e: java.io.IOException) {
         null
+    }
+
+    /**
+     * 머리로 크기를 못 읽은 쪽은 휴대폰 해독기에 크기만 묻는다(그림은 풀지 않는다). 머리 읽기가 모르는 형식이나 머리가 이상한
+     * 파일도 화면에는 나오는데 크기만 몰라, 펼침면이 넓은 그림으로 판정되지 않고 반으로 나뉘지 않았다(0.55.1, "b 쪽을 건너뛴다").
+     * 바이트를 다 읽어야 해 머리를 못 읽은 쪽에서만 한다.
+     */
+    private fun boundsOf(index: Int): ImageSize? {
+        val bytes = read(index) ?: return null
+        val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, o)
+        return if (o.outWidth > 0 && o.outHeight > 0) ImageSize(o.outWidth, o.outHeight) else null
     }
 
     override fun close() {

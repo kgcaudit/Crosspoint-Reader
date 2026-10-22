@@ -32,6 +32,9 @@ object ImageHeader {
     /** JPEG 에서 SOF 를 찾으며 읽을 최대 바이트. EXIF 썸네일이 커도 이 안에 끝난다. */
     private const val JPEG_SCAN_LIMIT: Long = 4L * 1024 * 1024
 
+    /** AVIF · HEIC 에서 "ispe" 를 찾으며 읽을 바이트. 메타 상자는 파일 앞쪽 몇 KB 안에 있다(그림 데이터는 그 뒤). */
+    private const val ISO_SCAN: Int = 64 * 1024
+
     fun read(input: InputStream): ImageSize? = try {
         val head = ByteArray(30)
         val n = input.readUpTo(head)
@@ -42,6 +45,7 @@ object ImageHeader {
             n >= 4 && isJpeg(head) -> jpeg(head, n, input)
             // 만화 쪽으로 bmp 도 받는다(ComicContents) — 크기를 모르면 웹툰 판별 · 기둥 배치에서 그 쪽만 빠졌다.
             n >= 26 && isBmp(head) -> bmp(head)
+            n >= 12 && isIsoMedia(head) -> isoMedia(head, n, input)
             else -> null
         }
     } catch (e: IOException) {
@@ -66,6 +70,9 @@ object ImageHeader {
     private fun isJpeg(b: ByteArray) = b[0] == 0xFF.toByte() && b[1] == 0xD8.toByte()
 
     private fun isBmp(b: ByteArray) = b[0] == 'B'.code.toByte() && b[1] == 'M'.code.toByte()
+
+    /** AVIF · HEIC(ISO 미디어 파일): 4번째 바이트부터 "ftyp" 상자. */
+    private fun isIsoMedia(b: ByteArray) = ascii(b, 4, 4) == "ftyp"
 
     /**
      * BMP: 파일 머리(14바이트) 뒤 DIB 머리. 옛 OS/2 머리(12바이트)는 16비트, 나머지(40바이트 이상)는 32비트 부호 있는
@@ -94,6 +101,35 @@ object ImageHeader {
         // 확장: 24비트씩, 값은 (크기 - 1).
         "VP8X" -> ImageSize(u24le(b, 24) + 1, u24le(b, 27) + 1)
         else -> null
+    }
+
+    /**
+     * AVIF · HEIC: 크기는 "ispe"(그림 크기) 상자에 있다 — 상자 머리(크기 4 + "ispe") 뒤에 판 · 깃발 4바이트, 가로 · 세로 각 4바이트.
+     * 0.55.1 까지는 이 형식을 만화 쪽으로 받으면서 크기를 읽지 못해(null), 펼침면이 넓은 그림으로 판정되지 않고 반으로 나뉘지
+     * 않았다 — 두 쪽 그림의 오른쪽 반을 건너뛰고 다음 그림으로 가는 것처럼 보였다(사용자 지적 "b 쪽을 건너뛴다").
+     *
+     * 상자 나무를 다 풀지 않고 앞 [ISO_SCAN] 바이트에서 "ispe" 를 찾는다. 휴대폰 HEIC 는 512 칸 조각마다 ispe 가 있고 전체 그림의
+     * ispe 가 따로 있어, 가장 넓은 것이 전체 그림이다. "irot"(돌림)이 90° · 270° 면 가로 · 세로를 바꾼다 — 화면에 서는 모양이 기준이다.
+     */
+    private fun isoMedia(head: ByteArray, headLength: Int, rest: InputStream): ImageSize? {
+        val buf = ByteArray(ISO_SCAN)
+        head.copyInto(buf, 0, 0, headLength)
+        val n = headLength + rest.readUpTo(buf, headLength, ISO_SCAN - headLength)
+        var best: ImageSize? = null
+        var turned = false
+        var i = 8
+        while (i + 16 <= n) {
+            when (ascii(buf, i, 4)) {
+                "ispe" -> {
+                    val w = u32be(buf, i + 8)
+                    val h = u32be(buf, i + 12)
+                    if (w > 0 && h > 0 && (best == null || w.toLong() * h > best.width.toLong() * best.height)) best = ImageSize(w, h)
+                }
+                "irot" -> turned = (buf[i + 4].toInt() and 3) % 2 == 1
+            }
+            i++
+        }
+        return best?.let { if (turned) ImageSize(it.height, it.width) else it }
     }
 
     /**

@@ -8,10 +8,13 @@ import io.github.kgcaudit.reader.document.io.InputStream
  * `read(buffer)` 한 번은 **요청보다 적게** 줄 수 있다(압축 해제 스트림·파이프). 한 번만 부르면 파일
  * 머리를 반쯤만 읽고 "모르는 형식" 으로 판단하게 된다.
  */
-internal fun InputStream.readUpTo(buffer: ByteArray): Int {
+internal fun InputStream.readUpTo(buffer: ByteArray): Int = readUpTo(buffer, 0, buffer.size)
+
+/** [buffer] 의 [offset] 부터 [length] 바이트가 찰 때까지(또는 끝까지) 읽는다. 읽은 바이트 수. */
+internal fun InputStream.readUpTo(buffer: ByteArray, offset: Int, length: Int): Int {
     var total = 0
-    while (total < buffer.size) {
-        val n = read(buffer, total, buffer.size - total)
+    while (total < length) {
+        val n = read(buffer, offset + total, length - total)
         // 0 도 끝으로 본다. 계약 위반이지만 그런 스트림이 있고, 그러면 여기서 영원히 돈다.
         if (n <= 0) break
         total += n
