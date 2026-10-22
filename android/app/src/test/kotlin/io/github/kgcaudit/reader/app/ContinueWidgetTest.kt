@@ -14,6 +14,7 @@ import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
@@ -105,10 +106,28 @@ class ContinueWidgetTest {
         compose.onAllNodes(hasContentDescription("만화 ${n}쪽"), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
     }
 
-    /** 지금 위젯을 뷰로 펴 본다(런처가 하는 일). */
-    private fun widget(): View {
-        val views = runBlocking { ContinueWidgets.views(app) }
-        return views.apply(app, FrameLayout(app))
+    /** 지금 위젯을 뷰로 펴 본다(런처가 하는 일). 크기를 주면 그 크기로 재고 놓는다. */
+    private fun widget(size: WidgetSize = WidgetSize.Wide, settings: WidgetSettings = WidgetSettings(), id: Int = 0, dp: Pair<Int, Int>? = null): View {
+        val views = runBlocking { ContinueWidgets.views(app, size, settings, id) }
+        return views.apply(app, FrameLayout(app)).apply {
+            if (dp != null) {
+                val d = app.resources.displayMetrics.density
+                val w = (dp.first * d).toInt()
+                val h = (dp.second * d).toInt()
+                measure(View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY))
+                layout(0, 0, w, h)
+            }
+        }
+    }
+
+    private fun View.shown(id: Int) = findViewById<View>(id)?.visibility == View.VISIBLE
+
+    /** 책 셋 · 만화 하나를 차례로 읽은 기록. 가장 최근: 어린 왕자 → 만화 → 메모. */
+    private fun readThree() = runBlocking {
+        data.library.updateMetadata(bookId("어린 왕자.epub"), "어린 왕자", "생텍쥐페리")
+        data.progress.save(ReadingProgress(bookId("어린 왕자.epub"), Locator.Reflow(1, 0), 61f, 9_000))
+        data.comics.saveProgress(comicId(), 1, 3, 8_000)
+        data.progress.save(ReadingProgress(bookId("메모.txt"), Locator.Reflow(0, 10), 10f, 7_000))
     }
 
     private fun View.text(id: Int) = findViewById<TextView>(id).let { if (it.visibility == View.VISIBLE) it.text.toString() else null }
@@ -160,7 +179,195 @@ class ContinueWidgetTest {
         assertEquals("2시간", minutesWords(120))
     }
 
+    @Test
+    fun `the recent list holds the next unfinished reads newest first and never repeats the one on top`() {
+        val list = listOf(
+            candidate("지금 책", readAt = 9_000),
+            candidate("다 읽은 책", readAt = 8_000, percent = 100f, finishedAt = 8_000),
+            ContinueCandidate(ContinueTarget.Comic("별 2권"), "별 2권", "만화", 30f, 7_000, null),
+            candidate("그제 책", readAt = 5_000),
+            candidate("어제 책", readAt = 6_000),
+            candidate("지난달 책", readAt = 1_000),
+        )
+        val all = continueModel(list) as WidgetModel.Continue
+        assertEquals(ContinueTarget.Book("지금 책"), all.target)
+        // 다 읽은 책은 목록에도 없다 — 눌러 봐야 끝 쪽이 열린다. 세 줄까지만.
+        assertEquals(listOf("별 2권", "어제 책", "그제 책"), all.recent.map { it.title })
+        // 목록 거르기는 목록에만 닿는다 — 맨 위 한 권은 그대로 가장 최근 것.
+        val books = continueModel(list, RecentKind.Books) as WidgetModel.Continue
+        assertEquals(ContinueTarget.Book("지금 책"), books.target)
+        assertEquals(listOf("어제 책", "그제 책", "지난달 책"), books.recent.map { it.title })
+        assertEquals(listOf("별 2권"), (continueModel(list, RecentKind.Comics) as WidgetModel.Continue).recent.map { it.title })
+        // 읽던 것이 하나뿐이면 목록이 비고, 위젯은 목록 칸을 숨긴다.
+        assertEquals(emptyList(), (continueModel(list.take(2)) as WidgetModel.Continue).recent)
+    }
+
+    @Test
+    fun `the layout follows the widget size`() {
+        // 2×2 는 한 권, 4×2 는 목록(낮으면 두 줄), 4×4 는 큰 판. 런처가 아직 크기를 알리지 않은 것은 render 가 넓은 판으로 받는다.
+        assertEquals(WidgetSize.Small, WidgetSize.of(130f, 130f))
+        assertEquals(WidgetSize.Small, WidgetSize.of(150f, 400f))
+        assertEquals(WidgetSize.WideShort, WidgetSize.of(300f, 110f))
+        assertEquals(WidgetSize.Wide, WidgetSize.of(300f, 180f))
+        assertEquals(WidgetSize.Wide, WidgetSize.of(330f, 280f))
+        assertEquals(WidgetSize.Large, WidgetSize.of(330f, 380f))
+    }
+
     // ── 그린 위젯 ────────────────────────────────────────────
+
+    @Test
+    fun `each recent row opens its own book and the rest of the widget opens the one on top`() {
+        readThree()
+        val view = widget()
+        assertEquals("최근에 읽은", view.text(R.id.widget_recent_label))
+        assertTrue(view.text(R.id.widget_recent_title_1)!!.startsWith("별"), view.text(R.id.widget_recent_title_1))
+        assertEquals("메모.txt", view.text(R.id.widget_recent_title_2))
+        assertEquals("10%", view.text(R.id.widget_recent_percent_2))
+        assertEquals(100, view.findViewById<ProgressBar>(R.id.widget_recent_progress_2).progress)
+        // 둘뿐이면 셋째 줄은 비워 두지 않고 숨긴다.
+        assertTrue(!view.shown(R.id.widget_recent_3))
+
+        // 줄마다 다른 책. 요청 번호가 같으면 안드로이드가 PendingIntent 를 하나로 보고 마지막 줄의 책으로 덮어썼다.
+        view.findViewById<View>(R.id.widget_recent_1).performClick()
+        assertEquals(ContinueTarget.Comic(comicId()), ContinueWidget.targetOf(shadowOf(app).nextStartedActivity))
+        view.findViewById<View>(R.id.widget_recent_2).performClick()
+        assertEquals(ContinueTarget.Book(bookId("메모.txt").value), ContinueWidget.targetOf(shadowOf(app).nextStartedActivity))
+        view.findViewById<View>(R.id.widget_root).performClick()
+        assertEquals(ContinueTarget.Book(bookId("어린 왕자.epub").value), ContinueWidget.targetOf(shadowOf(app).nextStartedActivity))
+    }
+
+    @Test
+    fun `small widgets show one book, short ones two rows and the large one adds authors and thumbnails`() {
+        readThree()
+        // 목록이 세 줄 차야 낮은 판이 정말 두 줄로 줄이는지 보인다 — 두 권뿐이면 줄이지 않아도 두 줄이다.
+        File(root, "소설/둘째.txt").writeBytes(SampleBooks.txt())
+        runBlocking {
+            data.rescanAll()
+            data.progress.save(ReadingProgress(bookId("메모.txt"), Locator.Reflow(0, 10), 10f, 8_500))
+            data.progress.save(ReadingProgress(bookId("둘째.txt"), Locator.Reflow(0, 10), 20f, 6_000))
+        }
+        val small = widget(WidgetSize.Small)
+        assertEquals("어린 왕자", small.text(R.id.widget_title))
+        assertEquals("61%", small.text(R.id.widget_percent))
+        assertNull(small.findViewById<View>(R.id.widget_recent))
+
+        val wide = widget(WidgetSize.Wide)
+        assertTrue(wide.shown(R.id.widget_recent_3))
+        val short = widget(WidgetSize.WideShort)
+        assertTrue(short.shown(R.id.widget_recent_2))
+        assertTrue(!short.shown(R.id.widget_recent_3))
+
+        val large = widget(WidgetSize.Large)
+        assertEquals("만화", large.text(R.id.widget_recent_byline_2))
+        // 만화는 작은 표지가, TXT 는 빈 표지 칸이 선다.
+        assertTrue(large.shown(R.id.widget_recent_blank_1))
+        assertTrue(!large.shown(R.id.widget_recent_blank_2))
+        assertTrue(large.findViewById<android.widget.ImageView>(R.id.widget_recent_cover_2).drawable != null)
+    }
+
+    @Test
+    fun `the cover keeps its own proportions instead of being cropped to a box`() {
+        // 0.55 까지는 84dp 칸에 꽉 채워 표지가 잘렸다(사용자 지적). 만화 표지 60×90 → 놓인 표지 칸도 2:3 이어야 한다.
+        runBlocking { data.comics.saveProgress(comicId(), 1, 3, 9_000) }
+        val view = widget(WidgetSize.Wide, dp = 340 to 165)
+        val cover = view.findViewById<android.widget.ImageView>(R.id.widget_cover)
+        assertTrue(cover.drawable != null && !view.shown(R.id.widget_cover_title))
+        assertEquals(60f / 90f, cover.width.toFloat() / cover.height, 0.03f)
+        assertEquals(android.widget.ImageView.ScaleType.FIT_CENTER, cover.scaleType)
+    }
+
+    @Test
+    fun `settings switch the background off, dim it and force light or dark colours`() {
+        readThree()
+        assertTrue(widget().shown(R.id.widget_bg))
+        assertTrue(!widget(settings = WidgetSettings(background = false)).shown(R.id.widget_bg))
+        assertEquals(255, widget().findViewById<android.widget.ImageView>(R.id.widget_bg).imageAlpha)
+        assertEquals(127, widget(settings = WidgetSettings(opacity = 50)).findViewById<android.widget.ImageView>(R.id.widget_bg).imageAlpha)
+        // 휴대폰은 밝은데 "어둡게" 를 고르면 글자가 어두운 테마의 색이다. "휴대폰" 이면 자원 색(밤낮을 따르는) 그대로.
+        fun titleColor(v: View) = v.findViewById<TextView>(R.id.widget_title).currentTextColor
+        assertEquals(DarkColors.text.toArgb(), titleColor(widget(settings = WidgetSettings(color = WidgetColor.Dark))))
+        assertEquals(LightColors.text.toArgb(), titleColor(widget(settings = WidgetSettings(color = WidgetColor.Light))))
+        assertEquals(LightColors.text.toArgb(), titleColor(widget()))
+        assertEquals(DarkColors.textMuted.toArgb(), widget(settings = WidgetSettings(color = WidgetColor.Dark)).findViewById<TextView>(R.id.widget_recent_percent_1).currentTextColor)
+        // 목록 거르기: 만화만이면 만화 줄 하나.
+        val comics = widget(settings = WidgetSettings(recent = RecentKind.Comics))
+        assertTrue(comics.text(R.id.widget_recent_title_1)!!.startsWith("별"))
+        assertTrue(!comics.shown(R.id.widget_recent_2))
+    }
+
+    @Test
+    fun `settings are kept for each widget and forgotten when the widget is removed`() {
+        val first = WidgetSettings(background = false, opacity = 25, color = WidgetColor.Dark, recent = RecentKind.Books)
+        WidgetSettingsStore.save(app, 7, first)
+        WidgetSettingsStore.save(app, 8, WidgetSettings(opacity = 75))
+        assertEquals(first, WidgetSettingsStore.load(app, 7))
+        assertEquals(75, WidgetSettingsStore.load(app, 8).opacity)
+        // 놓을 때 설정을 건너뛴 위젯은 기본값.
+        assertEquals(WidgetSettings(), WidgetSettingsStore.load(app, 9))
+        ContinueWidget().onDeleted(app, intArrayOf(7))
+        assertEquals(WidgetSettings(), WidgetSettingsStore.load(app, 7))
+        assertEquals(75, WidgetSettingsStore.load(app, 8).opacity)
+        // 망가진 값(옛 판 · 손으로 고친 파일)도 위젯을 그린다.
+        app.getSharedPreferences("widget_settings", 0).edit().putInt("opacity_9", 61).putString("color_9", "Purple").commit()
+        assertEquals(WidgetSettings(opacity = 50), WidgetSettingsStore.load(app, 9))
+    }
+
+    @Test
+    fun `the picker preview is the wide widget with sample words`() {
+        // 0.55 까지는 위젯 고르기 화면에 앱 아이콘만 보였다. 미리보기는 넓은 판과 같은 뼈대여야 홈 화면에 놓인 모양과 같다.
+        fun ids(layout: Int): Set<Int> {
+            val root = android.view.LayoutInflater.from(app).inflate(layout, FrameLayout(app), false)
+            val out = mutableSetOf<Int>()
+            fun walk(v: View) { if (v.id != View.NO_ID) out += v.id; if (v is android.view.ViewGroup) for (i in 0 until v.childCount) walk(v.getChildAt(i)) }
+            walk(root)
+            return out
+        }
+        assertEquals(ids(R.layout.widget_continue), ids(R.layout.widget_continue_preview))
+        val preview = android.view.LayoutInflater.from(app).inflate(R.layout.widget_continue_preview, FrameLayout(app), false)
+        assertEquals("어린 왕자", preview.text(R.id.widget_title))
+        assertEquals("최근에 읽은", preview.text(R.id.widget_recent_label))
+        val info = app.packageManager.getReceiverInfo(android.content.ComponentName(app, ContinueWidget::class.java), android.content.pm.PackageManager.GET_META_DATA)
+        assertTrue(info.metaData.getInt("android.appwidget.provider") != 0)
+    }
+
+    @Test
+    fun `the settings screen saves for its widget and leaves the widget unplaced when cancelled`() {
+        readThree()
+        val manager = shadowOf(AppWidgetManager.getInstance(app))
+        val id = manager.createWidget(ContinueWidget::class.java, R.layout.widget_continue_empty)
+        // 저장은 위젯을 다시 그린 뒤(DB 를 읽는다) 닫는다 — 닫힐 때까지 메인 루퍼를 돌리며 기다린다.
+        fun ActivityScenario<WidgetSettingsActivity>.waitClosed() = compose.waitUntil(15_000) {
+            shadowOf(android.os.Looper.getMainLooper()).idle()
+            var finishing = true
+            runCatching { onActivity { finishing = it.isFinishing } }
+            finishing
+        }
+        fun open() = ActivityScenario.launchActivityForResult<WidgetSettingsActivity>(
+            Intent(app, WidgetSettingsActivity::class.java).setAction(AppWidgetManager.ACTION_APPWIDGET_CONFIGURE).putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id),
+        )
+        val saved = open()
+        compose.waitUntil(15_000) { has("위젯 설정") }
+        compose.onAllNodes(hasText("끔"), useUnmergedTree = true)[0].performClick()
+        compose.onAllNodes(hasText("만화만"), useUnmergedTree = true)[0].performClick()
+        compose.onAllNodes(hasText("저장"), useUnmergedTree = true)[0].performClick()
+        saved.waitClosed()
+        assertEquals(android.app.Activity.RESULT_OK, saved.result.resultCode)
+        assertEquals(id, saved.result.resultData.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, -1))
+        val settings = WidgetSettingsStore.load(app, id)
+        assertEquals(false, settings.background)
+        assertEquals(RecentKind.Comics, settings.recent)
+        // 저장하면 그 위젯을 바로 다시 그린다(안드로이드 11 아래는 설정 화면이 첫 그림을 그려야 한다).
+        shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertTrue(manager.getViewFor(id)?.findViewById<View>(R.id.widget_bg)?.visibility != View.VISIBLE)
+
+        val cancelled = open()
+        compose.waitUntil(15_000) { has("위젯 설정") }
+        compose.onAllNodes(hasText("켬"), useUnmergedTree = true).onLast().performClick()
+        compose.onAllNodes(hasText("취소"), useUnmergedTree = true).onLast().performClick()
+        cancelled.waitClosed()
+        assertEquals(android.app.Activity.RESULT_CANCELED, cancelled.result.resultCode)
+        assertEquals(false, WidgetSettingsStore.load(app, id).background)
+    }
 
     @Test
     fun `the widget shows title, author, percent and bar of the book read last`() {

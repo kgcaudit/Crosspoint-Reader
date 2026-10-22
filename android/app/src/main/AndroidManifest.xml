@@ -86,5 +86,18 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/continue_widget_info" />
         </receiver>
+
+        <!-- 위젯 설정(0.56.0): 위젯을 놓을 때 · 길게 눌러 "설정" 을 고를 때 런처가 연다. 런처는 다른 앱이라 밖에 열어 둔다 —
+             받은 위젯 번호의 모양 설정만 바꿀 수 있어, 다른 앱이 열어도 할 수 있는 일이 없다. -->
+        <activity
+            android:name=".WidgetSettingsActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:label="@string/widget_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
     </application>
 </manifest>

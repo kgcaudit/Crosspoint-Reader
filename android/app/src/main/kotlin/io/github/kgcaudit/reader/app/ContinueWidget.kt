@@ -6,12 +6,16 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.res.ColorStateList
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapShader
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Shader
+import android.os.Build
+import android.util.SizeF
 import android.view.View
 import android.widget.RemoteViews
 import androidx.compose.ui.graphics.asAndroidBitmap
@@ -65,29 +69,60 @@ internal sealed interface WidgetModel {
         val progress: Int,
         /** "남은 1시간 20분". 모르면 null. */
         val remaining: String?,
+        /** 그다음 최근에 읽던 것(0.56.0). 가장 최근 것부터, 많아야 [RECENT_LIMIT] 개. */
+        val recent: List<RecentItem> = emptyList(),
     ) : WidgetModel
 }
 
+/** 위젯 오른쪽(넓은 판) · 아래(큰 판) 목록의 한 줄. */
+internal data class RecentItem(
+    val target: ContinueTarget,
+    val title: String,
+    val byline: String?,
+    val percentText: String,
+    val progress: Int,
+)
+
+/** 최근 목록에 무엇을 올리나(위젯 설정). 맨 위 "이어 읽기" 한 권은 이것과 상관없이 가장 최근 것이다. */
+internal enum class RecentKind { All, Books, Comics }
+
+/** 목록 줄 수의 상한. 넓은 판 세 줄 · 큰 판 세 줄(사용자 확정 구상안 — 그보다 많으면 줄마다 글이 작아져 읽히지 않는다). */
+internal const val RECENT_LIMIT = 3
+
 /**
- * 위젯에 무엇을 보일지(사용자 결정 3-1: 한 권, 크게). 저장소 없이 시험하는 순수 함수다.
+ * 위젯에 무엇을 보일지. 저장소 없이 시험하는 순수 함수다.
  *
  * **다 읽지 않은 것 가운데 가장 최근**을 고른다. 방금 다 읽은 책을 보이면 "이어 읽기" 가 할 일이 없다 — 누르면 끝 쪽(또는 다시
  * 처음)이 열릴 뿐이고, 사람은 그 앞에 읽던 다른 책으로 돌아가고 싶다. 다 읽은 뒤 다시 펼친 책(다 읽은 때보다 한참 뒤에 읽음)은
  * 다시 읽는 중이라 후보다. 다 읽지 않은 것이 없으면 빈 판("OLO eBook 열기")이다.
+ *
+ * 목록(0.56.0)도 같은 규칙으로 다 읽은 것을 뺀다 — "최근에 읽은" 줄을 눌러 다 읽은 책의 끝 쪽이 열리면 쓸모가 없다. 맨 위
+ * 한 권은 목록에 다시 올리지 않는다.
  */
-internal fun continueModel(candidates: List<ContinueCandidate>): WidgetModel {
-    val pick = candidates.filter { !it.isFinished() }.maxByOrNull { it.readAt } ?: return WidgetModel.Empty
-    val percent = pick.percent.coerceIn(0f, 100f)
+internal fun continueModel(candidates: List<ContinueCandidate>, recentKind: RecentKind = RecentKind.All): WidgetModel {
+    val open = candidates.filter { !it.isFinished() }.sortedByDescending { it.readAt }
+    val pick = open.firstOrNull() ?: return WidgetModel.Empty
+    val recent = open.drop(1).filter {
+        when (recentKind) {
+            RecentKind.All -> true
+            RecentKind.Books -> it.target is ContinueTarget.Book
+            RecentKind.Comics -> it.target is ContinueTarget.Comic
+        }
+    }.take(RECENT_LIMIT).map { RecentItem(it.target, it.title, it.byline?.takeIf { b -> b.isNotBlank() }, it.percentText(), it.progressValue()) }
     return WidgetModel.Continue(
         target = pick.target,
         title = pick.title,
         byline = pick.byline?.takeIf { it.isNotBlank() },
-        // 내려 센다: 99.6% 를 "100%" 로 올리면 다 읽지 않은 책이 다 읽은 것처럼 보인다.
-        percentText = "${percent.toInt()}%",
-        progress = (percent * 10).toInt(),
+        percentText = pick.percentText(),
+        progress = pick.progressValue(),
         remaining = pick.remainingMinutes?.takeIf { it > 0 }?.let { "남은 ${minutesWords(it)}" },
+        recent = recent,
     )
 }
+
+// 내려 센다: 99.6% 를 "100%" 로 올리면 다 읽지 않은 책이 다 읽은 것처럼 보인다.
+private fun ContinueCandidate.percentText(): String = "${percent.coerceIn(0f, 100f).toInt()}%"
+private fun ContinueCandidate.progressValue(): Int = (percent.coerceIn(0f, 100f) * 10).toInt()
 
 private fun ContinueCandidate.isFinished(): Boolean =
     percent >= FINISHED_PERCENT || (finishedAt != null && finishedAt >= readAt - REOPEN_GRACE_MS)
@@ -130,6 +165,20 @@ class ContinueWidget : AppWidgetProvider() {
         }
     }
 
+    /** 위젯을 지우면 그 위젯의 설정도 지운다 — 남겨 두면 다음에 같은 번호를 받은 위젯이 옛 설정으로 뜬다. */
+    override fun onDeleted(context: Context, appWidgetIds: IntArray) {
+        WidgetSettingsStore.remove(context, appWidgetIds)
+    }
+
+    /**
+     * 크기가 바뀌었다. 안드로이드 12+ 는 크기별 배치를 이미 넘겨 두어 런처가 고른다 — 다시 그릴 일이 없다. 그 아래 판은 지금 크기에
+     * 맞는 배치 하나만 넘겼으니 다시 그린다. 안 하면 4×2 를 2×2 로 줄여도 넓은 판이 눌린 채 남는다.
+     */
+    override fun onAppWidgetOptionsChanged(context: Context, manager: AppWidgetManager, appWidgetId: Int, newOptions: android.os.Bundle) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) return
+        onUpdate(context, manager, intArrayOf(appWidgetId))
+    }
+
     companion object {
         /** 위젯이 앱을 열 때의 동작. 다른 앱이 보낼 수 없게 MainActivity 만 받는다(명시적 인텐트). */
         const val ACTION_CONTINUE: String = "io.github.kgcaudit.oloebook.action.CONTINUE"
@@ -167,42 +216,154 @@ internal object ContinueWidgets {
         render(context, manager, ids)
     }
 
+    /**
+     * 위젯마다 따로 그린다 — 설정(배경 · 색 · 목록)이 위젯마다 다르다. 읽은 기록 · 표지는 한 번만 읽어 함께 쓴다.
+     *
+     * 안드로이드 12+ 는 크기별 배치를 모두 넘기고 런처가 지금 크기에 맞는 것을 고른다 — 사람이 위젯 크기를 바꾸는 동안 앱이
+     * 깨어나지 않아도 배치가 따라간다. 그 아래 판은 지금 크기를 물어 하나만 넘기고, 크기가 바뀌면 다시 그린다
+     * ([ContinueWidget.onAppWidgetOptionsChanged]).
+     */
     suspend fun render(context: Context, manager: AppWidgetManager, ids: IntArray) {
-        manager.updateAppWidget(ids, views(context))
+        val board = Board.load(context)
+        for (id in ids) {
+            val settings = WidgetSettingsStore.load(context, id)
+            val views = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                board.sized(settings, id)
+            } else {
+                val options = manager.getAppWidgetOptions(id)
+                val w = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH)
+                val h = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT)
+                // 처음 놓을 때 런처가 아직 크기를 알리지 않았으면 0 이다 — 작은 판으로 그리면 4×2 칸에 표지 하나만 덩그러니 남는다.
+                board.views(if (w <= 0 || h <= 0) WidgetSize.Wide else WidgetSize.of(w.toFloat(), h.toFloat()), settings, id)
+            }
+            manager.updateAppWidget(id, views)
+        }
     }
 
-    /** 지금 모습의 위젯. 시험이 뷰로 펴 그려 본다. */
-    suspend fun views(context: Context): RemoteViews {
-        val container = context.container
-        val model = continueModel(candidates(container.data))
-        return when (model) {
-            WidgetModel.Empty -> RemoteViews(context.packageName, R.layout.widget_continue_empty).apply {
-                val open = context.packageManager.getLaunchIntentForPackage(context.packageName) ?: Intent(context, MainActivity::class.java)
-                setOnClickPendingIntent(R.id.widget_root, PendingIntent.getActivity(context, REQUEST_OPEN, open, PENDING_FLAGS))
-            }
-            is WidgetModel.Continue -> RemoteViews(context.packageName, R.layout.widget_continue).apply {
-                setTextViewText(R.id.widget_title, model.title)
-                setTextViewText(R.id.widget_byline, model.byline.orEmpty())
-                setViewVisibility(R.id.widget_byline, if (model.byline == null) View.GONE else View.VISIBLE)
-                setTextViewText(R.id.widget_percent, model.percentText)
-                setProgressBar(R.id.widget_progress, 1000, model.progress, false)
-                setTextViewText(R.id.widget_remaining, model.remaining.orEmpty())
-                setViewVisibility(R.id.widget_remaining, if (model.remaining == null) View.GONE else View.VISIBLE)
-                val cover = runCatching { coverOf(container, model.target, context.resources.displayMetrics.density) }
-                    .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }.getOrNull()
-                if (cover != null) {
-                    setImageViewBitmap(R.id.widget_cover, cover)
-                    setViewVisibility(R.id.widget_cover_title, View.GONE)
-                } else {
-                    // 표지가 없는 책(TXT · 표지 없는 EPUB)은 서재처럼 제목을 얹은 대신 표지.
-                    setTextViewText(R.id.widget_cover_title, model.title)
-                    setViewVisibility(R.id.widget_cover_title, View.VISIBLE)
+    /** 지금 모습의 위젯 한 크기. 시험 · 설정 화면의 미리보기가 뷰로 펴 그려 본다. */
+    suspend fun views(context: Context, size: WidgetSize = WidgetSize.Wide, settings: WidgetSettings = WidgetSettings(), widgetId: Int = 0): RemoteViews =
+        Board.load(context).views(size, settings, widgetId)
+
+    /** 위젯에 올릴 재료: 읽은 것들과 표지. 한 번 그리는 동안 표지를 크기 · 위젯마다 다시 읽지 않는다. */
+    private class Board(private val context: Context, private val candidates: List<ContinueCandidate>) {
+        private val container = context.container
+        private val density = context.resources.displayMetrics.density
+        private val covers = HashMap<Pair<ContinueTarget, Int>, Bitmap?>()
+
+        /**
+         * 크기별 배치를 한 벌로(안드로이드 12+). 표지는 같은 Bitmap 객체를 넘긴다 — RemoteViews 는 같은 객체를 한 번만 실어
+         * 보낸다. 크기마다 새로 줄이면 네 배로 실려 바인더 한도(1MB 남짓)에 걸린다.
+         */
+        @androidx.annotation.RequiresApi(Build.VERSION_CODES.S)
+        suspend fun sized(settings: WidgetSettings, id: Int): RemoteViews {
+            if (continueModel(candidates, settings.recent) == WidgetModel.Empty) return views(WidgetSize.Wide, settings, id)
+            val map = LinkedHashMap<SizeF, RemoteViews>()
+            for (size in WidgetSize.entries) map[size.sizeF] = views(size, settings, id)
+            return RemoteViews(map)
+        }
+
+        suspend fun views(size: WidgetSize, settings: WidgetSettings, id: Int): RemoteViews {
+            val model = continueModel(candidates, settings.recent)
+            val views = when (model) {
+                WidgetModel.Empty -> RemoteViews(context.packageName, R.layout.widget_continue_empty).apply {
+                    val open = context.packageManager.getLaunchIntentForPackage(context.packageName) ?: Intent(context, MainActivity::class.java)
+                    setOnClickPendingIntent(R.id.widget_root, PendingIntent.getActivity(context, requestCode(id, SLOT_OPEN), open, PENDING_FLAGS))
                 }
-                setOnClickPendingIntent(
-                    R.id.widget_root,
-                    PendingIntent.getActivity(context, REQUEST_CONTINUE, ContinueWidget.intentFor(context, model.target), PENDING_FLAGS),
-                )
+                is WidgetModel.Continue -> RemoteViews(context.packageName, size.layout).apply { bind(model, size, id) }
             }
+            return views.apply { style(settings) }
+        }
+
+        private suspend fun RemoteViews.bind(model: WidgetModel.Continue, size: WidgetSize, id: Int) {
+            setTextViewText(R.id.widget_title, model.title)
+            setTextViewText(R.id.widget_byline, model.byline.orEmpty())
+            setViewVisibility(R.id.widget_byline, if (model.byline == null) View.GONE else View.VISIBLE)
+            setTextViewText(R.id.widget_percent, model.percentText)
+            setProgressBar(R.id.widget_progress, 1000, model.progress, false)
+            setTextViewText(R.id.widget_remaining, model.remaining.orEmpty())
+            setViewVisibility(R.id.widget_remaining, if (model.remaining == null) View.GONE else View.VISIBLE)
+            val cover = cover(model.target, COVER_PX)
+            if (cover != null) {
+                setImageViewBitmap(R.id.widget_cover, cover)
+                setViewVisibility(R.id.widget_cover_title, View.GONE)
+            } else {
+                // 표지가 없는 책(TXT · 표지 없는 EPUB)은 서재처럼 제목을 얹은 대신 표지. 칸은 투명한 2:3 그림이 잡는다.
+                setImageViewBitmap(R.id.widget_cover, sizer)
+                setTextViewText(R.id.widget_cover_title, model.title)
+                setViewVisibility(R.id.widget_cover_title, View.VISIBLE)
+            }
+            setOnClickPendingIntent(R.id.widget_root, open(model.target, id, SLOT_MAIN))
+
+            val shown = model.recent.take(size.rows)
+            val list = if (shown.isEmpty()) View.GONE else View.VISIBLE
+            setViewVisibility(R.id.widget_recent, list)
+            setViewVisibility(R.id.widget_divider, list)
+            ROWS.forEachIndexed { i, row ->
+                val item = shown.getOrNull(i)
+                setViewVisibility(row.root, if (item == null) View.GONE else View.VISIBLE)
+                if (item == null) return@forEachIndexed
+                setTextViewText(row.title, item.title)
+                setTextViewText(row.percent, item.percentText)
+                setProgressBar(row.progress, 1000, item.progress, false)
+                setTextViewText(row.byline, item.byline.orEmpty())
+                setViewVisibility(row.byline, if (item.byline == null) View.GONE else View.VISIBLE)
+                if (size == WidgetSize.Large) {
+                    // 작은 표지는 큰 판에만 있다. 넓은 판에서 읽으면 쓰지도 않을 그림을 바인더에 싣는다.
+                    val thumb = cover(item.target, THUMB_PX)
+                    setImageViewBitmap(row.cover, thumb ?: sizer)
+                    setViewVisibility(row.blank, if (thumb == null) View.VISIBLE else View.GONE)
+                }
+                // 줄을 누르면 그 책이 열린다(사용자 확정 구상안). 줄이 판 위에 있어 판 누름(맨 위 책)보다 먼저 받는다.
+                setOnClickPendingIntent(row.root, open(item.target, id, SLOT_ROWS + i))
+            }
+        }
+
+        /** 배경 · 불투명도 · 색(위젯 설정). */
+        private fun RemoteViews.style(settings: WidgetSettings) {
+            setViewVisibility(R.id.widget_bg, if (settings.background) View.VISIBLE else View.GONE)
+            setInt(R.id.widget_bg, "setImageAlpha", settings.opacity * 255 / 100)
+            // "휴대폰" 이면 아무것도 칠하지 않는다 — 배치의 색 자원이 밤/낮을 따르고, 런처가 그릴 때 그 값을 고른다. 여기서 칠하면
+            // 휴대폰이 어두워져도 그린 때의 색이 남는다.
+            val p = palette(context, settings.color) ?: return
+            setInt(R.id.widget_bg, "setColorFilter", p.surface)
+            setInt(R.id.widget_divider, "setColorFilter", p.track)
+            setTextColor(R.id.widget_label, p.accentText)
+            for (id in listOf(R.id.widget_title, R.id.widget_percent)) setTextColor(id, p.text)
+            for (id in listOf(R.id.widget_byline, R.id.widget_remaining, R.id.widget_recent_label, R.id.widget_empty_hint)) setTextColor(id, p.muted)
+            for (row in ROWS) {
+                setTextColor(row.title, p.text)
+                setTextColor(row.percent, p.muted)
+                setTextColor(row.byline, p.muted)
+            }
+            // 막대 색은 안드로이드 12+ 에서만 바꿀 수 있다(그 아래는 ProgressBar 의 색을 RemoteViews 로 넘길 길이 없다). 밝게/어둡게의
+            // 강조색 차이는 작아, 아래 판에서는 휴대폰 쪽 막대 색이 남아도 읽는 데 지장이 없다.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val accent = ColorStateList.valueOf(p.accent)
+                val track = ColorStateList.valueOf(p.track)
+                for (id in listOf(R.id.widget_progress) + ROWS.map { it.progress }) {
+                    setColorStateList(id, "setProgressTintList", accent)
+                    setColorStateList(id, "setProgressBackgroundTintList", track)
+                }
+            }
+        }
+
+        private fun open(target: ContinueTarget, id: Int, slot: Int): PendingIntent =
+            PendingIntent.getActivity(context, requestCode(id, slot), ContinueWidget.intentFor(context, target), PENDING_FLAGS)
+
+        /** 표지(높이 [px] 이하). 없으면 null. 한 번 그리는 동안 같은 책 · 같은 크기는 같은 객체다. */
+        private suspend fun cover(target: ContinueTarget, px: Int): Bitmap? {
+            val key = target to px
+            if (key in covers) return covers[key]
+            val image = runCatching { coverOf(container, target) }
+                .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }.getOrNull()
+            return image?.let { rounded(it, px, 6f * density * px / COVER_PX) }.also { covers[key] = it }
+        }
+
+        companion object {
+            suspend fun load(context: Context): Board = Board(context, candidates(context.container.data))
+
+            /** 표지 없는 책의 칸을 잡는 투명한 2:3 그림. 크기가 아니라 비율만 쓴다(adjustViewBounds). */
+            private val sizer: Bitmap by lazy { Bitmap.createBitmap(34, 50, Bitmap.Config.ALPHA_8) }
         }
     }
 
@@ -238,11 +399,8 @@ internal object ContinueWidgets {
         return books + comics
     }
 
-    /**
-     * 위젯에 얹을 표지. 작게(높이 [COVER_PX] 이하) 줄이고 모서리를 둥글린다 — RemoteViews 는 그림을 바인더로 런처에 넘기는데,
-     * 서재 표지(480px) 그대로면 위젯 몇 개에 바인더 한도(1MB 남짓)를 넘어 위젯이 "불러올 수 없음" 이 된다.
-     */
-    private suspend fun coverOf(container: AppContainer, target: ContinueTarget, density: Float): Bitmap? {
+    /** 위젯에 얹을 표지 원본. 줄이기 · 둥글리기는 [rounded]. */
+    private suspend fun coverOf(container: AppContainer, target: ContinueTarget): Bitmap? {
         val image = when (target) {
             is ContinueTarget.Book -> container.data.library.get(BookId(target.id))?.let { container.covers.cover(it).image }
             is ContinueTarget.Comic -> {
@@ -254,11 +412,15 @@ internal object ContinueWidgets {
                 work?.let { container.covers.work(it.key).image } ?: container.covers.comic(unit, work?.rightToLeft ?: false)
             }
         } ?: return null
-        return rounded(image.asAndroidBitmap(), 6f * density)
+        return image.asAndroidBitmap()
     }
 
-    private fun rounded(source: Bitmap, radius: Float): Bitmap {
-        val scale = minOf(1f, COVER_PX.toFloat() / source.height)
+    /**
+     * 작게(높이 [px] 이하) 줄이고 모서리를 둥글린다 — RemoteViews 는 그림을 바인더로 런처에 넘기는데, 서재 표지(480px) 그대로면
+     * 위젯 몇 개에 바인더 한도(1MB 남짓)를 넘어 위젯이 "불러올 수 없음" 이 된다. 비율은 그대로다 — 자르면 표지가 아니다(0.56.0).
+     */
+    private fun rounded(source: Bitmap, px: Int, radius: Float): Bitmap {
+        val scale = minOf(1f, px.toFloat() / source.height)
         val w = (source.width * scale).toInt().coerceAtLeast(1)
         val h = (source.height * scale).toInt().coerceAtLeast(1)
         val scaled = if (scale < 1f) Bitmap.createScaledBitmap(source, w, h, true) else source.copy(Bitmap.Config.ARGB_8888, false)
@@ -268,11 +430,46 @@ internal object ContinueWidgets {
         return out
     }
 
-    /** 표지 높이 상한(px). 위젯의 표지 칸(높이 약 120dp)을 xxhdpi 에서 채우고도 바인더 한도에 멀다. */
+    /** 밝게/어둡게를 고른 위젯의 색. 앱 테마와 같은 값(colors.xml 의 낮 · 밤)을 그대로 쓴다 — 따로 적으면 테마를 바꿀 때 어긋난다. */
+    private class Palette(val surface: Int, val text: Int, val muted: Int, val accent: Int, val accentText: Int, val track: Int)
+
+    private fun palette(context: Context, color: WidgetColor): Palette? {
+        val night = when (color) {
+            WidgetColor.System -> return null
+            WidgetColor.Light -> Configuration.UI_MODE_NIGHT_NO
+            WidgetColor.Dark -> Configuration.UI_MODE_NIGHT_YES
+        }
+        val config = Configuration(context.resources.configuration).apply { uiMode = (uiMode and Configuration.UI_MODE_NIGHT_MASK.inv()) or night }
+        val c = context.createConfigurationContext(config)
+        return Palette(
+            c.getColor(R.color.widget_surface), c.getColor(R.color.widget_text), c.getColor(R.color.widget_text_muted),
+            c.getColor(R.color.widget_accent), c.getColor(R.color.widget_accent_text), c.getColor(R.color.widget_track),
+        )
+    }
+
+    /** 목록 한 줄의 뷰 id. 넓은 판에는 저자 · 작은 표지가 없다 — 없는 id 에 거는 일은 RemoteViews 가 건너뛴다. */
+    private class Row(val root: Int, val title: Int, val percent: Int, val progress: Int, val byline: Int, val cover: Int, val blank: Int)
+
+    private val ROWS = listOf(
+        Row(R.id.widget_recent_1, R.id.widget_recent_title_1, R.id.widget_recent_percent_1, R.id.widget_recent_progress_1, R.id.widget_recent_byline_1, R.id.widget_recent_cover_1, R.id.widget_recent_blank_1),
+        Row(R.id.widget_recent_2, R.id.widget_recent_title_2, R.id.widget_recent_percent_2, R.id.widget_recent_progress_2, R.id.widget_recent_byline_2, R.id.widget_recent_cover_2, R.id.widget_recent_blank_2),
+        Row(R.id.widget_recent_3, R.id.widget_recent_title_3, R.id.widget_recent_percent_3, R.id.widget_recent_progress_3, R.id.widget_recent_byline_3, R.id.widget_recent_cover_3, R.id.widget_recent_blank_3),
+    )
+
+    /** 표지 높이 상한(px). 큰 판의 표지 칸(높이 약 140dp)을 xxhdpi 에서 채우고도 바인더 한도에 멀다. */
     private const val COVER_PX = 300
 
-    private const val REQUEST_OPEN = 1
-    private const val REQUEST_CONTINUE = 2
+    /** 목록 줄의 작은 표지(40dp). 큰 표지를 그대로 쓰면 세 장이 바인더 한도를 갉아 먹는다. */
+    private const val THUMB_PX = 120
+
+    /**
+     * 누를 거리마다 다른 요청 번호. 같은 번호 · 같은 동작이면 안드로이드가 같은 PendingIntent 로 보고 마지막 것의 책으로 덮어쓴다 —
+     * 목록 세 줄이 모두 마지막 줄의 책을 열었다. 위젯 번호도 섞는다(두 위젯의 목록이 다를 수 있다).
+     */
+    private fun requestCode(widgetId: Int, slot: Int): Int = (widgetId shl 3) or slot
+    private const val SLOT_OPEN = 0
+    private const val SLOT_MAIN = 1
+    private const val SLOT_ROWS = 2
     private const val PENDING_FLAGS = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
 }
 

@@ -1,0 +1,329 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    위젯 고르기 화면의 미리보기(0.56.0, 사용자 지적: 앱 아이콘만 달랑 보였다). 넓은 판(widget_continue)과 같은 뼈대에 본보기 글을
+    박았다 — 런처는 미리보기에 앱 코드를 돌리지 않는다. 넓은 판을 고치면 여기도 함께 고친다(시험이 두 판의 뼈대를 맞대 본다).
+
+    원래 설명: "이어 읽기" 위젯 · 넓은 판(4×2, 0.56.0 사용자 확정 구상안). 왼쪽은 가장 최근에 읽던 것(표지 원래 비율 · 이름표 · 제목 · 저자 ·
+    진도), 오른쪽은 그다음 최근에 읽은 것 세 줄(낮으면 두 줄). 0.55 까지는 한 권만 보여 오른쪽 절반이 비었다(사용자 지적).
+    RemoteViews 라 쓸 수 있는 뷰가 정해져 있다(맨 View 도 안 된다 — 안드로이드 12 아래 런처에서 "위젯을 불러올 수 없음").
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!-- 판은 그림으로 깐다 — 불투명도(setImageAlpha) · 밝게/어둡게(setColorFilter)를 RemoteViews 로 바꿀 수 있는 것이 ImageView 뿐이다.
+         배경을 끄면 이 그림만 숨긴다. -->
+    <ImageView
+        android:id="@+id/widget_bg"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:contentDescription="@null"
+        android:scaleType="fitXY"
+        android:src="@drawable/widget_background" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:baselineAligned="false"
+        android:orientation="horizontal"
+        android:padding="14dp">
+
+        <!-- 표지는 원래 비율로(0.56.0). 0.55 까지는 84dp 칸에 꽉 채워 위아래 · 옆이 잘렸다(사용자 지적). 높이를 칸에 맞추고 폭은 그림이
+             정한다(adjustViewBounds). 표지 없는 책은 투명한 2:3 그림으로 칸만 잡고 그 위에 제목 카드를 얹는다. -->
+        <FrameLayout
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent">
+
+            <ImageView
+                android:id="@+id/widget_cover"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:adjustViewBounds="true"
+                android:contentDescription="@null"
+                android:maxWidth="120dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/widget_sample_cover" />
+
+            <TextView
+                android:id="@+id/widget_cover_title"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/widget_cover_blank"
+                android:ellipsize="end"
+                android:gravity="top|start"
+                android:maxLines="5"
+                android:padding="8dp"
+                android:textColor="#FFFFFFFF"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:visibility="gone"
+                tools:text="데미안" />
+        </FrameLayout>
+
+        <!-- 위는 이름표 · 제목 · 저자, 아래는 진도 · 막대. 높이를 늘이면 사이가 벌어진다(무게 대신 겹친 판 — 무게를 겹치면 두 번 잰다). -->
+        <FrameLayout
+            android:id="@+id/widget_main"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginStart="12dp"
+            android:layout_weight="1">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/widget_label"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/widget_continue_label"
+                    android:textColor="@color/widget_accent_text"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/widget_title"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/widget_sample_title"
+                    android:ellipsize="end"
+                    android:maxLines="2"
+                    android:textColor="@color/widget_text"
+                    android:textSize="17sp"
+                    android:textStyle="bold"
+                    tools:text="데미안" />
+
+                <TextView
+                    android:id="@+id/widget_byline"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/widget_sample_byline"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textColor="@color/widget_text_muted"
+                    android:textSize="13sp"
+                    tools:text="헤르만 헤세" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom"
+                android:orientation="vertical">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:baselineAligned="true"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/widget_percent"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:text="@string/widget_sample_percent"
+                        android:layout_weight="1"
+                        android:textColor="@color/widget_text"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        tools:text="61%" />
+
+                    <TextView
+                        android:id="@+id/widget_remaining"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:textColor="@color/widget_text_muted"
+                        android:textSize="11sp"
+                        android:visibility="gone"
+                        tools:text="남은 1시간 20분" />
+                </LinearLayout>
+
+                <ProgressBar
+                    android:id="@+id/widget_progress"
+                    android:progress="640"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="4dp"
+                    android:layout_marginTop="5dp"
+                    android:indeterminate="false"
+                    android:max="1000"
+                    android:progressDrawable="@drawable/widget_progress" />
+            </LinearLayout>
+
+        </FrameLayout>
+
+        <!-- 가운데 가는 선. 맨 View 는 RemoteViews 에 못 쓴다 — 색 그림 하나로 긋는다. -->
+        <ImageView
+            android:id="@+id/widget_divider"
+            android:layout_width="1dp"
+            android:layout_height="match_parent"
+            android:layout_marginStart="10dp"
+            android:layout_marginEnd="10dp"
+            android:contentDescription="@null"
+            android:scaleType="fitXY"
+            android:src="@color/widget_track" />
+
+        <LinearLayout
+            android:id="@+id/widget_recent"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/widget_recent_label"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/widget_recent_label"
+                android:textColor="@color/widget_text_muted"
+                android:textSize="12sp" />
+
+            <LinearLayout
+                android:id="@+id/widget_recent_1"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingTop="4dp"
+                android:paddingBottom="2dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:baselineAligned="true"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/widget_recent_title_1"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:text="@string/widget_sample_recent_1"
+                        android:layout_weight="1"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:textColor="@color/widget_text"
+                        android:textSize="13sp" />
+
+                    <TextView
+                        android:id="@+id/widget_recent_percent_1"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/widget_sample_percent_1"
+                        android:layout_marginStart="6dp"
+                        android:textColor="@color/widget_text_muted"
+                        android:textSize="11sp" />
+                </LinearLayout>
+
+                <ProgressBar
+                    android:id="@+id/widget_recent_progress_1"
+                    android:progress="870"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="3dp"
+                    android:layout_marginTop="4dp"
+                    android:indeterminate="false"
+                    android:max="1000"
+                    android:progressDrawable="@drawable/widget_progress_thin" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/widget_recent_2"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingTop="4dp"
+                android:paddingBottom="2dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:baselineAligned="true"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/widget_recent_title_2"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:text="@string/widget_sample_recent_2"
+                        android:layout_weight="1"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:textColor="@color/widget_text"
+                        android:textSize="13sp" />
+
+                    <TextView
+                        android:id="@+id/widget_recent_percent_2"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/widget_sample_percent_2"
+                        android:layout_marginStart="6dp"
+                        android:textColor="@color/widget_text_muted"
+                        android:textSize="11sp" />
+                </LinearLayout>
+
+                <ProgressBar
+                    android:id="@+id/widget_recent_progress_2"
+                    android:progress="220"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="3dp"
+                    android:layout_marginTop="4dp"
+                    android:indeterminate="false"
+                    android:max="1000"
+                    android:progressDrawable="@drawable/widget_progress_thin" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/widget_recent_3"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingTop="4dp"
+                android:paddingBottom="2dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:baselineAligned="true"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/widget_recent_title_3"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:text="@string/widget_sample_recent_3"
+                        android:layout_weight="1"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:textColor="@color/widget_text"
+                        android:textSize="13sp" />
+
+                    <TextView
+                        android:id="@+id/widget_recent_percent_3"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/widget_sample_percent_3"
+                        android:layout_marginStart="6dp"
+                        android:textColor="@color/widget_text_muted"
+                        android:textSize="11sp" />
+                </LinearLayout>
+
+                <ProgressBar
+                    android:id="@+id/widget_recent_progress_3"
+                    android:progress="410"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="3dp"
+                    android:layout_marginTop="4dp"
+                    android:indeterminate="false"
+                    android:max="1000"
+                    android:progressDrawable="@drawable/widget_progress_thin" />
+            </LinearLayout>
+
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>
