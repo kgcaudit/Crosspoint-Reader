@@ -1,5 +1,7 @@
 package io.github.kgcaudit.reader.pdf
 
+import io.github.kgcaudit.reader.layout.pdf.PageRegion
+import io.github.kgcaudit.reader.layout.pdf.layerHits
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -203,7 +205,3 @@ internal fun Modifier.selectionHandles(reader: PdfReader, text: PdfTextState): M
         }
     }
 }
-
-/** 글자 층에서 [query] 가 나오는 구간들. 찾기와 같은 규칙([findAll]: 대소문자 · 공백 개수를 가리지 않음)이라 차례가 맞는다. */
-internal fun layerHits(layer: PageText, query: String): List<IntRange> =
-    if (query.isBlank()) emptyList() else findAll(layer.text, query, 0).map { it.start until it.endExclusive }

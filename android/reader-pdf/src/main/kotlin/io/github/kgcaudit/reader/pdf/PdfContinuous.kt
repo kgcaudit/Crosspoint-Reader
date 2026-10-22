@@ -1,5 +1,7 @@
 package io.github.kgcaudit.reader.pdf
 
+import io.github.kgcaudit.reader.layout.pdf.PageViewport
+import io.github.kgcaudit.reader.layout.pdf.PageRegion
 import android.graphics.Bitmap
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background

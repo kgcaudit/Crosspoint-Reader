@@ -1,4 +1,4 @@
-package io.github.kgcaudit.reader.pdf
+package io.github.kgcaudit.reader.layout.pdf
 
 import kotlin.math.abs
 import kotlin.test.Test
@@ -64,8 +64,9 @@ class BrokenHangulTest {
         // 같은 쪽에 두 체계 어느 쪽으로 풀어도 우리말이 안 되는 글꼴(쪽 머리 장식 글씨 등)이 섞였다. 억지로 풀면 "댦뗴꿹"
         // 같은 글자를 읽는다 — 본문은 되살리고 그 낱말은 소리 나지 않게 가린다.
         val table = AdobeKr.table
-        fun ks(c: Char) = c in '가'..'힣' && String("$c".toByteArray(charset("EUC-KR")), charset("EUC-KR")) == "$c" &&
-            "$c".toByteArray(charset("EUC-KR")).size == 2
+        // 공통 시험이라 플랫폼 문자 집합(EUC-KR)에 묻지 않고 앱이 싣는 KS X 1001 표로 가린다. 표가 맞는지는 jvmTest 의
+        // KsHangulTableTest 가 JVM 의 EUC-KR 과 대조한다.
+        fun ks(c: Char) = KsHangul.contains(c)
         val junk = (2000 until 11000).asSequence().map { it.toChar() }
             .filter { c -> !ks('가' + (c.code - 97)) && table.getOrNull(c.code)?.let { ks(it) } != true }
             .take(12).toList()
@@ -85,7 +86,7 @@ class BrokenHangulTest {
     }
 
     @Test
-    fun `a line in an adobe-kr font on the same page is read too, not hidden`() {
+    fun `a line in an adobe-kr font on the same page is read too - not hidden`() {
         // 좋은생각 109쪽: 본문은 유니코드 순 번호, 아래 글귀(SDGretaSans2)는 Adobe-KR 번호. 앞 규칙으로만 풀면 글귀가
         // "냖뎚댛 깾눧띎" 이 되어 가려졌고, 듣기가 그 글귀를 읽지 않았다.
         val body = "나는 오래전 잊힌 독립운동가를 찾아 세상에 알리는 일을 소명으로 여기고 있다."
@@ -133,7 +134,7 @@ class BrokenHangulTest {
     }
 
     @Test
-    fun `a tie is settled by the nearest word on the page, not by the order the engine gives`() {
+    fun `a tie is settled by the nearest word on the page - not by the order the engine gives`() {
         // 좋은생각 33쪽: 여백의 세로 글씨 "그림" 의 "그"(순번 체계)는 Adobe-KR 로는 "널". 엔진은 이 글자를 딴 글꼴의 글귀
         // 바로 뒤에 준다 — 글자 층의 순서로 가까운 낱말을 따르면 "널림" 이 된다. 쪽 위에서 가까운 것은 본문이다.
         assertEquals(broken("그"), brokenAdobe("널"))

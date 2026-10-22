@@ -1,4 +1,4 @@
-package io.github.kgcaudit.reader.pdf
+package io.github.kgcaudit.reader.layout.pdf
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -56,7 +56,7 @@ class PageTextTest {
     )
 
     @Test
-    fun `lines follow the positions, not the line break characters`() {
+    fun `lines follow the positions - not the line break characters`() {
         assertEquals(3, body.lines.size)
         assertEquals("으면 두 손가락으로 벌립니다.", body.text.substring(body.lines[1].start, body.lines[1].endExclusive))
     }
@@ -118,7 +118,7 @@ class PageTextTest {
     }
 
     @Test
-    fun `a heading without a full stop is read on its own, and a paragraph ending short starts a new one`() {
+    fun `a heading without a full stop is read on its own - and a paragraph ending short starts a new one`() {
         // 제목은 글자가 크다. 셋째 줄은 짧게, 마침표로 끝난다.
         val p = page(
             listOf("2-1 확대하기", "PDF 는 쪽 모양 그대로 보입니다 글자가 작으면 두 손가", "락으로 벌립니다.", "확대 배율은 다섯 배까지입니다"),
@@ -152,7 +152,7 @@ class PageTextTest {
     }
 
     @Test
-    fun `a sentence running onto the next line is read as one, with a word broken at the line end joined`() {
+    fun `a sentence running onto the next line is read as one - with a word broken at the line end joined`() {
         val spoken = spokenOf(novel)
         // 줄 간격이 넉넉해도 줄마다 새 문단이 아니다 — 문장이 줄을 넘어 이어 읽힌다.
         assertTrue("눈물이 나면 흐르게 내버려뒀다." in spoken, spoken.toString())
@@ -204,7 +204,7 @@ class PageTextTest {
     }
 
     @Test
-    fun `copying a hidden stretch carries the engine's own letter numbers, a sound one does not`() {
+    fun `copying a hidden stretch carries the engine's own letter numbers - a sound one does not`() {
         // 폰에서만 깨지는 글의 원인을 찾으려면 폰 엔진이 준 그대로의 글자가 필요하다. 가린 글자가 있을 때만 덧붙인다.
         val raw = "\u0537\u07FB\u0001가"
         val layer = PageText(raw, FloatArray(raw.length * 4) { Float.NaN }).withText("\u200B\u200B 가")
@@ -363,7 +363,7 @@ class PageTextTest {
     }
 
     @Test
-    fun `a text box set further in than the body is read in sentences, not line by line`() {
+    fun `a text box set further in than the body is read in sentences - not line by line`() {
         // 잡지 쪽(좋은생각 "좋은님 시 마당"): 위에 시, 아래에 본문보다 안쪽에 놓인 심사평 상자. 쪽 전체의 왼쪽 끝과 견주면
         // 상자의 줄이 모두 들여 쓴 줄이라 "시 안에는 세 개" 에서 끊겨 읽혔다.
         val lines = listOf(
@@ -394,7 +394,7 @@ class PageTextTest {
     }
 
     @Test
-    fun `a line break between words of a justified book stays a space, a particle on the next line joins`() {
+    fun `a line break between words of a justified book stays a space - a particle on the next line joins`() {
         // 글자 단위로 줄을 바꾼 책도 어절 사이에서 끊기는 일이 많다(실제 소설 PDF: "그러는↵건데", "영주가↵커피").
         val p = page(
             listOf(
@@ -459,7 +459,7 @@ class PageTextTest {
     }
 
     @Test
-    fun `a page whose engine gave no positions still reads and finds, but cannot be touched`() {
+    fun `a page whose engine gave no positions still reads and finds - but cannot be touched`() {
         val p = PageText.textOnly("첫 문장이다. 둘째 문장이다.")
         assertTrue(p.lines.isEmpty())
         assertNull(p.charAt(0.5f, 0.5f))
@@ -479,38 +479,6 @@ class PageTextTest {
 }
 
 class LayerAssemblyTest {
-
-    /**
-     * 안드로이드 PDF 엔진(pdfClient)을 그대로 흉내 낸다: 번호 [first]..[last] 만 글이 있고(앞뒤 공백 · 하이픈은 잘림),
-     * 번호 2 는 "-\r\n" 으로 늘어나며, 고르기는 [시작, 끝) 이다.
-     */
-    private class FakeClient(val codes: IntArray) {
-        val first = codes.indexOfFirst { it !in listOf(0x20, 0x2D, 2, 13, 10) }
-        val last = codes.indexOfLast { it !in listOf(0x20, 0x2D, 2, 13, 10) }
-        fun textOf(i: Int) = if (codes[i] == 2) "-\r\n" else codes[i].toChar().toString()
-        /** 쪽 전체 글(textContents): 잘리고 늘어난 것. */
-        val whole = (first..last).joinToString("") { textOf(it) }
-        fun select(from: Int, to: Int): Pair<String, FloatArray?> {
-            val a = from.coerceIn(first, last + 1)
-            val b = to.coerceIn(first, last + 1)
-            val s = (a until b).joinToString("") { textOf(it) }
-            // 글자 i 의 네모: x = i × 0.01 — 어느 번호의 네모인지 알아볼 수 있게.
-            return s to (a until b).firstOrNull { codes[it] != 0x20 }?.let { floatArrayOf(it * 0.01f, 0.1f, it * 0.01f + 0.01f, 0.12f) }
-        }
-    }
-
-    @Test
-    fun `every letter keeps its own box when the engine trims and expands the page text`() {
-        // 앞머리 공백 둘(잘림) · 가운데 번호 2 둘(세 글자로 늘어남). 쪽 전체 글의 번호로 고르면 뒤 글자의 네모가 밀렸다.
-        val codes = intArrayOf(0x20, 0x20, '가'.code, '나'.code, 2, '다'.code, 2, '라'.code, '마'.code)
-        val engine = FakeClient(codes)
-        val layer = assembleLayer(engine.whole.length + 64) { a, b -> engine.select(a, b) }
-        assertEquals("가나\u0002다\u0002라마", layer.text)
-        // "마" 는 번호 8 의 네모(x = 0.08)를 가진다 — 밀렸다면 다른 글자의 네모다.
-        val ma = layer.text.indexOf('마')
-        assertEquals(0.08f, layer.box(ma)!!.left, 1e-4f)
-        assertEquals(0.02f, layer.box(0)!!.left, 1e-4f)
-    }
 
     @Test
     fun `the broken word mark becomes a hyphen outside broken words and a letter inside them`() {

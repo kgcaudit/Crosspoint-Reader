@@ -6,8 +6,8 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.PointF
 import android.os.ParcelFileDescriptor
-import io.github.kgcaudit.reader.pdf.PageRegion
-import io.github.kgcaudit.reader.pdf.PageText
+import io.github.kgcaudit.reader.layout.pdf.PageRegion
+import io.github.kgcaudit.reader.layout.pdf.PageText
 import io.github.kgcaudit.reader.pdf.PdfSource
 
 /**

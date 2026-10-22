@@ -1,4 +1,4 @@
-package io.github.kgcaudit.reader.pdf
+package io.github.kgcaudit.reader.layout.pdf
 
 import kotlin.math.ceil
 import kotlin.math.max

@@ -87,7 +87,7 @@ import io.github.kgcaudit.reader.document.comic.SpreadSplit
 import io.github.kgcaudit.reader.document.comic.Webtoon
 import io.github.kgcaudit.reader.document.comic.Work
 import io.github.kgcaudit.reader.document.comic.WorkEntry
-import io.github.kgcaudit.reader.pdf.PageViewport
+import io.github.kgcaudit.reader.layout.pdf.PageViewport
 import io.github.kgcaudit.reader.ui.design.CpBrightnessRow
 import io.github.kgcaudit.reader.ui.design.ComicColor
 import io.github.kgcaudit.reader.ui.design.colorFilter

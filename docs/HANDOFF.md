@@ -291,6 +291,16 @@ ReadingSession(layout, data.bookmarks, data.progress)
   찍은 본보기 화면 12장 — 사용자 책 표지는 넣지 않는다). 값은 코드(`CpTheme.kt` 등)에서 옮겼고, 코드가 원본이다.
   디자인 판을 그린 시험 코드는 구상안 규칙대로 저장소에 넣지 않았다.
 
+**PDF 글자 층을 공통 코어로** (2026-10-22, iOS 세션 요청 · 앱 동작 바뀜 없음)
+
+- `reader-pdf` 의 `PageText` · `BrokenHangul` · `KsHangul` · `AdobeKr` · `PageViewport` · `layerHits` · `BROKEN_WORD_MARK` 를
+  `:core-layout` commonMain 의 `io.github.kgcaudit.reader.layout.pdf` 로. PDF 형광펜 자리(`Reflow(page, charOffset)`)가 이 코드가 다듬은
+  층 글자의 번호라, 두 앱이 같은 코드여야 PDF 형광펜이 백업으로 오간다.
+- 공통으로 고친 것: `java.util.Base64` → `kotlin.io.encoding.Base64`, `String(CharArray)` → `concatToString`, `setCharAt` → `[]=`,
+  `"%04X".format` → `toString(16)`. 공통 시험은 EUC-KR 을 못 쓰니 앱의 KS 표로 가리고, 표와 EUC-KR 대조는 `jvmTest` 의 `KsHangulTableTest`.
+- 안드로이드에 남긴 것: `assembleLayer`(PdfRenderer 의 글 조각 엮기) · `screenLabel`(화면 문구). 그 시험은 `reader-pdf` 의
+  `LayerAssemblyTest` · `ScreenLabelTest` 로 떼었다. `AboutTest` 는 Adobe 고지문 원본 경로를 새 자리로.
+
 **0.55.0 — 태블릿 보기 카드 · 메뉴와 본문의 경계 · 판이 열리고 닫히는 움직임** (2026-10-22, 사용자 지적 · 조사 · 구상안 확정 1-B · 2 · 3. 구상안 `panel/board-1-tablet` · `board-2-phone` · `motion-tablet.gif`)
 
 - 지적: 태블릿 보기 판은 양옆이 비어 보이고, 판과 본문의 경계가 흐리며, 모든 판이 움직임 없이 "툭" 떠 무엇이 열렸는지 눈이 따라가지 못했다.

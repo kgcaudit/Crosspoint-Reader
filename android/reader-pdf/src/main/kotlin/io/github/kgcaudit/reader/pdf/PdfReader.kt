@@ -1,5 +1,8 @@
 package io.github.kgcaudit.reader.pdf
 
+import io.github.kgcaudit.reader.layout.pdf.PageText
+import io.github.kgcaudit.reader.layout.pdf.BrokenHangul
+import io.github.kgcaudit.reader.layout.pdf.PageRegion
 import android.graphics.Bitmap
 import android.util.LruCache
 import io.github.kgcaudit.reader.document.Annotation

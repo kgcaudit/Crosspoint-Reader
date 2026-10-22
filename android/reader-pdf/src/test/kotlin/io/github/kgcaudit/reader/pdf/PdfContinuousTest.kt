@@ -1,5 +1,7 @@
 package io.github.kgcaudit.reader.pdf
 
+import io.github.kgcaudit.reader.layout.pdf.PageText
+import io.github.kgcaudit.reader.layout.pdf.PageRegion
 import android.graphics.Bitmap
 import android.graphics.Color
 import androidx.compose.runtime.getValue

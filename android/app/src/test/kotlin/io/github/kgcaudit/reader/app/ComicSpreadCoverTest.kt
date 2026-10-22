@@ -261,7 +261,7 @@ class ComicSpreadCoverTest {
     private inner class SpreadPdf : io.github.kgcaudit.reader.pdf.PdfSource {
         override val pageCount: Int get() = 2
         override fun pageSize(index: Int) = if (index == 0) 1200 to 900 else 600 to 900
-        override fun render(index: Int, target: Bitmap, region: io.github.kgcaudit.reader.pdf.PageRegion) {
+        override fun render(index: Int, target: Bitmap, region: io.github.kgcaudit.reader.layout.pdf.PageRegion) {
             val canvas = Canvas(target)
             canvas.drawColor(if (index == 0) green else red)
             if (index == 0) canvas.drawRect(0f, 0f, target.width / 2f, target.height.toFloat(), android.graphics.Paint().apply { color = blue })

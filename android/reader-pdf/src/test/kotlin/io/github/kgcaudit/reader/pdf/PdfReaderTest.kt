@@ -1,5 +1,9 @@
 package io.github.kgcaudit.reader.pdf
 
+import io.github.kgcaudit.reader.layout.pdf.PageText
+import io.github.kgcaudit.reader.layout.pdf.PageViewport
+import io.github.kgcaudit.reader.layout.pdf.PageRegion
+import io.github.kgcaudit.reader.layout.pdf.layerHits
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.os.ParcelFileDescriptor
