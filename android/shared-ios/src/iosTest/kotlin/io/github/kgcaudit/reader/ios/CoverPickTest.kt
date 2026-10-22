@@ -2,6 +2,7 @@ package io.github.kgcaudit.reader.ios
 
 import io.github.kgcaudit.reader.document.comic.SpreadSplit.Half
 import io.github.kgcaudit.reader.document.image.ImageSize
+import io.github.kgcaudit.reader.document.comic.WebtoonPiece
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
@@ -86,5 +87,72 @@ class CoverPickTest {
         assertEquals("‘바다 마을’ 표지를 바꿨습니다", IosCovers.changed("바다 마을"))
         assertEquals("표지를 바꿨습니다", IosCovers.changed(null))
         assertEquals("‘바다 마을’ 표지를 되돌렸습니다", IosCovers.reverted("바다 마을"))
+    }
+
+    // ── 웹툰 틀(구상안 44 ⑤) ──
+
+    private val viewW = 393.0
+    private val viewH = 852.0
+    private val column = 393.0
+
+    @Test
+    fun `the first frame is cover shaped and sits a little above the middle`() {
+        val f = IosCovers.startFrame(viewW, viewH, column)
+        assertEquals(IosCovers.ASPECT, f.height / f.width, 1e-9)
+        assertTrue(f.width <= column * 0.8 + 1e-9)
+        assertEquals(viewW / 2, f.x + f.width / 2, 1e-6)
+        // 가운데가 화면 높이의 45% — 아래 단추에 가리지 않는다.
+        assertEquals(viewH * 0.45, f.y + f.height / 2, 1e-6)
+    }
+
+    @Test
+    fun `a frame dragged off screen comes back inside`() {
+        val f = IosCovers.clampFrame(IosCovers.FrameBox(-80.0, 2000.0, 200.0), viewW, viewH, column)
+        assertEquals(0.0, f.x)
+        assertEquals(viewH - f.height, f.y, 1e-9)
+    }
+
+    @Test
+    fun `pinching keeps the frame between a quarter of the column and the screen height`() {
+        val f = IosCovers.startFrame(viewW, viewH, column)
+        val small = IosCovers.resizeFrame(f, 0.01, viewW, viewH, column)
+        assertEquals(column * 0.25, small.width, 1e-9)
+        val big = IosCovers.resizeFrame(f, 100.0, viewW, viewH, column)
+        assertTrue(big.height <= viewH + 1e-9)
+        assertTrue(big.width <= column + 1e-9)
+        // 크기만 바뀌고 자리는 지킨다(화면 끝에 닿지 않는 동안).
+        val mid = IosCovers.resizeFrame(f, 0.8, viewW, viewH, column)
+        assertEquals(f.x + f.width / 2, mid.x + mid.width / 2, 1e-6)
+        assertEquals(f.y + f.height / 2, mid.y + mid.height / 2, 1e-6)
+    }
+
+    @Test
+    fun `a frame over two pictures stitches both without a gap`() {
+        // 폭 400 기둥에 높이 500 인 그림 둘. 틀이 400 ~ 600 이면 앞 그림 끝 100 과 뒤 그림 앞 100.
+        val chain = IosWebtoon.chain(listOf(listOf(ImageSize(800, 1000), ImageSize(800, 1000))), 400f)
+        val pieces = chain.pieces(0, 400f, 600f)
+        assertEquals(listOf(0, 1), pieces.map { it.index })
+        val out = IosCovers.TOON_OUT_WIDTH
+        val draws = pieces.map { IosCovers.pieceDraw(it, 0.0, 1.0, 200.0, 800, 1000, out, IosCovers.HEIGHT)!! }
+        assertEquals(0.0, draws[0].dstY, 1e-6)
+        assertEquals(draws[0].dstY + draws[0].dstHeight, draws[1].dstY, 1e-6)
+        assertEquals(IosCovers.HEIGHT.toDouble(), draws[1].dstY + draws[1].dstHeight, 1e-6)
+        // 앞 그림은 아래 1/5(800 ~ 1000 행), 뒤 그림은 위 1/5.
+        assertEquals(800, draws[0].srcY)
+        assertEquals(0, draws[1].srcY)
+        assertEquals(200, draws[1].srcHeight)
+    }
+
+    @Test
+    fun `the part of a frame outside the column stays backdrop instead of stretching the picture`() {
+        val piece = WebtoonPiece(0, 0f, 1f, 0f, 100f)
+        // 틀이 기둥 왼쪽 밖 -0.5 ~ 0.5: 그림 왼쪽 반이 표지 오른쪽 반에.
+        val d = IosCovers.pieceDraw(piece, -0.5, 0.5, 100.0, 800, 1000, 300, 480)!!
+        assertEquals(150.0, d.dstX, 1e-9)
+        assertEquals(150.0, d.dstWidth, 1e-9)
+        assertEquals(0, d.srcX)
+        assertEquals(400, d.srcWidth)
+        // 기둥 밖에만 걸친 틀은 놓을 것이 없다.
+        assertNull(IosCovers.pieceDraw(piece, 1.2, 1.6, 100.0, 800, 1000, 300, 480))
     }
 }

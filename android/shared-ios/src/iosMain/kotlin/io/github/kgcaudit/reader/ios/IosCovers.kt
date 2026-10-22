@@ -1,6 +1,8 @@
 package io.github.kgcaudit.reader.ios
 
+import io.github.kgcaudit.reader.document.comic.CoverCrop
 import io.github.kgcaudit.reader.document.comic.SpreadSplit
+import io.github.kgcaudit.reader.document.comic.WebtoonPiece
 import io.github.kgcaudit.reader.document.image.ImageSize
 
 /**
@@ -101,5 +103,86 @@ object IosCovers {
         shown != SpreadSplit.Half.WHOLE -> shown
         wide -> chosen
         else -> SpreadSplit.Half.WHOLE
+    }
+
+    // ── 보던 장면에서(웹툰 틀, 구상안 44 ⑤) ─────────────────────────────────
+
+    const val TOON_TITLE: String = "표지로 쓸 부분"
+    const val TOON_HINT: String = "틀을 끌어 옮기고, 두 손가락으로 크기를 바꿉니다"
+    const val TOON_BUTTON: String = "이 부분을 표지로"
+    const val TOON_FAILED: String = "이 부분을 표지로 쓸 수 없습니다"
+
+    /** 틀 모양 = 표지 칸 모양(세로 ÷ 가로). 다른 모양으로 고르면 서재 칸에서 위아래나 양옆이 빈다. */
+    const val ASPECT: Double = CoverCrop.ASPECT.toDouble()
+
+    /** 틀로 고른 표지의 크기: 높이 [HEIGHT], 폭은 모양대로. */
+    val TOON_OUT_WIDTH: Int = (HEIGHT / ASPECT).toInt()
+
+    /** 화면 위 틀(왼쪽 위 · 폭, 높이는 [ASPECT] 로 정해진다). */
+    data class FrameBox(val x: Double, val y: Double, val width: Double) {
+        val height: Double get() = width * ASPECT
+    }
+
+    /** 가장 큰 틀: 그림 기둥 폭, 그리고 틀 전체가 화면 높이 안에 드는 폭. */
+    private fun maxWidth(viewHeight: Double, columnWidth: Double) = minOf(columnWidth, viewHeight / ASPECT)
+
+    /**
+     * 처음 틀(안드로이드 `ComicWebtoon`): 기둥 폭의 80%, 단 화면 높이의 70% 를 넘지 않게. 가로 가운데, 틀 가운데는 화면 높이의 45% —
+     * 아래 단추에 가리지 않게 조금 위.
+     */
+    fun startFrame(viewWidth: Double, viewHeight: Double, columnWidth: Double): FrameBox {
+        val w = minOf(columnWidth * 0.8, viewHeight * 0.7 / ASPECT)
+        return clampFrame(FrameBox((viewWidth - w) / 2, viewHeight * 0.45 - w * ASPECT / 2, w), viewWidth, viewHeight, columnWidth)
+    }
+
+    /**
+     * 틀을 화면 안으로: 폭은 기둥의 25% ~ [maxWidth], 자리는 화면 안. 기둥 밖(옆 바탕)으로는 나가도 된다 — 그 부분은 바탕색으로
+     * 남는다(늘이지 않는다). 화면이 돌거나 그림 폭을 바꾼 뒤에도 이것으로 되돌려 놓는다.
+     */
+    fun clampFrame(f: FrameBox, viewWidth: Double, viewHeight: Double, columnWidth: Double): FrameBox {
+        val most = maxWidth(viewHeight, columnWidth)
+        val w = f.width.coerceIn(minOf(columnWidth * 0.25, most), most)
+        val h = w * ASPECT
+        return FrameBox(f.x.coerceIn(0.0, maxOf(viewWidth - w, 0.0)), f.y.coerceIn(0.0, maxOf(viewHeight - h, 0.0)), w)
+    }
+
+    /** 두 손가락으로 [scale] 배 — 가운데를 지킨다(손가락 사이가 아니라 틀이 커진다). */
+    fun resizeFrame(base: FrameBox, scale: Double, viewWidth: Double, viewHeight: Double, columnWidth: Double): FrameBox {
+        val most = maxWidth(viewHeight, columnWidth)
+        val w = (base.width * scale).coerceIn(minOf(columnWidth * 0.25, most), most)
+        val cx = base.x + base.width / 2
+        val cy = base.y + base.height / 2
+        return clampFrame(FrameBox(cx - w / 2, cy - w * ASPECT / 2, w), viewWidth, viewHeight, columnWidth)
+    }
+
+    /** 그림 한 장의 어느 픽셀을 표지의 어느 픽셀로 옮기나. */
+    data class PieceDraw(
+        val srcX: Int, val srcY: Int, val srcWidth: Int, val srcHeight: Int,
+        val dstX: Double, val dstY: Double, val dstWidth: Double, val dstHeight: Double,
+    )
+
+    /**
+     * 틀에 걸친 조각([piece], 공통 `WebtoonChain.pieces`) 하나를 표지([outWidth] × [outHeight])에 놓을 자리. 틀은 기둥 폭의
+     * [columnFrom] ~ [columnTo](0 = 기둥 왼쪽, 1 = 오른쪽 — 밖으로 나가면 0 미만 · 1 초과), 높이 [frameHeight](기둥 픽셀).
+     * 기둥 밖으로 나간 부분은 그리지 않는다 — 그림을 늘여 채우면 틀과 다른 표지가 된다. 놓을 것이 없으면 null.
+     */
+    fun pieceDraw(
+        piece: WebtoonPiece, columnFrom: Double, columnTo: Double, frameHeight: Double,
+        imageWidth: Int, imageHeight: Int, outWidth: Int, outHeight: Int,
+    ): PieceDraw? {
+        val span = columnTo - columnFrom
+        if (span <= 0 || frameHeight <= 0 || imageWidth <= 0 || imageHeight <= 0) return null
+        val a = maxOf(columnFrom, 0.0)
+        val b = minOf(columnTo, 1.0)
+        if (b <= a) return null
+        val srcX = (a * imageWidth).toInt()
+        val srcY = (piece.from * imageHeight).toInt()
+        val srcW = maxOf(1, (b * imageWidth).toInt() - srcX)
+        val srcH = maxOf(1, (piece.to * imageHeight).toInt() - srcY)
+        val dstX = (a - columnFrom) / span * outWidth
+        val dstW = (b - a) / span * outWidth
+        val dstY = piece.top / frameHeight * outHeight
+        val dstH = (piece.bottom - piece.top) / frameHeight * outHeight
+        return PieceDraw(srcX, srcY, srcW, srcH, dstX, dstY, dstW, dstH)
     }
 }

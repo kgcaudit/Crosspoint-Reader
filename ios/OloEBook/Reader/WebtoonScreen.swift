@@ -252,6 +252,21 @@ final class WebtoonModel: ObservableObject {
         for e in episodes { e.book.close() }
     }
 
+    // MARK: 표지 고르기(구상안 44 ⑤)
+
+    /// 화면 위 틀([frame], 화면 좌표) 아래의 그림 조각들. 틀 위가 걸친 화 안에서만 — 경계 띠 · 다음 화는 버린다(공통 `pieces`).
+    func coverJob(frame: CGRect) -> WebtoonCoverJob? {
+        guard let chain, columnWidth > 0 else { return nil }
+        let top = Float(self.top + frame.minY), bottom = Float(self.top + frame.maxY)
+        let k = Int(chain.episodeAt(y: top))
+        guard episodes.indices.contains(k) else { return nil }
+        let pieces = chain.pieces(k: Int32(k), top: top, bottom: bottom)
+        guard !pieces.isEmpty else { return nil }
+        let left = (viewSize.width - columnWidth) / 2
+        return WebtoonCoverJob(episode: episodes[k], pieces: pieces, columnFrom: Double((frame.minX - left) / columnWidth),
+                               columnTo: Double((frame.maxX - left) / columnWidth), frameHeight: Double(frame.height))
+    }
+
     // MARK: 그림
 
     private var sources: [String: CGImageSource] = [:]
@@ -304,9 +319,14 @@ struct WebtoonScreen: View {
     /// 보는 방식을 바꿨다(자동 · 쪽 넘김 · 웹툰 — nil 은 자동).
     let onView: (String?) -> Void
     let openBook: (WorkEntry) -> Void
+    /// 보던 장면에서 표지를 고르는 중이면 고른 그림을 저장하는 일(구상안 44 ⑤). 못 쓰면 false.
+    var pickCover: ((UIImage) -> Bool)?
     let close: () -> Void
     /// 그림 폭을 끄는 동안(놓기 전) 미리 보이는 값.
     @State private var previewPercent: Int?
+    /// 표지 틀(화면 좌표). 기둥 폭을 안 뒤에 놓는다.
+    @State private var coverFrame: IosCovers.FrameBox?
+    @State private var pinchBase: IosCovers.FrameBox?
 
     var body: some View {
         Group {
@@ -315,15 +335,28 @@ struct WebtoonScreen: View {
             ZStack {
                 comicPaper.paperColor
                 WebtoonCanvas(model: model, color: prefs.comicColor, rightToLeft: false, zones: prefs.touchZones,
-                              auto: model.autoOn && !model.autoPaused && model.panel == .none,
+                              auto: model.autoOn && !model.autoPaused && model.panel == .none && pickCover == nil,
                               secondsPerScreen: CGFloat(truncating: IosWebtoon.shared.secondsPerScreen[Int(IosWebtoon.shared.speed(saved: Int32(prefs.webtoonSpeed)))]),
                               onMenu: {
                                   withAnimation(.easeOut(duration: 0.18)) {
                                       if model.autoOn && model.panel == .none { model.autoPaused.toggle() } else { model.panel = model.panel == .none ? .bar : .none }
                                   }
                               },
-                              onAutoEnd: { model.autoOn = false })
-                if model.bookmarked {
+                              onAutoEnd: { model.autoOn = false },
+                              onPinch: pickCover == nil ? nil : { scale, ended in
+                                  // 두 손가락은 그림을 키우지 않고 틀을 키운다 — 고르는 동안 확대는 꺼 둔다.
+                                  guard let base = pinchBase ?? coverFrame else { return }
+                                  pinchBase = ended ? nil : base
+                                  coverFrame = IosCovers.shared.resizeFrame(base: base, scale: Double(scale), viewWidth: Double(full.width),
+                                                                            viewHeight: Double(full.height), columnWidth: Double(model.columnWidth))
+                              })
+                if let save = pickCover {
+                    if let box = coverFrame {
+                        WebtoonCoverFrame(model: model, box: Binding(get: { box }, set: { coverFrame = $0 }), full: full, insets: insets,
+                                          back: close, save: save)
+                            .environment(\.colorScheme, .dark)
+                    }
+                } else if model.bookmarked {
                     CpRibbon().padding(.top, insets.top).padding(.trailing, 20 + insets.trailing)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                         .allowsHitTesting(false)
@@ -334,8 +367,10 @@ struct WebtoonScreen: View {
                         .frame(maxHeight: .infinity, alignment: .bottom)
                         .padding(.bottom, 44 + insets.bottom)
                 }
-                panels(insets: insets, wide: full.width >= 600, percent: percent, wideClass: wide)
-                    .environment(\.colorScheme, .dark)
+                if pickCover == nil {
+                    panels(insets: insets, wide: full.width >= 600, percent: percent, wideClass: wide)
+                        .environment(\.colorScheme, .dark)
+                }
                 if let toast = model.toast {
                     CpToast(message: toast).frame(maxHeight: .infinity, alignment: .bottom).padding(.bottom, 60 + insets.bottom)
                         .allowsHitTesting(false)
@@ -344,7 +379,7 @@ struct WebtoonScreen: View {
                             if !Task.isCancelled { model.toast = nil }
                         }
                 }
-                if model.ended {
+                if model.ended && pickCover == nil {
                     ComicEndCard(label: model.currentEpisode?.label ?? "", workTitle: model.work?.title ?? "", next: model.nextEntry,
                                  webtoon: true, library: library, onNext: { openBook($0) }, toLibrary: close,
                                  dismiss: { model.ended = false })
@@ -352,7 +387,13 @@ struct WebtoonScreen: View {
                 }
             }
             .frame(width: full.width, height: full.height)
-            .onAppear { model.layOut(view: full, percent: percent) }
+            .onAppear {
+                model.layOut(view: full, percent: percent)
+                if pickCover != nil, coverFrame == nil, model.columnWidth > 0 {
+                    coverFrame = IosCovers.shared.startFrame(viewWidth: Double(full.width), viewHeight: Double(full.height),
+                                                             columnWidth: Double(model.columnWidth))
+                }
+            }
             #if DEBUG
             // 화면 확인용: -olo-toon-seek <0..1> 은 지금 화의 그 자리로, -olo-toon-panel bar|view|episodes|bookmarks 는 판을,
             // -olo-toon-auto 는 자동 스크롤을 연다. 출시 빌드에는 없다.
@@ -367,6 +408,13 @@ struct WebtoonScreen: View {
             }
             #endif
             .onChange(of: full) { _, v in model.layOut(view: v, percent: percent) }
+            // 기둥 폭을 알면 틀을 놓고, 화면이 돌거나 폭이 바뀌면 틀을 화면 안으로 되돌린다.
+            .onChange(of: model.layoutToken) { _, _ in
+                guard pickCover != nil, model.columnWidth > 0 else { return }
+                let (w, h, c) = (Double(full.width), Double(full.height), Double(model.columnWidth))
+                coverFrame = coverFrame.map { IosCovers.shared.clampFrame(f: $0, viewWidth: w, viewHeight: h, columnWidth: c) }
+                    ?? IosCovers.shared.startFrame(viewWidth: w, viewHeight: h, columnWidth: c)
+            }
             .onChange(of: percent) { _, p in model.layOut(view: full, percent: p) }
             // 자동 스크롤 중에는 화면을 켜 둔다 — 꺼지면 스크롤도 멈춘 채 다음 칸을 못 본다(안드로이드 `ReadingWindow`).
             .onChange(of: model.autoOn) { _, on in UIApplication.shared.isIdleTimerDisabled = on }
@@ -656,6 +704,8 @@ private struct WebtoonCanvas: UIViewRepresentable {
     let secondsPerScreen: CGFloat
     let onMenu: () -> Void
     let onAutoEnd: () -> Void
+    /// 표지 틀을 고르는 중이면 두 손가락 배율(손을 떼면 ended). nil 이면 보통 읽기 — 두 손가락은 확대.
+    var onPinch: ((CGFloat, Bool) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(model: model) }
 
@@ -670,6 +720,10 @@ private struct WebtoonCanvas: UIViewRepresentable {
         scroll.addSubview(context.coordinator.content)
         let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped(_:)))
         scroll.addGestureRecognizer(tap)
+        let pinch = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.pinched(_:)))
+        pinch.isEnabled = false
+        scroll.addGestureRecognizer(pinch)
+        context.coordinator.pinch = pinch
         context.coordinator.scroll = scroll
         return scroll
     }
@@ -681,6 +735,10 @@ private struct WebtoonCanvas: UIViewRepresentable {
         c.zones = zones
         c.onMenu = onMenu
         c.onAutoEnd = onAutoEnd
+        c.onPinch = onPinch
+        c.pinch?.isEnabled = onPinch != nil
+        scroll.maximumZoomScale = onPinch == nil ? 4 : 1
+        if onPinch != nil && scroll.zoomScale != 1 { scroll.zoomScale = 1 }
         c.relayout(token: model.layoutToken)
         if c.appliedScroll != model.scrollTo.token {
             c.appliedScroll = model.scrollTo.token
@@ -699,6 +757,8 @@ private struct WebtoonCanvas: UIViewRepresentable {
         var zones = 0
         var onMenu: () -> Void = {}
         var onAutoEnd: () -> Void = {}
+        var onPinch: ((CGFloat, Bool) -> Void)?
+        weak var pinch: UIPinchGestureRecognizer?
         var appliedScroll = -1
         private var appliedLayout = -1
         private var views: [Int: UIView] = [:]
@@ -731,7 +791,9 @@ private struct WebtoonCanvas: UIViewRepresentable {
             guard let scroll, model.viewSize.height > 0 else { return }
             let zoom = scroll.zoomScale
             let top = scroll.contentOffset.y / zoom
-            let h = scroll.bounds.height / zoom
+            // 처음 그릴 때는 스크롤 뷰가 아직 자리를 받지 않아 높이가 0 이다 — 그 높이로 고르면 보일 칸이 하나도 없고, 누르거나
+            // 밀기 전까지 다시 고르지 않아 화면이 빈 채로 남았다. 그때는 화면 크기(모델이 아는 값)로 고른다.
+            let h = (scroll.bounds.height > 0 ? scroll.bounds.height : model.viewSize.height) / zoom
             let want = Set(IosWebtoon.shared.visible(cells: model.cells, top: Float(top - h), bottom: Float(top + h * 2)).map { Int(truncating: $0) })
             for (i, v) in views where !want.contains(i) {
                 v.removeFromSuperview()
@@ -821,8 +883,14 @@ private struct WebtoonCanvas: UIViewRepresentable {
 
         func scrollViewDidZoom(_ scrollView: UIScrollView) { refresh() }
 
+        @objc func pinched(_ g: UIPinchGestureRecognizer) {
+            guard g.state != .possible else { return }
+            onPinch?(g.scale, g.state == .ended || g.state == .cancelled || g.state == .failed)
+        }
+
         @objc func tapped(_ g: UITapGestureRecognizer) {
-            guard let scroll else { return }
+            // 표지 틀을 고르는 동안 누름은 아무 일도 하지 않는다 — 넘김 · 메뉴가 틀 고르기를 흐트러뜨린다.
+            guard let scroll, onPinch == nil else { return }
             let p = g.location(in: scroll.superview)
             let step = Int(TouchZones.companion.of(index: Int32(zones)).step(x: Double(p.x / max(scroll.bounds.width, 1)), rightToLeft: false))
             if step == 0 { onMenu() } else if model.panel == .none { model.step(step) } else { onMenu() }

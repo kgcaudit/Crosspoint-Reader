@@ -1229,12 +1229,7 @@ struct ReaderView: View {
                 }
                 if let key = picking, let comic = model.engine as? ComicEngine, let frame = model.frame {
                     CoverPickLayer(engine: comic, frameKey: "\(frame.page)|\(frame.halfLabel)", rightToLeft: rtl, insets: insets,
-                                   back: close) { image in
-                        guard CoverStore.shared.set(IosCovers.shared.workId(workKey: key), image: image) else { return false }
-                        library.notice = IosCovers.shared.changed(label: library.workTitle(key))
-                        close()
-                        return true
-                    }
+                                   back: close) { saveCover($0, key) }
                 }
                 // 만화 권 끝(구상안 36): 다음 권 · 서재로.
                 if model.comicEnd && picking == nil {
@@ -1254,6 +1249,7 @@ struct ReaderView: View {
                                       guard let next = library.comicBook(entry.unit) else { return }
                                       Task { await model.close(); openBook?(next) }
                                   },
+                                  pickCover: pickCover.map { key in { saveCover($0, key) } },
                                   close: close)
                 } else if model.frame == nil {
                     if model.failure != nil {
@@ -1421,8 +1417,16 @@ struct ReaderView: View {
     /// 오→왼으로 읽는 만화인가(작품마다: 사람이 고른 값 → ComicInfo → 왼→오).
     private var rtl: Bool { model.isComic && model.comicWork?.rightToLeft?.boolValue == true }
 
-    /// 표지 고르기는 쪽 넘김 만화에서만(웹툰의 틀은 다음 판 — 44 · 3A).
+    /// 쪽 넘김의 표지 고르기. 웹툰은 `WebtoonScreen` 이 틀로 고른다(구상안 44 ⑤).
     private var picking: String? { model.isComic && model.webtoon == nil ? pickCover : nil }
+
+    /// 고른 표지를 작품에 쓰고 서재로 돌아가 알린다. 못 쓰면 false — 고르기 화면이 그대로 남아 "쓸 수 없습니다" 를 띄운다.
+    private func saveCover(_ image: UIImage, _ key: String) -> Bool {
+        guard CoverStore.shared.set(IosCovers.shared.workId(workKey: key), image: image) else { return false }
+        library.notice = IosCovers.shared.changed(label: library.workTitle(key))
+        close()
+        return true
+    }
 
     private func comicSpec(_ full: CGSize, _ insets: EdgeInsets) -> ComicViewSpec? {
         guard model.isComic else { return nil }

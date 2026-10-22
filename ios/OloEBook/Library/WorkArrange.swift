@@ -184,7 +184,7 @@ private struct RenamePopup: View {
 }
 
 /// 만화 탭에서 작품을 길게 눌렀다(구상안 40 ③ · 44 ③, 안드로이드 `WorkMenu`): 작품 화면 · 갈래 옮기기 · 표지 고르기 셋.
-/// 웹툰은 '보던 장면에서' 줄을 아직 두지 않는다 — 웹툰의 틀 고르기는 다음 판(44 · 3A).
+/// '보던 장면에서' 는 쪽 넘김이면 쪽을, 웹툰이면 틀을 고른다(44 ④ · ⑤).
 struct WorkMenu: View {
     @ObservedObject var library: Library
     let workKey: String
@@ -220,9 +220,7 @@ struct WorkMenu: View {
                         move(work, ShelfMarkToRead(atEpochMs: now), "읽을 책으로 옮겼습니다")
                     }
                 }
-                if !work.webtoon {
-                    CpListRow(icon: .view, tile: CpColor.tileOther, title: IosCovers.shared.SCENE_ROW, action: scene)
-                }
+                CpListRow(icon: .view, tile: CpColor.tileOther, title: IosCovers.shared.SCENE_ROW, action: scene)
                 CoverPickRow(pick: pick)
                 let id = IosCovers.shared.workId(workKey: work.key)
                 CoverRevertRow(title: IosCovers.shared.WORK_REVERT_ROW, enabled: picked.has(id), revert: {
