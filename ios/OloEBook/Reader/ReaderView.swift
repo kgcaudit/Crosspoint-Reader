@@ -1668,6 +1668,7 @@ private struct NoteSheet: View {
             ZStack(alignment: .bottom) {
                 Color.black.opacity(0.32).contentShape(Rectangle()).onTapGesture(perform: close)
                     .accessibilityLabel("닫기").accessibilityAddTraits(.isButton)
+                    .cpFadeIn(CpMotion.sheetIn)
                 VStack(alignment: .leading, spacing: 0) {
                     Capsule().fill(CpColor.divider).frame(width: 36, height: 4).frame(maxWidth: .infinity)
                     Text(note.title).font(CpFont.label).foregroundStyle(CpColor.accentText).padding(.top, 14).padding(.bottom, 8)
@@ -1687,8 +1688,8 @@ private struct NoteSheet: View {
                 .padding(.horizontal, 24).padding(.top, 10).padding(.bottom, 24 + bottom)
                 .background(CpColor.surface)
                 .clipShape(UnevenRoundedRectangle(topLeadingRadius: CpMetrics.cornerSheet, topTrailingRadius: CpMetrics.cornerSheet))
+                .cpRiseIn() // 아래에서 올라온다(구상안 42)
             }
         }
-        .transition(.move(edge: .bottom))
     }
 }

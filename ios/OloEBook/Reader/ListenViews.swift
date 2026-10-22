@@ -63,6 +63,7 @@ struct ListenSheet: View {
         ZStack(alignment: .bottom) {
             Color.black.opacity(0.32).contentShape(Rectangle()).onTapGesture(perform: close)
                 .accessibilityLabel("닫기").accessibilityAddTraits(.isButton)
+                .cpFadeIn(CpMotion.sheetIn)
             VStack(alignment: .leading, spacing: 0) {
                 Capsule().fill(CpColor.divider).frame(width: 36, height: 4).frame(maxWidth: .infinity).padding(.top, 10)
                 Text("듣기").font(CpFont.title).foregroundStyle(CpColor.text).padding(.horizontal, CpMetrics.gutter).padding(.vertical, 12)
@@ -89,6 +90,7 @@ struct ListenSheet: View {
             .frame(maxWidth: 560)
             .background(CpColor.surface)
             .clipShape(UnevenRoundedRectangle(topLeadingRadius: CpMetrics.cornerSheet, topTrailingRadius: CpMetrics.cornerSheet))
+                .cpRiseIn() // 아래에서 올라온다(구상안 42)
         }
         .transition(.move(edge: .bottom))
     }

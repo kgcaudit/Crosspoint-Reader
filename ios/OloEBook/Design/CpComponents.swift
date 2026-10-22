@@ -189,12 +189,15 @@ struct CpPopup<Content: View>: View {
             Color.black.opacity(0.32).ignoresSafeArea().onTapGesture(perform: onDismiss)
                 .accessibilityLabel("닫기")
                 .accessibilityAddTraits(.isButton)
+                .cpFadeIn(CpMotion.popupIn)
+            // 가운데에서 0.95 → 1 로 커지며(구상안 42).
             VStack(alignment: .leading, spacing: 12) { content }
                 .padding(24)
                 .frame(maxWidth: 400, alignment: .leading)
                 .background(CpColor.dialog)
                 .clipShape(RoundedRectangle(cornerRadius: CpMetrics.cornerDialog))
                 .padding(.horizontal, 24)
+                .cpPopIn()
         }
     }
 }

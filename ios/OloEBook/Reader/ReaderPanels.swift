@@ -16,16 +16,17 @@ struct ReaderPanels: View {
 
     var body: some View {
         ZStack {
+            // 읽기 메뉴는 늘 두고 보이기만 바꾼다 — 열릴 때와 닫힐 때 모두 위 막대는 위로, 아래 막대는 아래로 움직이게(구상안 42).
+            // 판을 넣고 빼면 SwiftUI 가 막대 둘을 한 덩이로 옮겨 위 막대까지 아래로 밀렸다.
+            if let frame = model.frame {
+                ReaderBar(model: model, prefs: prefs, brightness: brightness, frame: frame, insets: insets, wide: wide,
+                          visible: model.panel == .bar || model.panel == .view,
+                          close: close, openNotes: { contentsTab = 1; model.panel = .contents },
+                          openContents: { contentsTab = 0; model.panel = .contents })
+            }
             switch model.panel {
-            case .none:
+            case .none, .bar, .view:
                 EmptyView()
-            case .bar, .view:
-                if let frame = model.frame {
-                    ReaderBar(model: model, prefs: prefs, brightness: brightness, frame: frame, insets: insets, wide: wide,
-                              close: close, openNotes: { contentsTab = 1; model.panel = .contents },
-                              openContents: { contentsTab = 0; model.panel = .contents })
-                        .transition(.opacity)
-                }
             case .settings:
                 SidePanel(wide: wide, insets: insets, dismiss: model.back) {
                     ViewSettingsScreen(prefs: prefs, isPdf: model.isPdf, isComic: model.isComic,
@@ -96,16 +97,20 @@ struct SidePanel<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
+        // 오른쪽에서 밀려 들어오고(넓은 화면 0.35초 · 휴대폰 0.3초), 뒤 막은 같은 길이로 서서히(구상안 42). 막과 판을 따로 옮긴다 —
+        // 한 덩이로 옮기면 막까지 옆으로 미끄러진다.
         if wide {
+            Color.black.opacity(0.27).contentShape(Rectangle()).onTapGesture(perform: dismiss)
+                .accessibilityLabel("닫기").accessibilityAddTraits(.isButton)
+                .transition(CpMotion.both(.opacity, in: CpMotion.sideIn, out: CpMotion.sideOut))
             HStack(spacing: 0) {
-                Color.black.opacity(0.27).contentShape(Rectangle()).onTapGesture(perform: dismiss)
-                    .accessibilityLabel("닫기").accessibilityAddTraits(.isButton)
+                Spacer(minLength: 0)
                 content
                     .padding(.top, insets.top).padding(.bottom, insets.bottom).padding(.trailing, insets.trailing)
                     .frame(width: 400 + insets.trailing)
                     .background(CpColor.background)
             }
-            .transition(.move(edge: .trailing))
+            .transition(CpMotion.both(.move(edge: .trailing), in: CpMotion.sideIn, out: CpMotion.sideOut))
         } else {
             content
                 .padding(.top, insets.top).padding(.bottom, insets.bottom)
@@ -113,7 +118,7 @@ struct SidePanel<Content: View>: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(CpColor.background)
                 .contentShape(Rectangle())
-                .transition(.move(edge: .trailing))
+                .transition(CpMotion.both(.move(edge: .trailing), in: CpMotion.screenIn, out: CpMotion.sideOut))
         }
     }
 }
@@ -126,18 +131,28 @@ private struct ReaderBar: View {
     let frame: PageFrame
     let insets: EdgeInsets
     let wide: Bool
+    /// 메뉴가 열려 있나. 닫혀도 판은 남아 막대만 화면 밖으로 움직인다.
+    let visible: Bool
     let close: () -> Void
     let openNotes: () -> Void
     let openContents: () -> Void
+
+    /// iPad: 보기 판을 보기 단추에 붙은 시스템 팝오버로(구상안 42 · A). 휴대폰은 가로여도 진행 막대 위로 펼친다.
+    private var pad: Bool { min(UIScreen.main.bounds.width, UIScreen.main.bounds.height) >= ReaderPrefs.wideScreen }
 
     var body: some View {
         GeometryReader { g in
             VStack(spacing: 0) {
                 top
+                    .cpEdge(atBottom: true)
+                    // 위에서 내려온다 — 제 높이만큼 위에서(구상안 42: 0.25초 들어옴 · 0.2초 나감).
+                    .visualEffect { [visible] c, p in c.offset(y: visible ? 0 : -p.size.height - 12) }
+                    .opacity(visible ? 1 : 0)
+                    .animation(visible ? CpMotion.enter(CpMotion.barIn) : CpMotion.exit(CpMotion.barOut), value: visible)
                 // 가운데는 비워 둔다 — 지면이 보여 설정을 바꾸는 대로 다시 짜이는 게 보인다. 누르면 판이 닫힌다.
                 Color.clear.contentShape(Rectangle()).onTapGesture { model.panel = .none }
                 VStack(spacing: 0) {
-                    if model.panel == .view {
+                    if model.panel == .view && !pad {
                         ScrollView {
                             ViewPanelRows(model: model, prefs: prefs, brightness: brightness)
                                 // 태블릿에서는 가운데 560 — 화면 폭을 다 쓰면 이름과 단추가 멀어진다(안드로이드 VIEW_PANEL_MAX_WIDTH).
@@ -147,6 +162,8 @@ private struct ReaderBar: View {
                         .scrollBounceBehavior(.basedOnSize)
                         .frame(maxHeight: g.size.height * 0.55)
                         .fixedSize(horizontal: false, vertical: true)
+                        // 진행 막대 위로 펼쳐진다(0.25초 · 0.2초).
+                        .transition(CpMotion.both(.move(edge: .bottom).combined(with: .opacity), in: CpMotion.barIn, out: CpMotion.barOut))
                     }
                     // 진행 줄 40 · 도구 46(안드로이드 0.45 낮은 메뉴 — 두 줄 머리와 큰 단추가 읽던 쪽을 너무 가렸다).
                     // PDF 는 쪽으로: 막대 자리는 쪽 차례, 끄는 동안 "4쪽"(안드로이드와 같다).
@@ -173,6 +190,18 @@ private struct ReaderBar: View {
                         CpToolButton(icon: .view, label: "보기", selected: model.panel == .view) {
                             model.panel = model.panel == .view ? .bar : .view
                         }
+                        // iPad: 보기 단추를 가리키는 시스템 팝오버(구상안 42 · A). 길이 · 곡선은 시스템이 정한다.
+                        .popover(isPresented: Binding(get: { pad && visible && model.panel == .view },
+                                                      set: { if !$0 && model.panel == .view { model.panel = .bar } }),
+                                 arrowEdge: .bottom) {
+                            ScrollView {
+                                ViewPanelRows(model: model, prefs: prefs, brightness: brightness).padding(.vertical, 8)
+                            }
+                            .frame(width: 420)
+                            .frame(maxHeight: 620)
+                            .presentationCompactAdaptation(.popover)
+                            .environment(\.colorScheme, model.darkPaper ? .dark : .light)
+                        }
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 8)
@@ -181,8 +210,15 @@ private struct ReaderBar: View {
                 .padding(.horizontal, max(insets.leading, insets.trailing))
                 .background(CpColor.surface)
                 .contentShape(Rectangle())
+                .cpEdge(atBottom: false)
+                // 아래에서 올라온다(위 막대와 같은 값).
+                .visualEffect { [visible] c, p in c.offset(y: visible ? 0 : p.size.height + 12) }
+                .opacity(visible ? 1 : 0)
+                .animation(visible ? CpMotion.enter(CpMotion.barIn) : CpMotion.exit(CpMotion.barOut), value: visible)
             }
         }
+        .allowsHitTesting(visible)
+        .accessibilityHidden(!visible)
     }
 
     /// 위 막대 부제: 책 "3 / 12장", PDF "4 / 6쪽", 만화 "45 / 180쪽 · 오→왼"(두 쪽이면 "2–3").

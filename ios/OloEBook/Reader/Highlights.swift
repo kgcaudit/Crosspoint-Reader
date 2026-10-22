@@ -299,6 +299,7 @@ struct MemoSheet: View {
         ZStack(alignment: .bottom) {
             Color.black.opacity(0.32).ignoresSafeArea().onTapGesture(perform: cancel)
                 .accessibilityLabel("닫기").accessibilityAddTraits(.isButton)
+                .cpFadeIn(CpMotion.sheetIn)
             VStack(alignment: .leading, spacing: 0) {
                 Capsule().fill(CpColor.divider).frame(width: 36, height: 4).frame(maxWidth: .infinity)
                 HStack {
@@ -334,6 +335,7 @@ struct MemoSheet: View {
             .padding(.horizontal, 24).padding(.top, 10).padding(.bottom, 24 + bottom)
             .background(CpColor.surface)
             .clipShape(UnevenRoundedRectangle(topLeadingRadius: CpMetrics.cornerSheet, topTrailingRadius: CpMetrics.cornerSheet))
+                .cpRiseIn() // 아래에서 올라온다(구상안 42)
         }
         .onAppear {
             text = draft.text

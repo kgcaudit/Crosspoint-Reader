@@ -429,6 +429,7 @@ struct WebtoonScreen: View {
             .padding(.top, insets.top).padding(.horizontal, max(insets.leading, insets.trailing))
             .background(CpColor.surface)
             .contentShape(Rectangle())
+            .cpEdge(atBottom: true)
             Color.clear.contentShape(Rectangle())
                 .onTapGesture { withAnimation(.easeOut(duration: 0.18)) { model.panel = .none } }
                 .accessibilityLabel("메뉴 닫기").accessibilityAddTraits(.isButton)
@@ -465,6 +466,7 @@ struct WebtoonScreen: View {
             .padding(.horizontal, max(insets.leading, insets.trailing))
             .background(CpColor.surface)
             .contentShape(Rectangle())
+            .cpEdge(atBottom: false)
         }
         .transition(.opacity)
     }

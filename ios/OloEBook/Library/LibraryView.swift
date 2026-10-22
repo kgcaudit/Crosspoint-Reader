@@ -196,6 +196,8 @@ private struct MoreMenu: View {
         .background(CpColor.surface)
         .clipShape(RoundedRectangle(cornerRadius: CpMetrics.cornerSmall + 4))
         .shadow(color: .black.opacity(0.25), radius: 8, y: 3)
+        // ⋮ 쪽(오른쪽 위)에서 0.9 → 1 로(구상안 42).
+        .cpPopIn(anchor: .topTrailing, from: 0.9)
     }
 }
 
