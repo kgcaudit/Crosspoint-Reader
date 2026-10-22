@@ -39,7 +39,10 @@ struct ComicCover: View {
     var rtl = false
     var tag: String?
     var shadow = false
+    /// 작품의 얼굴로 그릴 때 그 작품(구상안 44) — 고른 표지가 있으면 그것. 권 줄 · 다음 권 카드는 nil(제 표지).
+    var workKey: String?
     @State private var image: UIImage?
+    @ObservedObject private var picked = CoverStore.shared
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 8)
@@ -64,7 +67,13 @@ struct ComicCover: View {
                     }
                 }
             }
-            .task(id: unit.id) { image = await ComicCovers.shared.load(unit, library: library, rtl: rtl) }
+            .task(id: "\(unit.id)|\(workKey ?? "")|\(picked.version)") {
+                if let key = workKey, let chosen = CoverStore.shared.custom(IosCovers.shared.workId(workKey: key)) {
+                    image = chosen
+                } else {
+                    image = await ComicCovers.shared.load(unit, library: library, rtl: rtl)
+                }
+            }
             .accessibilityHidden(true)
     }
 }
@@ -157,7 +166,7 @@ struct ComicShelves: View {
                                 ForEach(rows.indices, id: \.self) { i in
                                     ShelfBoard(label: i == 0 ? section.title : nil)
                                     WoodRow(items: rows[i], width: width) { item in
-                                        ComicCover(unit: cover(item), library: library, rtl: item.work.rtl, tag: tag(item), shadow: true)
+                                        ComicCover(unit: cover(item), library: library, rtl: item.work.rtl, tag: tag(item), shadow: true, workKey: item.work.key)
                                             .workButton(item.work.title, longPress: { menu(item.work) }) { tap(item) }
                                     }
                                 }
@@ -229,7 +238,7 @@ struct ComicShelves: View {
 
     private func cell(_ item: Item) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            ComicCover(unit: cover(item), library: library, rtl: item.work.rtl, tag: tag(item))
+            ComicCover(unit: cover(item), library: library, rtl: item.work.rtl, tag: tag(item), workKey: item.work.key)
             Text(item.work.title).font(CpFont.label).foregroundStyle(CpColor.text).lineLimit(1).padding(.top, 8)
             line(item).padding(.top, 4)
         }
@@ -239,7 +248,7 @@ struct ComicShelves: View {
 
     private func rowView(_ item: Item) -> some View {
         HStack(alignment: .top, spacing: 14) {
-            ComicCover(unit: cover(item), library: library, rtl: item.work.rtl).frame(width: 56)
+            ComicCover(unit: cover(item), library: library, rtl: item.work.rtl, workKey: item.work.key).frame(width: 56)
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.work.title).font(CpFont.body).foregroundStyle(CpColor.text).lineLimit(2)
                 Text(item.work.subtitle).font(CpFont.caption).foregroundStyle(CpColor.textMuted)

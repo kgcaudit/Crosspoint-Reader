@@ -392,6 +392,23 @@ actor ComicEngine: BookEngine, ZoomSource {
         return pieces(unit) { q in book.data(i: Int32(q)).flatMap { ComicImages.decode($0 as Data, maxPixel: px) } }.first ?? nil
     }
 
+    /// 표지 고르기(구상안 44 ④): 지금 판의 앞 조각 — 쪽 · 보이는 반 · 통째로 보이는 넓은 쪽인가 · 화면 위 자리. 자리는 한 쪽 보기에
+    /// 한 조각일 때만(두 쪽 보기는 쪽마다 자리가 달라 표시를 긋지 않는다).
+    func shownPart() -> (page: Int, half: SpreadSplit.Half, wide: Bool, rect: CGRect?) {
+        guard units.indices.contains(index), let first = units[index].first else { return (page, .whole, false, nil) }
+        let p = Int(first.page)
+        let wide = first.half == .whole && sizes.indices.contains(p) && sizes[p].map { SpreadSplit.shared.isWide(size: $0) } == true
+        let single = units[index].count == 1 && spec?.twoPages != true
+        return (p, first.half, wide, single ? pageRect() : nil)
+    }
+
+    /// 표지로 쓸 그림: 쪽 [p] 의 [half](여백 자르기 · 색 보정 없이 — 표지는 책의 그림 그대로). 넓은 쪽의 반도 높이 480 이 나오게
+    /// 긴 변 1920 으로 푼다.
+    func coverImage(_ p: Int, half: SpreadSplit.Half) -> UIImage? {
+        guard let data = book.data(i: Int32(p)), let img = ComicImages.decode(data as Data, maxPixel: 1920) else { return nil }
+        return half == .whole ? img : ComicImages.cut(img, half: half, frame: MarginTrim.Frame.companion.WHOLE)
+    }
+
     /// 지금 쪽이 화면에 놓인 자리(확대가 거기서 시작한다).
     func pageRect() -> CGRect? {
         guard let spec, units.indices.contains(index), let img = pieces(units[index], source: { image($0) }).first ?? nil else { return nil }

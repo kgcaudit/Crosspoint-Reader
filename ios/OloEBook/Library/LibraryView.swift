@@ -8,6 +8,8 @@ import UniformTypeIdentifiers
 struct LibraryView: View {
     @ObservedObject var library: Library
     let open: (LibraryBook) -> Void
+    /// 보던 장면에서 표지 고르기(구상안 44): 그 권을 표지 고르기로 연다(작품 열쇠와 함께).
+    var pickScene: ((LibraryBook, String) -> Void)?
 
     @State private var showFolders = false
     @State private var showInfo = false
@@ -25,6 +27,10 @@ struct LibraryView: View {
     @State private var menuWork: String?
     /// 길게 누르거나 목록 줄 ⋮ 를 누른 책(구상안 43).
     @State private var menuBook: String?
+    /// 사진 · 파일에서 고를 표지(구상안 44).
+    @State private var coverTarget: CoverTarget?
+    @State private var coverSource: CoverSource?
+    @State private var coverError = false
     @State private var libraryToast: String?
 
     var body: some View {
@@ -102,16 +108,31 @@ struct LibraryView: View {
                              dismiss: { showFolders = false })
             }
             if let key = menuWork {
-                WorkMenu(library: library, workKey: key, openWork: { menuWork = nil; openedWork = key }, close: { menuWork = nil }) { message in
+                WorkMenu(library: library, workKey: key, openWork: { menuWork = nil; openedWork = key },
+                         pick: { source in
+                             menuWork = nil
+                             startPick(CoverTarget(id: CoverText.workId(key), label: library.workTitle(key)), source)
+                         },
+                         scene: {
+                             menuWork = nil
+                             if let book = library.sceneBook(key) { pickScene?(book, key) }
+                         },
+                         close: { menuWork = nil }) { message in
                     menuWork = nil
                     libraryToast = message
                 }
             }
             if let id = menuBook {
-                BookMenu(library: library, bookId: id, close: { menuBook = nil }) { message in
+                BookMenu(library: library, bookId: id, pick: { source in
+                    menuBook = nil
+                    startPick(CoverTarget(id: id, label: library.shelfItem(id)?.book.label ?? ""), source)
+                }, close: { menuBook = nil }) { message in
                     menuBook = nil
                     libraryToast = message
                 }
+            }
+            if coverError {
+                CoverErrorPopup { coverError = false }
             }
             if let message = libraryToast {
                 CpToast(message: message).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom).padding(.bottom, 24)
@@ -125,6 +146,14 @@ struct LibraryView: View {
                 AboutScreen(library: library, back: { showInfo = false })
                     .transition(.move(edge: .trailing))
             }
+        }
+        .modifier(CoverPickers(target: $coverTarget, source: $coverSource) { ok, target in
+            if ok { libraryToast = CoverText.changed(target.label) } else { coverError = true }
+        })
+        .onChange(of: library.notice) { _, message in
+            guard let message else { return }
+            libraryToast = message
+            library.notice = nil
         }
         #if DEBUG
         // 화면 확인용: -olo-book-search <말> 은 책 찾기, -olo-stats 는 독서 기록, -olo-about 은 앱 정보를 연다. 출시 빌드에는 없다.
@@ -447,6 +476,8 @@ struct BookCover: View {
     var small = false
     var shadow = false
     @State private var image: UIImage?
+    /// 고른 표지가 바뀌면 다시 읽는다(구상안 44).
+    @ObservedObject private var picked = CoverStore.shared
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: small ? 4 : 8)
@@ -465,7 +496,7 @@ struct BookCover: View {
                         .background { if shadow { CoverShadow() } }
                 }
             }
-            .task(id: book.id + book.edition) { image = await Covers.shared.load(book, library: library) }
+            .task(id: "\(book.id)|\(book.edition)|\(picked.version)") { image = await Covers.shared.load(book, library: library) }
             .accessibilityHidden(true)
     }
 
@@ -571,54 +602,10 @@ struct FoldersPopup: View {
     }
 }
 
-/// 책을 길게 누르거나 목록 줄 ⋮(구상안 43 · A, 안드로이드 `CoverMenu`): 갈래 옮기기. 표지 고르기 · 만화로 보기 줄은 그 기능과 함께 —
-/// 지금 두면 눌러도 아무 일이 없는 줄이 된다. 설명 줄은 표지 대신 형식 · 지금 갈래를 말한다(어디서 어디로 옮기는지).
-struct BookMenu: View {
-    @ObservedObject var library: Library
-    let bookId: String
-    let close: () -> Void
-    let done: (String) -> Void
-
-    var body: some View {
-        if let item = library.shelfItem(bookId) { menu(item) }
-    }
-
-    private func menu(_ item: ShelfItem) -> some View {
-        let book = item.book
-        let finished = item.finishedAt != nil
-        // 책 이름 뒤에 조사를 붙이지 않는다 — 받침에 따라 을/를이 갈려 틀리기 쉽다(안드로이드와 같다).
-        let name = "‘\(book.label)’"
-        return CpPopup(onDismiss: close) {
-            Text(book.label).font(CpFont.title).foregroundStyle(CpColor.text).lineLimit(2)
-            Text(state(item)).font(CpFont.body).foregroundStyle(CpColor.textMuted)
-            VStack(spacing: 0) {
-                if finished {
-                    CpListRow(icon: .book, tile: CpColor.tileOther, title: "읽는 책으로 옮기기") {
-                        library.setFinished(book, false)
-                        done("\(name) — 읽는 책으로 옮겼습니다")
-                    }
-                } else {
-                    CpListRow(icon: .bookmark, tile: CpColor.tileOther, title: "읽은 책으로 옮기기") {
-                        library.setFinished(book, true)
-                        done("\(name) — 읽은 책으로 옮겼습니다")
-                    }
-                }
-                // 읽을 책에 있는 책은 이미 거기 있다.
-                if item.openedAt != nil || finished {
-                    CpListRow(icon: .back, tile: CpColor.tileOther, title: "읽을 책으로 옮기기") {
-                        library.returnToUnread(book)
-                        done("\(name) — 읽을 책으로 옮겼습니다")
-                    }
-                }
-            }
-            HStack { Spacer(); CpButton(title: "닫기", kind: .secondary, action: close) }
-        }
-    }
-
-    private func state(_ item: ShelfItem) -> String {
-        let kind = item.book.format.rawValue
-        if let at = item.finishedAt { return "\(kind) · 다 읽음 · \(monthDay(at))" }
-        if item.isReading { return "\(kind) · 읽는 중 \(Int((item.percent ?? 0).rounded()))%" }
-        return "\(kind) · 읽을 책"
+extension LibraryView {
+    /// 판을 닫은 뒤 고르기 창을 연다 — 판이 떠 있는 채로 창을 띄우면 창을 닫았을 때 판이 그대로 남는다.
+    fileprivate func startPick(_ target: CoverTarget, _ source: CoverSource) {
+        coverTarget = target
+        coverSource = source
     }
 }

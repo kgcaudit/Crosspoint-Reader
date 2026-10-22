@@ -183,14 +183,17 @@ private struct RenamePopup: View {
     }
 }
 
-/// 만화 탭에서 작품을 길게 눌렀다(구상안 40 ③, 안드로이드 `WorkMenu`): 작품 화면 · 갈래 옮기기. 표지 고르기 줄은 표지 고르기 기능과
-/// 함께(40 · 2A) — 지금 두면 눌러도 아무 일이 없는 줄이 된다.
+/// 만화 탭에서 작품을 길게 눌렀다(구상안 40 ③ · 44 ③, 안드로이드 `WorkMenu`): 작품 화면 · 갈래 옮기기 · 표지 고르기 셋.
+/// 웹툰은 '보던 장면에서' 줄을 아직 두지 않는다 — 웹툰의 틀 고르기는 다음 판(44 · 3A).
 struct WorkMenu: View {
     @ObservedObject var library: Library
     let workKey: String
     let openWork: () -> Void
+    let pick: (CoverSource) -> Void
+    let scene: () -> Void
     let close: () -> Void
     let done: (String) -> Void
+    @ObservedObject private var picked = CoverStore.shared
 
     var body: some View {
         if let work = library.works.first(where: { $0.key == workKey }) { menu(work) }
@@ -217,7 +220,17 @@ struct WorkMenu: View {
                         move(work, ShelfMarkToRead(atEpochMs: now), "읽을 책으로 옮겼습니다")
                     }
                 }
+                if !work.webtoon {
+                    CpListRow(icon: .view, tile: CpColor.tileOther, title: IosCovers.shared.SCENE_ROW, action: scene)
+                }
+                CoverPickRow(pick: pick)
+                let id = IosCovers.shared.workId(workKey: work.key)
+                CoverRevertRow(title: IosCovers.shared.WORK_REVERT_ROW, enabled: picked.has(id), revert: {
+                    CoverStore.shared.clear(id)
+                    done(IosCovers.shared.reverted(label: work.title))
+                }, close: close)
             }
+            HStack { Spacer(); CpButton(title: "닫기", kind: .secondary, action: close) }
         }
     }
 

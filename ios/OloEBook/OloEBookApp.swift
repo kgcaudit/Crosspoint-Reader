@@ -4,6 +4,8 @@ import SwiftUI
 struct OloEBookApp: App {
     @StateObject private var library = Library()
     @State private var reading: LibraryBook?
+    /// 보던 장면에서 표지를 고르는 작품(구상안 44). nil 이면 그냥 읽기.
+    @State private var coverPick: String?
 
     init() {
         // 글꼴 폴더를 측정기에 알린다 — 첫 조판보다 먼저여야 고른 글꼴로 첫 쪽이 짜인다.
@@ -13,10 +15,12 @@ struct OloEBookApp: App {
     var body: some Scene {
         WindowGroup {
             ZStack {
-                LibraryView(library: library) { reading = $0 }
+                LibraryView(library: library, open: { coverPick = nil; reading = $0 },
+                            pickScene: { book, key in coverPick = key; reading = book })
                 if let book = reading {
-                    ReaderView(book: book, library: library, onClose: {
+                    ReaderView(book: book, library: library, pickCover: coverPick, onClose: {
                         reading = nil
+                        coverPick = nil
                         library.reloadRecords()
                     }, openBook: { next in
                         // 만화 권 끝의 "이어서 읽기": 리더를 다음 권으로 새로 연다(.id 가 바뀐다).
@@ -44,6 +48,8 @@ struct OloEBookApp: App {
                         ?? library.works.flatMap { $0.entries.map(\.unit) }.first { $0.name == args[i + 1] }.flatMap(library.comicBook)
                         // 이름이 겹치는 화 폴더("001화")는 "작품 폴더/001화" 처럼 경로로.
                         ?? library.works.flatMap { $0.entries.map(\.unit) }.first { $0.id.contains(args[i + 1]) }.flatMap(library.comicBook)
+                    // -olo-pick-cover 는 연 권을 "보던 장면에서 표지 고르기" 로 연다(구상안 44).
+                    if args.contains("-olo-pick-cover"), let book = reading { coverPick = library.work(of: book.id)?.key }
                 }
                 #endif
             }

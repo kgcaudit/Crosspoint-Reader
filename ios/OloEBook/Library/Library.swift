@@ -224,6 +224,18 @@ final class Library: ObservableObject {
 
     func returnToUnread(_ book: LibraryBook) { store.returnToUnread(bookId: book.id); reloadRecords() }
 
+    /// 읽기 화면에서 서재로 돌아오며 띄울 알림(보던 장면에서 표지를 골랐다 등). 서재가 받아 띄우고 비운다.
+    @Published var notice: String?
+
+    /// 보던 장면에서 표지 고르기(구상안 44 ④): 이어 볼 권, 없으면 첫 권을 연다(안드로이드 `ComicReading.resume ?: first`).
+    func sceneBook(_ workKey: String) -> LibraryBook? {
+        guard let work = works.first(where: { $0.key == workKey }) else { return nil }
+        let entry = ComicReading.shared.resume(work: work, progress: comicProgress)?.first ?? work.entries.first
+        return entry.flatMap { comicBook($0.unit) }
+    }
+
+    func workTitle(_ workKey: String) -> String { works.first { $0.key == workKey }?.title ?? "" }
+
     /// 판이 떠 있는 동안 갈래가 바뀌어도 지금 줄을 본다.
     func shelfItem(_ id: String) -> ShelfItem? { (reading + finished + toRead).first { $0.id == id } }
 
@@ -447,9 +459,16 @@ final class Covers: @unchecked Sendable {
     private let cache = NSCache<NSString, UIImage>()
     private let missing = NSCache<NSString, NSNumber>()
 
-    func cached(_ book: LibraryBook) -> UIImage? { cache.object(forKey: key(book)) }
+    func cached(_ book: LibraryBook) -> UIImage? { CoverStore.shared.custom(book.id) ?? cache.object(forKey: key(book)) }
 
+    /// 서재에 보일 표지: 고른 표지(구상안 44)가 있으면 그것, 없으면 책의 것.
     func load(_ book: LibraryBook, library: Library) async -> UIImage? {
+        if let picked = CoverStore.shared.custom(book.id) { return picked }
+        return await own(book, library: library)
+    }
+
+    /// 책에 든 표지(EPUB 표지 그림 · PDF 첫 쪽). 판의 "원래 표지로" · 설명 줄이 이것이 있는지 본다.
+    func own(_ book: LibraryBook, library: Library) async -> UIImage? {
         let key = key(book)
         if let image = cache.object(forKey: key) { return image }
         if missing.object(forKey: key) != nil || book.format == .txt { return nil }

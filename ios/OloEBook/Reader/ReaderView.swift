@@ -1039,6 +1039,8 @@ extension ReaderModel: ListenSource {
 struct ReaderView: View {
     let book: LibraryBook
     let library: Library
+    /// 보던 장면에서 표지를 고르는 중인 작품(구상안 44 ④). 읽기는 그대로 되고(넘기면 자리도 적힌다) 위 · 아래에 고르기 막대.
+    var pickCover: String?
     let onClose: () -> Void
     /// 다른 책(만화 다음 권)을 연다.
     var openBook: ((LibraryBook) -> Void)?
@@ -1139,7 +1141,11 @@ struct ReaderView: View {
                           tap: { point, otherwise in Task { await model.tap(at: point, otherwise: otherwise) } },
                           longPress: { point in Task { await model.select(at: point) } },
                           bookmark: { Task { await model.toggleBookmark() } },
-                          toggleMenu: { withAnimation(.easeOut(duration: 0.18)) { model.panel = model.panel == .none ? .bar : .none } },
+                          toggleMenu: {
+                              // 표지를 고르는 동안은 메뉴를 띄우지 않는다 — 고르기 막대와 겹친다.
+                              guard picking == nil else { return }
+                              withAnimation(.easeOut(duration: 0.18)) { model.panel = model.panel == .none ? .bar : .none }
+                          },
                           swipe: { step in Task { await model.swipe(rtl ? -step : step) } },
                           pan: model.isPdf && pdfFit == .width ? { dy, ended in model.pan(dy, ended: ended) } : nil,
                           zoom: pdfZoomable ? { p, s in model.startZoom(at: p, scale: s) } : nil)
@@ -1221,8 +1227,17 @@ struct ReaderView: View {
                             if !Task.isCancelled { model.toast = nil }
                         }
                 }
+                if let key = picking, let comic = model.engine as? ComicEngine, let frame = model.frame {
+                    CoverPickLayer(engine: comic, frameKey: "\(frame.page)|\(frame.halfLabel)", rightToLeft: rtl, insets: insets,
+                                   back: close) { image in
+                        guard CoverStore.shared.set(IosCovers.shared.workId(workKey: key), image: image) else { return false }
+                        library.notice = IosCovers.shared.changed(label: library.workTitle(key))
+                        close()
+                        return true
+                    }
+                }
                 // 만화 권 끝(구상안 36): 다음 권 · 서재로.
-                if model.comicEnd {
+                if model.comicEnd && picking == nil {
                     ComicEndCard(label: model.comicLabel, workTitle: model.comicWork?.title ?? "", next: model.nextEntry,
                                  webtoon: model.comicWork?.webtoon == true, library: library,
                                  onNext: { entry in
@@ -1406,6 +1421,9 @@ struct ReaderView: View {
     /// 오→왼으로 읽는 만화인가(작품마다: 사람이 고른 값 → ComicInfo → 왼→오).
     private var rtl: Bool { model.isComic && model.comicWork?.rightToLeft?.boolValue == true }
 
+    /// 표지 고르기는 쪽 넘김 만화에서만(웹툰의 틀은 다음 판 — 44 · 3A).
+    private var picking: String? { model.isComic && model.webtoon == nil ? pickCover : nil }
+
     private func comicSpec(_ full: CGSize, _ insets: EdgeInsets) -> ComicViewSpec? {
         guard model.isComic else { return nil }
         let cover = model.comicWork?.coverAlone?.boolValue ?? prefs.pdfCoverAlone
@@ -1435,7 +1453,8 @@ struct ReaderView: View {
     private var pdfFit: PdfFit { model.isPdf ? PdfFit(rawValue: prefs.pdfFit) ?? .page : .page }
 
     /// PDF 확대를 받는가: 쪽 전체 · 폭에서, 두 쪽이 아닐 때(안드로이드와 같다).
-    private var pdfZoomable: Bool { model.isFixed && pdfFit != .continuous && model.frame?.hasRight != true }
+    /// 표지를 고르는 동안은 확대하지 않는다 — 확대한 그림 위에서는 고를 곳 표시가 쪽과 어긋나고, 저장하는 것은 어차피 쪽(반)이다.
+    private var pdfZoomable: Bool { model.isFixed && pdfFit != .continuous && model.frame?.hasRight != true && picking == nil }
 
     /// 넘김 효과별 전환(사람이 넘겼을 때만 움직인다 — 다른 쪽 바꿈은 애니메이션 없이 바뀐다).
     private var pageTransition: AnyTransition {
