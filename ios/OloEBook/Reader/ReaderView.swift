@@ -164,6 +164,8 @@ struct PageFrame: @unchecked Sendable {
     var isComic = false
     /// 그리지 못한 쪽(그 자리에 "이 쪽을 그리지 못했습니다").
     var brokenPages: [Int] = []
+    /// 만화 펼침면의 반을 보는 중이면 " · 왼쪽 반"(위 막대 부제, 구상안 38).
+    var halfLabel = ""
     /// 이 쪽의 글자 구간(장 안). 듣기가 이 쪽에서 시작하는 첫 문장을 찾는다.
     let pageStart: Int
     let pageEnd: Int
@@ -1233,7 +1235,7 @@ struct ReaderView: View {
                     if let i = args.firstIndex(of: "-olo-panel"), i + 1 < args.count {
                         model.panel = ["bar": .bar, "view": .view, "settings": .settings, "fonts": .fonts, "contents": .contents,
                                        "voices": .voices, "footer": .footer, "footerItem": .footerItem,
-                                       "touchZones": .touchZones][args[i + 1]] ?? .none
+                                       "touchZones": .touchZones, "pageGrid": .pageGrid][args[i + 1]] ?? .none
                     }
                 }
                 #endif
@@ -1341,7 +1343,10 @@ struct ReaderView: View {
     private func comicSpec(_ full: CGSize, _ insets: EdgeInsets) -> ComicViewSpec? {
         guard model.isComic else { return nil }
         let cover = model.comicWork?.coverAlone?.boolValue ?? prefs.pdfCoverAlone
-        return ComicViewSpec(size: full, insets: insets, twoPages: prefs.twoPages(full), coverAlone: cover, rightToLeft: rtl)
+        // 펼침면 나누기: 이 작품에 고른 값 → 모든 만화의 설정(구상안 38).
+        let split = model.comicWork?.splitSpreads?.boolValue ?? prefs.comicSplit
+        return ComicViewSpec(size: full, insets: insets, twoPages: prefs.twoPages(full), coverAlone: cover, rightToLeft: rtl,
+                             trim: prefs.comicTrim, split: split, color: prefs.comicColor)
     }
 
     private func pdfSpec(_ full: CGSize, _ insets: EdgeInsets, _ paper: Paper) -> PdfViewSpec? {

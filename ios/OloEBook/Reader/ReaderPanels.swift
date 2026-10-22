@@ -59,10 +59,10 @@ struct ReaderPanels: View {
                     NotesExportScreen(model: model, initialFilter: model.exportFilter, back: model.back)
                 }
             case .pageGrid:
-                if let comic = model.engine as? ComicEngine, let frame = model.frame {
+                if let comic = model.engine as? ComicEngine {
                     SidePanel(wide: wide, insets: insets, dismiss: model.back) {
-                        ComicPageGrid(engine: comic, title: model.title, current: frame.page,
-                                      go: { p in Task { await model.jump { _ in await comic.go(p) } } }, back: model.back)
+                        ComicPageGrid(engine: comic, title: model.title,
+                                      go: { p, half in Task { await model.jump { _ in await comic.go(p, half: half) } } }, back: model.back)
                     }
                 }
             case .comicMarks:
@@ -189,7 +189,7 @@ private struct ReaderBar: View {
     private var subtitle: String {
         if frame.isComic {
             let pages = frame.hasRight ? "\(frame.page + 1)–\(frame.page + 2)" : "\(frame.page + 1)"
-            return "\(pages) / \(frame.pages)쪽" + (rtl ? " · 오→왼" : "")
+            return "\(pages) / \(frame.pages)쪽" + frame.halfLabel + (rtl ? " · 오→왼" : "")
         }
         return frame.isPdf ? "\(frame.page + 1) / \(frame.pages)쪽" : "\(frame.spine + 1) / \(frame.chapters)장"
     }
@@ -268,6 +268,22 @@ private struct ViewPanelRows: View {
                 CpChoice(label: "넘기는 방향", options: ["왼→오", "오→왼"], selected: work.rtl ? 1 : 0) {
                     model.setComicSetting("RTL", value: $0 == 1 ? "1" : "0")
                 }
+                // 쪽 그림 다듬기(구상안 38, 안드로이드 차례): 여백 자르기 → 펼침면 나누기 → 이 작품 → 색 보정. 켬 · 끔 차례는 다른 줄과 같다.
+                CpChoice(label: "여백 자르기", options: ["켬", "끔"], selected: prefs.comicTrim ? 0 : 1) { prefs.comicTrim = $0 == 0 }
+                CpChoice(label: "펼침면 나누기", options: ["켬", "끔"], selected: prefs.comicSplit ? 0 : 1) { prefs.comicSplit = $0 == 0 }
+                // 이 작품만: 위 줄에 속해 한 단 들이고 옅은 강조 바탕(안드로이드 `CpSplitRow`). 두 쪽 보기에서도 둔다 — 한 쪽으로
+                // 돌아가면 쓰이고, 사라지면 고를 곳을 찾지 못한다.
+                VStack(alignment: .leading, spacing: 0) {
+                    let options: [Bool?] = [nil, true, false]
+                    CpChoice(label: "이 작품", options: ["따름", "나눔", "통째로"],
+                             selected: options.firstIndex { $0 == work.splitSpreads?.boolValue } ?? 0) { i in
+                        model.setComicSetting("SPLIT", value: options[i].map { $0 ? "1" : "0" })
+                    }
+                    CpCaption(text: "\"따름\" 이면 위 줄(모든 만화)을 따릅니다 · 펼쳐 스캔한 작품만 \"나눔\"")
+                }
+                .padding(.leading, CpMetrics.levelIndent)
+                .background(CpColor.accentContainer.opacity(0.5))
+                CpChoice(label: "색 보정", options: ["끔", "선명하게", "흑백"], selected: prefs.comicColor) { prefs.comicColor = $0 }
                 CpChoice(label: "가로에서 두 쪽 보기", options: ["켬", "끔"], selected: prefs.twoPagesLandscape ? 0 : 1) { prefs.twoPagesLandscape = $0 == 0 }
                 if model.pdfSpread {
                     CpChoice(label: "표지", options: ["따로", "함께"], selected: (work.coverAlone?.boolValue ?? prefs.pdfCoverAlone) ? 0 : 1) {

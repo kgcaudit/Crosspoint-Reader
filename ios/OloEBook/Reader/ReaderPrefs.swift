@@ -67,6 +67,13 @@ final class ReaderPrefs: ObservableObject {
 
     func coverAlone(_ bookId: String) -> Bool { pdfCoverByBook[bookId] ?? pdfCoverAlone }
 
+    /// 만화 쪽 다듬기(구상안 38) — 모든 만화에 한 설정(안드로이드 `comicTrimMargins` · `comicSplitSpreads` · `comicColor`). 여백 자르기는
+    /// 기본 끔(정식 출간본까지 쪽마다 잘려 크기가 흔들렸다 — 안드로이드 0.52.2), 펼침면 나누기는 기본 켬(나누지 않으면 휴대폰 세로에서
+    /// 펼침면이 작게 선다), 색 보정은 0 끔 · 1 선명하게 · 2 흑백.
+    @Published var comicTrim: Bool { didSet { save(comicTrim, "comicTrim") } }
+    @Published var comicSplit: Bool { didSet { save(comicSplit, "comicSplit") } }
+    @Published var comicColor: Int { didSet { save(comicColor, "comicColor") } }
+
     /// 세로 두 쪽을 쓸 수 있는 넓은 화면(안드로이드 sw600dp). iPhone 은 가로로 들어도 짧은 변이 600 이 안 된다.
     static let wideScreen: CGFloat = 600
 
@@ -109,6 +116,10 @@ final class ReaderPrefs: ObservableObject {
         touchZones = int("touchZones", 0, 0...2)
         pdfFit = int("pdfFit", 0, 0...2)
         pdfCoverAlone = d.object(forKey: "reader.pdfCoverAlone") as? Bool ?? true
+        // bool(forKey:) 로 읽는다 — 글자로 들어온 값(실행 인자 "1" 등)은 `as? Bool` 로 읽히지 않아 기본값으로 돌아갔다.
+        comicTrim = d.object(forKey: "reader.comicTrim") == nil ? false : d.bool(forKey: "reader.comicTrim")
+        comicSplit = d.object(forKey: "reader.comicSplit") == nil ? true : d.bool(forKey: "reader.comicSplit")
+        comicColor = int("comicColor", 0, 0...2)
         pdfCoverByBook = d.dictionary(forKey: "reader.pdfCoverByBook") as? [String: Bool] ?? [:]
         twoPagesLandscape = d.object(forKey: "reader.twoPagesLandscape") as? Bool ?? true
         twoPagesPortrait = d.object(forKey: "reader.twoPagesPortrait") as? Bool ?? true

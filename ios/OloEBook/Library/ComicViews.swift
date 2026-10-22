@@ -352,7 +352,7 @@ struct WorkScreen: View {
         .frame(minHeight: 40)
         .workButton(s.name) {
             guard let b = library.comicBook(e.unit) else { return }
-            library.store.saveComic(unitId: e.unit.id, page: Int32(first), pageCount: Int32(e.unit.pageCount?.intValue ?? first + 1), atEnd: false)
+            library.store.saveComic(unitId: e.unit.id, page: Int32(first), pageCount: Int32(e.unit.pageCount?.intValue ?? first + 1), atEnd: false, half: nil)
             open(b)
         }
     }
@@ -407,49 +407,110 @@ struct ComicEndCard: View {
 struct ComicPageGrid: View {
     let engine: ComicEngine
     let title: String
-    let current: Int
-    let go: (Int) -> Void
+    let go: (Int, SpreadSplit.Half) -> Void
     let back: () -> Void
+    @State private var info: ComicGridInfo?
 
     var body: some View {
         VStack(spacing: 0) {
             CpHeader(title: "쪽 목록", subtitle: "\(title) · \(engine.pageCount)쪽",
                      leading: AnyView(CpIconButton(icon: .back, label: "뒤로", action: back))) {}
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 10)], spacing: 14) {
-                        ForEach(0..<engine.pageCount, id: \.self) { i in
-                            Button { go(i) } label: {
-                                VStack(spacing: 4) {
-                                    ComicThumb(engine: engine, page: i)
-                                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(i == current ? CpColor.accent : CpColor.divider,
-                                                                                       lineWidth: i == current ? 2 : 1))
-                                    Text("\(i + 1)쪽").font(CpFont.caption).foregroundStyle(i == current ? CpColor.accentText : CpColor.textMuted)
+            if let info {
+                GeometryReader { g in
+                    let columns = max(Int((g.size.width - CpMetrics.gutter * 2 + 10) / (96 + 10)), 1)
+                    let cell = (g.size.width - CpMetrics.gutter * 2 - CGFloat(columns - 1) * 10) / CGFloat(columns)
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 14) {
+                                ForEach(Array(rows(info, columns: columns).enumerated()), id: \.offset) { _, row in
+                                    HStack(alignment: .top, spacing: 10) {
+                                        ForEach(row, id: \.self) { p in
+                                            if info.wide[p] {
+                                                wideCell(p, info, width: g.size.width - CpMetrics.gutter * 2)
+                                            } else {
+                                                cellView(p, half: .whole, aspect: 0.7, label: "\(p + 1)쪽",
+                                                         on: p == info.current, info: info).frame(width: cell)
+                                            }
+                                        }
+                                    }
+                                    .id(row.first ?? 0)
                                 }
                             }
-                            .buttonStyle(.plain)
-                            .id(i)
+                            .padding(CpMetrics.gutter)
+                        }
+                        .onAppear {
+                            let target = rows(info, columns: columns).first { $0.contains(info.current) }?.first ?? 0
+                            proxy.scrollTo(target, anchor: .center)
                         }
                     }
-                    .padding(CpMetrics.gutter)
                 }
-                .onAppear { proxy.scrollTo(current, anchor: .center) }
+            } else {
+                Spacer()
             }
         }
+        .task { info = await engine.gridInfo() }
+    }
+
+    /// 줄 나누기: 펼침면은 한 줄을 혼자 쓴다(안드로이드 `maxLineSpan`).
+    private func rows(_ info: ComicGridInfo, columns: Int) -> [[Int]] {
+        var out: [[Int]] = []
+        var row: [Int] = []
+        for p in 0..<info.wide.count {
+            if info.wide[p] {
+                if !row.isEmpty { out.append(row); row = [] }
+                out.append([p])
+            } else {
+                row.append(p)
+                if row.count == columns { out.append(row); row = [] }
+            }
+        }
+        if !row.isEmpty { out.append(row) }
+        return out
+    }
+
+    /// 펼침면 칸: 나누는 동안은 두 반을 따로 — 화면에 놓인 차례(왼쪽 · 오른쪽)로, 오→왼 책이라도 그림의 왼쪽 반은 왼쪽에.
+    @ViewBuilder
+    private func wideCell(_ p: Int, _ info: ComicGridInfo, width: CGFloat) -> some View {
+        if info.split {
+            HStack(spacing: 4) {
+                ForEach([SpreadSplit.Half.left, SpreadSplit.Half.right], id: \.self) { h in
+                    let side = h == .left ? "왼쪽" : "오른쪽"
+                    cellView(p, half: h, aspect: info.aspects[p] / 2, label: "\(p + 1)쪽 \(side)",
+                             on: p == info.current && info.currentHalf == h, info: info)
+                        .frame(width: (width - 4) / 2)
+                }
+            }
+        } else {
+            cellView(p, half: .whole, aspect: info.aspects[p], label: "\(p + 1)쪽", on: p == info.current, info: info).frame(width: width)
+        }
+    }
+
+    private func cellView(_ p: Int, half: SpreadSplit.Half, aspect: CGFloat, label: String, on: Bool, info: ComicGridInfo) -> some View {
+        Button { go(p, half) } label: {
+            VStack(spacing: 4) {
+                ComicThumb(engine: engine, page: p, half: half, aspect: aspect)
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(on ? CpColor.accent : CpColor.divider, lineWidth: on ? 3 : 1))
+                Text(label).font(CpFont.caption).foregroundStyle(on ? CpColor.accentText : CpColor.textMuted)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(label)으로")
     }
 }
 
 struct ComicThumb: View {
     let engine: ComicEngine
     let page: Int
+    var half: SpreadSplit.Half = .whole
+    var aspect: CGFloat = 0.7
     @State private var image: UIImage?
 
     var body: some View {
         Color.black.opacity(0.2)
-            .aspectRatio(0.7, contentMode: .fit)
+            .aspectRatio(aspect, contentMode: .fit)
             .overlay { if let image { Image(uiImage: image).resizable().aspectRatio(contentMode: .fit) } }
             .clipShape(RoundedRectangle(cornerRadius: 4))
-            .task(id: page) { image = await engine.thumbnail(page, height: 160) }
+            .task(id: page) { image = await engine.thumbnail(page, height: 160, half: half) }
     }
 }
 
