@@ -89,7 +89,7 @@ struct ReaderPanels: View {
 }
 
 /// 휴대폰은 전체 화면, 넓은 화면은 오른쪽 옆 판(400) + 바깥을 누르면 닫히는 막.
-private struct SidePanel<Content: View>: View {
+struct SidePanel<Content: View>: View {
     let wide: Bool
     let insets: EdgeInsets
     let dismiss: () -> Void
@@ -264,7 +264,11 @@ private struct ViewPanelRows: View {
                 brightnessRows
             }
             if model.isComic, let work = model.comicWork {
-                // 만화(구상안 36): 넘기는 방향(작품마다) · 두 쪽 · 표지(두 쪽일 때, 작품마다).
+                // 만화(구상안 36): 보는 방식(구상안 39, 작품마다) · 넘기는 방향(작품마다) · 두 쪽 · 표지(두 쪽일 때, 작품마다).
+                let views: [String?] = [nil, "PAGE", "WEBTOON"]
+                CpChoice(label: "보는 방식", options: ["자동", "쪽 넘김", "웹툰"], selected: views.firstIndex { $0 == work.view?.name } ?? 0) { i in
+                    Task { await model.setComicView(views[i]) }
+                }
                 CpChoice(label: "넘기는 방향", options: ["왼→오", "오→왼"], selected: work.rtl ? 1 : 0) {
                     model.setComicSetting("RTL", value: $0 == 1 ? "1" : "0")
                 }
@@ -328,12 +332,15 @@ private struct ViewPanelRows: View {
 }
 
 /// 모든 보기 설정(구상안 5A): 이번에 동작하는 줄만. 넘기기 · 형광펜 · 두 쪽 보기 · 하단 정보는 그 기능을 만들 때 더한다.
-private struct ViewSettingsScreen: View {
+struct ViewSettingsScreen: View {
     @ObservedObject var prefs: ReaderPrefs
     /// PDF 면 문단 묶음 · 형광펜 줄을 빼고, 두 쪽 줄에 쪽 맞춤의 까닭 · 표지 줄을 더한다(구상안 32A · 33).
     var isPdf = false
     /// 만화면 문단 · 형광펜 · 하단 정보 줄을 빼고, 표지 줄의 풀이가 "작품마다" 다.
     var isComic = false
+    /// 웹툰(구상안 39): 넘기지 않고 밀어 내린다 — 넘김 효과 · 소리 · 진동 · 자동 넘김 · 두 쪽 줄은 바꿔도 아무 일이 없어 숨긴다
+    /// (안드로이드 `CpReaderKind.Webtoon`).
+    var isWebtoon = false
     /// 책 · 작품마다 바꾼 표지 수.
     var coverCount = 0
     let back: () -> Void
@@ -360,6 +367,7 @@ private struct ViewSettingsScreen: View {
                     // 안드로이드의 "음량 단추로 넘기기" 는 두지 않는다(구상안 37 · 2A) — iOS 에는 앱이 음량 단추를 가로챌 공식 길이 없다.
                     CpLinkRow(label: "터치 영역", value: TouchZonesScreen.label(prefs.touchZones), action: openTouch)
                         .padding(.leading, CpMetrics.levelIndent)
+                    if !isWebtoon {
                     CpChoice(label: "넘김 효과", options: ["없음", "서서히", "밀기", "덮기", "말림"], selected: prefs.pageTurn) { prefs.pageTurn = $0 }
                         .padding(.leading, CpMetrics.levelIndent)
                     CpChoice(label: "넘김 소리", options: TurnFeedback.names, selected: prefs.turnSound) {
@@ -378,6 +386,7 @@ private struct ViewSettingsScreen: View {
                         .padding(.leading, CpMetrics.levelIndent)
                     CpCaption(text: "자동 넘김은 가운데를 누르면 멈춥니다. 듣기와 함께 켜면 듣기가 넘김을 맡습니다.")
                         .padding(.leading, CpMetrics.levelIndent)
+                    }
                     // 화면(안드로이드 차례: 형광펜 · 메모 → 두 쪽 보기 → 화면 켜짐 유지 → 하단 정보).
                     section("화면")
                     // 숨겨도 지우지 않는다 — 다시 보이면 그대로 있다. PDF 의 형광펜은 2단계.
@@ -385,6 +394,7 @@ private struct ViewSettingsScreen: View {
                         CpChoice(label: "형광펜 · 메모", options: ["보임", "숨김"], selected: prefs.showHighlights ? 0 : 1) { prefs.showHighlights = $0 == 0 }
                             .padding(.leading, CpMetrics.levelIndent)
                     }
+                    if !isWebtoon {
                     CpChoice(label: "가로에서 두 쪽 보기", options: ["켬", "끔"], selected: prefs.twoPagesLandscape ? 0 : 1) {
                         prefs.twoPagesLandscape = $0 == 0
                     }
@@ -413,6 +423,7 @@ private struct ViewSettingsScreen: View {
                         CpCaption(text: why).padding(.leading, CpMetrics.levelIndent)
                     } else if !wideDevice {
                         CpCaption(text: "넓은 화면(iPad)에서만 쓸 수 있습니다").padding(.leading, CpMetrics.levelIndent)
+                    }
                     }
                     CpChoice(label: "화면 켜짐 유지", options: ["휴대폰", "10분", "항상"], selected: prefs.keepScreenOn.rawValue) {
                         prefs.keepScreenOn = ReaderPrefs.KeepScreenOn(rawValue: $0) ?? .system
@@ -757,7 +768,7 @@ enum NoteEntry {
 }
 
 /// 진도 막대. 끌면 손을 뗀 자리로 옮긴다(끄는 동안은 숫자만 바뀐다 — 끌 때마다 짜면 막대가 따라오지 못한다).
-private struct SeekBar: View {
+struct SeekBar: View {
     let percent: Double
     /// 막대 옆 글(PDF 는 "4쪽"). nil 이면 "%".
     var label: ((Double) -> String)?

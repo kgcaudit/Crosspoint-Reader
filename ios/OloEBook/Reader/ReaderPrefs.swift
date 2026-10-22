@@ -73,6 +73,11 @@ final class ReaderPrefs: ObservableObject {
     @Published var comicTrim: Bool { didSet { save(comicTrim, "comicTrim") } }
     @Published var comicSplit: Bool { didSet { save(comicSplit, "comicSplit") } }
     @Published var comicColor: Int { didSet { save(comicColor, "comicColor") } }
+    /// 웹툰 그림 폭(%, 구상안 39): 좁은 화면 · 넓은 화면(가로 · iPad)을 따로 기억한다. −1 은 고르지 않음(기본값 — Kotlin `IosWebtoon.percent`).
+    @Published var webtoonNarrow: Int { didSet { save(webtoonNarrow, "webtoonNarrow") } }
+    @Published var webtoonWide: Int { didSet { save(webtoonWide, "webtoonWide") } }
+    /// 자동 스크롤 빠르기(0 아주 느림 ~ 4 아주 빠름).
+    @Published var webtoonSpeed: Int { didSet { save(webtoonSpeed, "webtoonSpeed") } }
 
     /// 세로 두 쪽을 쓸 수 있는 넓은 화면(안드로이드 sw600dp). iPhone 은 가로로 들어도 짧은 변이 600 이 안 된다.
     static let wideScreen: CGFloat = 600
@@ -120,6 +125,9 @@ final class ReaderPrefs: ObservableObject {
         comicTrim = d.object(forKey: "reader.comicTrim") == nil ? false : d.bool(forKey: "reader.comicTrim")
         comicSplit = d.object(forKey: "reader.comicSplit") == nil ? true : d.bool(forKey: "reader.comicSplit")
         comicColor = int("comicColor", 0, 0...2)
+        webtoonNarrow = int("webtoonNarrow", -1, -1...100)
+        webtoonWide = int("webtoonWide", -1, -1...100)
+        webtoonSpeed = int("webtoonSpeed", 2, 0...4)
         pdfCoverByBook = d.dictionary(forKey: "reader.pdfCoverByBook") as? [String: Bool] ?? [:]
         twoPagesLandscape = d.object(forKey: "reader.twoPagesLandscape") as? Bool ?? true
         twoPagesPortrait = d.object(forKey: "reader.twoPagesPortrait") as? Bool ?? true

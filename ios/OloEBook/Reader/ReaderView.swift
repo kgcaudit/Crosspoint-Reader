@@ -327,10 +327,16 @@ final class ReaderModel: ObservableObject {
                 let comic = try await Task.detached(priority: .userInitiated) {
                     try ComicEngine(file: file, unitId: book.id, title: label, store: store)
                 }.value
-                engine = comic
-                isComic = true
                 title = label
                 comicLabel = entry?.label ?? book.displayName
+                comicFileRef = file
+                comicEntry = entry
+                // 보는 방식(구상안 39): 고른 값 → ComicInfo → 쪽 모양(세로가 가로의 2배 넘는 쪽이 절반 넘게) → 쪽 넘김.
+                // 엔진을 붙이기 전에 정한다 — 붙이고 나서 정하면 그사이 쪽 넘김이 첫 쪽을 내며 진도를 적어, 웹툰의 그림 안 자리가 지워졌다.
+                let sizes = await comic.rawSizeList()
+                if Webtoon.shared.view(chosen: work?.view, info: entry?.unit.info, sizes: sizes) == .webtoon { await openWebtoon() }
+                engine = comic
+                isComic = true
             } catch {
                 failure = ComicOpenError.broken.message
             }
@@ -518,6 +524,46 @@ final class ReaderModel: ObservableObject {
         comicWork = library.work(of: openBookId)
     }
 
+    /// 웹툰으로 보는 중(구상안 39). nil 이면 쪽 넘김.
+    @Published private(set) var webtoon: WebtoonModel?
+    private var comicFileRef: Library.ComicFile?
+    private var comicEntry: WorkEntry?
+    private var lastComicSpec: ComicViewSpec?
+
+    /// 이 권을 웹툰으로 연다(같은 파일을 한 번 더 연다 — 쪽 넘김 엔진과 그림 읽기가 섞이지 않게).
+    private func openWebtoon() async {
+        guard let file = comicFileRef, let library else { return }
+        let id = openBookId, label = comicLabel, entry = comicEntry
+        let episode: WebtoonEpisode? = await Task.detached(priority: .userInitiated) {
+            let book: IosComicBook? = if let names = file.images {
+                IosComicBook.companion.openFolder(path: file.url.path, fileNames: names)
+            } else {
+                IosComicBook.companion.openArchive(path: file.url.path)
+            }
+            return book.map { WebtoonEpisode(entry: entry, unitId: id, label: label, book: $0) }
+        }.value
+        guard let episode else { return }
+        webtoon = WebtoonModel(first: episode, work: comicWork, store: library.store, library: library)
+    }
+
+    /// 보는 방식을 바꿨다(자동 · 쪽 넘김 · 웹툰 — nil 은 자동). 작품마다 기억하고 곧바로 그 방식으로 다시 연다.
+    func setComicView(_ value: String?) async {
+        setComicSetting("VIEW", value: value)
+        guard let comic = engine as? ComicEngine else { return }
+        let sizes = await comic.rawSizeList()
+        let wantToon = Webtoon.shared.view(chosen: comicWork?.view, info: comicEntry?.unit.info, sizes: sizes) == .webtoon
+        if wantToon, webtoon == nil {
+            await openWebtoon()
+        } else if !wantToon, let toon = webtoon {
+            // 웹툰에서 읽던 그림에서 쪽 넘김을 잇는다.
+            toon.close()
+            webtoon = nil
+            panel = .none
+            await comic.resume()
+            if let spec = lastComicSpec { await layOutComic(spec) }
+        }
+    }
+
     /// 표지를 작품마다 바꾼 수(모든 보기 설정의 풀이).
     var comicCoverCount: Int { library?.store.comicOverrides().coverAlone.count ?? 0 }
 
@@ -531,7 +577,9 @@ final class ReaderModel: ObservableObject {
     }
 
     func layOutComic(_ spec: ComicViewSpec) async {
-        guard let comic = engine as? ComicEngine else { return }
+        lastComicSpec = spec
+        // 웹툰으로 보는 동안은 쪽을 내지 않는다 — 쪽을 내면 그 쪽이 진도로 적혀 웹툰의 자리(그림 안 비율)를 지운다.
+        guard webtoon == nil, let comic = engine as? ComicEngine else { return }
         darkPaper = true
         pdfArea = spec.area
         pdfSpread = spec.twoPages
@@ -954,6 +1002,7 @@ final class ReaderModel: ObservableObject {
     }
 
     func close() async {
+        webtoon?.close()
         clock?.pause()
         if listening.active { listening.close() }
         lapListen()
@@ -1174,7 +1223,16 @@ struct ReaderView: View {
                                  },
                                  toLibrary: close, dismiss: { model.comicEnd = false })
                 }
-                if model.frame == nil {
+                // 웹툰(구상안 39): 쪽 넘김 화면 위에 따로 선다 — 메뉴 · 판도 웹툰의 것.
+                if let toon = model.webtoon {
+                    WebtoonScreen(model: toon, prefs: prefs, brightness: brightness, library: library, full: full, insets: insets,
+                                  onView: { v in Task { await model.setComicView(v) } },
+                                  openBook: { entry in
+                                      guard let next = library.comicBook(entry.unit) else { return }
+                                      Task { await model.close(); openBook?(next) }
+                                  },
+                                  close: close)
+                } else if model.frame == nil {
                     if model.failure != nil {
                         CpPopup(onDismiss: close) {
                             Text(book.format == .comic ? "이 만화를 열지 못했습니다" : "이 책을 열지 못했습니다").font(CpFont.title).foregroundStyle(CpColor.text)

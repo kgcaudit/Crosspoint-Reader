@@ -42,6 +42,8 @@ struct OloEBookApp: App {
                 if let i = args.firstIndex(of: "-olo-open"), i + 1 < args.count {
                     reading = (library.reading + library.toRead + library.finished).first { $0.book.displayName == args[i + 1] }?.book
                         ?? library.works.flatMap { $0.entries.map(\.unit) }.first { $0.name == args[i + 1] }.flatMap(library.comicBook)
+                        // 이름이 겹치는 화 폴더("001화")는 "작품 폴더/001화" 처럼 경로로.
+                        ?? library.works.flatMap { $0.entries.map(\.unit) }.first { $0.id.contains(args[i + 1]) }.flatMap(library.comicBook)
                 }
                 #endif
             }

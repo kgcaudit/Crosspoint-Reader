@@ -1,5 +1,5 @@
 // 시험용 만화(구상안 35A · 36 · 38): CBZ 두 권(오→왼, 4쪽에 펼침면), 다 읽을 한 권, 화마다 폴더인 웹툰, 옛 스캔본(스캐너 띠 ·
-// 누런 종이 · 흐린 먹 — 여백 자르기 · 색 보정 · 왼→오 펼침면 나누기 확인).
+// 누런 종이 · 흐린 먹 — 여백 자르기 · 색 보정 · 왼→오 펼침면 나누기 확인), 세로로 긴 웹툰(구상안 39 — 화마다 폴더, 한 장은 아주 길다).
 // swift make_comics.swift <출력 폴더>   (cbz 는 zip 명령으로 묶는다)
 import AppKit
 
@@ -54,8 +54,38 @@ let red = NSColor(red: 0.73, green: 0.36, blue: 0.23, alpha: 1)
 cbz("[올로] 바다 마을 이야기 01권.cbz", pages: (1...8).map { ("1권 \($0)쪽", $0 == 4) }, color: red, info: rtl)
 cbz("바다 마을 이야기 02권.cbz", pages: (1...6).map { ("2권 \($0)쪽", false) }, color: red, info: rtl)
 cbz("등대의 아이 (완).cbz", pages: (1...4).map { ("등대 \($0)", false) }, color: NSColor(red: 0.25, green: 0.42, blue: 0.55, alpha: 1), info: nil)
+/// 웹툰 한 장: 폭 720, 세로로 길고 300pt 마다 칸 · 번호(어디까지 내려왔는지 보이게).
+func tallPage(_ text: String, height: Int, color: NSColor) -> Data {
+    let size = NSSize(width: 720, height: height)
+    let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 720, pixelsHigh: height, bitsPerSample: 8, samplesPerPixel: 4,
+                               hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+    NSColor.white.setFill(); NSRect(origin: .zero, size: size).fill()
+    color.setStroke()
+    var y = height - 40
+    var n = 1
+    while y > 300 {
+        let b = NSBezierPath(rect: NSRect(x: 40, y: y - 560, width: 640, height: 540)); b.lineWidth = 6; b.stroke()
+        ("\(text) · \(n)" as NSString).draw(at: NSPoint(x: 80, y: y - 140), withAttributes: [.font: NSFont.boldSystemFont(ofSize: 64), .foregroundColor: color])
+        y -= 640; n += 1
+    }
+    NSGraphicsContext.restoreGraphicsState()
+    return rep.representation(using: .png, properties: [:])!
+}
+
 let ink = NSColor(red: 0x55 / 255, green: 0x4E / 255, blue: 0x44 / 255, alpha: 1)
 cbz("옛 스캔본 01권.cbz", pages: (1...6).map { ("옛 \($0)쪽", $0 == 3) }, color: ink, info: nil, scanned: true)
+let moon = NSColor(red: 0.35, green: 0.3, blue: 0.6, alpha: 1)
+for ep in 1...3 {
+    let dir = out.appendingPathComponent("달빛 정원/\(String(format: "%03d", ep))화")
+    try! fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    for i in 1...3 {
+        // 1화 둘째 장은 아주 길다(띠로 나눠 푸는지 확인).
+        let h = ep == 1 && i == 2 ? 9000 : 2600
+        try! tallPage("\(ep)화 \(i)장", height: h, color: moon).write(to: dir.appendingPathComponent("\(i).png"))
+    }
+}
 for ep in 1...2 {
     let dir = out.appendingPathComponent("고양이 우체국/\(String(format: "%03d", ep))화")
     try! fm.createDirectory(at: dir, withIntermediateDirectories: true)

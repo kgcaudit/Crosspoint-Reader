@@ -13,6 +13,7 @@ import io.github.kgcaudit.reader.document.ProgressRepository
 import io.github.kgcaudit.reader.document.ReadingProgress
 import io.github.kgcaudit.reader.document.comic.ComicOverrides
 import io.github.kgcaudit.reader.document.comic.ComicProgress
+import io.github.kgcaudit.reader.document.comic.ComicView
 import io.github.kgcaudit.reader.document.comic.ShelfMark
 import io.github.kgcaudit.reader.document.comic.SpreadSplit
 import io.github.kgcaudit.reader.document.io.currentTimeMillis
@@ -181,11 +182,13 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
      * 안드로이드에도 간다. [atEnd] 면(마지막 판에 닿았다) 다 읽은 때를 처음 한 번만 적고 지우지 않는다 — 다시 앞으로 가도 "다 읽음"
      * 이 풀리면 작품이 읽은 책에서 읽는 책으로 튀었다(안드로이드 `Library.saveComic`).
      */
-    fun saveComic(unitId: String, page: Int, pageCount: Int, atEnd: Boolean, half: String? = null): ComicProgress = locked {
+    fun saveComic(unitId: String, page: Int, pageCount: Int, atEnd: Boolean, half: String? = null, offset: Float? = null): ComicProgress = locked {
         val now = currentTimeMillis()
         val finishedAt = comics[unitId]?.finishedAtEpochMs ?: if (atEnd) now else null
         val side = SpreadSplit.Half.entries.firstOrNull { it.name == half && it != SpreadSplit.Half.WHOLE }
-        ComicProgress(page.coerceAtLeast(0), pageCount.coerceAtLeast(0), now, finishedAt, half = side).also {
+        // 웹툰(구상안 39)은 그림 안의 비율도 — 폭이 바뀌어도 같은 칸으로 돌아온다. 범위 밖(셈이 넘침)은 가둔다.
+        val inside = offset?.takeIf { !it.isNaN() }?.coerceIn(0f, 1f)
+        ComicProgress(page.coerceAtLeast(0), pageCount.coerceAtLeast(0), now, finishedAt, offset = inside, half = side).also {
             comics[unitId] = it
             persist()
         }
@@ -214,11 +217,13 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
             rightToLeft = bools(RTL),
             coverAlone = bools(COVER),
             splitSpreads = bools(SPLIT),
+            // 보는 방식(웹툰 · 쪽 넘김, 구상안 39). 모르는 글은 "자동"(정하지 않음).
+            view = comicSettings.filterKeys { it.first == VIEW }.mapNotNull { (k, v) -> ComicView.entries.firstOrNull { it.name == v }?.let { k.second to it } }.toMap(),
             shelf = comicSettings.filterKeys { it.first == SHELF }.mapNotNull { (k, v) -> ShelfMark.parse(v)?.let { k.second to it } }.toMap(),
         )
     }
 
-    /** 작품 설정 하나. [value] 가 null 이면 지운다(기본값을 따른다). [kind] 는 "RTL" · "COVER" · "SHELF" · "SPLIT". */
+    /** 작품 설정 하나. [value] 가 null 이면 지운다(기본값을 따른다). [kind] 는 "RTL" · "COVER" · "SHELF" · "SPLIT" · "VIEW". */
     fun setComicSetting(kind: String, subject: String, value: String?) = locked {
         if (value == null) comicSettings.remove(kind to subject) else comicSettings[kind to subject] = value
         persist()

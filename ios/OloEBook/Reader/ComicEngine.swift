@@ -186,7 +186,7 @@ actor ComicEngine: BookEngine, ZoomSource {
         half = unit.count == 1 ? unit[0].half : .whole
         let last = shown.max() ?? page
         let p = store.saveComic(unitId: unitId, page: Int32(last), pageCount: Int32(pageCount), atEnd: i >= units.count - 1,
-                                half: half == .whole ? nil : half.name)
+                                half: half == .whole ? nil : half.name, offset: nil)
         let marks = Set(store.comicBookmarks(unitId: unitId).map { Int(truncating: $0) })
         var f = PageFrame(pdfImage: render(unit), page: page, pages: pageCount, percent: Double(p.fraction) * 100,
                           bookmarked: !marks.isDisjoint(with: shown), hasRight: shown.count > 1, section: "", pageLabel: nil, pagesLeft: 0)
@@ -276,6 +276,22 @@ actor ComicEngine: BookEngine, ZoomSource {
                 place(imgs.first ?? nil, in: area, align: 0)
             }
         }
+    }
+
+    /// 쪽마다 그림 크기(Kotlin 목록 그대로 — 보는 방식 판별 · 웹툰 배치에 넘긴다).
+    func rawSizeList() -> [Any] {
+        if rawSizes.isEmpty {
+            rawSizes = book.sizes()
+            sizes = rawSizes.map { $0 as? ImageSize }
+        }
+        return rawSizes
+    }
+
+    /// 다른 화면(웹툰)이 진도를 옮겼다 — 저장된 자리에서 다시.
+    func resume() {
+        guard let saved = store.comicProgress()[unitId] else { return }
+        page = min(max(Int(saved.page), 0), max(pageCount - 1, 0))
+        half = saved.half ?? .whole
     }
 
     // MARK: BookEngine

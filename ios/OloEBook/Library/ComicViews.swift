@@ -352,7 +352,7 @@ struct WorkScreen: View {
         .frame(minHeight: 40)
         .workButton(s.name) {
             guard let b = library.comicBook(e.unit) else { return }
-            library.store.saveComic(unitId: e.unit.id, page: Int32(first), pageCount: Int32(e.unit.pageCount?.intValue ?? first + 1), atEnd: false, half: nil)
+            library.store.saveComic(unitId: e.unit.id, page: Int32(first), pageCount: Int32(e.unit.pageCount?.intValue ?? first + 1), atEnd: false, half: nil, offset: nil)
             open(b)
         }
     }
