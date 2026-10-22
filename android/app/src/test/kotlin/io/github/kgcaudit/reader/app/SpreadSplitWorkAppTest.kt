@@ -1,5 +1,8 @@
 package io.github.kgcaudit.reader.app
 
+import androidx.compose.ui.test.isSelected
+import io.github.kgcaudit.reader.ui.design.WIDE_CHOSEN_NOTE
+import io.github.kgcaudit.reader.ui.design.WIDE_AUTO_NOTE
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -97,10 +100,11 @@ class SpreadSplitWorkAppTest {
         }
     }
 
-    private fun globalSplit(on: Boolean) = runBlocking {
-        val p = app.container.prefs.load()
-        app.container.prefs.save(p.copy(screen = p.screen.copy(comicSplitSpreads = on)))
-    }
+    /** [option] 단추가 골라져 있는가. 고름 표시는 글자를 감싼 단추에 있어 합친 나무에서 본다. */
+    private fun picked(option: String) = compose.onAllNodes(hasText(option) and isSelected()).fetchSemanticsNodes().isNotEmpty()
+
+    /** 작품의 넓은 그림을 한 장으로(나누지 않음). 0.55.1 부터 모든 만화의 켬 · 끔은 없고 작품마다만 고른다. */
+    private fun oneSheet(title: String) = runBlocking { comics.setSplitSpreads(work(title), false) }
 
     private fun has(matcher: SemanticsMatcher) = compose.onAllNodes(matcher, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
     private fun waitFor(matcher: SemanticsMatcher) = compose.waitUntil(30_000) { has(matcher) }
@@ -240,7 +244,7 @@ class SpreadSplitWorkAppTest {
         compose.onRoot().performTouchInput { click(center) }
         compose.mainClock.advanceTimeBy(1_000)
         click(hasText("보기"))
-        waitFor(hasText("펼침면 나누기"))
+        waitFor(hasText("넓은 그림"))
     }
 
     private fun openPageList() {
@@ -253,59 +257,52 @@ class SpreadSplitWorkAppTest {
     }
 
     @Test
-    fun `choosing to split one work splits only that work and following goes back to the setting for all comics`() {
-        // 모든 만화는 나누지 않는다. 펼쳐 스캔한 작품(별)만 나누려는 사람이다.
-        globalSplit(false)
+    fun `a wide picture is two pages by itself and calling it one sheet keeps only that work whole until set back to automatic`() {
+        // 아무것도 고르지 않은 작품: 가로로 긴 2쪽은 자동으로 두 쪽 그림 — 한 쪽 보기에서 반씩 넘어간다.
         open("별")
         waitForColor(red, "1쪽이 아니다")
         next()
-        waitFor(hasContentDescription("만화 2쪽"))
-        assertSubtitle("2 / 4쪽", "나누지 않는 동안 2쪽이 통째로 보이지 않는다")
+        waitForColor(blue, "자동인데 2쪽이 왼쪽 반(파랑)으로 나뉘지 않았다")
+        assertSubtitle("2 / 4쪽 · 왼쪽 반", "자동인데 2쪽이 반으로 나뉘지 않았다")
 
         openViewPanel()
-        waitFor(hasText("이 작품"))
-        // 위계(UI 규칙 1): "이 작품" 은 "펼침면 나누기"(글자만 있는 줄)에 속한다 — 글자가 한 단 안쪽에서 시작하고 바로 아래에 선다.
-        val step = CpMetrics().levelIndent.value * density
-        assertEquals(step, startX("이 작품") - startX("펼침면 나누기"), 1f, "이 작품 줄이 펼침면 나누기 줄의 한 단 안쪽에서 시작하지 않는다")
-        assertTrue(middleY(node(hasText("이 작품")).fetchSemanticsNode()) > middleY(node(hasText("펼침면 나누기")).fetchSemanticsNode()))
-        assertTrue(middleY(node(hasText("이 작품")).fetchSemanticsNode()) < middleY(node(hasText("색 보정")).fetchSemanticsNode()), "이 작품 줄이 펼침면 나누기 바로 아래가 아니다")
-        assertTrue(has(hasText("\"따름\" 이면 위 줄(모든 만화)을 따릅니다 · 펼쳐 스캔한 작품만 \"나눔\"")), "따름의 뜻을 풀지 않았다")
+        // 넓은 그림은 두 쪽 보기 줄 바로 아래(확정 구상안) — 둘이 함께 "어떻게 보이나" 를 정한다. 같은 급이라 들이지 않는다.
+        assertTrue(middleY(node(hasText("넓은 그림")).fetchSemanticsNode()) > middleY(node(hasText("세로에서 두 쪽 보기")).fetchSemanticsNode()))
+        assertEquals(startX("세로에서 두 쪽 보기"), startX("넓은 그림"), 1f, "넓은 그림 줄이 두 쪽 보기 줄과 다른 자리에서 시작한다")
+        // 자동 판단이 고른 칸이 처음부터 골라져 있고, 자동이라고 말한다. 없어진 말("펼침면 · 따름 · 이 작품")은 판에 없다.
+        assertTrue(picked("두 쪽"), "자동 판단(두 쪽)이 골라져 있지 않다")
+        assertTrue(has(hasText(WIDE_AUTO_NOTE)), "자동으로 판단했다는 설명이 없다")
+        for (gone in listOf("펼침면 나누기", "이 작품", "따름")) assertFalse(has(hasText(gone)), "없앤 말 \"$gone\" 이 남았다")
+        // 어떻게 보이는지 그림 줄: 두 쪽 그림은 한 쪽 보기에서 반씩, 두 쪽 보기에서 함께.
+        assertTrue(has(hasText("반씩 차례로")) && has(hasText("두 쪽을 함께(한 장 그대로)")))
 
-        choose("이 작품", "나눔")
-        compose.waitUntil(10_000) { work("별").splitSpreads == true }
-        // 보던 2쪽이 곧바로 나뉘고 부제가 반을 알린다.
-        waitFor(hasText("2 / 4쪽 · 왼쪽 반"))
+        choose("넓은 그림", "한 장")
+        compose.waitUntil(10_000) { work("별").splitSpreads == false }
+        // 보던 2쪽이 곧바로 통째로 서고, 그림 줄도 한 장으로 바뀐다. 고른 값이라고 말하고 되돌릴 길을 준다.
+        waitFor(hasText(WIDE_CHOSEN_NOTE))
+        assertTrue(picked("한 장"), "한 장을 눌렀는데 골라지지 않았다")
+        assertFalse(has(hasText("반씩 차례로")), "한 장을 골랐는데 그림 줄이 반씩이라고 한다")
         save(screen(), "split-work-panel.png")
-        assertEquals(false, app.container.prefs.load().screen.comicSplitSpreads, "이 작품을 고르는데 모든 만화의 설정이 바뀌었다")
         back(); back()
-        waitForColor(blue, "나눔을 고른 뒤 2쪽 왼쪽 반(파랑)이 아니다")
-        next()
-        waitForColor(green, "2쪽 다음 조각이 오른쪽 반(초록)이 아니다")
+        assertSubtitle("2 / 4쪽", "한 장을 골랐는데 2쪽이 반으로 남았다")
 
-        // 다른 작품(달)은 모든 만화의 설정(끔)을 따라 통째로다.
+        // 다른 작품(달)은 고르지 않아 자동 그대로 — 별에 고른 값이 번지지 않는다.
         assertEquals(null, work("달").splitSpreads)
         back(); back()
         compose.waitUntil(30_000) { has(hasContentDescription("달 작품")) }
         open("달", fresh = false)
         next()
-        waitFor(hasContentDescription("만화 2쪽"))
-        assertSubtitle("2 / 4쪽", "별만 고른 나눔이 달까지 나눴다")
-        next()
-        waitFor(hasContentDescription("만화 3쪽"))
+        waitForColor(blue, "별에 고른 한 장이 달까지 번졌다(2쪽이 왼쪽 반이 아니다)")
 
-        // 별을 "따름" 으로 되돌리면 모든 만화의 설정(끔)을 따라 통째로.
+        // 별을 자동으로 되돌리면 다시 두 쪽 — 반씩 넘어간다.
         back(); back()
         compose.waitUntil(30_000) { has(hasContentDescription("별 1권 이어 읽기")) }
         open("별", fresh = false)
         openViewPanel()
-        choose("이 작품", "따름")
+        node(hasText(WIDE_CHOSEN_NOTE)).performClick()
         compose.waitUntil(10_000) { work("별").splitSpreads == null }
-        waitFor(hasText("2 / 4쪽"))
-        back(); back()
-        // 모든 만화의 설정을 켜면 따름인 별도 나뉜다.
-        openViewPanel()
-        choose("펼침면 나누기", "켬")
-        waitFor(hasText("2 / 4쪽 · 오른쪽 반"))
+        waitFor(hasText(WIDE_AUTO_NOTE))
+        waitFor(hasText("2 / 4쪽 · 왼쪽 반"))
     }
 
     @Test
@@ -369,7 +366,7 @@ class SpreadSplitWorkAppTest {
 
     @Test
     fun `the page list keeps a spread as one full-width cell when the work is not split`() {
-        globalSplit(false)
+        oneSheet("별")
         open("별")
         openPageList()
         // 나누지 않으면 펼침면은 줄을 다 쓰는 한 칸 "2쪽" — 반을 고를 수 없다.

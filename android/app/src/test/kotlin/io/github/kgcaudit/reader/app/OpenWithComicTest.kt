@@ -255,15 +255,15 @@ class OpenWithComicTest {
         // 고른 값은 서재 작품에 적힌다 — 받은 파일의 열쇠(문서 주소)에 적으면 서재에서 열 때 따르지 않는다.
         val work = runBlocking { data.comics.works().first().single() }
         compose.waitUntil(10_000) { runBlocking { data.comics.coverChoices().first().works[work.key] } == false }
-        // 펼침면 나누기의 "이 작품" 줄도 같은 작품에 적는다.
-        waitFor(hasText("이 작품"))
-        val splitY = node(hasText("이 작품")).fetchSemanticsNode().boundsInRoot.center.y
-        compose.onAllNodes(hasText("나눔")).let { nodes ->
+        // "넓은 그림" 줄도 같은 작품에 적는다.
+        waitFor(hasText("넓은 그림"))
+        val splitY = node(hasText("넓은 그림")).fetchSemanticsNode().boundsInRoot.center.y
+        compose.onAllNodes(hasText("한 장")).let { nodes ->
             val k = nodes.fetchSemanticsNodes().indexOfFirst { kotlin.math.abs(it.boundsInRoot.center.y - splitY) < 60f }
-            assertTrue(k >= 0, "이 작품 줄에 \"나눔\" 이 없다")
+            assertTrue(k >= 0, "넓은 그림 줄에 \"한 장\" 이 없다")
             nodes[k].performClick()
         }
-        compose.waitUntil(10_000) { runBlocking { data.comics.works().first().single().splitSpreads } == true }
+        compose.waitUntil(10_000) { runBlocking { data.comics.works().first().single().splitSpreads } == false }
     }
 
     @Test
@@ -275,8 +275,8 @@ class OpenWithComicTest {
         openViewPanel()
         // 적을 작품이 없다 — 줄을 두면 고른 값이 어디에도 남지 않는다.
         assertTrue(!has(hasText("표지")), "서재에 없는 받은 만화에 표지 줄이 있다")
-        assertTrue(has(hasText("펼침면 나누기")))
-        assertTrue(!has(hasText("이 작품")), "서재에 없는 받은 만화에 이 작품 나누기 줄이 있다")
+        // 넓은 그림도 적을 작품이 없어 줄이 없다 — 늘 자동 판단이다.
+        assertTrue(!has(hasText("넓은 그림")), "서재에 없는 받은 만화에 넓은 그림 줄이 있다")
     }
 
     @Test

@@ -192,7 +192,6 @@ fun BookComicHost(
         onCoverAlone = { v -> scope.launchWrite(failed) { data.library.setBookCoverAlone(id, v) } },
         coverScope = "이 책만",
         ownCovers = ownCovers(choices),
-        // "이 작품" 나누기 줄은 두지 않는다(onSplitSpreads 없음) — 서재의 만화 작품이 아니라 적어 둘 작품 열쇠가 없다. 모든 만화의
-        // 설정을 따른다.
+        // "넓은 그림" 줄은 두지 않는다(onSplitSpreads 없음) — 서재의 만화 작품이 아니라 적어 둘 작품 열쇠가 없다. 늘 자동 판단이다.
     )
 }

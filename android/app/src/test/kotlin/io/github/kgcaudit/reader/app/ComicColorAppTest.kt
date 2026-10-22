@@ -164,7 +164,7 @@ class ComicColorAppTest {
         openViewPanel()
         // 자리: "펼침면 나누기" 바로 아래, 두 쪽 보기 줄 위(구상안).
         fun y(label: String) = compose.onAllNodes(hasText(label), useUnmergedTree = true).fetchSemanticsNodes().first().boundsInRoot.center.y
-        assertTrue(y("펼침면 나누기") < y("색 보정") && y("색 보정") < y("가로에서 두 쪽 보기"), "색 보정 줄의 자리가 구상안과 다르다")
+        assertTrue(y("여백 자르기") < y("색 보정") && y("색 보정") < y("가로에서 두 쪽 보기"), "색 보정 줄의 자리가 구상안과 다르다")
         click(hasText("선명하게"))
         compose.waitUntil(30_000) { app.container.prefs.load().screen.comicColor == ComicColor.Clear }
         closePanel()

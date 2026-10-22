@@ -606,7 +606,6 @@ class PrefsStore(context: Context) {
             twoPagesPortrait = sp.getBoolean(KEY_TWO_PAGES_PORTRAIT, d.twoPagesPortrait),
             pdfCoverAlone = sp.getBoolean(KEY_PDF_COVER_ALONE, d.pdfCoverAlone),
             comicTrimMargins = sp.getBoolean(KEY_COMIC_TRIM, d.comicTrimMargins),
-            comicSplitSpreads = sp.getBoolean(KEY_COMIC_SPLIT, d.comicSplitSpreads),
             comicColor = enumOf(KEY_COMIC_COLOR, d.comicColor),
             pageTurn = pageTurn(),
             turnSound = enumOf(KEY_TURN_SOUND, d.turnSound),
@@ -670,7 +669,6 @@ class PrefsStore(context: Context) {
             .putBoolean(KEY_TWO_PAGES_PORTRAIT, prefs.screen.twoPagesPortrait)
             .putBoolean(KEY_PDF_COVER_ALONE, prefs.screen.pdfCoverAlone)
             .putBoolean(KEY_COMIC_TRIM, prefs.screen.comicTrimMargins)
-            .putBoolean(KEY_COMIC_SPLIT, prefs.screen.comicSplitSpreads)
             .putString(KEY_COMIC_COLOR, prefs.screen.comicColor.name)
             .putString(KEY_PAGE_TURN, prefs.screen.pageTurn.name)
             .putString(KEY_TURN_SOUND, prefs.screen.turnSound.name)
@@ -753,7 +751,7 @@ class PrefsStore(context: Context) {
          * "켬" 이 적혀 있다 — 옛 이름을 읽으면 새 기본이 아무에게도 닿지 않는다([KEY_TWO_PAGES_PORTRAIT] 와 같은 사정).
          */
         private const val KEY_COMIC_TRIM = "comicTrimMarginsV2"
-        private const val KEY_COMIC_SPLIT = "comicSplitSpreads"
+        // "comicSplitSpreads"(모든 만화의 펼침면 나누기)는 0.55.1 에 없앴다 — 남은 값은 읽지 않는다. 같은 이름을 다른 뜻으로 다시 쓰지 말 것.
         private const val KEY_COMIC_COLOR = "comicColor"
         private const val KEY_PAGE_TURN = "pageTurnV2"
         /** 0.31 까지의 넘김 효과 — 읽기만 한다([pageTurn]). */
