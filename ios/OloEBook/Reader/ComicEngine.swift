@@ -20,6 +20,21 @@ enum ComicImages {
         return UIImage(cgImage: cg)
     }
 
+    /// 쪽마다 그림 크기(공통 `ImageHeader` 가 머리로 읽은 것). 머리로 못 읽은 쪽은 ImageIO 에 픽셀 크기만 묻는다(안드로이드 0.55.2 의
+    /// `ComicPages.size` 와 같은 대비) — 크기를 모르면 펼침면도 세로 쪽으로 쳐 나누지 않아, 두 쪽 중 한 쪽을 건너뛴 것처럼 보였다.
+    static func sizes(_ book: IosComicBook) -> [Any] {
+        var raw = book.sizes()
+        for i in raw.indices where !(raw[i] is ImageSize) {
+            guard let data = book.data(i: Int32(i)), let src = CGImageSourceCreateWithData(data as CFData, nil),
+                  let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
+                  let w = props[kCGImagePropertyPixelWidth] as? Int, let h = props[kCGImagePropertyPixelHeight] as? Int, w > 0, h > 0 else { continue }
+            // 돌려 찍은 그림(방향 5~8)은 가로 · 세로가 바뀐다.
+            let turned = ((props[kCGImagePropertyOrientation] as? Int) ?? 1) >= 5
+            raw[i] = ImageSize(width: Int32(turned ? h : w), height: Int32(turned ? w : h))
+        }
+        return raw
+    }
+
     /// 펼침면의 반([half])을 떼고 여백 상자([frame], 조각 크기에 대한 비율)대로 자른다. 자를 것이 없거나 실패하면 그대로.
     static func cut(_ img: UIImage, half: SpreadSplit.Half, frame: MarginTrim.Frame) -> UIImage {
         guard let cg = img.cgImage else { return img }
@@ -152,7 +167,7 @@ actor ComicEngine: BookEngine, ZoomSource {
 
     private func arrange() {
         if rawSizes.isEmpty {
-            rawSizes = book.sizes()
+            rawSizes = ComicImages.sizes(book)
             sizes = rawSizes.map { $0 as? ImageSize }
         }
         guard let spec, pageCount > 0 else { units = (0..<max(pageCount, 1)).map { [SpreadSplit.Part(page: Int32($0), half: .whole)] }; return }
@@ -281,7 +296,7 @@ actor ComicEngine: BookEngine, ZoomSource {
     /// 쪽마다 그림 크기(Kotlin 목록 그대로 — 보는 방식 판별 · 웹툰 배치에 넘긴다).
     func rawSizeList() -> [Any] {
         if rawSizes.isEmpty {
-            rawSizes = book.sizes()
+            rawSizes = ComicImages.sizes(book)
             sizes = rawSizes.map { $0 as? ImageSize }
         }
         return rawSizes

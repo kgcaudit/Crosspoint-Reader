@@ -18,7 +18,7 @@ final class WebtoonEpisode: @unchecked Sendable {
         self.unitId = unitId
         self.label = label
         self.book = book
-        rawSizes = book.sizes()
+        rawSizes = ComicImages.sizes(book)
         sizes = rawSizes.map { $0 as? ImageSize }
     }
 }
