@@ -147,4 +147,54 @@ class ImageHeaderTest {
     private fun le16(v: Int) = byteArrayOf(v.toByte(), (v shr 8).toByte())
     private fun le24(v: Int) = byteArrayOf(v.toByte(), (v shr 8).toByte(), (v shr 16).toByte())
     private fun le32(v: Int) = byteArrayOf(v.toByte(), (v shr 8).toByte(), (v shr 16).toByte(), (v shr 24).toByte())
+
+    // ── AVIF · HEIC (0.55.1) ────────────────────────────────────────
+
+    private fun u32(v: Int) = byteArrayOf((v ushr 24).toByte(), (v ushr 16).toByte(), (v ushr 8).toByte(), v.toByte())
+    private fun box(type: String, vararg parts: ByteArray): ByteArray {
+        val body = parts.fold(ByteArray(0)) { a, b -> a + b }
+        return u32(8 + body.size) + type.toByteArray() + body
+    }
+    private fun ispe(w: Int, h: Int) = box("ispe", u32(0), u32(w), u32(h))
+    private fun iso(brand: String, vararg props: ByteArray) =
+        box("ftyp", brand.toByteArray(), u32(0), "mif1".toByteArray(), brand.toByteArray()) +
+            box("meta", u32(0), box("hdlr", u32(0), u32(0), "pict".toByteArray(), ByteArray(12)), box("iprp", box("ipco", *props))) +
+            box("mdat", ByteArray(5000) { 0x55 })
+
+    /** 한 번에 한 바이트씩만 주는 흐름(압축을 풀며 읽을 때 흔하다). */
+    private class Trickle(private val bytes: ByteArray) : InputStream() {
+        private var at = 0
+        override fun read(): Int = if (at < bytes.size) bytes[at++].toInt() and 0xFF else -1
+        override fun read(b: ByteArray, off: Int, len: Int): Int = if (len == 0) 0 else read().let { if (it < 0) -1 else { b[off] = it.toByte(); 1 } }
+    }
+
+    @Test
+    fun `an avif spread gives its size so it can be split into two pages`() {
+        // 0.55.1 까지는 null — 넓은 그림으로 판정되지 않아 두 쪽 그림의 오른쪽 반을 건너뛰었다.
+        assertEquals(ImageSize(3000, 2100), read(iso("avif", ispe(3000, 2100))))
+    }
+
+    @Test
+    fun `a heic made of tiles gives the whole picture and not one tile`() {
+        // 휴대폰 HEIC: 512 조각마다 ispe, 전체 그림의 ispe 는 그 뒤. 첫 것을 쓰면 정사각 조각이 된다.
+        assertEquals(ImageSize(4032, 3024), read(iso("heic", ispe(512, 512), ispe(512, 512), ispe(4032, 3024))))
+    }
+
+    @Test
+    fun `a picture turned a quarter round is measured the way it stands on screen`() {
+        val turned = box("irot", byteArrayOf(1))
+        assertEquals(ImageSize(2100, 3000), read(iso("avif", ispe(3000, 2100), turned)))
+        assertEquals(ImageSize(3000, 2100), read(iso("avif", ispe(3000, 2100), box("irot", byteArrayOf(2)))))
+    }
+
+    @Test
+    fun `an avif handed over one byte at a time is read the same`() {
+        assertEquals(ImageSize(3000, 2100), ImageHeader.read(Trickle(iso("avif", ispe(3000, 2100)))))
+    }
+
+    @Test
+    fun `an iso media file without a size box is unknown rather than guessed`() {
+        assertNull(read(iso("avif")))
+        assertNull(read(iso("avif").copyOf(20)))
+    }
 }
