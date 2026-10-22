@@ -381,7 +381,27 @@ final class ReaderModel: ObservableObject {
     var pdfFit = PdfFit.page
     var pdfArea = CGRect.zero
     /// 폭 맞춤: 쪽 그림에서 화면 맨 위가 걸친 자리(점).
-    @Published private(set) var pdfOffset: CGFloat = 0
+    @Published private(set) var pdfOffset: CGFloat = 0 {
+        didSet {
+            guard pdfOffset != oldValue else { return }
+            // 고른 네모는 화면 자리라 쪽이 움직이면 글자와 어긋난다 — 닫는다(움직인 뒤 다시 길게 누른다).
+            if selection != nil || tapped != nil { selection = nil; tapped = nil }
+            placeWidth()
+        }
+    }
+
+    /// 폭 맞춤의 쪽이 지금 화면에 놓인 자리를 엔진에 알린다(고르기 · 칠 누르기가 그 자리로 글자를 찾는다).
+    private func placeWidth() {
+        guard isPdf, pdfFit == .width, let pdf = engine as? PdfEngine, let page = frame?.page else { return }
+        let rect = CGRect(x: pdfArea.minX, y: pdfArea.minY - pdfOffset, width: pdfArea.width, height: pdfStripHeight)
+        Task { await pdf.place([(page, rect)]) }
+    }
+
+    /// 이어서: 굴리는 뷰가 손을 멈춘 뒤 알린 쪽마다의 자리.
+    func continuousPlaced(_ list: [(Int, CGRect)]) {
+        guard let pdf = engine as? PdfEngine else { return }
+        Task { await pdf.place(list) }
+    }
     /// 알약을 다시 띄우는 표.
     @Published private(set) var pdfPill = 0
     /// 이어서: 목차 · 진도 · 책갈피로 옮겼다(화면이 그 쪽 머리로 굴린다). 사람이 굴려 바뀐 쪽은 올리지 않는다.
@@ -419,6 +439,7 @@ final class ReaderModel: ObservableObject {
         }
         if pdfFit == .continuous && !fromScroll { continuousJump += 1 }
         fromScroll = false
+        placeWidth()
     }
 
     /// 폭 맞춤: 쪽 안에서 한 화면(10% 겹침)씩. 쪽 끝이면 false — 넘긴다.
@@ -482,6 +503,7 @@ final class ReaderModel: ObservableObject {
     }
 
     func continuousScrolled(center: Int) {
+        if selection != nil || tapped != nil { selection = nil; tapped = nil }
         if center != continuousCenter { continuousCenter = center }
         pdfPill += 1
     }
@@ -790,7 +812,10 @@ final class ReaderModel: ObservableObject {
     @Published var lookUp: SharedText?
     @Published var shareOut: SharedText?
     /// 독서노트를 다시 읽을 때(칠 · 메모 · 지우기마다 하나씩 오른다).
-    @Published private(set) var notesVersion = 0
+    @Published private(set) var notesVersion = 0 {
+        // 이어서 보기는 쪽 그림을 한 번만 그려 둔다 — 칠 · 지우기가 바로 보이게 놓인 쪽들을 다시 그린다(쪽 −1 = 모두).
+        didSet { if isPdf && pdfFit == .continuous { continuousReveal = (-1, -1, -1, continuousReveal.token + 1) } }
+    }
     /// 지면이 어두운가 — 독서노트의 칠 바탕을 옅게.
     var darkPaper = false
     /// 마지막으로 고른 펜 — 메모 판이 그 색으로 연다.
@@ -1094,6 +1119,8 @@ struct ReaderView: View {
                                           onSwipe: { s in Task { await model.swipe(s) } },
                                           onSettle: { t, y, c in Task { await model.continuousSettled(top: t, y: y, center: c) } },
                                           onScroll: { c in model.continuousScrolled(center: c) },
+                                          onLongPress: { p in Task { await model.select(at: p) } },
+                                          onPlaced: { model.continuousPlaced($0) },
                                           reveal: model.continuousReveal,
                                           follow: { t, b, v, h, m in
                                               IosPdfText.shared.follow(top: Double(t), bottom: Double(b), viewTop: Double(v), viewHeight: Double(h), maxTop: Double(m))

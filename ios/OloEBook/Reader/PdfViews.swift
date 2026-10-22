@@ -84,6 +84,10 @@ struct PdfContinuousView: UIViewRepresentable {
     let onSettle: (Int, Int, Int) -> Void
     /// 굴리는 중: 가운데 쪽(알약).
     let onScroll: (Int) -> Void
+    /// 길게 눌렀다(화면 좌표) — 낱말 고르기.
+    var onLongPress: (CGPoint) -> Void = { _ in }
+    /// 손을 멈췄다: 화면 가까운 쪽마다 지금 놓인 자리(화면 좌표) — 고르기 · 칠 누르기가 쓴다.
+    var onPlaced: ([(Int, CGRect)]) -> Void = { _ in }
     /// 듣는 문장(쪽 · 쪽 비율 위 · 아래) — [reveal] 의 번호가 바뀌면 화면 밖일 때만 보이게 옮긴다.
     var reveal: (page: Int, top: CGFloat, bottom: CGFloat, token: Int) = (0, 0, 0, 0)
     /// 옮길 자리 셈(위, 아래, 화면 위, 화면 높이, 끝) → 새 화면 위 또는 nil(Kotlin `IosPdfText.follow`).
@@ -101,6 +105,8 @@ struct PdfContinuousView: UIViewRepresentable {
         sv.contentInsetAdjustmentBehavior = .never
         let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped(_:)))
         sv.addGestureRecognizer(tap)
+        let hold = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.held(_:)))
+        sv.addGestureRecognizer(hold)
         for dir in [UISwipeGestureRecognizer.Direction.left, .right] {
             let swipe = UISwipeGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.swiped(_:)))
             swipe.direction = dir
@@ -191,6 +197,10 @@ struct PdfContinuousView: UIViewRepresentable {
         /// 듣는 문장이 화면(쪽을 놓는 칸) 밖이면 칸 높이 30% 자리로 부드럽게. 칠도 새로 — 쪽 그림은 처음 한 번만 그려 두므로, 다시
         /// 그리지 않으면 문장이 바뀌어도 첫 문장의 칠이 남거나 칠이 아예 보이지 않았다.
         func reveal(page: Int, top: CGFloat, bottom: CGFloat, in sv: UIScrollView) {
+            if page < 0 {
+                for i in views.keys { redraw(i) }
+                return
+            }
             guard page < tops.count else { return }
             for p in Set([page, litPage].compactMap { $0 }) { redraw(p) }
             litPage = page
@@ -261,6 +271,7 @@ struct PdfContinuousView: UIViewRepresentable {
             let work = DispatchWorkItem { [weak self, weak sv] in
                 guard let self, let sv, let p = self.place(sv) else { return }
                 self.parent.onSettle(p.0, p.1, self.center(sv))
+                self.parent.onPlaced(self.placed(sv))
             }
             settle = work
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
@@ -273,6 +284,19 @@ struct PdfContinuousView: UIViewRepresentable {
             guard let v = g.view else { return }
             let p = g.location(in: v)
             parent.onTap(CGPoint(x: p.x, y: p.y - (scroll?.contentOffset.y ?? 0)))
+        }
+
+        @objc func held(_ g: UILongPressGestureRecognizer) {
+            guard g.state == .began, let v = g.view else { return }
+            // 놓인 자리가 아직 알려지지 않았을 수 있다(굴리자마자 길게 눌렀다) — 지금 자리를 먼저 알린다.
+            if let sv = scroll { parent.onPlaced(placed(sv)) }
+            let p = g.location(in: v)
+            parent.onLongPress(CGPoint(x: p.x, y: p.y - (scroll?.contentOffset.y ?? 0)))
+        }
+
+        /// 화면 가까운 쪽들이 지금 화면에 놓인 자리(화면 좌표 — 굴리는 판이 화면 전체를 덮는다).
+        func placed(_ sv: UIScrollView) -> [(Int, CGRect)] {
+            views.keys.sorted().map { i in (i, CGRect(x: parent.area.minX, y: tops[i] - sv.contentOffset.y, width: laidWidth, height: heights[i])) }
         }
 
         @objc func swiped(_ g: UISwipeGestureRecognizer) { parent.onSwipe(g.direction == .left ? 1 : -1) }

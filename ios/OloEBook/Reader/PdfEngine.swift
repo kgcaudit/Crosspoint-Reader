@@ -313,6 +313,13 @@ actor PdfEngine: BookEngine, ZoomSource {
         return f
     }
 
+    /// 같은 자리를 다시 낸다(칠 · 책갈피 · 찾은 말 · 듣는 문장이 바뀌었다). 이어서 보기는 화면 가운데 쪽을 지키는 [keep] — [show] 는
+    /// 쪽 번호를 화면 맨 위 쪽으로 바꿔, 칠하기 · 지우기 뒤에 화면이 그 쪽 머리로 뛰었다.
+    private func stay() async throws -> PageFrame {
+        if spec?.fit == .continuous { return try await keep(page, y: yPermille, shown: shownCenter) }
+        return try await show(page, y: yPermille)
+    }
+
     private var lastImage: UIImage?
     /// 이어서에서 화면 가운데 쪽(책갈피는 여기에 — 사람이 보고 있는 쪽이다).
     private var shownCenter: Int?
@@ -348,12 +355,12 @@ actor PdfEngine: BookEngine, ZoomSource {
         }
         let shown = spread(page)
         _ = try await book.toggleBookmark(first: Int32(shown.first ?? page), last: Int32(shown.last ?? page))
-        return try await show(page, y: yPermille)
+        return try await stay()
     }
 
     func removeBookmark(_ id: Int64) async throws -> PageFrame {
         try await book.removeBookmark(id: id)
-        return try await show(page, y: yPermille)
+        return try await stay()
     }
 
     func bookmarks() async throws -> [BookmarkItem] {
@@ -483,7 +490,6 @@ actor PdfEngine: BookEngine, ZoomSource {
 
     /// 화면 점 → (쪽, 쪽 비율 x, y). 쪽 전체 보기에서만 — 폭 · 이어서는 화면이 쪽을 옮겨 보여 자리를 셀 수 없다(고르기 · 칠은 쪽 전체에서).
     private func pageAt(_ point: CGPoint) -> (Int, Float, Float)? {
-        guard spec?.fit == .page else { return nil }
         for (p, r) in placedPages where r.insetBy(dx: -12, dy: -12).contains(point) {
             return (p, Float((point.x - r.minX) / r.width), Float((point.y - r.minY) / r.height))
         }
@@ -532,10 +538,17 @@ actor PdfEngine: BookEngine, ZoomSource {
 
     func clearMark() async throws -> PageFrame {
         mark = nil
-        return try await show(page, y: yPermille)
+        return try await stay()
     }
 
-    // 고르기 · 칠(쪽 전체 보기, 한 쪽 안에서만 — 결정 2). 번호는 쪽과 묶은 수(`IosPdfText.encode`).
+    // 고르기 · 칠(한 쪽 안에서만 — 결정 2). 번호는 쪽과 묶은 수(`IosPdfText.encode`).
+
+    /// 폭 맞춤 · 이어서: 쪽이 지금 화면에 놓인 자리(모델 · 굴리는 뷰가 알린다). 쪽 전체 보기는 그리는 자리가 곧 놓인 자리라 쓰지 않는다.
+    /// 이것이 없으면 누른 자리를 쪽 글자로 바꿀 수 없어, 폭 맞춤 · 이어서에서는 고르기 · 칠 누르기가 되지 않았다.
+    func place(_ list: [(Int, CGRect)]) {
+        guard spec?.fit != .page else { return }
+        placedPages = list
+    }
 
     func charAt(_ p: CGPoint, after: Bool) async throws -> Int {
         guard let (pg, x, y) = pageAt(p) else { return -1 }
@@ -576,25 +589,25 @@ actor PdfEngine: BookEngine, ZoomSource {
         let snippet = layer(pg).quote(start: Int32(s), endExclusive: Int32(min(e, Int(layer(pg).length))))
         try await book.highlight(page: Int32(pg), start: Int32(s), end: Int32(e), color: Int32(pen), note: note, snippet: snippet)
         tints[pg] = nil
-        return try await show(page, y: yPermille)
+        return try await stay()
     }
 
     func recolor(_ id: Int64, pen: Int) async throws -> PageFrame {
         try await book.recolor(id: id, color: Int32(pen))
         tints = [:]
-        return try await show(page, y: yPermille)
+        return try await stay()
     }
 
     func setNote(_ id: Int64, _ note: String?) async throws -> PageFrame {
         try await book.setNote(id: id, note: note)
         tints = [:]
-        return try await show(page, y: yPermille)
+        return try await stay()
     }
 
     func removeNote(_ id: Int64) async throws -> PageFrame {
         try await book.removeNote(id: id)
         tints = [:]
-        return try await show(page, y: yPermille)
+        return try await stay()
     }
 
     func noteRows() async throws -> [HighlightItem] { try await book.noteRows().map(HighlightItem.init) }
@@ -632,7 +645,7 @@ actor PdfEngine: BookEngine, ZoomSource {
         speakingRange = (spine, s.start, s.end)
         let here = spread(page)
         if follow && !here.contains(spine) { return try await show(spine) }
-        return try await show(page, y: yPermille)
+        return try await stay()
     }
 
     /// 듣는 문장이 그 쪽에서 차지하는 높이(쪽 비율). 폭 맞춤 · 이어서가 화면 밖으로 나간 문장을 따라간다. 글자 네모가 없으면 nil.
@@ -643,6 +656,6 @@ actor PdfEngine: BookEngine, ZoomSource {
 
     func stopSpeaking() async throws -> PageFrame {
         speakingRange = nil
-        return try await show(page, y: yPermille)
+        return try await stay()
     }
 }
