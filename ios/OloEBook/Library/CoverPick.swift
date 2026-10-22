@@ -112,6 +112,8 @@ struct BookMenu: View {
     let done: (String) -> Void
     /// 책에 든 표지가 있나(EPUB 표지 그림 · PDF 첫 쪽). 묻는 동안은 nil — 설명 줄 자리는 비워 둔다.
     @State private var hasOwn: Bool?
+    /// 그림 위주 책인가(구상안 46) — 판을 열 때 모르면 판별한다(46 · 2A). 묻는 동안 nil.
+    @State private var picture: Bool?
     @ObservedObject private var picked = CoverStore.shared
 
     var body: some View {
@@ -147,6 +149,14 @@ struct BookMenu: View {
                         done("\(name) — 읽을 책으로 옮겼습니다")
                     }
                 }
+                if picture == true {
+                    // 만화로 보는 중이면 "책으로 보기", 아니면 "만화로 보기"(안드로이드 `CoverMenu`). 책 이름 뒤에 조사는 붙이지 않는다.
+                    let comic = IosPictureBooks.shared.opensAsComic(view: library.bookView(book.id), pdf: false, picture: true)
+                    CpListRow(icon: comic ? .book : .grid, tile: CpColor.tileOther, title: comic ? "책으로 보기" : "만화로 보기") {
+                        library.setBookView(book, comic: !comic)
+                        done("\(name) — \(comic ? "책으로" : "만화로") 봅니다")
+                    }
+                }
                 CoverPickRow(pick: pick)
                 CoverRevertRow(title: IosCovers.shared.revertLabel(hasOwn: own), enabled: custom, revert: {
                     CoverStore.shared.clear(book.id)
@@ -155,6 +165,13 @@ struct BookMenu: View {
             }
             HStack { Spacer(); CpButton(title: "닫기", kind: .secondary, action: close) }
         }
-        .task(id: book.id) { hasOwn = await Covers.shared.own(book, library: library) != nil }
+        .task(id: book.id) {
+            hasOwn = await Covers.shared.own(book, library: library) != nil
+            if let known = library.cachedPictureBook(book) {
+                picture = known
+            } else {
+                picture = await library.pictureBook(book) != nil
+            }
+        }
     }
 }

@@ -139,9 +139,14 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
 
     // ── ProgressRepository ────────────────────────────────────────────────
 
-    override suspend fun get(bookId: BookId): ReadingProgress? = locked { progress[bookId.value] }
+    override suspend fun get(bookId: BookId): ReadingProgress? = progressOf(bookId.value)
 
-    override suspend fun save(progress: ReadingProgress) = locked {
+    override suspend fun save(progress: ReadingProgress) = saveProgress(progress)
+
+    /** 읽은 자리(기다리지 않는 판 — 만화 뷰어가 쪽마다 부른다, 구상안 46). */
+    fun progressOf(bookId: String): ReadingProgress? = locked { progress[bookId] }
+
+    fun saveProgress(progress: ReadingProgress) = locked {
         this.progress[progress.bookId.value] = progress
         // 안드로이드와 같은 자동 "다 읽음": 끝 쪽(99.95% 이상)을 처음 본 때. 다시 앞으로 가도 지우지 않는다.
         if (progress.percent >= FINISHED_PERCENT && progress.bookId.value !in finished) {
@@ -157,21 +162,30 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
 
     // ── BookmarkRepository ────────────────────────────────────────────────
 
-    override suspend fun forBook(bookId: BookId): List<Bookmark> = locked {
-        bookmarks.filter { it.bookId == bookId }.sortedWith(compareBy({ order(it.locator) }, { it.id }))
+    override suspend fun forBook(bookId: BookId): List<Bookmark> = bookmarksOf(bookId.value)
+
+    override suspend fun add(bookmark: Bookmark): Bookmark = addBookmark(bookmark)
+
+    override suspend fun remove(id: Long) = removeBookmark(id)
+
+    fun bookmarksOf(bookId: String): List<Bookmark> = locked {
+        bookmarks.filter { it.bookId.value == bookId }.sortedWith(compareBy({ order(it.locator) }, { it.id }))
     }
 
-    override suspend fun add(bookmark: Bookmark): Bookmark = locked {
+    fun addBookmark(bookmark: Bookmark): Bookmark = locked {
         val saved = bookmark.copy(id = nextBookmarkId++)
         bookmarks.add(saved)
         persist()
         saved
     }
 
-    override suspend fun remove(id: Long) = locked {
+    fun removeBookmark(id: Long) = locked {
         bookmarks.removeAll { it.id == id }
         persist()
     }
+
+    /** 작품 · 책 설정 하나(없으면 null). 그림책의 보기 · 방향 · 판별 결과도 여기 둔다(구상안 46 — 안드로이드와 같은 표). */
+    fun comicSetting(kind: String, subject: String): String? = locked { comicSettings[kind to subject] }
 
     // ── 서재 ──────────────────────────────────────────────────────────────
 

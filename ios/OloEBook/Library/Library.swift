@@ -253,6 +253,54 @@ final class Library: ObservableObject {
 
     func workTitle(_ workKey: String) -> String { works.first { $0.key == workKey }?.title ?? "" }
 
+    // MARK: 그림 위주 책(구상안 46)
+
+    /// 사람이 고른 보기("COMIC" · "BOOK"). 고르지 않았으면 nil — 판별대로.
+    func bookView(_ id: String) -> String? { store.comicSetting(kind: IosPictureBooks.shared.VIEW, subject: id) }
+
+    /// 판별해 둔 그림책 여부(파일이 바뀌었거나 아직 모르면 nil).
+    func cachedPictureBook(_ book: LibraryBook) -> Bool? {
+        guard book.format == .epub else { return false }
+        return IosPictureBooks.shared.cached(store: store, bookId: book.id, size: book.sizeBytes)?.boolValue
+    }
+
+    /// 그림책인가 — 모르면 지금 판별해 둔다(책 판을 열 때 · 책을 열 때, 46 · 2A). 판별은 장마다 글을 훑어 큰 책은 느리다.
+    func pictureBook(_ book: LibraryBook) async -> PictureBook? {
+        guard book.format == .epub else { return nil }
+        let end = beginAccess(book)
+        defer { end() }
+        let found = try? await IosPictureBooks.shared.detect(path: book.url.path)
+        IosPictureBooks.shared.remember(store: store, bookId: book.id, size: book.sizeBytes, picture: found != nil,
+                                        rightToLeft: found?.rightToLeft)
+        return found
+    }
+
+    /// 만화로 볼지 고른다. 서재 표지(펼침면이면 앞 반)도 바뀌니 다시 그린다.
+    func setBookView(_ book: LibraryBook, comic: Bool) {
+        store.setComicSetting(kind: IosPictureBooks.shared.VIEW, subject: book.id, value: comic ? "COMIC" : "BOOK")
+        Covers.shared.forget(book)
+        CoverStore.shared.touch()
+    }
+
+    /// 만화로 보는 그림책의 넘기는 방향(사람이 고른 것 → 책에 적힌 것 → 왼→오).
+    func bookRightToLeft(_ id: String) -> Bool {
+        IosPictureBooks.shared.rightToLeft(chosen: store.comicSetting(kind: IosPictureBooks.shared.RTL, subject: id),
+                                           book: IosPictureBooks.shared.cachedRightToLeft(store: store, bookId: id))
+    }
+
+    func setBookRightToLeft(_ book: LibraryBook, _ rtl: Bool) {
+        store.setComicSetting(kind: IosPictureBooks.shared.RTL, subject: book.id, value: rtl ? "1" : "0")
+        Covers.shared.forget(book)
+        CoverStore.shared.touch()
+    }
+
+    /// 서재 표지를 앞 반으로 자를 방향 — 만화로 보는 그림책만(책으로 보면 표지 전체). nil 이면 자르지 않는다.
+    func bookFace(_ book: LibraryBook) -> Bool? {
+        guard cachedPictureBook(book) == true,
+              IosPictureBooks.shared.opensAsComic(view: bookView(book.id), pdf: false, picture: true) else { return nil }
+        return bookRightToLeft(book.id)
+    }
+
     /// 판이 떠 있는 동안 갈래가 바뀌어도 지금 줄을 본다.
     func shelfItem(_ id: String) -> ShelfItem? { (reading + finished + toRead).first { $0.id == id } }
 
@@ -490,11 +538,19 @@ final class Covers: @unchecked Sendable {
 
     func cached(_ book: LibraryBook) -> UIImage? { CoverStore.shared.custom(book.id) ?? cache.object(forKey: key(book)) }
 
-    /// 서재에 보일 표지: 고른 표지(구상안 44)가 있으면 그것, 없으면 책의 것.
+    /// 서재에 보일 표지: 고른 표지(구상안 44)가 있으면 그것, 없으면 책의 것. 만화로 보는 그림책은 펼침면 표지의 앞 반(구상안 46,
+    /// 공통 `CoverCrop.front`) — 만화 탭의 권 표지와 같은 규칙.
     func load(_ book: LibraryBook, library: Library) async -> UIImage? {
         if let picked = CoverStore.shared.custom(book.id) { return picked }
-        return await own(book, library: library)
+        guard let image = await own(book, library: library) else { return nil }
+        guard let rtl = await library.bookFace(book), let cg = image.cgImage, image.size.width > image.size.height * 1.15 else { return image }
+        let range = CoverCrop.shared.front(width: Int32(cg.width), height: Int32(cg.height), rightToLeft: rtl)
+        let rect = CGRect(x: Int(range.first), y: 0, width: Int(range.last) - Int(range.first) + 1, height: cg.height)
+        return cg.cropping(to: rect).map { UIImage(cgImage: $0) } ?? image
     }
+
+    /// 보기 · 방향이 바뀌었다 — 다음에 그릴 때 새로.
+    func forget(_ book: LibraryBook) { cache.removeObject(forKey: key(book)) }
 
     /// 책에 든 표지(EPUB 표지 그림 · PDF 첫 쪽). 판의 "원래 표지로" · 설명 줄이 이것이 있는지 본다.
     func own(_ book: LibraryBook, library: Library) async -> UIImage? {

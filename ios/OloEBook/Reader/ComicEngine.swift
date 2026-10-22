@@ -123,6 +123,8 @@ struct ComicGridInfo {
 actor ComicEngine: BookEngine, ZoomSource {
     private let book: IosComicBook
     private let store: ReadingStore
+    /// 자리 · 책갈피를 적는 곳 — 만화 권은 권의 기록, 그림책은 책의 기록(구상안 46).
+    private let place: IosComicPlace
     let unitId: String
     nonisolated let title: String
     nonisolated let author: String? = nil
@@ -150,16 +152,25 @@ actor ComicEngine: BookEngine, ZoomSource {
             IosComicBook.companion.openArchive(path: file.url.path)
         }
         guard let opened else { throw ComicOpenError.broken }
+        try self.init(book: opened, place: UnitComicPlace(store: store, unitId: unitId), unitId: unitId, title: title, store: store)
+    }
+
+    /// 그림책 EPUB 의 그림들을 만화로(구상안 46). 자리는 책의 것.
+    init(picturesOf path: String, pictures: PictureBook, bookId: String, title: String, store: ReadingStore) throws {
+        guard let opened = IosComicBook.companion.openPictures(path: path, paths: pictures.pages.map(\.path)) else { throw ComicOpenError.broken }
+        try self.init(book: opened, place: BookComicPlace(store: store, bookId: bookId, pages: pictures.pages), unitId: bookId, title: title, store: store)
+    }
+
+    private init(book opened: IosComicBook, place: IosComicPlace, unitId: String, title: String, store: ReadingStore) throws {
         book = opened
         self.store = store
+        self.place = place
         self.unitId = unitId
         self.title = title
         pageCount = Int(opened.pageCount)
-        let saved = store.comicProgress()[unitId]
-        // 다 읽고 마지막 쪽에서 멈춘 권을 다시 열면 처음부터(안드로이드와 같다).
-        if let saved, !(saved.finishedAtEpochMs != nil && Int(saved.page) >= pageCount - 1) {
-            page = min(max(Int(saved.page), 0), pageCount - 1)
-            half = saved.half ?? .whole
+        if let start = place.start(pageCount: Int32(pageCount)) {
+            page = min(max(Int(start.page), 0), pageCount - 1)
+            half = start.half
         }
     }
 
@@ -200,10 +211,9 @@ actor ComicEngine: BookEngine, ZoomSource {
         page = shown.first ?? 0
         half = unit.count == 1 ? unit[0].half : .whole
         let last = shown.max() ?? page
-        let p = store.saveComic(unitId: unitId, page: Int32(last), pageCount: Int32(pageCount), atEnd: i >= units.count - 1,
-                                half: half == .whole ? nil : half.name, offset: nil)
-        let marks = Set(store.comicBookmarks(unitId: unitId).map { Int(truncating: $0) })
-        var f = PageFrame(pdfImage: render(unit), page: page, pages: pageCount, percent: Double(p.fraction) * 100,
+        let fraction = place.save(first: Int32(page), last: Int32(last), pageCount: Int32(pageCount), atEnd: i >= units.count - 1, half: half)
+        let marks = Set(place.marks().map { Int(truncating: $0) })
+        var f = PageFrame(pdfImage: render(unit), page: page, pages: pageCount, percent: Double(fraction) * 100,
                           bookmarked: !marks.isDisjoint(with: shown), hasRight: shown.count > 1, section: "", pageLabel: nil, pagesLeft: 0)
         f.isPdf = false
         f.isComic = true
@@ -345,18 +355,18 @@ actor ComicEngine: BookEngine, ZoomSource {
 
     func toggleBookmark() async throws -> PageFrame {
         let shown = units.isEmpty ? [page] : pages(units[index])
-        _ = store.toggleComicBookmark(unitId: unitId, pages: shown.map { KotlinInt(int: Int32($0)) })
+        _ = place.toggle(pages: shown.map { KotlinInt(int: Int32($0)) })
         return show(index)
     }
 
     func removeBookmark(_ id: Int64) async throws -> PageFrame {
-        _ = store.toggleComicBookmark(unitId: unitId, pages: [KotlinInt(int: Int32(id))])
+        _ = place.toggle(pages: [KotlinInt(int: Int32(id))])
         return show(index)
     }
 
     /// 책갈피는 쪽(발췌 글이 없다). id 는 그 쪽.
     func bookmarks() async throws -> [BookmarkItem] {
-        store.comicBookmarks(unitId: unitId).map { n in
+        place.marks().map { n in
             let p = Int(truncating: n)
             return BookmarkItem(id: Int64(p), snippet: "\(p + 1)쪽", percent: Double(p + 1) * 100 / Double(pageCount), section: "",
                                 created: Date(), page: p)

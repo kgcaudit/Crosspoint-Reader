@@ -342,6 +342,26 @@ final class ReaderModel: ObservableObject {
             }
             return
         }
+        // 그림 위주 EPUB(구상안 46): 고르지 않았으면 판별대로, "책으로 보기" 를 골랐으면 책으로. 만화로 열지 못하면 책으로 연다 —
+        // "열리지 않습니다" 보다 글이 보이는 편이 낫다.
+        if book.format == .epub, library.bookView(book.id) != "BOOK", let pictures = await library.pictureBook(book),
+           IosPictureBooks.shared.opensAsComic(view: library.bookView(book.id), pdf: false, picture: true) {
+            self.library = library
+            let path = book.url.path, id = book.id, label = book.label
+            if let comic = try? await Task.detached(priority: .userInitiated, operation: {
+                try ComicEngine(picturesOf: path, pictures: pictures, bookId: id, title: label, store: store)
+            }).value {
+                // 책 · PDF 엔진은 열 때 "열어 본 때" 를 적는다 — 만화 뷰어로 연 책도 같아야 서재의 "읽는 책" 에 오른다.
+                store.markOpened(bookId: id)
+                title = label
+                comicLabel = label
+                bookComic = true
+                bookComicRTL = library.bookRightToLeft(id)
+                engine = comic
+                isComic = true
+                return
+            }
+        }
         if book.format == .pdf {
             do {
                 let pdf = try await PdfEngine(url: book.url, bookId: book.id, displayName: book.displayName, store: store)
@@ -546,6 +566,19 @@ final class ReaderModel: ObservableObject {
         guard let library, let work = comicWork else { return }
         library.setComicSetting(kind, work: work, value: value)
         comicWork = library.work(of: openBookId)
+    }
+
+    /// 책을 만화 뷰어로 보는 중(그림 위주 EPUB, 구상안 46) — 작품이 없다. 방향 · 표지는 책마다.
+    @Published private(set) var bookComic = false
+    @Published private(set) var bookComicRTL = false
+
+    /// 만화의 넘기는 방향: 작품의 것, 책을 만화로 보는 중이면 책의 것.
+    var comicRTL: Bool { bookComic ? bookComicRTL : comicWork?.rtl == true }
+
+    func setBookComicRTL(_ rtl: Bool) {
+        guard let library, bookComic, let book = library.shelfItem(openBookId)?.book else { return }
+        library.setBookRightToLeft(book, rtl)
+        bookComicRTL = rtl
     }
 
     /// 웹툰으로 보는 중(구상안 39). nil 이면 쪽 넘김.
@@ -1464,7 +1497,7 @@ struct ReaderView: View {
     }
 
     /// 오→왼으로 읽는 만화인가(작품마다: 사람이 고른 값 → ComicInfo → 왼→오).
-    private var rtl: Bool { model.isComic && model.comicWork?.rightToLeft?.boolValue == true }
+    private var rtl: Bool { model.isComic && model.comicRTL }
 
     /// 쪽 넘김의 표지 고르기. 웹툰은 `WebtoonScreen` 이 틀로 고른다(구상안 44 ⑤).
     private var picking: String? { model.isComic && model.webtoon == nil ? pickCover : nil }
@@ -1479,7 +1512,8 @@ struct ReaderView: View {
 
     private func comicSpec(_ full: CGSize, _ insets: EdgeInsets) -> ComicViewSpec? {
         guard model.isComic else { return nil }
-        let cover = model.comicWork?.coverAlone?.boolValue ?? prefs.pdfCoverAlone
+        // 그림책은 책마다 고른 표지(PDF 와 같은 칸 — 안드로이드 `BOOK_COVER` 도 PDF 보기와 나눈다).
+        let cover = model.comicWork?.coverAlone?.boolValue ?? (model.bookComic ? prefs.coverAlone(book.id) : prefs.pdfCoverAlone)
         // 넓은 그림(구상안 41): 이 작품에 고른 값, 고르지 않았으면 자동(가로로 긴 그림은 두 쪽 — 한 쪽 보기에서 반씩).
         let split = IosComicLayout.shared.wideInHalves(chosen: model.comicWork?.splitSpreads)
         return ComicViewSpec(size: full, insets: insets, twoPages: prefs.twoPages(full), coverAlone: cover, rightToLeft: rtl,

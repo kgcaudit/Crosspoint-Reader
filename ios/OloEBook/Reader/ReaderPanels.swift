@@ -35,7 +35,7 @@ struct ReaderPanels: View {
                 }
             case .touchZones:
                 SidePanel(wide: wide, insets: insets, dismiss: model.back) {
-                    TouchZonesScreen(prefs: prefs, rightToLeft: model.isComic && model.comicWork?.rtl == true, back: model.back)
+                    TouchZonesScreen(prefs: prefs, rightToLeft: model.isComic && model.comicRTL, back: model.back)
                 }
             case .footer:
                 SidePanel(wide: wide, insets: insets, dismiss: model.back) {
@@ -230,7 +230,7 @@ private struct ReaderBar: View {
         return frame.isPdf ? "\(frame.page + 1) / \(frame.pages)쪽" : "\(frame.spine + 1) / \(frame.chapters)장"
     }
 
-    private var rtl: Bool { frame.isComic && model.comicWork?.rtl == true }
+    private var rtl: Bool { frame.isComic && model.comicRTL }
 
     private var top: some View {
         HStack(spacing: 0) {
@@ -329,6 +329,24 @@ private struct ViewPanelRows: View {
                 // 넓은 그림(구상안 41): 두 쪽 보기 줄 바로 아래 — 두 줄이 함께 "어떻게 보이나" 를 정한다. 두 쪽 보기에서도 둔다: 고른
                 // 값은 한 쪽 보기로 돌아가면 쓰인다.
                 WideRow(chosen: work.splitSpreads?.boolValue) { v in model.setComicSetting("SPLIT", value: v.map { $0 ? "1" : "0" }) }
+                brightnessRows
+                CpLinkRow(label: "모든 보기 설정") { model.panel = .settings }
+            } else if model.isComic && model.bookComic {
+                // 그림책을 만화로(구상안 46): 보는 방식(웹툰) · 넓은 그림 줄은 없다 — 넓은 쪽은 자동으로 반씩. 방향 · 표지는 이 책만.
+                CpChoice(label: "넘기는 방향", options: ["왼→오", "오→왼"], selected: model.bookComicRTL ? 1 : 0) {
+                    model.setBookComicRTL($0 == 1)
+                }
+                CpChoice(label: "여백 자르기", options: ["켬", "끔"], selected: prefs.comicTrim ? 0 : 1) { prefs.comicTrim = $0 == 0 }
+                CpChoice(label: "색 보정", options: ["끔", "선명하게", "흑백"], selected: prefs.comicColor) { prefs.comicColor = $0 }
+                CpChoice(label: "가로에서 두 쪽 보기", options: ["켬", "끔"], selected: prefs.twoPagesLandscape ? 0 : 1) { prefs.twoPagesLandscape = $0 == 0 }
+                if model.pdfSpread {
+                    CpChoice(label: "표지", options: ["따로", "함께"], selected: prefs.coverAlone(model.openBookId) ? 0 : 1) {
+                        prefs.pdfCoverByBook[model.openBookId] = $0 == 0
+                    }
+                    .padding(.leading, CpMetrics.levelIndent)
+                    CpCaption(text: "이 책만 · 겉표지와 속표지가 있으면 \"함께\" 로 두면 본문 펼침이 맞습니다")
+                        .padding(.leading, CpMetrics.levelIndent).frame(maxWidth: .infinity, alignment: .leading)
+                }
                 brightnessRows
                 CpLinkRow(label: "모든 보기 설정") { model.panel = .settings }
             } else if model.isPdf {

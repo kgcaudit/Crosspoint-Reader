@@ -79,6 +79,11 @@ final class CoverStore: ObservableObject, @unchecked Sendable {
         changed(to)
     }
 
+    /// 표지를 다시 그리게만 한다(그림책의 보기 · 방향이 바뀌어 앞 반이 달라졌다).
+    func touch() {
+        if Thread.isMainThread { version += 1 } else { DispatchQueue.main.async { self.version += 1 } }
+    }
+
     func clear(_ id: String) {
         try? FileManager.default.removeItem(at: url(id))
         changed(id)

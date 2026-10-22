@@ -142,6 +142,15 @@ class IosComicBook private constructor(
             }
         }.getOrNull()
 
+        /**
+         * 그림책 EPUB 의 그림들(구상안 46): EPUB 도 zip 이라 만화 압축처럼 항목을 하나씩 꺼낸다. [paths] 는 공통 `PictureBook` 의
+         * 쪽 차례 그대로 — 압축 안의 그림 차례(이름순)로 다시 늘어놓으면 장 차례와 어긋난다.
+         */
+        fun openPictures(path: String, paths: List<String>): IosComicBook? = runCatching {
+            if (paths.isEmpty()) return null
+            IosComicBook(IosComics.open(path), null, paths)
+        }.getOrNull()
+
         /** 그림 폴더. [fileNames] 는 폴더 바로 아래 파일 이름들. */
         fun openFolder(path: String, fileNames: List<String>): IosComicBook? {
             val pages = ComicContents.folderPages(fileNames)
