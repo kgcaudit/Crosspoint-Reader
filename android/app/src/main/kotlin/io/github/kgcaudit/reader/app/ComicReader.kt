@@ -1,5 +1,6 @@
 package io.github.kgcaudit.reader.app
 
+import io.github.kgcaudit.reader.ui.design.CpPanelHost
 import android.graphics.Bitmap
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
@@ -158,6 +159,13 @@ private const val SLIDE_MS = 220
 private const val EDGE_RESIST = 0.3f
 
 private enum class ComicPanel { None, Bar, View, Settings, Pages, Bookmarks }
+
+/** 판의 무리(0.55.0). 같은 무리 안에서 바꿀 때는 움직이지 않는다. */
+private fun comicPanelGroup(p: ComicPanel): Int = when (p) {
+    ComicPanel.None -> 0
+    ComicPanel.Bar, ComicPanel.View -> 1
+    else -> 2
+}
 
 /**
  * @param work 이 권이 든 작품. 다음 권 · 방향을 여기서 안다. 아직 모르면(서재가 묶는 중) null.
@@ -598,64 +606,68 @@ fun ComicReader(
         CpToast(toast, onDone = { toast = null }, Modifier.align(Alignment.BottomCenter), key = toastCount)
     }
 
-    when (panel) {
-        ComicPanel.None -> Unit
-        ComicPanel.Bar, ComicPanel.View -> CpReaderBar(
-            title = title,
-            // 오→왼이면 방향을 붙인다 — 0.44 까지는 아래 정보 줄이 "← 오→왼" 을 늘 보였는데, 줄을 없애면서(0.45.0) 여기로 옮겼다.
-            // 반 조각이 보이면 어느 반인지 붙인다(0.52.x) — 쪽 번호만이면 같은 "10 / 120쪽" 이 두 번 이어져 넘김이 안 된 것처럼 보였다.
-            // 잠금 표시는 방향 앞에 둔다(구상안 5 · 7) — 상태가 먼저, 읽는 방향은 그 뒤.
-            subtitle = "${pagesLabel(shown.map(::realOf).distinct())} / ${bookCount}쪽" + halfLabel(shownHalf) + io.github.kgcaudit.reader.ui.design.readLockMark() + if (rtl) " · 오→왼" else "",
-            bookmarked = bookmarked,
-            onBookmark = ::toggleBookmark,
-            onBack = onClose,
-            onDismiss = { panel = ComicPanel.None },
-            progress = if (count > 1) page / (count - 1f) else 1f,
-            progressLabel = { "${realOf(pageAt(it, count)) + 1}쪽" },
-            onSeek = { target -> spot = spotOf(parts, pageAt(target, count)) },
-            // 오→왼: 위 막대도 아래 줄처럼 오른쪽에서 차오른다(2026-10-03 사용자 결정 9). 0.40 까지는 위는 왼쪽, 아래는
-            // 오른쪽에서 차올라 한 화면에 두 막대가 서로 반대로 갔다.
-            progressRightToLeft = rtl,
-            comic = true,
-            above = {
-                if (panel == ComicPanel.View) {
-                    Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                        onView?.let { ViewChoice(view, it) }
-                        CpChoice("넘기는 방향", listOf("왼→오", "오→왼"), if (rtl) 1 else 0, { onDirection(it == 1) })
-                        // 모든 만화에 한 설정(사용자 결정 3-나) — 작품마다 고르게 하면 스캔본마다 한 번씩 켜야 한다.
-                        // 다른 켬 · 끔 줄(두 쪽 보기)과 같은 차례로 "켬" 이 앞이다 — 이 줄만 뒤집혀 있으면 같은 자리를 누른 손이 반대로 간다.
-                        CpChoice("여백 자르기", listOf("켬", "끔"), if (prefs.comicTrimMargins) 0 else 1, { onPrefsChange(prefs.copy(comicTrimMargins = it == 0)) })
-                        // 펼침면 나누기(0.50.0) — 여백 자르기와 같은 "쪽 그림 다듬기" 무리라 바로 아래에, 같은 켬 · 끔 차례로.
-                        CpChoice("펼침면 나누기", listOf("켬", "끔"), if (prefs.comicSplitSpreads) 0 else 1, { onPrefsChange(prefs.copy(comicSplitSpreads = it == 0)) })
-                        // 이 작품만(0.52.x, 확정 구상안 4): 위 줄에 속한 줄이라 바로 아래 한 단 안쪽. 두 쪽 보기에서도 둔다 — 두 쪽 보기는
-                        // 나누지 않지만, 고른 값은 한 쪽 보기로 돌아가면 쓰인다(표지 줄과 달리 사라지면 고를 곳을 찾지 못한다).
-                        onSplitSpreads?.let { pick -> io.github.kgcaudit.reader.ui.design.CpSplitRow(splitSpreads, pick) }
-                        ComicColorChoice(prefs, onPrefsChange)
-                        // 책 · PDF 와 같은 두 줄(0.42.0). 두 쪽으로 보는 동안만 그 아래에 이 작품의 표지 줄(구상안 5) — 한 쪽 보기에서는
-                        // 바꿔도 화면에 아무 일이 없다.
-                        CpTwoPageRows(
-                            prefs, onPrefsChange,
-                            cover = onCoverAlone?.takeIf { two }?.let { pick -> { io.github.kgcaudit.reader.ui.design.CpCoverRow(cover, pick, coverScope) } },
-                        )
-                        CpBrightnessRow(prefs.brightness, { onPrefsChange(prefs.copy(brightness = it)) })
-                        CpLinkRow("모든 보기 설정", "", { panel = ComicPanel.Settings })
+    // 판이 바뀔 때 옛 판은 제 길로 나가고 새 판은 제 길로 들어온다(0.55.0). 메뉴와 보기 판, 목록 화면들은 한 무리.
+    CpPanelHost(panel, ::comicPanelGroup) { open ->
+        when (open) {
+            ComicPanel.None -> Unit
+            ComicPanel.Bar, ComicPanel.View -> CpReaderBar(
+                title = title,
+                // 오→왼이면 방향을 붙인다 — 0.44 까지는 아래 정보 줄이 "← 오→왼" 을 늘 보였는데, 줄을 없애면서(0.45.0) 여기로 옮겼다.
+                // 반 조각이 보이면 어느 반인지 붙인다(0.52.x) — 쪽 번호만이면 같은 "10 / 120쪽" 이 두 번 이어져 넘김이 안 된 것처럼 보였다.
+                // 잠금 표시는 방향 앞에 둔다(구상안 5 · 7) — 상태가 먼저, 읽는 방향은 그 뒤.
+                subtitle = "${pagesLabel(shown.map(::realOf).distinct())} / ${bookCount}쪽" + halfLabel(shownHalf) + io.github.kgcaudit.reader.ui.design.readLockMark() + if (rtl) " · 오→왼" else "",
+                bookmarked = bookmarked,
+                onBookmark = ::toggleBookmark,
+                onBack = onClose,
+                onDismiss = { panel = ComicPanel.None },
+                progress = if (count > 1) page / (count - 1f) else 1f,
+                progressLabel = { "${realOf(pageAt(it, count)) + 1}쪽" },
+                onSeek = { target -> spot = spotOf(parts, pageAt(target, count)) },
+                // 오→왼: 위 막대도 아래 줄처럼 오른쪽에서 차오른다(2026-10-03 사용자 결정 9). 0.40 까지는 위는 왼쪽, 아래는
+                // 오른쪽에서 차올라 한 화면에 두 막대가 서로 반대로 갔다.
+                progressRightToLeft = rtl,
+                comic = true,
+                viewOpen = open == ComicPanel.View,
+                above = {
+                    run {
+                        Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                            onView?.let { ViewChoice(view, it) }
+                            CpChoice("넘기는 방향", listOf("왼→오", "오→왼"), if (rtl) 1 else 0, { onDirection(it == 1) })
+                            // 모든 만화에 한 설정(사용자 결정 3-나) — 작품마다 고르게 하면 스캔본마다 한 번씩 켜야 한다.
+                            // 다른 켬 · 끔 줄(두 쪽 보기)과 같은 차례로 "켬" 이 앞이다 — 이 줄만 뒤집혀 있으면 같은 자리를 누른 손이 반대로 간다.
+                            CpChoice("여백 자르기", listOf("켬", "끔"), if (prefs.comicTrimMargins) 0 else 1, { onPrefsChange(prefs.copy(comicTrimMargins = it == 0)) })
+                            // 펼침면 나누기(0.50.0) — 여백 자르기와 같은 "쪽 그림 다듬기" 무리라 바로 아래에, 같은 켬 · 끔 차례로.
+                            CpChoice("펼침면 나누기", listOf("켬", "끔"), if (prefs.comicSplitSpreads) 0 else 1, { onPrefsChange(prefs.copy(comicSplitSpreads = it == 0)) })
+                            // 이 작품만(0.52.x, 확정 구상안 4): 위 줄에 속한 줄이라 바로 아래 한 단 안쪽. 두 쪽 보기에서도 둔다 — 두 쪽 보기는
+                            // 나누지 않지만, 고른 값은 한 쪽 보기로 돌아가면 쓰인다(표지 줄과 달리 사라지면 고를 곳을 찾지 못한다).
+                            onSplitSpreads?.let { pick -> io.github.kgcaudit.reader.ui.design.CpSplitRow(splitSpreads, pick) }
+                            ComicColorChoice(prefs, onPrefsChange)
+                            // 책 · PDF 와 같은 두 줄(0.42.0). 두 쪽으로 보는 동안만 그 아래에 이 작품의 표지 줄(구상안 5) — 한 쪽 보기에서는
+                            // 바꿔도 화면에 아무 일이 없다.
+                            CpTwoPageRows(
+                                prefs, onPrefsChange,
+                                cover = onCoverAlone?.takeIf { two }?.let { pick -> { io.github.kgcaudit.reader.ui.design.CpCoverRow(cover, pick, coverScope) } },
+                            )
+                            CpBrightnessRow(prefs.brightness, { onPrefsChange(prefs.copy(brightness = it)) })
+                            CpLinkRow("모든 보기 설정", "", { panel = ComicPanel.Settings })
+                        }
+                        Spacer(Modifier.height(4.dp))
                     }
-                    Spacer(Modifier.height(4.dp))
-                }
-            },
-        ) {
-            CpToolButton(CpIcons.Grid, "쪽 목록", { panel = ComicPanel.Pages })
-            CpToolButton(CpIcons.Bookmark, "책갈피", { panel = ComicPanel.Bookmarks })
-            CpToolButton(CpIcons.View, "보기", { panel = if (panel == ComicPanel.View) ComicPanel.Bar else ComicPanel.View }, selected = panel == ComicPanel.View)
+                },
+            ) {
+                CpToolButton(CpIcons.Grid, "쪽 목록", { panel = ComicPanel.Pages })
+                CpToolButton(CpIcons.Bookmark, "책갈피", { panel = ComicPanel.Bookmarks })
+                CpToolButton(CpIcons.View, "보기", { panel = if (panel == ComicPanel.View) ComicPanel.Bar else ComicPanel.View }, selected = open == ComicPanel.View)
+            }
+            ComicPanel.Settings -> CpViewSettingsScreen(prefs, onPrefsChange, onBack = { panel = ComicPanel.View }, highlights = false, reader = CpReaderKind.Comic, ownCovers = ownCovers, rightToLeft = rtl)
+            // 쪽 목록 · 책갈피는 책의 쪽으로 보이고 고른다.
+            // 펼침면은 한 줄을 다 쓰고, 나누는 동안은 두 반을 따로 고른다(확정 구상안 6). 고른 반은 실제 쪽이라 방향에 맞는 자리로 옮긴다.
+            ComicPanel.Pages -> PageGrid(book, title, sizes, split, parts.getOrNull(page) ?: SpreadSplit.Part(realOf(page), SpreadSplit.Half.WHOLE), onBack = { panel = ComicPanel.Bar }) { p, half ->
+                panel = ComicPanel.None
+                spot = p * 2 + if (SpreadSplit.isSecond(half, rtl)) 1 else 0
+            }
+            ComicPanel.Bookmarks -> BookmarkList(book, bookmarks, onBack = { panel = ComicPanel.Bar }) { panel = ComicPanel.None; spot = it * 2 }
         }
-        ComicPanel.Settings -> CpViewSettingsScreen(prefs, onPrefsChange, onBack = { panel = ComicPanel.View }, highlights = false, reader = CpReaderKind.Comic, ownCovers = ownCovers, rightToLeft = rtl)
-        // 쪽 목록 · 책갈피는 책의 쪽으로 보이고 고른다.
-        // 펼침면은 한 줄을 다 쓰고, 나누는 동안은 두 반을 따로 고른다(확정 구상안 6). 고른 반은 실제 쪽이라 방향에 맞는 자리로 옮긴다.
-        ComicPanel.Pages -> PageGrid(book, title, sizes, split, parts.getOrNull(page) ?: SpreadSplit.Part(realOf(page), SpreadSplit.Half.WHOLE), onBack = { panel = ComicPanel.Bar }) { p, half ->
-            panel = ComicPanel.None
-            spot = p * 2 + if (SpreadSplit.isSecond(half, rtl)) 1 else 0
-        }
-        ComicPanel.Bookmarks -> BookmarkList(book, bookmarks, onBack = { panel = ComicPanel.Bar }) { panel = ComicPanel.None; spot = it * 2 }
     }
 
     if (ended) {

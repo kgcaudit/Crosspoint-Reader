@@ -1,5 +1,6 @@
 package io.github.kgcaudit.reader.pdf
 
+import io.github.kgcaudit.reader.ui.design.CpPanelHost
 import android.graphics.Bitmap
 import androidx.activity.compose.BackHandler
 import io.github.kgcaudit.reader.document.SpreadSlot
@@ -586,98 +587,102 @@ fun PdfScreen(
         CpBrightnessOverlay(brightness.value, Modifier.align(Alignment.CenterStart))
     }
 
-    when (panel) {
-        PdfPanel.None -> Unit
-        PdfPanel.Bar, PdfPanel.View -> CpReaderBar(
-            title = reader.title,
-            subtitle = "${state.page + 1} / ${state.pageCount}쪽" + io.github.kgcaudit.reader.ui.design.readLockMark(),
-            bookmarked = state.bookmarked,
-            onBookmark = ::toggleBookmark,
-            onBack = closeBook,
-            onDismiss = { panel = PdfPanel.None },
-            // 찾기 · 듣기(4단계 PDF). 글자를 꺼낼 수 없는 휴대폰(안드로이드 14 이하)에서는 단추가 없다.
-            onSearch = if (reader.readsText) ({ whenReadable { panel = PdfPanel.Search } }) else null,
-            onListen = if (reader.readsText) ({ if (hookup.resume()) panel = PdfPanel.None else startListening() }) else null,
-            progress = if (state.pageCount > 1) state.page / (state.pageCount - 1f) else 1f,
-            progressLabel = { pageAt(it, state.pageCount).let { p -> "${reader.book.pageLabel(p) ?: (p + 1)}쪽" } },
-            onSeek = { target -> scope.go { reader.seek(target) } },
-            above = {
-                // EPUB 의 보기 판과 같은 자리. PDF 는 글자 크기·글꼴·여백이 없어 배경 · 밝기 · 화면 회전이다 —
-                // 잡지·도면은 가로로 돌려 보는 일이 많아 회전을 판에 둔다.
-                if (panel == PdfPanel.View) {
-                    Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                        CpThemeSwatches(prefs.theme, { onPrefsChange(prefs.copy(theme = it)) })
-                        CpImageBlendRow(prefs.imageBlend, { onPrefsChange(prefs.copy(imageBlend = it)) })
-                        CpBrightnessRow(prefs.brightness, { onPrefsChange(prefs.copy(brightness = it)) })
-                        val rotations = ScreenRotation.entries
-                        // 쪽 맞춤(③)을 회전 위에 둔다 — 가로로 돌리는 까닭이 대개 글자를 크게 보려는 것이라, 돌린 뒤
-                        // 바로 위 줄에서 폭을 고른다.
-                        val fits = PdfFit.entries
-                        CpChoice("쪽 맞춤", fits.map { it.label }, fits.indexOf(prefs.pdfFit), {
-                            onPrefsChange(prefs.copy(pdfFit = fits[it]))
-                        })
-                        // 이 책의 표지(구상안 5). PDF 판에는 두 쪽 보기 줄이 없어, 두 쪽을 정하는 "쪽 맞춤"(쪽 전체에서만 두 쪽) 아래에
-                        // 한 단 들인다. 두 쪽으로 보는 동안만 — 한 쪽 보기에서는 바꿔도 화면에 아무 일이 없다.
-                        if (twoPagesNow && onCoverAlone != null) io.github.kgcaudit.reader.ui.design.CpCoverRow(cover, onCoverAlone, "이 책만")
-                        CpChoice("화면 회전", rotations.map { it.label }, rotations.indexOf(prefs.rotation), {
-                            onPrefsChange(prefs.copy(rotation = rotations[it]))
-                        })
-                        // 이어서는 누름 · 두 쪽 보기가 다른 보기와 달라 고른 동안 한 줄로 알린다(구상안 — 회전 줄 아래).
-                        if (continuous) {
-                            CpText(
-                                CONTINUOUS_NOTE, CpTheme.type.caption, colors.textMuted,
-                                Modifier.padding(horizontal = CpTheme.metrics.gutter, vertical = 6.dp), maxLines = 3,
-                            )
+    // 판이 바뀔 때 옛 판은 제 길로 나가고 새 판은 제 길로 들어온다(0.55.0). 메뉴와 보기 판, 목록 화면들은 한 무리.
+    CpPanelHost(panel, ::pdfPanelGroup) { shown ->
+        when (shown) {
+            PdfPanel.None -> Unit
+            PdfPanel.Bar, PdfPanel.View -> CpReaderBar(
+                title = reader.title,
+                subtitle = "${state.page + 1} / ${state.pageCount}쪽" + io.github.kgcaudit.reader.ui.design.readLockMark(),
+                bookmarked = state.bookmarked,
+                onBookmark = ::toggleBookmark,
+                onBack = closeBook,
+                onDismiss = { panel = PdfPanel.None },
+                // 찾기 · 듣기(4단계 PDF). 글자를 꺼낼 수 없는 휴대폰(안드로이드 14 이하)에서는 단추가 없다.
+                onSearch = if (reader.readsText) ({ whenReadable { panel = PdfPanel.Search } }) else null,
+                onListen = if (reader.readsText) ({ if (hookup.resume()) panel = PdfPanel.None else startListening() }) else null,
+                progress = if (state.pageCount > 1) state.page / (state.pageCount - 1f) else 1f,
+                progressLabel = { pageAt(it, state.pageCount).let { p -> "${reader.book.pageLabel(p) ?: (p + 1)}쪽" } },
+                onSeek = { target -> scope.go { reader.seek(target) } },
+                viewOpen = shown == PdfPanel.View,
+                above = {
+                    // EPUB 의 보기 판과 같은 자리. PDF 는 글자 크기·글꼴·여백이 없어 배경 · 밝기 · 화면 회전이다 —
+                    // 잡지·도면은 가로로 돌려 보는 일이 많아 회전을 판에 둔다.
+                    run {
+                        Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                            CpThemeSwatches(prefs.theme, { onPrefsChange(prefs.copy(theme = it)) })
+                            CpImageBlendRow(prefs.imageBlend, { onPrefsChange(prefs.copy(imageBlend = it)) })
+                            CpBrightnessRow(prefs.brightness, { onPrefsChange(prefs.copy(brightness = it)) })
+                            val rotations = ScreenRotation.entries
+                            // 쪽 맞춤(③)을 회전 위에 둔다 — 가로로 돌리는 까닭이 대개 글자를 크게 보려는 것이라, 돌린 뒤
+                            // 바로 위 줄에서 폭을 고른다.
+                            val fits = PdfFit.entries
+                            CpChoice("쪽 맞춤", fits.map { it.label }, fits.indexOf(prefs.pdfFit), {
+                                onPrefsChange(prefs.copy(pdfFit = fits[it]))
+                            })
+                            // 이 책의 표지(구상안 5). PDF 판에는 두 쪽 보기 줄이 없어, 두 쪽을 정하는 "쪽 맞춤"(쪽 전체에서만 두 쪽) 아래에
+                            // 한 단 들인다. 두 쪽으로 보는 동안만 — 한 쪽 보기에서는 바꿔도 화면에 아무 일이 없다.
+                            if (twoPagesNow && onCoverAlone != null) io.github.kgcaudit.reader.ui.design.CpCoverRow(cover, onCoverAlone, "이 책만")
+                            CpChoice("화면 회전", rotations.map { it.label }, rotations.indexOf(prefs.rotation), {
+                                onPrefsChange(prefs.copy(rotation = rotations[it]))
+                            })
+                            // 이어서는 누름 · 두 쪽 보기가 다른 보기와 달라 고른 동안 한 줄로 알린다(구상안 — 회전 줄 아래).
+                            if (continuous) {
+                                CpText(
+                                    CONTINUOUS_NOTE, CpTheme.type.caption, colors.textMuted,
+                                    Modifier.padding(horizontal = CpTheme.metrics.gutter, vertical = 6.dp), maxLines = 3,
+                                )
+                            }
+                            CpLinkRow("모든 보기 설정", "", { panel = PdfPanel.Settings })
                         }
-                        CpLinkRow("모든 보기 설정", "", { panel = PdfPanel.Settings })
+                        Spacer(Modifier.height(4.dp))
                     }
-                    Spacer(Modifier.height(4.dp))
-                }
-            },
-        ) {
-            // EPUB 리더와 같은 자리 · 같은 순서. 목차가 없는 PDF 도 단추는 둔다 — 열면 "목차가 없는
-            // 파일입니다" 라고 말해 준다(책마다 단추가 생겼다 없어졌다 하면 손이 헤맨다).
-            CpToolButton(CpIcons.Toc, "목차", { panel = PdfPanel.Contents })
-            CpToolButton(CpIcons.Note, "독서노트", { panel = PdfPanel.Notes })
-            CpToolButton(
-                CpIcons.View,
-                "보기",
-                { panel = if (panel == PdfPanel.View) PdfPanel.Bar else PdfPanel.View },
-                selected = panel == PdfPanel.View,
-            )
-        }
-        PdfPanel.Settings -> CpViewSettingsScreen(prefs, onPrefsChange, onBack = { panel = PdfPanel.View }, pdf = true, highlights = reader.readsText, ownCovers = ownCovers)
-        PdfPanel.Contents, PdfPanel.Notes -> PdfLists(
-            reader = reader,
-            contents = contents,
-            page = state.page,
-            notes = state.notes,
-            showNotes = panel == PdfPanel.Notes,
-            onPanel = { panel = it },
-            onMemo = { note -> text.memo = PdfMemo(note, null, note.snippet, note.color.pen) },
-            scope = scope,
-        )
-        PdfPanel.Search -> CpSearchScreen(
-            query = search.query,
-            onQuery = { search.query = it },
-            onClear = { search.query = ""; search.stop(); closeSearch() },
-            summary = search.summary,
-            progress = search.progress,
-            rows = search.results.map { hit ->
-                CpSearchRow(
-                    section = entries.getOrNull(currentContentsIndex(entries, hit.spine))?.label ?: "${hit.spine + 1}쪽",
-                    context = hit.context,
-                    matchStart = hit.contextMatchStart,
-                    matchLength = (hit.endExclusive - hit.start).coerceAtMost(hit.context.length - hit.contextMatchStart),
-                    where = "${reader.book.pageLabel(hit.spine) ?: (hit.spine + 1)}쪽",
+                },
+            ) {
+                // EPUB 리더와 같은 자리 · 같은 순서. 목차가 없는 PDF 도 단추는 둔다 — 열면 "목차가 없는
+                // 파일입니다" 라고 말해 준다(책마다 단추가 생겼다 없어졌다 하면 손이 헤맨다).
+                CpToolButton(CpIcons.Toc, "목차", { panel = PdfPanel.Contents })
+                CpToolButton(CpIcons.Note, "독서노트", { panel = PdfPanel.Notes })
+                CpToolButton(
+                    CpIcons.View,
+                    "보기",
+                    { panel = if (panel == PdfPanel.View) PdfPanel.Bar else PdfPanel.View },
+                    selected = shown == PdfPanel.View,
                 )
-            },
-            onSearch = { search.start(reader, scope) },
-            onOpen = ::openHit,
-            onBack = { panel = PdfPanel.Bar },
-        )
-        // 목소리 화면은 아래에서 듣기 판과 함께 그린다(EPUB 과 한 벌).
-        PdfPanel.Voices -> Unit
+            }
+            PdfPanel.Settings -> CpViewSettingsScreen(prefs, onPrefsChange, onBack = { panel = PdfPanel.View }, pdf = true, highlights = reader.readsText, ownCovers = ownCovers)
+            PdfPanel.Contents, PdfPanel.Notes -> PdfLists(
+                reader = reader,
+                contents = contents,
+                page = state.page,
+                notes = state.notes,
+                showNotes = shown == PdfPanel.Notes,
+                onPanel = { panel = it },
+                onMemo = { note -> text.memo = PdfMemo(note, null, note.snippet, note.color.pen) },
+                scope = scope,
+            )
+            PdfPanel.Search -> CpSearchScreen(
+                query = search.query,
+                onQuery = { search.query = it },
+                onClear = { search.query = ""; search.stop(); closeSearch() },
+                summary = search.summary,
+                progress = search.progress,
+                rows = search.results.map { hit ->
+                    CpSearchRow(
+                        section = entries.getOrNull(currentContentsIndex(entries, hit.spine))?.label ?: "${hit.spine + 1}쪽",
+                        context = hit.context,
+                        matchStart = hit.contextMatchStart,
+                        matchLength = (hit.endExclusive - hit.start).coerceAtMost(hit.context.length - hit.contextMatchStart),
+                        where = "${reader.book.pageLabel(hit.spine) ?: (hit.spine + 1)}쪽",
+                    )
+                },
+                onSearch = { search.start(reader, scope) },
+                onOpen = ::openHit,
+                onBack = { panel = PdfPanel.Bar },
+            )
+            // 목소리 화면은 아래에서 듣기 판과 함께 그린다(EPUB 과 한 벌).
+            PdfPanel.Voices -> Unit
+        }
     }
 
     ListenPanels(
@@ -727,6 +732,13 @@ fun PdfScreen(
 }
 
 private enum class PdfPanel { None, Bar, View, Settings, Contents, Notes, Search, Voices }
+
+/** 판의 무리(0.55.0). 같은 무리 안에서 바꿀 때는 움직이지 않는다. */
+private fun pdfPanelGroup(p: PdfPanel): Int = when (p) {
+    PdfPanel.None, PdfPanel.Voices -> 0
+    PdfPanel.Bar, PdfPanel.View -> 1
+    else -> 2
+}
 
 /** 보기 판에서 이어서를 골랐을 때의 설명(구상안 문구 그대로). */
 internal const val CONTINUOUS_NOTE = "이어서: 쪽을 폭에 맞춰 위아래로 이어 붙입니다. 누르면 한 화면씩 내려가고, 두 쪽 보기는 쓰지 않습니다."

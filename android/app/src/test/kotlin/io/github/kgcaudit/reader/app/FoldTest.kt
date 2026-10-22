@@ -122,7 +122,7 @@ class FoldTest {
 
     @Test
     @Config(qualifiers = MAIN_LANDSCAPE)
-    fun `the view panel card does not stretch across the unfolded landscape screen`() {
+    fun `the view card floats above the view button on the unfolded landscape screen`() {
         openBook()
         waitFor(hasText(" / ", substring = true))
         compose.onRoot().performTouchInput { click(center) }
@@ -131,9 +131,12 @@ class FoldTest {
         shot("f2-main-landscape-view-panel")
         val card = compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange), useUnmergedTree = true)
             .fetchSemanticsNodes().maxBy { it.boundsInRoot.width }.boundsInRoot
-        assertTrue(dp(card.width) <= 561f, "보기 판이 ${dp(card.width)}dp 로 늘어났다")
-        // 가운데에 놓인다 — 한쪽에 붙으면 반대편 손가락이 멀다.
-        assertTrue(kotlin.math.abs(dp(card.center.x) - screenDp / 2) < 2f, "보기 판이 가운데가 아니다: ${dp(card.left)}..${dp(card.right)}")
+        assertTrue(dp(card.width) <= 421f, "보기 판이 ${dp(card.width)}dp 로 늘어났다")
+        // 보기 단추 위의 카드다(0.55.0, 2026-10-22 사용자 확정 — 0.54 까지는 가운데 560dp). 카드 왼쪽으로 쪽이 절반 넘게 보여
+        // 글자 크기 · 배경을 바꾼 결과가 보인다. 가운데에 두면 판이 본문 한복판을 가렸다.
+        val button = node(hasText("보기")).fetchSemanticsNode().boundsInRoot
+        assertTrue(dp(card.left) > screenDp / 2, "보기 카드가 화면 가운데까지 덮었다: ${dp(card.left)}..${dp(card.right)}")
+        assertTrue(card.bottom <= button.top && card.right >= button.left, "보기 카드가 보기 단추 위에 있지 않다: 카드 $card · 단추 $button")
     }
 
     @Test

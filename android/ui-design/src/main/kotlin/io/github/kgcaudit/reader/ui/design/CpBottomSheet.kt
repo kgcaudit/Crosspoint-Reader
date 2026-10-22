@@ -38,20 +38,22 @@ fun CpBottomSheet(
 ) {
     val c = CpTheme.colors
     BackHandler(onBack = onDismiss)
-    BoxWithConstraints(
-        Modifier.fillMaxSize().background(SHEET_SCRIM)
-            .clickable(indication = null, interactionSource = null, onClick = onDismiss),
-    ) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
         val height = maxHeight
-        Column(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                .then(modifier)
-                .clip(RoundedCornerShape(topStart = CpTheme.metrics.cornerSheet, topEnd = CpTheme.metrics.cornerSheet)).background(c.surface)
-                .blockTouches()
-                .padding(horizontal = horizontalPadding).padding(top = 10.dp, bottom = 24.dp),
-        ) {
-            Box(Modifier.align(Alignment.CenterHorizontally).size(width = 36.dp, height = 4.dp).clip(RoundedCornerShape(50)).background(c.divider))
-            content(height)
+        // 막은 서서히 짙어지고 판은 아래에서 올라온다(0.55.0). 막을 판과 따로 두어야 막은 제자리에서, 판만 움직인다.
+        CpMotionBox(CpMotion.scrimIn(CpMotion.SHEET_IN), CpMotion.scrimOut(CpMotion.SHEET_OUT), Modifier.matchParentSize()) {
+            Box(Modifier.fillMaxSize().background(SHEET_SCRIM).clickable(indication = null, interactionSource = null, onClick = onDismiss))
+        }
+        CpMotionBox(CpMotion.sheetIn, CpMotion.sheetOut, Modifier.align(Alignment.BottomCenter).fillMaxWidth().then(modifier)) {
+            Column(
+                Modifier.fillMaxWidth()
+                    .clip(RoundedCornerShape(topStart = CpTheme.metrics.cornerSheet, topEnd = CpTheme.metrics.cornerSheet)).background(c.surface)
+                    .blockTouches()
+                    .padding(horizontal = horizontalPadding).padding(top = 10.dp, bottom = 24.dp),
+            ) {
+                Box(Modifier.align(Alignment.CenterHorizontally).size(width = 36.dp, height = 4.dp).clip(RoundedCornerShape(50)).background(c.divider))
+                content(height)
+            }
         }
     }
 }
