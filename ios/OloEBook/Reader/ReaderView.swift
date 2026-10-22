@@ -1410,7 +1410,7 @@ struct ReaderView: View {
         guard model.isComic else { return nil }
         let cover = model.comicWork?.coverAlone?.boolValue ?? prefs.pdfCoverAlone
         // 넓은 그림(구상안 41): 이 작품에 고른 값, 고르지 않았으면 자동(가로로 긴 그림은 두 쪽 — 한 쪽 보기에서 반씩).
-        let split = IosComicLayout.shared.wideIsTwo(chosen: model.comicWork?.splitSpreads)
+        let split = IosComicLayout.shared.wideInHalves(chosen: model.comicWork?.splitSpreads)
         return ComicViewSpec(size: full, insets: insets, twoPages: prefs.twoPages(full), coverAlone: cover, rightToLeft: rtl,
                              trim: prefs.comicTrim, split: split, color: prefs.comicColor)
     }

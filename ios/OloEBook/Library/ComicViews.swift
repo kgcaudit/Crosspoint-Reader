@@ -582,37 +582,38 @@ struct ComicBookmarks: View {
     }
 }
 
-/// 보기 판의 "넓은 그림 — 두 쪽 · 한 장"(구상안 41, 안드로이드 `CpWideRow`). 고르지 않으면 자동이 골라져 있고 그렇다고 말한다. 고르면
-/// 설명이 "자동으로 되돌리기" 가 되어 누르면 자동으로. 아래에 한 쪽 · 두 쪽 보기에서 어떻게 서는지 작은 그림.
+/// 보기 판의 "넓은 그림 — 한 쪽 · 두 쪽"(구상안 41, 안드로이드 0.55.3 `CpWideRow`): 두 쪽이 담긴 넓은 그림을 한 쪽 보기에서 반씩 차례로
+/// 볼지 · 함께 볼지. 단추는 보이는 모습의 이름이다 — 0.55.1 의 "두 쪽 · 한 장" 은 아래 그림 줄과 같은 말을 다른 뜻으로 써, "두 쪽" 을
+/// 누르면 한 쪽씩 보였다. 고르지 않으면 자동(한 쪽)이 골라져 있고 그렇다고 말한다. 고르면 설명이 "자동으로 되돌리기" 가 된다.
+/// 두 쪽 보기에서는 어느 쪽이든 두 쪽이 함께라 그림 줄은 단추가 실제로 바꾸는 한 쪽 보기 하나만.
 struct WideRow: View {
     let chosen: Bool?
     let change: (Bool?) -> Void
 
     var body: some View {
-        let two = IosComicLayout.shared.wideIsTwo(chosen: chosen.map { KotlinBoolean(bool: $0) })
+        let L = IosComicLayout.shared
+        let halves = L.wideInHalves(chosen: chosen.map { KotlinBoolean(bool: $0) })
         VStack(alignment: .leading, spacing: 0) {
-            CpChoice(label: "넓은 그림", options: ["두 쪽", "한 장"], selected: two ? 0 : 1) { change($0 == 0) }
+            CpChoice(label: "넓은 그림", options: [L.WIDE_HALVES, L.WIDE_TOGETHER], selected: halves ? 0 : 1) { change($0 == 0) }
             if chosen == nil {
-                CpCaption(text: IosComicLayout.shared.WIDE_AUTO_NOTE)
+                CpCaption(text: L.WIDE_AUTO_NOTE)
             } else {
                 Button { change(nil) } label: {
-                    Text(IosComicLayout.shared.WIDE_CHOSEN_NOTE).font(CpFont.caption).foregroundStyle(CpColor.accentText)
+                    Text(L.WIDE_CHOSEN_NOTE).font(CpFont.caption).foregroundStyle(CpColor.accentText)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, CpMetrics.gutter).padding(.bottom, 6)
                 .accessibilityLabel("자동으로 되돌리기")
             }
-            VStack(alignment: .leading, spacing: 6) {
-                if two {
-                    line("한 쪽 보기", "반씩 차례로") {
-                        HStack(spacing: 6) { sheet(30, false); Text("→").font(CpFont.caption).foregroundStyle(CpColor.textMuted); sheet(30, false) }
-                    }
-                    line("두 쪽 보기", "두 쪽을 함께(한 장 그대로)") { sheet(60, true) }
+            HStack(spacing: 0) {
+                if halves {
+                    HStack(spacing: 6) { sheet(30, false); Text("→").font(CpFont.caption).foregroundStyle(CpColor.textMuted); sheet(30, false) }
                 } else {
-                    line("한 쪽 보기", "한 장 그대로") { sheet(60, false) }
-                    line("두 쪽 보기", "한 장 그대로") { sheet(60, false) }
+                    sheet(60, true)
                 }
+                Text(halves ? L.WIDE_SKETCH_HALVES : L.WIDE_SKETCH_TOGETHER).font(CpFont.caption).foregroundStyle(CpColor.textMuted)
+                    .padding(.leading, 10).lineLimit(2)
             }
             .padding(.horizontal, CpMetrics.gutter).padding(.bottom, 8)
             .accessibilityElement(children: .combine)
@@ -623,13 +624,5 @@ struct WideRow: View {
         Rectangle().fill(CpColor.accentContainer).frame(width: w, height: 42)
             .overlay(Rectangle().stroke(CpColor.outline, lineWidth: 1))
             .overlay { if fold { Rectangle().fill(CpColor.text.opacity(0.5)).frame(width: 1) } }
-    }
-
-    private func line<V: View>(_ label: String, _ says: String, @ViewBuilder _ picture: () -> V) -> some View {
-        HStack(spacing: 0) {
-            Text(label).font(CpFont.caption).foregroundStyle(CpColor.text).frame(width: 78, alignment: .leading)
-            picture()
-            Text(says).font(CpFont.caption).foregroundStyle(CpColor.textMuted).padding(.leading, 10).lineLimit(2)
-        }
     }
 }

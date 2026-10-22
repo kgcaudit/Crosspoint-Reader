@@ -138,13 +138,16 @@ class ComicTrimTest {
     }
 
     @Test
-    fun `a wide picture is two pages unless the work says one`() {
-        assertEquals(true, IosComicLayout.wideIsTwo(null), "automatic: a wide picture holds two pages")
-        assertEquals(false, IosComicLayout.wideIsTwo(false))
-        assertEquals(true, IosComicLayout.wideIsTwo(true))
-        // 작품이 "한 장" 이면 한 쪽 보기에서도 나누지 않는다.
-        val one = IosComicLayout.units(sizes, twoPages = false, coverAlone = true, split = IosComicLayout.wideIsTwo(false), rightToLeft = false)
+    fun `a wide picture is read in halves unless the work says together`() {
+        assertEquals(true, IosComicLayout.wideInHalves(null), "automatic: a wide picture is read half by half")
+        assertEquals(false, IosComicLayout.wideInHalves(false))
+        assertEquals(true, IosComicLayout.wideInHalves(true))
+        // 작품이 "두 쪽"(함께)이면 한 쪽 보기에서도 나누지 않는다.
+        val one = IosComicLayout.units(sizes, twoPages = false, coverAlone = true, split = IosComicLayout.wideInHalves(false), rightToLeft = false)
         assertTrue(one.all { u -> u.single().half == Half.WHOLE })
-        assertTrue(IosComicLayout.WIDE_AUTO_NOTE.startsWith("자동으로 판단했습니다"))
+        // 단추 이름이 보이는 모습과 같아야 한다 — 기본(자동)으로 골라진 첫 단추가 "한 쪽" 이고, 설명도 한 쪽씩이라고 말한다.
+        assertEquals("한 쪽", IosComicLayout.WIDE_HALVES)
+        assertEquals("두 쪽", IosComicLayout.WIDE_TOGETHER)
+        assertTrue(IosComicLayout.WIDE_AUTO_NOTE.endsWith("한 쪽씩 봅니다."))
     }
 }
