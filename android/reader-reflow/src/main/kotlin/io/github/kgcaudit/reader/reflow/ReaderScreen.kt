@@ -1,5 +1,6 @@
 package io.github.kgcaudit.reader.reflow
 
+import io.github.kgcaudit.reader.ui.design.CpPanelHost
 import io.github.kgcaudit.reader.ui.design.HIDDEN_HIGHLIGHT_HINT
 import io.github.kgcaudit.reader.ui.design.bookmarkMessage
 import io.github.kgcaudit.reader.ui.design.BOOKMARK_CORNER
@@ -715,54 +716,58 @@ fun ReaderScreen(
         }
         CpBrightnessOverlay(brightness.value, Modifier.align(Alignment.CenterStart))
 
-        when (panel) {
-            // 목소리 화면은 아래에서 듣기 판과 함께 그린다.
-            Panel.None, Panel.Voices -> Unit
-            Panel.Bar, Panel.View -> ReaderBar(
-                reader = reader,
-                state = state,
-                prefs = prefs,
-                onPrefsChange = onPrefsChange,
-                showView = panel == Panel.View,
-                onClose = closeBook,
-                onPanel = { panel = it },
-                onBookmark = ::toggleBookmark,
-                onSearch = { panel = Panel.Search },
-                onListen = { if (hookup.resume()) panel = Panel.None else startListening() },
-                scope = scope,
-            )
-            Panel.Search -> SearchScreen(
-                session = search,
-                toc = toc.orEmpty(),
-                onSearch = { search.start(reader, scope) },
-                onOpen = ::openHit,
-                onBack = { panel = Panel.Bar },
-                onCleared = { scope.go { reader.clearHighlight() } },
-            )
-            Panel.Settings -> CpViewSettingsScreen(
-                prefs = prefs.screen,
-                onChange = { onPrefsChange(prefs.copy(screen = it)) },
-                onBack = { panel = Panel.View },
-                paragraph = { child -> ParagraphSettings(prefs, onPrefsChange, child) },
-            )
-            Panel.Fonts -> FontsPanel(
-                catalog = reader.fonts,
-                publisher = if (reader.hasBookFonts) PublisherFonts(reader.bookFontPreview) else null,
-                prefs = prefs,
-                onPrefsChange = onPrefsChange,
-                onFontsChanged = { fontsRevision++ },
-                onBack = { panel = Panel.View },
-            )
-            Panel.Contents, Panel.Notes -> ReaderLists(
-                reader = reader,
-                state = state,
-                toc = toc,
-                showNotes = panel == Panel.Notes,
-                onPanel = { panel = it },
-                onMemo = { memo = it },
-                onShare = { shareOut(context, it) },
-                scope = scope,
-            )
+        // 판이 바뀔 때 옛 판은 제 길로 나가고 새 판은 제 길로 들어온다(0.55.0). 메뉴와 보기 판, 목록 화면들은 한 무리 —
+        // 그 안에서는 움직이지 않고 갈아 끼운다.
+        CpPanelHost(panel, ::panelGroup) { shown ->
+            when (shown) {
+                // 목소리 화면은 아래에서 듣기 판과 함께 그린다.
+                Panel.None, Panel.Voices -> Unit
+                Panel.Bar, Panel.View -> ReaderBar(
+                    reader = reader,
+                    state = state,
+                    prefs = prefs,
+                    onPrefsChange = onPrefsChange,
+                    showView = shown == Panel.View,
+                    onClose = closeBook,
+                    onPanel = { panel = it },
+                    onBookmark = ::toggleBookmark,
+                    onSearch = { panel = Panel.Search },
+                    onListen = { if (hookup.resume()) panel = Panel.None else startListening() },
+                    scope = scope,
+                )
+                Panel.Search -> SearchScreen(
+                    session = search,
+                    toc = toc.orEmpty(),
+                    onSearch = { search.start(reader, scope) },
+                    onOpen = ::openHit,
+                    onBack = { panel = Panel.Bar },
+                    onCleared = { scope.go { reader.clearHighlight() } },
+                )
+                Panel.Settings -> CpViewSettingsScreen(
+                    prefs = prefs.screen,
+                    onChange = { onPrefsChange(prefs.copy(screen = it)) },
+                    onBack = { panel = Panel.View },
+                    paragraph = { child -> ParagraphSettings(prefs, onPrefsChange, child) },
+                )
+                Panel.Fonts -> FontsPanel(
+                    catalog = reader.fonts,
+                    publisher = if (reader.hasBookFonts) PublisherFonts(reader.bookFontPreview) else null,
+                    prefs = prefs,
+                    onPrefsChange = onPrefsChange,
+                    onFontsChanged = { fontsRevision++ },
+                    onBack = { panel = Panel.View },
+                )
+                Panel.Contents, Panel.Notes -> ReaderLists(
+                    reader = reader,
+                    state = state,
+                    toc = toc,
+                    showNotes = shown == Panel.Notes,
+                    onPanel = { panel = it },
+                    onMemo = { memo = it },
+                    onShare = { shareOut(context, it) },
+                    scope = scope,
+                )
+            }
         }
 
         // 듣기 판 · 목소리 화면(PDF 와 한 벌). 목소리 화면은 아래 판들과 함께 그린다.
@@ -839,6 +844,13 @@ fun ReaderScreen(
  */
 private enum class Panel { None, Bar, View, Fonts, Settings, Search, Contents, Notes, Voices }
 
+/** 판의 무리(0.55.0). 같은 무리 안에서 바꿀 때는 움직이지 않는다 — 설정 → 글꼴처럼 옆 판 안에서 넘어갈 때마다 판이 나갔다 들어오면 정신없다. */
+private fun panelGroup(p: Panel): Int = when (p) {
+    Panel.None, Panel.Voices -> 0
+    Panel.Bar, Panel.View -> 1
+    else -> 2
+}
+
 /** 한 번 그린 쪽. 넘김 효과가 옛 쪽을 새 쪽과 함께 그리는 동안 옛 쪽의 내용을 쥐고 있다. */
 private data class PageFrame(
     val page: io.github.kgcaudit.reader.layout.Page?,
@@ -882,11 +894,10 @@ private fun ReaderBar(
         progress = state.percent / 100f,
         progressLabel = { "${(it * 100).roundToInt()}%" },
         onSeek = { target -> scope.go { reader.seek(target) } },
+        viewOpen = showView,
         above = {
-            if (showView) {
-                ViewSettings(reader, prefs, onPrefsChange, onFonts = { onPanel(Panel.Fonts) }, onAll = { onPanel(Panel.Settings) })
-                Spacer(Modifier.height(4.dp))
-            }
+            ViewSettings(reader, prefs, onPrefsChange, onFonts = { onPanel(Panel.Fonts) }, onAll = { onPanel(Panel.Settings) })
+            Spacer(Modifier.height(4.dp))
         },
     ) {
         CpToolButton(CpIcons.Toc, "목차", { onPanel(Panel.Contents) })

@@ -500,8 +500,9 @@ fun LibraryScreen(
         )
     }
 
-    if (moreMenu) {
-        MoreMenu(
+    // 더 보기 판은 ⋮ 단추 쪽에서 커지며 나오고, 닫을 때도 그리로 줄어든다(0.55.0).
+    io.github.kgcaudit.reader.ui.design.CpPanelHost(moreMenu, { it }) { open ->
+        if (open) MoreMenu(
             onRefresh = { rescan() },
             onFolders = { manageFolders = true },
             onAbout = onAbout,
@@ -872,8 +873,13 @@ private fun MoreMenu(onRefresh: () -> Unit, onFolders: () -> Unit, onAbout: () -
     val c = CpTheme.colors
     androidx.activity.compose.BackHandler(onBack = onDismiss)
     Box(Modifier.fillMaxSize().clickable(indication = null, interactionSource = null, onClick = onDismiss).windowInsetsPadding(WindowInsets.safeDrawing)) {
+        io.github.kgcaudit.reader.ui.design.CpMotionBox(
+            io.github.kgcaudit.reader.ui.design.CpMotion.popIn(io.github.kgcaudit.reader.ui.design.CpMotion.POPUP_IN, MORE_MENU_ORIGIN, from = 0.9f),
+            io.github.kgcaudit.reader.ui.design.CpMotion.popOut(io.github.kgcaudit.reader.ui.design.CpMotion.POPUP_OUT, MORE_MENU_ORIGIN),
+            Modifier.align(Alignment.TopEnd).padding(top = MORE_MENU_TOP, end = 8.dp),
+        ) {
         Column(
-            Modifier.align(Alignment.TopEnd).padding(top = MORE_MENU_TOP, end = 8.dp).width(200.dp)
+            Modifier.width(200.dp)
                 .shadow(8.dp, RoundedCornerShape(CpTheme.metrics.cornerSmall + 4.dp))
                 .clip(RoundedCornerShape(CpTheme.metrics.cornerSmall + 4.dp)).background(c.surface)
                 .clickable(indication = null, interactionSource = null) {}
@@ -899,8 +905,12 @@ private fun MoreMenu(onRefresh: () -> Unit, onFolders: () -> Unit, onAbout: () -
                     }
                 }
         }
+        }
     }
 }
+
+/** 더 보기 판이 커지기 시작하는 자리: 오른쪽 위(⋮ 단추 쪽). */
+private val MORE_MENU_ORIGIN = androidx.compose.ui.graphics.TransformOrigin(1f, 0f)
 
 /** 더 보기 판이 뜨는 높이: 탭(48) + 도구 줄 아래. 탭이 없으면 조금 위에 떠도 도구 줄을 가리지 않는다. */
 private val MORE_MENU_TOP = 100.dp

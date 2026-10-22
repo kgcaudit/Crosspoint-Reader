@@ -1,6 +1,7 @@
 package io.github.kgcaudit.reader.ui.design
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -34,6 +35,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -44,7 +46,7 @@ import androidx.compose.ui.unit.sp
  * 생긴 앱이 된다. 무엇을 여는지(목차·보기·책갈피 목록)는 [tools] 로 받는다.
  *
  * @param progress 0..1. 막대를 끄는 동안에는 [progressLabel] 만 바뀌고, 손을 떼면 [onSeek] 한 번.
- * @param above 진행 막대 위에 붙는 판(보기 설정). 없으면 비운다.
+ * @param above 보기 판의 내용. 휴대폰은 진행 막대 위로 펼치고, 태블릿은 보기 단추 위 카드로 띄운다([viewOpen]).
  */
 @Composable
 fun CpReaderBar(
@@ -58,6 +60,8 @@ fun CpReaderBar(
     progressLabel: (Float) -> String,
     onSeek: (Float) -> Unit,
     above: @Composable ColumnScope.() -> Unit = {},
+    /** 보기 판을 연다. [above] 는 늘 넘기고 이것으로 연다 — 닫히는 동안에도 판 내용이 남아 있어야 접히며 사라진다. */
+    viewOpen: Boolean = false,
     /** 본문에서 찾기(E1: 위쪽 돋보기). PDF 처럼 찾을 수 없으면 null — 단추가 없다. */
     onSearch: (() -> Unit)? = null,
     /** 듣기(L1: 위쪽 헤드폰, 찾기 옆). PDF 처럼 글자가 없으면 null — 단추가 없다(L8). */
@@ -90,7 +94,9 @@ fun CpReaderBar(
     androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
         val maxPanel = maxHeight * 0.55f
         Column(Modifier.fillMaxSize()) {
-            Column(Modifier.fillMaxWidth().background(colors.surface).windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top)))) {
+            // 위 막대는 위에서, 아래 막대는 아래에서 들어온다(0.55.0) — 화면 가장자리에서 나온 것이 그리로 돌아간다.
+            CpMotionBox(CpMotion.topBarIn, CpMotion.topBarOut, Modifier.fillMaxWidth()) {
+            Column(Modifier.fillMaxWidth().cpEdge(atBottom = true, colors.divider).background(colors.surface).windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top)))) {
                 // 위 줄은 52dp(0.45.0, 2026-10-04 사용자 결정 — 64dp 두 줄 머리가 읽던 쪽을 너무 가렸다). 서재 머리(19sp)보다
                 // 작은 제목 17sp · 부제 12sp 를 한 단에 쌓는다. 제목이 길면 한 줄에서 자른다 — 두 줄로 늘면 판이 다시 두꺼워진다.
                 Row(
@@ -115,14 +121,23 @@ fun CpReaderBar(
                     )
                 }
             }
+            }
+            val tablet = cpTablet()
             // 가운데: 지면이 보이는 곳. 누르면 닫힌다. 잠금을 푸는 동안은 맨 위에 진행 막대.
             Box(
                 Modifier.weight(1f).fillMaxWidth()
                     .clickable(indication = null, interactionSource = null, onClick = onDismiss),
-            ) { ReadLockHoldBar(holding, Modifier.align(Alignment.TopCenter)) }
+            ) {
+                ReadLockHoldBar(holding, Modifier.align(Alignment.TopCenter))
+                // 태블릿의 보기 판은 보기 단추 위에 뜨는 카드다(0.55.0, 구상안 결정 1-B). 0.54 까지는 가운데 560dp 판을 폭 전체
+                // 바탕 위에 얹어 양옆이 비어 보였고, 판이 화면 폭을 다 가려 글자를 바꿔도 바뀐 본문을 볼 수 없었다.
+                if (tablet) ViewCard(viewOpen, Modifier.matchParentSize(), above)
+            }
+            CpMotionBox(CpMotion.bottomBarIn, CpMotion.bottomBarOut, Modifier.fillMaxWidth()) {
             Column(
                 Modifier
                     .fillMaxWidth()
+                    .cpEdge(atBottom = false, colors.divider)
                     .background(colors.surface)
                     .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))),
             ) {
@@ -130,13 +145,23 @@ fun CpReaderBar(
                 // 아래 줄("모든 보기 설정")이 잘려 누를 수 없었다. 진행 막대 · 도구 단추는 늘 보인다.
                 // 남는 높이를 weight(fill = false) 로 나눠 주는 방식은 가로에서 끝없이 다시 재는 고리에 빠졌다
                 // (TwoPageTest 에서 "Compose did not get idle") — 높이의 상한을 숫자로 준다.
-                // 태블릿 모드에서는 보기 판을 가운데 [VIEW_PANEL_MAX_WIDTH] 폭으로(0.30.0). 969dp 로 늘이면 이름과 단추가
-                // 화면 양 끝으로 갈라졌다. 진행 막대 · 도구 단추는 그대로 폭 전체.
-                Column(
-                    Modifier.align(Alignment.CenterHorizontally)
-                        .then(if (cpTablet()) Modifier.widthIn(max = VIEW_PANEL_MAX_WIDTH) else Modifier)
-                        .heightIn(max = maxPanel).verticalScroll(rememberScrollState()),
-                ) { above() }
+                // 휴대폰에서는 진행 막대 위로 펼쳐진다(0.55.0). 닫을 때도 접히며 사라진다 — 바로 지우면 막대가 툭 내려앉는다.
+                if (!tablet) {
+                    androidx.compose.animation.AnimatedVisibility(
+                        viewOpen,
+                        enter = androidx.compose.animation.expandVertically(androidx.compose.animation.core.tween(CpMotion.BAR_IN, easing = CpMotion.Enter), expandFrom = Alignment.Bottom) +
+                            androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(CpMotion.BAR_IN)),
+                        exit = androidx.compose.animation.shrinkVertically(androidx.compose.animation.core.tween(CpMotion.BAR_OUT, easing = CpMotion.Exit), shrinkTowards = Alignment.Bottom) +
+                            androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(CpMotion.BAR_OUT)),
+                        label = "view",
+                    ) {
+                        Column {
+                            Column(Modifier.heightIn(max = maxPanel).verticalScroll(rememberScrollState())) { above() }
+                            // 판과 진행 막대 사이의 선 — 설정 줄과 "어디까지 읽었나" 줄이 한 덩어리로 읽히지 않게.
+                            Box(Modifier.fillMaxWidth().padding(horizontal = CpTheme.metrics.gutter).height(1.dp).background(colors.divider))
+                        }
+                    }
+                }
                 val shown = dragging ?: progress
                 val direction = if (progressRightToLeft) androidx.compose.ui.unit.LayoutDirection.Rtl else androidx.compose.ui.platform.LocalLayoutDirection.current
                 androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides direction) {
@@ -162,9 +187,46 @@ fun CpReaderBar(
                     content = tools,
                 )
             }
+            }
         }
     }
 }
+
+/**
+ * 태블릿의 보기 카드. 보기 단추(도구 줄의 맨 오른쪽) 바로 위에 붙어, 그 단추 쪽에서 커지며 나온다 — 무엇을 눌러 열렸는지가
+ * 움직임으로 보인다. 그림자와 1dp 테두리로 지면과 가른다. 카드 왼쪽으로는 본문이 그대로 보여, 글자 크기 · 배경을 바꾸면
+ * 바뀐 쪽을 바로 본다(Apple Books · Kindle 의 태블릿 보기 판과 같은 방식).
+ */
+@Composable
+private fun ViewCard(open: Boolean, modifier: Modifier, content: @Composable ColumnScope.() -> Unit) {
+    val colors = CpTheme.colors
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(CpTheme.metrics.cornerSheet)
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier) {
+        val room = maxHeight - VIEW_CARD_MARGIN * 2
+        androidx.compose.animation.AnimatedVisibility(
+            open,
+            Modifier.align(Alignment.BottomEnd).padding(end = VIEW_CARD_MARGIN, bottom = VIEW_CARD_MARGIN),
+            enter = CpMotion.popIn(CpMotion.CARD_IN, VIEW_CARD_ORIGIN, from = 0.9f),
+            exit = CpMotion.popOut(CpMotion.CARD_OUT, VIEW_CARD_ORIGIN),
+            label = "view card",
+        ) {
+            Column(
+                Modifier.width(VIEW_CARD_WIDTH).heightIn(max = room)
+                    .shadow(16.dp, shape)
+                    .background(colors.surface, shape)
+                    .border(1.dp, colors.divider, shape)
+                    .blockTouches()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp).padding(bottom = 8.dp),
+                content = content,
+            )
+        }
+    }
+}
+
+/** 카드가 커지기 시작하는 자리: 오른쪽 아래(보기 단추 쪽). */
+private val VIEW_CARD_ORIGIN = androidx.compose.ui.graphics.TransformOrigin(0.85f, 1f)
+private val VIEW_CARD_MARGIN = 12.dp
 
 /** 읽기 메뉴 치수(0.45.0): 위 52 · 아래 진행 40 + 도구 46 = 86. 합 138dp — 0.44 의 176dp 보다 38dp 덜 가린다. */
 private val READER_TOP = 52.dp
@@ -193,41 +255,53 @@ fun CpFullScreen(
 ) {
     val insets = WindowInsets.systemBars.union(WindowInsets.displayCutout)
     if (!cpTablet()) {
-        Column(
-            Modifier
-                .fillMaxSize()
-                .background(CpTheme.colors.background)
-                // 카메라 구멍도 피한다(0.29.0). 가로로 읽다 목차 · 설정 · 찾기를 열면 행 앞머리나 뒤로 단추가 구멍에 가렸다.
-                .windowInsetsPadding(insets)
-                .blockTouches(),
-            content = content,
-        )
+        // 휴대폰: 오른쪽에서 밀려 들어온다(0.55.0) — 새 화면으로 "들어간다" 는 느낌. 닫으면 오른쪽으로 빠진다.
+        CpMotionBox(CpMotion.sideIn(CpMotion.SCREEN_IN), CpMotion.sideOut(CpMotion.SCREEN_OUT), Modifier.fillMaxSize()) {
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .background(CpTheme.colors.background)
+                    // 카메라 구멍도 피한다(0.29.0). 가로로 읽다 목차 · 설정 · 찾기를 열면 행 앞머리나 뒤로 단추가 구멍에 가렸다.
+                    .windowInsetsPadding(insets)
+                    .blockTouches(),
+                content = content,
+            )
+        }
         return
     }
     val back = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
     Box(Modifier.fillMaxSize()) {
         if (side) {
             // 뒤의 쪽은 흐리게 보인다. 누르면 판을 닫는다(뒤로 가기) — 쪽이 넘어가지 않게 여기서 받는다.
-            Box(
-                Modifier.matchParentSize().background(SIDE_SCRIM)
-                    .clickable(indication = null, interactionSource = null, onClickLabel = "닫기") { back?.onBackPressed() },
-            )
-            Column(
-                Modifier
-                    .align(Alignment.CenterEnd)
-                    .fillMaxHeight()
-                    .width(SIDE_PANEL_WIDTH)
-                    .background(CpTheme.colors.background)
-                    .windowInsetsPadding(insets.only(WindowInsetsSides.Vertical + WindowInsetsSides.End))
-                    .blockTouches(),
-                content = content,
-            )
+            // 막은 서서히 짙어지고, 판은 오른쪽에서 밀려 들어온다(0.55.0). 판 왼쪽 가장자리의 그림자가 쪽과 판을 가른다.
+            CpMotionBox(CpMotion.scrimIn(CpMotion.SIDE_IN), CpMotion.scrimOut(CpMotion.SIDE_OUT), Modifier.matchParentSize()) {
+                Box(
+                    Modifier.fillMaxSize().background(SIDE_SCRIM)
+                        .clickable(indication = null, interactionSource = null, onClickLabel = "닫기") { back?.onBackPressed() },
+                )
+            }
+            CpMotionBox(CpMotion.sideIn(CpMotion.SIDE_IN), CpMotion.sideOut(CpMotion.SIDE_OUT), Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(SIDE_PANEL_WIDTH)) {
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .shadow(16.dp)
+                        .background(CpTheme.colors.background)
+                        .windowInsetsPadding(insets.only(WindowInsetsSides.Vertical + WindowInsetsSides.End))
+                        .blockTouches(),
+                    content = content,
+                )
+            }
         } else {
-            Box(
-                Modifier.matchParentSize().background(CpTheme.colors.background).windowInsetsPadding(insets).blockTouches(),
-                contentAlignment = Alignment.TopCenter,
-            ) {
-                Column(Modifier.fillMaxHeight().then(if (wide) Modifier else Modifier.widthIn(max = CONTENT_MAX_WIDTH)).fillMaxWidth(), content = content)
+            // 리더 밖의 넓은 화면(서재 찾기 · 앱 정보)은 움직이지 않고 바로 바뀐다. 흐려지며 나타나게 했더니, 이 화면을 닫은 뒤에도
+            // 다음 화면이 "쉬지 않는다" 며 시험이 멈췄다(FoldTest 앱 정보 → 덮개 화면 서재) — 쪽 위에 겹치는 판이 아니라 화면이
+            // 바뀌는 것이라 움직임이 없어도 무엇이 열렸는지 보인다.
+            Box(Modifier.matchParentSize()) {
+                Box(
+                    Modifier.fillMaxSize().background(CpTheme.colors.background).windowInsetsPadding(insets).blockTouches(),
+                    contentAlignment = Alignment.TopCenter,
+                ) {
+                    Column(Modifier.fillMaxHeight().then(if (wide) Modifier else Modifier.widthIn(max = CONTENT_MAX_WIDTH)).fillMaxWidth(), content = content)
+                }
             }
         }
     }

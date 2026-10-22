@@ -339,15 +339,19 @@ fun CpPopup(
     Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         // 바깥 막은 판의 형제로 뒤에 둔다. 판을 감싸는 부모가 누를 수 있으면 판 안의 글이 모두 그 한 덩어리에 묶여 화면
         // 읽기가 하나씩 읽지 못했다. 막은 그 자체로 "닫기" 단추로 읽힌다.
-        Box(
-            Modifier
-                .matchParentSize()
-                .background(Color(0x66000000))
-                .then(
-                    if (onDismiss != null) Modifier.clickable(indication = null, interactionSource = null, onClickLabel = "닫기") { onDismiss() }
-                    else Modifier.blockTouches(),
-                ),
-        )
+        // 막은 서서히, 판은 조금 작게 시작해 커지며 나타난다(0.55.0).
+        CpMotionBox(CpMotion.scrimIn(CpMotion.POPUP_IN), CpMotion.scrimOut(CpMotion.POPUP_OUT), Modifier.matchParentSize()) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(Color(0x66000000))
+                    .then(
+                        if (onDismiss != null) Modifier.clickable(indication = null, interactionSource = null, onClickLabel = "닫기") { onDismiss() }
+                        else Modifier.blockTouches(),
+                    ),
+            )
+        }
+        CpMotionBox(CpMotion.popIn(CpMotion.POPUP_IN), CpMotion.popOut(CpMotion.POPUP_OUT)) {
         Column(
             Modifier
                 .padding(32.dp)
@@ -371,6 +375,7 @@ fun CpPopup(
                 CpProgressBar(progress, weight = CpBarWeight.Medium)
             }
             content()
+        }
         }
     }
 }

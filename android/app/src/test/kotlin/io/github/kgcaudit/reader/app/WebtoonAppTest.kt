@@ -316,6 +316,8 @@ class WebtoonAppTest {
             node(hasText("자동")).performClick()
             ticking { has(hasContentDescription("자동 스크롤 멈춤")) }
             ticking { keptOn() }
+            // 메뉴가 다 내려간 뒤에 누른다(0.55.0) — 메뉴는 0.2초 동안 움직이며 닫히고, 그동안은 아직 메뉴가 누름을 받는다.
+            ticking { !has(hasText("자동")) }
             node(hasContentDescription("자동 스크롤 끄기")).performClick()
             // 끄면 휴대폰 설정대로 돌아간다 — 계속 잡고 있으면 배터리가 닳는다.
             ticking { !keptOn() }

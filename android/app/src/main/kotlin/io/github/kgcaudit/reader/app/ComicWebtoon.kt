@@ -1,5 +1,6 @@
 package io.github.kgcaudit.reader.app
 
+import io.github.kgcaudit.reader.ui.design.CpPanelHost
 import android.graphics.Bitmap
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
@@ -119,6 +120,13 @@ import kotlin.math.roundToInt
  */
 
 private enum class WebtoonPanel { None, Bar, View, Settings, Bookmarks, Episodes }
+
+/** 판의 무리(0.55.0). 같은 무리 안에서 바꿀 때는 움직이지 않는다. */
+private fun webtoonPanelGroup(p: WebtoonPanel): Int = when (p) {
+    WebtoonPanel.None -> 0
+    WebtoonPanel.Bar, WebtoonPanel.View -> 1
+    else -> 2
+}
 
 /** 연 화 하나: 책과 그림 크기. [entry] 는 작품을 모르면(낱개 파일) null. */
 class WebtoonEpisode(val entry: WorkEntry?, val book: ComicBook, val sizes: List<ImageSize?>) {
@@ -610,63 +618,67 @@ fun WebtoonReader(
             scope.launch { list.scrollToItem(i, o) }
         }
         val subtitle = listOfNotNull(hereLabel, "${(percent * 100).roundToInt()}%").joinToString(" · ") + io.github.kgcaudit.reader.ui.design.readLockMark()
-        when (panel) {
-            WebtoonPanel.None -> Unit
-            WebtoonPanel.Bar, WebtoonPanel.View -> CpReaderBar(
-                title = title,
-                subtitle = subtitle,
-                comic = true,
-                bookmarked = bookmarked,
-                onBookmark = ::toggleBookmark,
-                onBack = onClose,
-                onDismiss = { panel = WebtoonPanel.None },
-                progress = percent,
-                progressLabel = { "${(it * 100).roundToInt()}%" },
-                onSeek = ::seek,
-                above = {
-                    if (panel == WebtoonPanel.View) {
-                        Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                            ViewChoice(view, onView)
-                            // 그림 폭은 모든 화면에서 바꾼다(0.47.0, 사용자 결정 ⑧) — 휴대폰에서도 꽉 채우면 컷이 커져 웹툰의
-                            // 느낌이 옅어지는 기기가 있다. 값은 화면 등급(좁음 · 넓음)마다 따로 둔다.
-                            CpWebtoonWidthRow(
-                                percentNow,
-                                onPreview = { previewPercent = it },
-                                onCommit = {
-                                    previewPercent = null
-                                    onPrefsChange(prefs.withWebtoonPercent(wide, it))
-                                },
-                            )
-                            // 쪽 넘김의 "색 보정" 과 같은 줄 · 같은 설정(사용자 결정 2-2). 그림 폭과 같은 "그림 다듬기" 무리라 그 아래에.
-                            ComicColorChoice(prefs, onPrefsChange)
-                            CpBrightnessRow(prefs.brightness, { onPrefsChange(prefs.copy(brightness = it)) })
-                            CpLinkRow("모든 보기 설정", "", { panel = WebtoonPanel.Settings })
+        // 판이 바뀔 때 옛 판은 제 길로 나가고 새 판은 제 길로 들어온다(0.55.0). 메뉴와 보기 판, 목록 화면들은 한 무리.
+        CpPanelHost(panel, ::webtoonPanelGroup) { shown ->
+            when (shown) {
+                WebtoonPanel.None -> Unit
+                WebtoonPanel.Bar, WebtoonPanel.View -> CpReaderBar(
+                    title = title,
+                    subtitle = subtitle,
+                    comic = true,
+                    bookmarked = bookmarked,
+                    onBookmark = ::toggleBookmark,
+                    onBack = onClose,
+                    onDismiss = { panel = WebtoonPanel.None },
+                    progress = percent,
+                    progressLabel = { "${(it * 100).roundToInt()}%" },
+                    onSeek = ::seek,
+                    viewOpen = shown == WebtoonPanel.View,
+                    above = {
+                        run {
+                            Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                                ViewChoice(view, onView)
+                                // 그림 폭은 모든 화면에서 바꾼다(0.47.0, 사용자 결정 ⑧) — 휴대폰에서도 꽉 채우면 컷이 커져 웹툰의
+                                // 느낌이 옅어지는 기기가 있다. 값은 화면 등급(좁음 · 넓음)마다 따로 둔다.
+                                CpWebtoonWidthRow(
+                                    percentNow,
+                                    onPreview = { previewPercent = it },
+                                    onCommit = {
+                                        previewPercent = null
+                                        onPrefsChange(prefs.withWebtoonPercent(wide, it))
+                                    },
+                                )
+                                // 쪽 넘김의 "색 보정" 과 같은 줄 · 같은 설정(사용자 결정 2-2). 그림 폭과 같은 "그림 다듬기" 무리라 그 아래에.
+                                ComicColorChoice(prefs, onPrefsChange)
+                                CpBrightnessRow(prefs.brightness, { onPrefsChange(prefs.copy(brightness = it)) })
+                                CpLinkRow("모든 보기 설정", "", { panel = WebtoonPanel.Settings })
+                            }
+                            Spacer(Modifier.height(4.dp))
                         }
-                        Spacer(Modifier.height(4.dp))
-                    }
-                },
-            ) {
-                if (work != null) CpToolButton(CpIcons.Toc, "회차", { panel = WebtoonPanel.Episodes })
-                CpToolButton(CpIcons.Bookmark, "책갈피", { panel = WebtoonPanel.Bookmarks })
-                CpToolButton(CpIcons.Play, "자동", {
-                    autoOn = true
-                    autoPaused = false
+                    },
+                ) {
+                    if (work != null) CpToolButton(CpIcons.Toc, "회차", { panel = WebtoonPanel.Episodes })
+                    CpToolButton(CpIcons.Bookmark, "책갈피", { panel = WebtoonPanel.Bookmarks })
+                    CpToolButton(CpIcons.Play, "자동", {
+                        autoOn = true
+                        autoPaused = false
+                        panel = WebtoonPanel.None
+                    })
+                    CpToolButton(CpIcons.View, "보기", { panel = if (panel == WebtoonPanel.View) WebtoonPanel.Bar else WebtoonPanel.View }, selected = shown == WebtoonPanel.View)
+                }
+                WebtoonPanel.Settings -> CpViewSettingsScreen(
+                    prefs, onPrefsChange, onBack = { panel = WebtoonPanel.View }, highlights = false,
+                    reader = io.github.kgcaudit.reader.ui.design.CpReaderKind.Webtoon,
+                )
+                WebtoonPanel.Bookmarks -> BookmarkList(here.book, if (here.unitId == currentId) bookmarks else emptyList(), onBack = { panel = WebtoonPanel.Bar }) { i ->
                     panel = WebtoonPanel.None
-                })
-                CpToolButton(CpIcons.View, "보기", { panel = if (panel == WebtoonPanel.View) WebtoonPanel.Bar else WebtoonPanel.View }, selected = panel == WebtoonPanel.View)
-            }
-            WebtoonPanel.Settings -> CpViewSettingsScreen(
-                prefs, onPrefsChange, onBack = { panel = WebtoonPanel.View }, highlights = false,
-                reader = io.github.kgcaudit.reader.ui.design.CpReaderKind.Webtoon,
-            )
-            WebtoonPanel.Bookmarks -> BookmarkList(here.book, if (here.unitId == currentId) bookmarks else emptyList(), onBack = { panel = WebtoonPanel.Bar }) { i ->
-                panel = WebtoonPanel.None
-                goTo(k, i)
-            }
-            WebtoonPanel.Episodes -> if (work != null) EpisodeList(work, here.unitId, progress, onBack = { panel = WebtoonPanel.Bar }) { entry ->
-                panel = WebtoonPanel.None
-                val loaded = episodes.indexOfFirst { it.unitId == entry.unit.id }
-                if (loaded >= 0) goTo(loaded, 0) else onJump(entry)
+                    goTo(k, i)
+                }
+                WebtoonPanel.Episodes -> if (work != null) EpisodeList(work, here.unitId, progress, onBack = { panel = WebtoonPanel.Bar }) { entry ->
+                    panel = WebtoonPanel.None
+                    val loaded = episodes.indexOfFirst { it.unitId == entry.unit.id }
+                    if (loaded >= 0) goTo(loaded, 0) else onJump(entry)
+                }
             }
         }
     }

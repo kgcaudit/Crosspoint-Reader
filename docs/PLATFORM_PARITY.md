@@ -1,6 +1,6 @@
 # 안드로이드 ↔ iOS 대조표
 
-마지막 갱신: 2026-10-21 · 기준 안드로이드 판 **0.54.9**
+마지막 갱신: 2026-10-22 · 기준 안드로이드 판 **0.55.0**
 
 **안드로이드가 중심이다**(2026-10-18 사용자 결정). 기능은 안드로이드에서 먼저 정하고 만든다. iOS 는 이 표를 보고 따라간다.
 두 세션은 기억을 나누지 않으므로, 이 문서와 저장소가 유일한 연결 고리다.
@@ -163,6 +163,7 @@ iOS 세션이 공통 코드의 문제를 찾으면 판 칸에 `iOS→안` 이라
 
 | 판 | 날짜 | 무엇 | 범위 | iOS |
 |---|---|---|---|---|
+| 0.55.0 | 2026-10-22 | 태블릿 보기 판을 보기 단추 위 카드(420dp)로 · 메뉴와 본문 사이 선 + 그림자 · 모든 판이 열리고 닫힐 때 움직임(값 표는 `design-handoff/README.md` §6-8 · 9 · 10, 코드 `CpMotion.kt`) | 화면 | 대기 — iPad 보기 설정은 단추에 붙는 팝오버가 시스템 방식이라 그대로 쓰면 된다. 시스템 시트 · 팝오버는 길이 · 곡선을 앱이 못 정한다 — 직접 그리는 판(읽기 메뉴 막대)만 같은 값으로 |
 | iOS→안 | 2026-10-22 | **요청**(구상안 34A, 사용자 결정): PDF 글자 층 코드를 공통(commonMain)으로 옮겨 주세요 — 지금 안드로이드 전용 `reader-pdf` 에 있어 iOS 가 쓸 수 없다. 대상: `PageText`(rowStarts · inVisualOrder · withoutOverprint · repaired · lines · charAt · wordAt · rects · quote · speech · isReadable · textOnly), `TextLine`, `PdfSpeech`, `BrokenHangul`, `KsHangul`(java.util.Base64 → kotlin.io.encoding.Base64), `AdobeKr`, `layerHits`, 가능하면 `PageViewport.reveal`. 시험(`PageTextTest` · `BrokenHangulTest`)도 `commonTest` 로 — 이름에 쉼표가 없어야 iOS 에서 컴파일된다(아래 요청 참고). **까닭**: PDF 형광펜 자리(`Reflow(page, charOffset)`)는 이 코드가 다듬은 층 글자의 번호라, 두 앱이 같은 코드여야 PDF 형광펜이 백업으로 오간다. iOS 는 층을 PDFKit 의 `PDFPage.string` · `characterBounds(at:)` 로 채워 `PageText(text, boxes)` 를 만들 생각이다(번호 체계가 같아 `assembleLayer` 는 필요 없을 듯). 옮긴 뒤 iOS 가 PDF 찾기 · 형광펜 · 듣기(34)를 잇는다 — 그때까지 PDF 2단계는 멈춘다 | 공통 | 대기(안드로이드) |
 | iOS→안 | 2026-10-21 | **요청**: `commonTest` 로 옮긴 시험(4c63d06)이 iOS 에서 컴파일되지 않는다 — `:document` · `:core-layout` 의 `compileTestKotlinIosSimulatorArm64` 오류 67개. (1) Kotlin/Native 는 시험 이름(백틱)에 쉼표를 받지 않는다: `Name contains illegal characters: ","` — 29개 파일(CssParserTest 5 · CoverCropTest 6 · PictureBookTest 5 · ComicNameTest 4 · ComicReadingTest 4 · TocParserTest 4 · SpreadSplitTest 3 · ChapterParserTest 3 …). 쉼표를 ` and ` · 대시로 바꾸면 된다(iOS 시험들이 그렇게 한다). (2) `ContainerParserTest` 가 JVM 의 `reader()` 를 쓴다(7곳) — `jvmTest` 로 되돌리거나 공통 입력으로. 맥에서 `./gradlew :document:iosSimulatorArm64Test :core-layout:iosSimulatorArm64Test` 로 확인할 수 있다. 공통 코드라 iOS 세션은 고치지 않고 요청으로 남긴다 | 공통 | 대기(안드로이드) |
 | 0.54.9 | 2026-10-20 | 터치 영역의 설명 · 그림을 읽기 방향대로 — 오→왼 만화에서 열면 "이 작품은 오→왼으로 읽습니다 — 좌우가 바뀝니다" 와 뒤집힌 설명, 한 손 설명에 미는 방향(`TouchZones.description(rightToLeft)`) | 화면 | 반영(2026-10-22, 구상안 37) — 같은 글 · 그림 규칙, Kotlin `TouchZones.description` |
