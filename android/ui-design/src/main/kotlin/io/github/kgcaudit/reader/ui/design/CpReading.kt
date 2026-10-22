@@ -57,6 +57,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
@@ -596,28 +597,74 @@ fun CpCoverRow(coverAlone: Boolean, onChange: (Boolean) -> Unit, scope: String, 
 }
 
 /**
- * 보기 판의 "이 작품" 줄: 펼침면 나누기 켬 · 끔(모든 만화) 아래에서 지금 보는 작품만 따름 · 나눔 · 통째로. 펼쳐 스캔한 작품과
- * 넓게 그린 한 장 그림이 든 작품이 한 서재에 섞여 있다 — 모든 만화의 설정 하나로는 어느 한쪽이 늘 틀린다.
+ * 보기 판의 "넓은 그림" 줄(0.55.1, 2026-10-22 사용자 확정 구상안): 이 작품의 가로로 긴 그림이 두 쪽이 담긴 것인지, 원래 한 장인지.
  *
- * 위 줄(글자만 있는 줄)에 속하므로 한 단 안쪽에서 시작하고, 엷은 강조 바탕으로 위 줄의 딸린 줄임을 보인다. 바탕이 없으면 같은 급의
- * 설정이 하나 더 있는 것처럼 읽혔다(확정 구상안).
+ * 0.55.0 까지는 "펼침면 나누기 켬 · 끔"(모든 만화) 아래에 "이 작품 따름 · 나눔 · 통째로" 를 달았다. 그림이 무엇인지와 어떻게 볼지를
+ * 한 줄에 섞어, 사용자가 "펼침면 · 따름 · 이 작품" 모두 와닿지 않는다고 했다. 어떻게 볼지는 이미 두 쪽 보기가 정한다 — 여기서는
+ * 그림이 무엇인지만 고른다. 앱이 자동으로 판단한 값이 처음부터 골라져 있어, 틀렸을 때만 누른다.
  *
- * @param split 이 작품에 고른 값: 나눔 true · 통째로 false · 따름 null.
+ * 고른 값을 바로 그림으로 보인다(한 쪽 보기 · 두 쪽 보기에서 어떻게 서는지) — 말로만 풀면 "두 쪽" 이 무엇을 바꾸는지 안 보였다.
+ *
+ * @param split 이 작품에 고른 값: 두 쪽 true · 한 장 false · 고르지 않음(자동) null.
+ * @param onChange null 은 자동으로 되돌리기.
  */
 @Composable
-fun CpSplitRow(split: Boolean?, onChange: (Boolean?) -> Unit, modifier: Modifier = Modifier) {
+fun CpWideRow(split: Boolean?, onChange: (Boolean?) -> Unit, modifier: Modifier = Modifier) {
+    val c = CpTheme.colors
     val m = CpTheme.metrics
-    val options = listOf(null, true, false)
-    Column(modifier.fillMaxWidth().background(CpTheme.colors.accentContainer.copy(alpha = 0.5f)).padding(start = m.levelIndent)) {
-        CpChoice("이 작품", listOf("따름", "나눔", "통째로"), options.indexOf(split), { onChange(options[it]) })
-        CpText(
-            "\"따름\" 이면 위 줄(모든 만화)을 따릅니다 · 펼쳐 스캔한 작품만 \"나눔\"",
-            CpTheme.type.caption, CpTheme.colors.textMuted,
-            Modifier.padding(start = m.gutter, end = m.gutter, bottom = 6.dp),
-            maxLines = 3,
-        )
+    val two = split ?: true
+    val note = Modifier.padding(start = m.gutter, end = m.gutter, bottom = 6.dp)
+    Column(modifier.fillMaxWidth()) {
+        CpChoice("넓은 그림", listOf("두 쪽", "한 장"), if (two) 0 else 1, { onChange(it == 0) })
+        if (split == null) {
+            CpText(WIDE_AUTO_NOTE, CpTheme.type.caption, c.textMuted, note, maxLines = 3)
+        } else {
+            CpText(
+                WIDE_CHOSEN_NOTE, CpTheme.type.caption, c.accentText,
+                note.clickable(role = Role.Button, onClickLabel = "자동으로 되돌리기") { onChange(null) },
+                maxLines = 2,
+            )
+        }
+        WideSketch(two, Modifier.padding(start = m.gutter, end = m.gutter, bottom = 8.dp))
     }
 }
+
+/** 고르지 않았을 때(자동) 설명. 시험이 같은 글을 찾는다. */
+const val WIDE_AUTO_NOTE = "자동으로 판단했습니다 — 가로로 긴 그림을 두 쪽이 담긴 것으로 봅니다. 아니면 \"한 장\" 을 누르세요."
+
+/** 이 작품에 고른 뒤의 설명. 누르면 자동으로 되돌린다. */
+const val WIDE_CHOSEN_NOTE = "이 작품에 고른 값입니다(모든 권). 자동으로 되돌리기"
+
+/** 한 쪽 보기 · 두 쪽 보기에서 넓은 그림이 어떻게 서는지 작은 그림. 두 쪽 그림은 가운데 접힌 자리에 선을 긋는다. */
+@Composable
+private fun WideSketch(two: Boolean, modifier: Modifier) {
+    val c = CpTheme.colors
+    @Composable
+    fun sheet(w: Dp, fold: Boolean) = Box(Modifier.size(w, SKETCH_H).background(c.accentContainer).border(1.dp, c.outline)) {
+        if (fold) Box(Modifier.align(Alignment.Center).width(1.dp).fillMaxHeight().background(c.text.copy(alpha = 0.5f)))
+    }
+    @Composable
+    fun line(label: String, says: String, picture: @Composable () -> Unit) = Row(Modifier.padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+        CpText(label, CpTheme.type.caption, c.text, Modifier.width(78.dp))
+        picture()
+        CpText(says, CpTheme.type.caption, c.textMuted, Modifier.padding(start = 10.dp), maxLines = 2)
+    }
+    Column(modifier.semantics(mergeDescendants = true) {}) {
+        if (two) {
+            line("한 쪽 보기", "반씩 차례로") {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    sheet(SKETCH_H * 0.72f, false); CpText("→", CpTheme.type.caption, c.textMuted, Modifier.padding(horizontal = 6.dp)); sheet(SKETCH_H * 0.72f, false)
+                }
+            }
+            line("두 쪽 보기", "두 쪽을 함께(한 장 그대로)") { sheet(SKETCH_H * 1.44f, true) }
+        } else {
+            line("한 쪽 보기", "한 장 그대로") { sheet(SKETCH_H * 1.44f, false) }
+            line("두 쪽 보기", "한 장 그대로") { sheet(SKETCH_H * 1.44f, false) }
+        }
+    }
+}
+
+private val SKETCH_H = 42.dp
 
 /**
  * 모든 보기 설정. 묶음 제목(글자만) 아래 설정 줄은 한 단([CpMetrics.levelIndent]) 안쪽이다(위계 규칙).

@@ -113,9 +113,9 @@ class ComicSpreadCoverTest {
 
     private fun setRightToLeft(rtl: Boolean) = runBlocking { data.comics.setRightToLeft(work(), rtl) }
 
+    /** 이 작품의 넓은 그림을 한 장으로(나누지 않음) 또는 자동(두 쪽, 나눔)으로. 0.55.1 부터 모든 만화의 켬 · 끔은 없다. */
     private fun setSplit(on: Boolean) {
-        val prefs = app.container.prefs.load()
-        app.container.prefs.save(prefs.copy(screen = prefs.screen.copy(comicSplitSpreads = on)))
+        runBlocking { data.comics.setSplitSpreads(work(), if (on) null else false) }
         compose.activityRule.scenario.recreate()
     }
 

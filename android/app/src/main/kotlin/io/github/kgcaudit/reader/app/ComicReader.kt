@@ -215,11 +215,15 @@ fun ComicReader(
     onShownPart: (SpreadSplit.Part) -> Unit = {},
     /** 표지 고르기에서 통째로 보이는 펼침면의 고른 곳(책의 쪽 + 반, 통째로면 WHOLE). 나머지 반을 어둡게 덮고 고른 곳에 테를 두른다. */
     coverMark: SpreadSplit.Part? = null,
-    /** 이 작품에 고른 펼침면 나누기: 나눔 true · 통째로 false. null 은 "따름" — 모든 만화의 설정([ScreenPrefs.comicSplitSpreads]). */
+    /**
+     * 이 작품의 넓은 그림이 무엇인가(0.55.1, 2026-10-22 사용자 확정): 두 쪽이 담긴 그림 true · 원래 한 장 false. null 은 고르지 않음 —
+     * 자동 판단([SpreadSplit.isWide], 가로로 긴 그림은 두 쪽)을 따른다. 어떻게 보일지는 두 쪽 보기가 정한다: 두 쪽 그림은 한 쪽
+     * 보기에서 반씩, 두 쪽 보기에서 한 장 그대로.
+     */
     splitSpreads: Boolean? = null,
     /**
-     * 보기 판의 "이 작품" 줄에서 고를 때(null 은 따름). null 이면 그 줄이 없다 — 서재의 작품이 없는 만화(서재에 없는 받은 파일 ·
-     * 만화로 본 책)는 적어 둘 작품이 없다.
+     * 보기 판의 "넓은 그림" 줄에서 고를 때(null 은 자동으로 되돌리기). null 이면 그 줄이 없다 — 서재의 작품이 없는 만화(서재에 없는
+     * 받은 파일 · 만화로 본 책)는 적어 둘 작품이 없어 늘 자동 판단이다.
      */
     onSplitSpreads: ((Boolean?) -> Unit)? = null,
     /**
@@ -256,7 +260,9 @@ fun ComicReader(
     val trim = prefs.comicTrimMargins
     // 펼침면 나누기(0.50.0, 사용자 결정 3): 한 쪽 보기에서만. 두 쪽 보기에서는 펼침면이 원래 한 판이다. 이 작품에 고른 값이
     // 모든 만화의 설정보다 먼저다(0.52.x) — 펼쳐 스캔한 작품만 나누고 넓은 한 장 그림이 든 작품은 통째로 둔다.
-    val split = (splitSpreads ?: prefs.comicSplitSpreads) && !two
+    // 모든 만화의 켬 · 끔은 없앴다(0.55.1) — 그림이 무엇인지(두 쪽 · 한 장)와 어떻게 볼지(한 쪽 · 두 쪽 보기)를 한 줄에 섞어,
+    // 무엇을 고르는지 알 수 없었다(사용자 지적). 고르지 않은 작품은 자동 판단: 넓은 그림은 두 쪽이다.
+    val split = (splitSpreads ?: true) && !two
     // 색 보정(사용자 결정 2-1): 그리는 단계의 거르개라 풀어 둔 그림 · 여백 자르기 분석 · 그림 저장소는 그대로 — 켜고 끌 때
     // 다시 풀지 않는다. 끔은 null(거르지 않음).
     val color = prefs.comicColor.colorFilter
@@ -636,11 +642,6 @@ fun ComicReader(
                             // 모든 만화에 한 설정(사용자 결정 3-나) — 작품마다 고르게 하면 스캔본마다 한 번씩 켜야 한다.
                             // 다른 켬 · 끔 줄(두 쪽 보기)과 같은 차례로 "켬" 이 앞이다 — 이 줄만 뒤집혀 있으면 같은 자리를 누른 손이 반대로 간다.
                             CpChoice("여백 자르기", listOf("켬", "끔"), if (prefs.comicTrimMargins) 0 else 1, { onPrefsChange(prefs.copy(comicTrimMargins = it == 0)) })
-                            // 펼침면 나누기(0.50.0) — 여백 자르기와 같은 "쪽 그림 다듬기" 무리라 바로 아래에, 같은 켬 · 끔 차례로.
-                            CpChoice("펼침면 나누기", listOf("켬", "끔"), if (prefs.comicSplitSpreads) 0 else 1, { onPrefsChange(prefs.copy(comicSplitSpreads = it == 0)) })
-                            // 이 작품만(0.52.x, 확정 구상안 4): 위 줄에 속한 줄이라 바로 아래 한 단 안쪽. 두 쪽 보기에서도 둔다 — 두 쪽 보기는
-                            // 나누지 않지만, 고른 값은 한 쪽 보기로 돌아가면 쓰인다(표지 줄과 달리 사라지면 고를 곳을 찾지 못한다).
-                            onSplitSpreads?.let { pick -> io.github.kgcaudit.reader.ui.design.CpSplitRow(splitSpreads, pick) }
                             ComicColorChoice(prefs, onPrefsChange)
                             // 책 · PDF 와 같은 두 줄(0.42.0). 두 쪽으로 보는 동안만 그 아래에 이 작품의 표지 줄(구상안 5) — 한 쪽 보기에서는
                             // 바꿔도 화면에 아무 일이 없다.
@@ -648,6 +649,9 @@ fun ComicReader(
                                 prefs, onPrefsChange,
                                 cover = onCoverAlone?.takeIf { two }?.let { pick -> { io.github.kgcaudit.reader.ui.design.CpCoverRow(cover, pick, coverScope) } },
                             )
+                            // 넓은 그림(0.55.1, 확정 구상안): 두 쪽 보기 줄 바로 아래 — 두 줄이 함께 "어떻게 보이나" 를 정한다. 두 쪽 보기에서도
+                            // 둔다: 고른 값은 한 쪽 보기로 돌아가면 쓰인다(사라지면 고를 곳을 찾지 못한다).
+                            onSplitSpreads?.let { pick -> io.github.kgcaudit.reader.ui.design.CpWideRow(splitSpreads, pick) }
                             CpBrightnessRow(prefs.brightness, { onPrefsChange(prefs.copy(brightness = it)) })
                             CpLinkRow("모든 보기 설정", "", { panel = ComicPanel.Settings })
                         }

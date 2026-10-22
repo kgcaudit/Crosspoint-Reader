@@ -147,7 +147,7 @@ class SpreadSplitAppTest {
     }
 
     @Test
-    fun `turning splitting off shows the whole spread at the same page and a half bookmark is the book's page`() {
+    fun `calling the wide picture one sheet shows the whole spread at the same page and a half bookmark is the book's page`() {
         open()
         next(); next()
         waitForColor(green, "오른쪽 반에 오지 않았다")
@@ -156,13 +156,13 @@ class SpreadSplitAppTest {
         compose.waitUntil(10_000) { runBlocking { app.container.data.comics.bookmarks(app.container.data.comics.units().first().single().id).first() } == listOf(1) }
         compose.onRoot().performTouchInput { click(center) }
         click(hasText("보기"))
-        waitFor(hasText("펼침면 나누기"))
-        val y = node(hasText("펼침면 나누기")).fetchSemanticsNode().boundsInRoot.center.y
-        compose.onAllNodes(hasText("끔"), useUnmergedTree = true).let { nodes ->
+        waitFor(hasText("넓은 그림"))
+        val y = node(hasText("넓은 그림")).fetchSemanticsNode().boundsInRoot.center.y
+        compose.onAllNodes(hasText("한 장"), useUnmergedTree = true).let { nodes ->
             val k = nodes.fetchSemanticsNodes().indexOfFirst { kotlin.math.abs(it.boundsInRoot.center.y - y) < 30f }
             nodes[k].performClick()
         }
-        compose.waitUntil(10_000) { !app.container.prefs.load().screen.comicSplitSpreads }
+        compose.waitUntil(10_000) { runBlocking { app.container.data.comics.works().first().single().splitSpreads } == false }
         compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
         compose.waitForIdle()
         // 같은 2쪽 — 펼침면 전체라 화면 가운데는 쪽 밖 바탕이다(위에 작게 선다).
