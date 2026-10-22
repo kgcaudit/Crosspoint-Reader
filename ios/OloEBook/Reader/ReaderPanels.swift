@@ -278,21 +278,8 @@ private struct ViewPanelRows: View {
                 CpChoice(label: "넘기는 방향", options: ["왼→오", "오→왼"], selected: work.rtl ? 1 : 0) {
                     model.setComicSetting("RTL", value: $0 == 1 ? "1" : "0")
                 }
-                // 쪽 그림 다듬기(구상안 38, 안드로이드 차례): 여백 자르기 → 펼침면 나누기 → 이 작품 → 색 보정. 켬 · 끔 차례는 다른 줄과 같다.
+                // 쪽 그림 다듬기(구상안 38 · 41, 안드로이드 0.55.1 차례): 여백 자르기 → 색 보정 → 두 쪽 보기(표지) → 넓은 그림.
                 CpChoice(label: "여백 자르기", options: ["켬", "끔"], selected: prefs.comicTrim ? 0 : 1) { prefs.comicTrim = $0 == 0 }
-                CpChoice(label: "펼침면 나누기", options: ["켬", "끔"], selected: prefs.comicSplit ? 0 : 1) { prefs.comicSplit = $0 == 0 }
-                // 이 작품만: 위 줄에 속해 한 단 들이고 옅은 강조 바탕(안드로이드 `CpSplitRow`). 두 쪽 보기에서도 둔다 — 한 쪽으로
-                // 돌아가면 쓰이고, 사라지면 고를 곳을 찾지 못한다.
-                VStack(alignment: .leading, spacing: 0) {
-                    let options: [Bool?] = [nil, true, false]
-                    CpChoice(label: "이 작품", options: ["따름", "나눔", "통째로"],
-                             selected: options.firstIndex { $0 == work.splitSpreads?.boolValue } ?? 0) { i in
-                        model.setComicSetting("SPLIT", value: options[i].map { $0 ? "1" : "0" })
-                    }
-                    CpCaption(text: "\"따름\" 이면 위 줄(모든 만화)을 따릅니다 · 펼쳐 스캔한 작품만 \"나눔\"")
-                }
-                .padding(.leading, CpMetrics.levelIndent)
-                .background(CpColor.accentContainer.opacity(0.5))
                 CpChoice(label: "색 보정", options: ["끔", "선명하게", "흑백"], selected: prefs.comicColor) { prefs.comicColor = $0 }
                 CpChoice(label: "가로에서 두 쪽 보기", options: ["켬", "끔"], selected: prefs.twoPagesLandscape ? 0 : 1) { prefs.twoPagesLandscape = $0 == 0 }
                 if model.pdfSpread {
@@ -303,6 +290,9 @@ private struct ViewPanelRows: View {
                     CpCaption(text: "이 작품만 · 겉표지와 속표지가 있으면 \"함께\" 로 두면 본문 펼침이 맞습니다")
                         .padding(.leading, CpMetrics.levelIndent).frame(maxWidth: .infinity, alignment: .leading)
                 }
+                // 넓은 그림(구상안 41): 두 쪽 보기 줄 바로 아래 — 두 줄이 함께 "어떻게 보이나" 를 정한다. 두 쪽 보기에서도 둔다: 고른
+                // 값은 한 쪽 보기로 돌아가면 쓰인다.
+                WideRow(chosen: work.splitSpreads?.boolValue) { v in model.setComicSetting("SPLIT", value: v.map { $0 ? "1" : "0" }) }
                 brightnessRows
                 CpLinkRow(label: "모든 보기 설정") { model.panel = .settings }
             } else if model.isPdf {

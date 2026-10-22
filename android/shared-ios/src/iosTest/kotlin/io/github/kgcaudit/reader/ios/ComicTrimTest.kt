@@ -136,4 +136,15 @@ class ComicTrimTest {
         store.setComicSetting("SPLIT", "원피스", null)
         assertNull(store.comicOverrides().splitSpreads["원피스"], "follow the setting for all comics")
     }
+
+    @Test
+    fun `a wide picture is two pages unless the work says one`() {
+        assertEquals(true, IosComicLayout.wideIsTwo(null), "automatic: a wide picture holds two pages")
+        assertEquals(false, IosComicLayout.wideIsTwo(false))
+        assertEquals(true, IosComicLayout.wideIsTwo(true))
+        // 작품이 "한 장" 이면 한 쪽 보기에서도 나누지 않는다.
+        val one = IosComicLayout.units(sizes, twoPages = false, coverAlone = true, split = IosComicLayout.wideIsTwo(false), rightToLeft = false)
+        assertTrue(one.all { u -> u.single().half == Half.WHOLE })
+        assertTrue(IosComicLayout.WIDE_AUTO_NOTE.startsWith("자동으로 판단했습니다"))
+    }
 }

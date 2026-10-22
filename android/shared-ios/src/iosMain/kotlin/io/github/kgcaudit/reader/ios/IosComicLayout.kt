@@ -112,6 +112,17 @@ object IosComicLayout {
         }
     }
 
+    /**
+     * 넓은 그림을 두 쪽으로 볼까(안드로이드 0.55.1, 구상안 41): 이 작품에 고른 값, 고르지 않았으면 자동 — 가로로 긴 그림(공통
+     * `SpreadSplit.isWide`)은 두 쪽이 담긴 것으로 본다. 모든 만화에 걸던 켬 · 끔은 없앴다 — 두 쪽 보기가 따로 있으니 반으로 볼지
+     * 통째로 볼지는 정할 필요가 없고, 그림이 두 쪽인지만 정하면 된다(사용자 지적).
+     */
+    fun wideIsTwo(chosen: Boolean?): Boolean = chosen ?: true
+
+    /** 고르지 않았을 때 · 고른 뒤의 설명(안드로이드 `WIDE_AUTO_NOTE` · `WIDE_CHOSEN_NOTE` 그대로). */
+    const val WIDE_AUTO_NOTE: String = "자동으로 판단했습니다 — 가로로 긴 그림을 두 쪽이 담긴 것으로 봅니다. 아니면 \"한 장\" 을 누르세요."
+    const val WIDE_CHOSEN_NOTE: String = "이 작품에 고른 값입니다(모든 권). 자동으로 되돌리기"
+
     /** 위 막대의 반 표시(안드로이드 `halfLabel`): 같은 "4 / 8쪽" 이 두 번 이어지면 넘김이 안 된 것처럼 보인다. */
     fun halfLabel(half: SpreadSplit.Half?): String = when (half) {
         SpreadSplit.Half.LEFT -> " · 왼쪽 반"

@@ -581,3 +581,55 @@ struct ComicBookmarks: View {
         .task { pages = ((try? await engine.bookmarks()) ?? []).compactMap(\.page) }
     }
 }
+
+/// 보기 판의 "넓은 그림 — 두 쪽 · 한 장"(구상안 41, 안드로이드 `CpWideRow`). 고르지 않으면 자동이 골라져 있고 그렇다고 말한다. 고르면
+/// 설명이 "자동으로 되돌리기" 가 되어 누르면 자동으로. 아래에 한 쪽 · 두 쪽 보기에서 어떻게 서는지 작은 그림.
+struct WideRow: View {
+    let chosen: Bool?
+    let change: (Bool?) -> Void
+
+    var body: some View {
+        let two = IosComicLayout.shared.wideIsTwo(chosen: chosen.map { KotlinBoolean(bool: $0) })
+        VStack(alignment: .leading, spacing: 0) {
+            CpChoice(label: "넓은 그림", options: ["두 쪽", "한 장"], selected: two ? 0 : 1) { change($0 == 0) }
+            if chosen == nil {
+                CpCaption(text: IosComicLayout.shared.WIDE_AUTO_NOTE)
+            } else {
+                Button { change(nil) } label: {
+                    Text(IosComicLayout.shared.WIDE_CHOSEN_NOTE).font(CpFont.caption).foregroundStyle(CpColor.accentText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, CpMetrics.gutter).padding(.bottom, 6)
+                .accessibilityLabel("자동으로 되돌리기")
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                if two {
+                    line("한 쪽 보기", "반씩 차례로") {
+                        HStack(spacing: 6) { sheet(30, false); Text("→").font(CpFont.caption).foregroundStyle(CpColor.textMuted); sheet(30, false) }
+                    }
+                    line("두 쪽 보기", "두 쪽을 함께(한 장 그대로)") { sheet(60, true) }
+                } else {
+                    line("한 쪽 보기", "한 장 그대로") { sheet(60, false) }
+                    line("두 쪽 보기", "한 장 그대로") { sheet(60, false) }
+                }
+            }
+            .padding(.horizontal, CpMetrics.gutter).padding(.bottom, 8)
+            .accessibilityElement(children: .combine)
+        }
+    }
+
+    private func sheet(_ w: CGFloat, _ fold: Bool) -> some View {
+        Rectangle().fill(CpColor.accentContainer).frame(width: w, height: 42)
+            .overlay(Rectangle().stroke(CpColor.outline, lineWidth: 1))
+            .overlay { if fold { Rectangle().fill(CpColor.text.opacity(0.5)).frame(width: 1) } }
+    }
+
+    private func line<V: View>(_ label: String, _ says: String, @ViewBuilder _ picture: () -> V) -> some View {
+        HStack(spacing: 0) {
+            Text(label).font(CpFont.caption).foregroundStyle(CpColor.text).frame(width: 78, alignment: .leading)
+            picture()
+            Text(says).font(CpFont.caption).foregroundStyle(CpColor.textMuted).padding(.leading, 10).lineLimit(2)
+        }
+    }
+}
