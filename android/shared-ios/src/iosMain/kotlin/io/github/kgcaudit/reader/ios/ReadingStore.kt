@@ -16,6 +16,8 @@ import io.github.kgcaudit.reader.document.comic.ComicProgress
 import io.github.kgcaudit.reader.document.comic.ComicView
 import io.github.kgcaudit.reader.document.comic.ShelfMark
 import io.github.kgcaudit.reader.document.comic.SpreadSplit
+import io.github.kgcaudit.reader.document.comic.Work
+import io.github.kgcaudit.reader.document.comic.WorkEntry
 import io.github.kgcaudit.reader.document.io.currentTimeMillis
 import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ExperimentalForeignApi
@@ -211,6 +213,9 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
             when (v) { "1" -> k.second to true; "0" -> k.second to false; else -> null }
         }.toMap()
         ComicOverrides(
+            // 손으로 합치고 뺀 것 · 같은 권 중 고른 파일(구상안 40). 이 휴대폰의 파일 주소라 백업에는 담지 않는다(안드로이드와 같다).
+            workOf = comicSettings.filterKeys { it.first == WORK_OF }.map { (k, v) -> k.second to v }.toMap(),
+            preferred = comicSettings.filterKeys { it.first == PREFERRED }.map { (k, v) -> k.second to v }.toMap(),
             // 고친 이름은 아직 iOS 에서 고칠 수 없지만 안드로이드에서 고쳐 백업으로 온 이름은 따른다 — 두 휴대폰에서 작품 이름이 달라 보이면
             // 같은 작품인지 헷갈린다.
             titles = comicSettings.filterKeys { it.first == TITLE }.mapNotNull { (k, v) -> v.trim().takeIf { it.isNotEmpty() }?.let { k.second to it } }.toMap(),
@@ -293,6 +298,39 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
             put(COVER, w.key, flag(w.coverAlone))
             put(SPLIT, w.key, flag(w.splitSpreads))
         }
+        persist()
+    }
+
+    // ── 작품 정리(구상안 40, 안드로이드 `Library.merge` · `split` · `rename` · `prefer`) ──────────────
+
+    /**
+     * 작품 [from] 의 모든 권(같은 권 사본까지)을 [into] 로 합친다. 합친 작품은 [into] 의 이름으로 — 적어 두지 않으면 가장 많이 나온 이름이
+     * 이기는데, "One Piece" 1권과 "원피스" 1권처럼 동률이면 자연 순서로 엉뚱한 쪽 이름이 됐다(안드로이드).
+     */
+    fun mergeWork(from: Work, into: Work) = locked {
+        for (e in from.entries) for (u in listOf(e.unit) + e.copies) comicSettings[WORK_OF to u.id] = into.key
+        comicSettings[TITLE to into.key] = into.title
+        persist()
+    }
+
+    /** 권 하나(와 그 사본들)를 작품에서 빼 따로 둔다. 빼낸 것은 제 이름으로 새 작품이 된다. */
+    fun splitEntry(entry: WorkEntry) = locked {
+        val own = OWN_PREFIX + entry.unit.id
+        for (u in listOf(entry.unit) + entry.copies) comicSettings[WORK_OF to u.id] = own
+        comicSettings[TITLE to own] = entry.name.series.ifBlank { entry.name.cleaned }
+        persist()
+    }
+
+    /** 작품 이름. 빈 이름이면 고침을 지워 원래 이름으로 돌아간다. 파일 이름은 바꾸지 않는다. */
+    fun renameWork(work: Work, title: String) = locked {
+        val t = title.trim()
+        if (t.isEmpty()) comicSettings.remove(TITLE to work.key) else comicSettings[TITLE to work.key] = t
+        persist()
+    }
+
+    /** 같은 권 여러 곳 중 읽을 파일. 나머지는 목록에서 숨는다(파일은 그대로). */
+    fun preferCopy(entry: WorkEntry, unitId: String) = locked {
+        comicSettings[PREFERRED to entry.slot] = unitId
         persist()
     }
 
@@ -477,6 +515,8 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
         const val VIEW = "VIEW"
         const val SPLIT = "SPLIT"
         const val OWN_PREFIX = "#own:"
+        const val WORK_OF = "WORK_OF"
+        const val PREFERRED = "PREFERRED"
         val WORK_KINDS = setOf(TITLE, RTL, VIEW, SHELF, COVER, SPLIT)
 
         fun escape(value: String): String = buildString {

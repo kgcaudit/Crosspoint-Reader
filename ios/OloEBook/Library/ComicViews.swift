@@ -107,6 +107,8 @@ struct ComicShelves: View {
     @ObservedObject var library: Library
     let open: (LibraryBook) -> Void
     let openWork: (Work) -> Void
+    /// 길게 누름(구상안 40): 작품 화면 · 갈래 옮기기 판.
+    var menu: (Work) -> Void = { _ in }
 
     private struct Item: Identifiable {
         let work: Work
@@ -156,7 +158,7 @@ struct ComicShelves: View {
                                     ShelfBoard(label: i == 0 ? section.title : nil)
                                     WoodRow(items: rows[i], width: width) { item in
                                         ComicCover(unit: cover(item), library: library, rtl: item.work.rtl, tag: tag(item), shadow: true)
-                                            .workButton(item.work.title) { tap(item) }
+                                            .workButton(item.work.title, longPress: { menu(item.work) }) { tap(item) }
                                     }
                                 }
                             }
@@ -231,7 +233,8 @@ struct ComicShelves: View {
             Text(item.work.title).font(CpFont.label).foregroundStyle(CpColor.text).lineLimit(1).padding(.top, 8)
             line(item).padding(.top, 4)
         }
-        .workButton(item.status.shelf == .reading ? "\(item.work.title) \(item.resume?.entry.label ?? "") 이어 읽기" : "\(item.work.title) 작품") { tap(item) }
+        .workButton(item.status.shelf == .reading ? "\(item.work.title) \(item.resume?.entry.label ?? "") 이어 읽기" : "\(item.work.title) 작품",
+                    longPress: { menu(item.work) }) { tap(item) }
     }
 
     private func rowView(_ item: Item) -> some View {
@@ -246,7 +249,7 @@ struct ComicShelves: View {
         }
         .padding(.horizontal, CpMetrics.gutter).padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .workButton("\(item.work.title) 작품") { tap(item) }
+        .workButton("\(item.work.title) 작품", longPress: { menu(item.work) }) { tap(item) }
     }
 
     private func tap(_ item: Item) {
@@ -266,6 +269,18 @@ extension View {
             .accessibilityLabel(label)
             .accessibilityAddTraits(.isButton)
     }
+
+    /// 누르면 [action], 길게 누르면 [longPress](구상안 40 — 갈래 옮기기 판). 단추(Button)에 길게 누름을 겹치면 손을 뗄 때 누름도
+    /// 함께 불려, 판이 뜨자마자 작품이 열렸다 — 두 몸짓을 나란히 받는다.
+    func workButton(_ label: String, longPress: @escaping () -> Void, action: @escaping () -> Void) -> some View {
+        self.contentShape(Rectangle())
+            .onTapGesture(perform: action)
+            .onLongPressGesture(minimumDuration: 0.45, perform: longPress)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(label)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction(named: "갈래 옮기기", longPress)
+    }
 }
 
 // MARK: 작품 화면
@@ -276,6 +291,9 @@ struct WorkScreen: View {
     let workKey: String
     let open: (LibraryBook) -> Void
     let back: () -> Void
+    /// 합쳐서 다른 작품이 됐다 — 그 작품 화면으로.
+    var reopen: (String) -> Void = { _ in }
+    @State private var arranging = false
 
     private var work: Work? { library.works.first { $0.key == workKey } }
 
@@ -283,7 +301,9 @@ struct WorkScreen: View {
         VStack(alignment: .leading, spacing: 0) {
             if let work {
                 CpHeader(title: work.title, subtitle: work.subtitle,
-                         leading: AnyView(CpIconButton(icon: .back, label: "뒤로", action: back))) {}
+                         leading: AnyView(CpIconButton(icon: .back, label: "뒤로", action: back))) {
+                    CpIconButton(icon: .more, label: "작품 정리") { arranging = true }
+                }
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         if let r = ComicReading.shared.resume(work: work, progress: library.comicProgress), let p = r.second,
@@ -309,6 +329,15 @@ struct WorkScreen: View {
             }
         }
         .background(CpColor.background)
+        .overlay {
+            if arranging, let work {
+                WorkArrangeScreen(library: library, work: work, back: { arranging = false }, moved: { key in
+                    arranging = false
+                    reopen(key)
+                })
+                .transition(.move(edge: .trailing))
+            }
+        }
     }
 
     /// "다 읽음 · 180쪽" · "45 / 182쪽" · "182쪽"(안드로이드 `entrySub`).

@@ -21,6 +21,9 @@ struct LibraryView: View {
     /// 책 · 만화 탭(구상안 35A). 만화 작품이 없으면 탭 자체가 없다.
     @State private var tab = 0
     @State private var openedWork: String?
+    /// 길게 누른 작품(구상안 40 — 갈래 옮기기 판).
+    @State private var menuWork: String?
+    @State private var libraryToast: String?
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -47,7 +50,7 @@ struct LibraryView: View {
                     } else {
                         TabView(selection: $tab) {
                             LibraryShelves(library: library, open: open).tag(0)
-                            ComicShelves(library: library, open: open, openWork: { openedWork = $0.key }).tag(1)
+                            ComicShelves(library: library, open: open, openWork: { openedWork = $0.key }, menu: { menuWork = $0.key }).tag(1)
                         }
                         .tabViewStyle(.page(indexDisplayMode: .never))
                     }
@@ -81,7 +84,7 @@ struct LibraryView: View {
                 }
             }
             if let key = openedWork {
-                WorkScreen(library: library, workKey: key, open: open, back: { openedWork = nil })
+                WorkScreen(library: library, workKey: key, open: open, back: { openedWork = nil }, reopen: { openedWork = $0 })
                     .transition(.move(edge: .trailing))
             }
             if searching {
@@ -95,6 +98,20 @@ struct LibraryView: View {
             if showFolders {
                 FoldersPopup(library: library, addFolder: { showFolders = false; pickingFolder = true },
                              dismiss: { showFolders = false })
+            }
+            if let key = menuWork {
+                WorkMenu(library: library, workKey: key, openWork: { menuWork = nil; openedWork = key }, close: { menuWork = nil }) { message in
+                    menuWork = nil
+                    libraryToast = message
+                }
+            }
+            if let message = libraryToast {
+                CpToast(message: message).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom).padding(.bottom, 24)
+                    .allowsHitTesting(false)
+                    .task(id: message) {
+                        try? await Task.sleep(for: .milliseconds(1800))
+                        if !Task.isCancelled { libraryToast = nil }
+                    }
             }
             if showInfo {
                 AboutScreen(library: library, back: { showInfo = false })

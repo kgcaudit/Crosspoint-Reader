@@ -209,6 +209,12 @@ final class Library: ObservableObject {
         arrangeComics()
     }
 
+    // 작품 정리(구상안 40): 앱 기록에 적고 다시 묶는다.
+    func mergeWork(_ from: Work, into: Work) { store.mergeWork(from: from, into: into); arrangeComics() }
+    func splitEntry(_ entry: WorkEntry) { store.splitEntry(entry: entry); arrangeComics() }
+    func renameWork(_ work: Work, title: String) { store.renameWork(work: work, title: title); arrangeComics() }
+    func preferCopy(_ entry: WorkEntry, unitId: String) { store.preferCopy(entry: entry, unitId: unitId); arrangeComics() }
+
     func work(of unitId: String) -> Work? { works.first { w in w.entries.contains { e in e.unit.id == unitId || e.copies.contains { $0.id == unitId } } } }
 
     /// 만화 권을 리더가 여는 꼴로.
