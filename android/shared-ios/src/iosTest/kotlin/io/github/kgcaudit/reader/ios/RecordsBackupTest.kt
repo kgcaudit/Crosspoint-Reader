@@ -65,10 +65,10 @@ class RecordsBackupTest {
     fun `a backup made on Android brings back the place bookmarks highlights and time`() = runTest {
         val store = ReadingStore("$root/r.tsv")
         val backup = RecordsBackup(store, "$root/pending.json")
-        val preview = backup.preview(android, shelf)!!
+        val preview = backup.preview(android, shelf, emptyList())!!
         assertEquals(1, preview.found)
-        assertEquals(1, preview.missing, "the comic waits: iOS has no comics yet")
-        val done = backup.apply(android, shelf)!!
+        assertEquals(1, preview.missing, "the comic waits: it is not on this phone")
+        val done = backup.apply(android, shelf, emptyList())!!
         assertEquals(2, done.bookmarks)
         assertEquals(2, done.notes)
         assertEquals(1, done.finished)
@@ -85,8 +85,8 @@ class RecordsBackupTest {
     fun `importing the same backup twice is the same as once`() = runTest {
         val store = ReadingStore("$root/r.tsv")
         val backup = RecordsBackup(store, "$root/pending.json")
-        backup.apply(android, shelf)
-        backup.apply(android, shelf)
+        backup.apply(android, shelf, emptyList())
+        backup.apply(android, shelf, emptyList())
         val id = BookId("app:어린 왕자.epub")
         assertEquals(2, store.forBook(id).size)
         assertEquals(2, store.annotations.forBook(id).size)
@@ -98,7 +98,7 @@ class RecordsBackupTest {
         val store = ReadingStore("$root/r.tsv")
         val id = BookId("app:어린 왕자.epub")
         store.save(ReadingProgress(id, Locator.Reflow(5, 0), 70f, 1L))
-        RecordsBackup(store, "$root/pending.json").apply(android, shelf)
+        RecordsBackup(store, "$root/pending.json").apply(android, shelf, emptyList())
         // 백업은 더 나중에 고쳤지만 앞쪽(3장)이다 — 이 휴대폰의 5장이 남는다.
         assertEquals(Locator.Reflow(5, 0), store.get(id)!!.locator)
     }
@@ -107,28 +107,29 @@ class RecordsBackupTest {
     fun `a record for a book not on this phone waits and joins when the book appears`() = runTest {
         val store = ReadingStore("$root/r.tsv")
         val backup = RecordsBackup(store, "$root/pending.json")
-        val done = backup.apply(android, emptyList())!!
+        val done = backup.apply(android, emptyList(), emptyList())!!
         assertEquals(0, done.found)
         assertTrue("어린 왕자.epub" in done.missingNames)
         // 다시 백업해도 기다리던 기록(책 · 만화 · 작품 설정)이 사라지지 않는다.
-        val again = RecordsCodec.decode(backup.export(emptyList()))!!
+        val again = RecordsCodec.decode(backup.export(emptyList(), emptyList()))!!
         assertEquals("어린 왕자.epub", again.books.single().name)
-        assertEquals(1, again.comics.size)
-        assertTrue(again.comics.single().contains("\"half\":\"LEFT\""), "comic fields pass through untouched")
-        assertTrue(again.works.single().contains("\"rightToLeft\":true"), "booleans stay booleans")
+        assertEquals("LEFT", again.comics.single().half, "fields iOS does not use yet are carried")
+        assertEquals(12, again.comics.single().page)
+        assertEquals(true, again.works.single().rightToLeft, "booleans stay booleans")
+        assertEquals("READING:1789000000000", again.works.single().shelf)
         // 책이 생겼다(맥을 거쳐 이름이 풀어 쓴 꼴이어도 맞는다).
         @Suppress("CAST_NEVER_SUCCEEDS")
         val nfd = ("어린 왕자.epub" as NSString).decomposedStringWithCanonicalMapping
         assertTrue(nfd != "어린 왕자.epub")
-        assertEquals(1, backup.resumePending(listOf(ShelfBook("app:x.epub", nfd, 1234, null, null))))
+        assertEquals(1, backup.resumePending(listOf(ShelfBook("app:x.epub", nfd, 1234, null, null)), emptyList()))
         assertEquals(Locator.Reflow(3, 120), store.get(BookId("app:x.epub"))!!.locator)
-        assertEquals(0, backup.resumePending(listOf(ShelfBook("app:x.epub", nfd, 1234, null, null))), "joined records stop waiting")
+        assertEquals(0, backup.resumePending(listOf(ShelfBook("app:x.epub", nfd, 1234, null, null)), emptyList()), "joined records stop waiting")
     }
 
     @Test
     fun `a book with the same name but another size is another edition`() = runTest {
         val store = ReadingStore("$root/r.tsv")
-        val done = RecordsBackup(store, "$root/pending.json").apply(android, listOf(ShelfBook("app:a.epub", "어린 왕자.epub", 999, null, null)))!!
+        val done = RecordsBackup(store, "$root/pending.json").apply(android, listOf(ShelfBook("app:a.epub", "어린 왕자.epub", 999, null, null)), emptyList())!!
         assertEquals(0, done.found)
         assertNull(store.get(BookId("app:a.epub")))
     }

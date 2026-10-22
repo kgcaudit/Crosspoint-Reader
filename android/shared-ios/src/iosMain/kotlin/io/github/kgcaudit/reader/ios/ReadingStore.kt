@@ -14,6 +14,7 @@ import io.github.kgcaudit.reader.document.ReadingProgress
 import io.github.kgcaudit.reader.document.comic.ComicOverrides
 import io.github.kgcaudit.reader.document.comic.ComicProgress
 import io.github.kgcaudit.reader.document.comic.ShelfMark
+import io.github.kgcaudit.reader.document.comic.SpreadSplit
 import io.github.kgcaudit.reader.document.io.currentTimeMillis
 import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ExperimentalForeignApi
@@ -52,9 +53,11 @@ data class TimeRecord(val bookId: String, val day: Long, val mode: String, val m
  * - `R bookId openedAt finishedAt|-`
  * - `A id bookId start end color createdAt snippet note` — note 칸이 없으면 메모 없음. 빈 메모는 만들지 않는다(공통 `withNote`)
  * - `T bookId day mode millis` — 읽은 시간(책 · 날 · 방식마다 한 줄)
- * - `C unitId page pageCount updatedAt finishedAt|-` — 만화 권의 읽은 쪽(안드로이드 `comic_progress`)
+ * - `C unitId page pageCount updatedAt finishedAt|- offset|- half|-` — 만화 권의 읽은 쪽(안드로이드 `comic_progress`). offset ·
+ *   half 는 안드로이드 백업에서 온 웹툰 자리 · 펼침면 반으로, iOS 1단계는 쓰지 않고 간직만 한다(옛 줄에는 없다)
  * - `K unitId page createdAt` — 만화 책갈피(쪽 단위, 발췌 글이 없다)
- * - `O kind subject value` — 만화 작품 설정(RTL · COVER · SHELF, 안드로이드 `comic_overrides`)
+ * - `O kind subject value` — 만화 작품 설정(안드로이드 `comic_overrides`). iOS 가 쓰는 것은 RTL · COVER · SHELF · TITLE, 백업에서 온
+ *   VIEW · SPLIT 은 간직했다가 다시 백업에 담는다
  *
  * 여러 스레드(조판 · 서재)에서 함께 부르므로 잠근다.
  */
@@ -197,12 +200,15 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
         !removed
     }
 
-    /** 작품마다 고른 것(넘기는 방향 · 표지 · 갈래). 공통 `ComicShelf.group` 에 그대로 넘긴다. */
+    /** 작품마다 고른 것(넘기는 방향 · 표지 · 갈래 · 고친 이름). 공통 `ComicShelf.group` 에 그대로 넘긴다. */
     fun comicOverrides(): ComicOverrides = locked {
         fun bools(kind: String) = comicSettings.filterKeys { it.first == kind }.mapNotNull { (k, v) ->
             when (v) { "1" -> k.second to true; "0" -> k.second to false; else -> null }
         }.toMap()
         ComicOverrides(
+            // 고친 이름은 아직 iOS 에서 고칠 수 없지만 안드로이드에서 고쳐 백업으로 온 이름은 따른다 — 두 휴대폰에서 작품 이름이 달라 보이면
+            // 같은 작품인지 헷갈린다.
+            titles = comicSettings.filterKeys { it.first == TITLE }.mapNotNull { (k, v) -> v.trim().takeIf { it.isNotEmpty() }?.let { k.second to it } }.toMap(),
             rightToLeft = bools(RTL),
             coverAlone = bools(COVER),
             shelf = comicSettings.filterKeys { it.first == SHELF }.mapNotNull { (k, v) -> ShelfMark.parse(v)?.let { k.second to it } }.toMap(),
@@ -212,6 +218,73 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
     /** 작품 설정 하나. [value] 가 null 이면 지운다(기본값을 따른다). [kind] 는 "RTL" · "COVER" · "SHELF". */
     fun setComicSetting(kind: String, subject: String, value: String?) = locked {
         if (value == null) comicSettings.remove(kind to subject) else comicSettings[kind to subject] = value
+        persist()
+    }
+
+    /** 이 만화 권의 기록(백업에 담을 것). 쪽 · 책갈피 · 읽은 시간이 모두 없으면 null(안드로이드 `collectComics`). */
+    fun recordOfComic(unitId: String, name: String, size: Long?): BackupComic? = locked {
+        val p = comics[unitId]
+        val marks = comicMarks.filter { it.first == unitId }.distinctBy { it.second }.sortedBy { it.second }.map { BackupComicMark(it.second, it.third) }
+        val time = times.filter { it.key.first == unitId }.map { (k, v) -> BackupTime(k.second, k.third, v) }.sortedWith(compareBy({ it.day }, { it.mode }))
+        if (p == null && marks.isEmpty() && time.isEmpty()) return@locked null
+        BackupComic(
+            name, size, p?.page, p?.pageCount, p?.offset?.toDouble(), p?.half?.takeIf { it != SpreadSplit.Half.WHOLE }?.name,
+            p?.updatedAtEpochMs ?: 0L, p?.finishedAtEpochMs, marks, time,
+        )
+    }
+
+    /**
+     * 백업의 만화 기록을 이 권에 합친다(안드로이드 `mergeComicInto`). 읽은 쪽은 백업이 더 뒤일 때만, 다 읽은 때는 이 휴대폰에 없을
+     * 때만(끝낸 날이 백업의 날로 바뀌지 않게), 책갈피는 같은 쪽이 없을 때만, 읽은 시간은 날 · 방식마다 큰 쪽.
+     */
+    fun mergeComic(unitId: String, c: BackupComic) = locked {
+        for (t in c.time) {
+            val key = Triple(unitId, t.day, t.mode)
+            times[key] = maxOf(times[key] ?: 0L, t.ms).coerceAtMost(DAY_MS)
+        }
+        val page = c.page
+        if (page != null) {
+            val old = comics[unitId]
+            val mine = old?.let { BackupComic(c.name, c.size, it.page, it.pageCount, it.offset?.toDouble(), null, it.updatedAtEpochMs, null, emptyList(), emptyList()) }
+            if (mine == null || furtherComic(c, mine)) {
+                comics[unitId] = ComicProgress(
+                    page, c.pageCount ?: old?.pageCount ?: (page + 1), c.updatedAt, old?.finishedAtEpochMs ?: c.finishedAt,
+                    c.offset?.toFloat(), c.half?.let { h -> SpreadSplit.Half.entries.firstOrNull { it.name == h } },
+                )
+            } else if (old.finishedAtEpochMs == null && c.finishedAt != null) {
+                comics[unitId] = old.copy(finishedAtEpochMs = c.finishedAt)
+            }
+        }
+        val have = comicMarks.filter { it.first == unitId }.mapTo(HashSet()) { it.second }
+        for (m in c.bookmarks) if (have.add(m.page)) comicMarks.add(Triple(unitId, m.page, m.createdAt))
+        persist()
+    }
+
+    /** 작품 설정들(백업에 담을 것). 빼낸 작품(`#own:` 열쇠)은 이 휴대폰의 파일 주소라 담지 않는다(안드로이드 `collectWorks`). */
+    fun workRecords(): List<BackupWork> = locked {
+        val keys = comicSettings.keys.filter { it.first in WORK_KINDS && !it.second.startsWith(OWN_PREFIX) }.map { it.second }.distinct()
+        keys.map { key ->
+            fun value(kind: String) = comicSettings[kind to key]
+            fun bool(kind: String) = when (value(kind)) { "1" -> true; "0" -> false; else -> null }
+            BackupWork(key, value(TITLE), bool(RTL), value(VIEW), value(SHELF), bool(COVER), bool(SPLIT))
+        }.filter { it.title != null || it.rightToLeft != null || it.view != null || it.shelf != null || it.coverAlone != null || it.splitSpreads != null }
+    }
+
+    /** 작품 설정은 이 휴대폰에 정한 것이 없을 때만 채운다 — 가져오기가 지금 손으로 고친 것을 덮지 않게(안드로이드 `mergeWorks`). */
+    fun mergeWorks(works: List<BackupWork>) = locked {
+        if (works.isEmpty()) return@locked
+        fun put(kind: String, key: String, value: String?) {
+            if (value != null && (kind to key) !in comicSettings) comicSettings[kind to key] = value
+        }
+        fun flag(b: Boolean?) = b?.let { if (it) "1" else "0" }
+        for (w in works.groupBy { it.key }.values.map { it.reduce(BackupWork::filledFrom) }) {
+            put(TITLE, w.key, w.title)
+            put(RTL, w.key, flag(w.rightToLeft))
+            put(VIEW, w.key, w.view)
+            put(SHELF, w.key, w.shelf)
+            put(COVER, w.key, flag(w.coverAlone))
+            put(SPLIT, w.key, flag(w.splitSpreads))
+        }
         persist()
     }
 
@@ -336,7 +409,10 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
                         val page = f[2].toInt()
                         val count = f[3].toInt()
                         if (page >= 0 && count >= 0) {
-                            comics[f[1]] = ComicProgress(page, count, f[4].toLong(), f.getOrNull(5)?.takeIf { it != "-" }?.toLong())
+                            // 자리 · 반이 깨졌으면 그 칸만 버린다(쪽 전체로 연다).
+                            val offset = f.getOrNull(6)?.toFloatOrNull()?.takeIf { it in 0f..1f }
+                            val half = f.getOrNull(7)?.let { h -> SpreadSplit.Half.entries.firstOrNull { it.name == h && it != SpreadSplit.Half.WHOLE } }
+                            comics[f[1]] = ComicProgress(page, count, f[4].toLong(), f.getOrNull(5)?.takeIf { it != "-" }?.toLong(), offset, half)
                         }
                     }
                     "K" -> comicMarks.add(Triple(f[1], f[2].toInt().also { require(it >= 0) }, f[3].toLong()))
@@ -372,7 +448,9 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
             row("R", id, (opened[id] ?: finished.getValue(id)).toString(), finished[id]?.toString() ?: "-")
         }
         for ((k, v) in times) row("T", k.first, k.second.toString(), k.third, v.toString())
-        for ((id, p) in comics) row("C", id, p.page.toString(), p.pageCount.toString(), p.updatedAtEpochMs.toString(), p.finishedAtEpochMs?.toString() ?: "-")
+        for ((id, p) in comics) row("C", id, p.page.toString(), p.pageCount.toString(), p.updatedAtEpochMs.toString(), p.finishedAtEpochMs?.toString() ?: "-",
+            p.offset?.toString() ?: "-", p.half?.name ?: "-",
+        )
         for ((id, page, at) in comicMarks) row("K", id, page.toString(), at.toString())
         for ((k, v) in comicSettings) row("O", k.first, k.second, v)
         val dir = path.substringBeforeLast('/')
@@ -387,6 +465,11 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
         const val RTL = "RTL"
         const val COVER = "COVER"
         const val SHELF = "SHELF"
+        const val TITLE = "TITLE"
+        const val VIEW = "VIEW"
+        const val SPLIT = "SPLIT"
+        const val OWN_PREFIX = "#own:"
+        val WORK_KINDS = setOf(TITLE, RTL, VIEW, SHELF, COVER, SPLIT)
 
         fun escape(value: String): String = buildString {
             for (c in value) when (c) {

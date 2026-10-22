@@ -6,6 +6,7 @@ import io.github.kgcaudit.reader.document.Locator
 import io.github.kgcaudit.reader.document.io.currentTimeMillis
 import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.toKString
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSJSONSerialization
 import platform.Foundation.NSNumber
@@ -78,15 +79,79 @@ class BackupNote(val start: String, val end: String, val color: String, val note
 /** 읽은 시간 한 칸. [day] 는 epoch day(파일에는 "2026-10-03"). */
 class BackupTime(val day: Long, val mode: String, val ms: Long)
 
-/** 백업 파일 하나. [comics] · [works] 는 iOS 가 해석하지 않고 그대로 옮기는 JSON 항목들. */
-class BackupFile(val createdAt: Long, val books: List<BackupBook>, val comics: List<String>, val works: List<String>) {
+/**
+ * 백업 속 만화 한 권(안드로이드 `ComicRecord`). 맞추는 열쇠는 책과 같다(이름 + 크기 — 그림 폴더는 크기가 없다).
+ * [offset] · [half] 는 iOS 1단계에서 쓰지 않지만 옮겨 준다(웹툰 자리 · 펼침면 반).
+ */
+class BackupComic(
+    val name: String,
+    val size: Long?,
+    val page: Int?,
+    val pageCount: Int?,
+    val offset: Double?,
+    val half: String?,
+    val updatedAt: Long,
+    val finishedAt: Long?,
+    val bookmarks: List<BackupComicMark>,
+    val time: List<BackupTime>,
+) {
+    internal val key: String get() = nfc(name) + "\u0000" + (size?.toString() ?: "")
+
+    /** 같은 권 두 벌을 하나로: 읽은 자리는 더 뒤쪽(쪽 → 그 안 자리), 다 읽은 때는 먼저, 책갈피는 쪽으로, 시간은 큰 쪽. */
+    fun mergedWith(other: BackupComic): BackupComic {
+        val further = if (furtherComic(other, this)) other else this
+        return BackupComic(
+            name, size ?: other.size, further.page ?: page ?: other.page, further.pageCount ?: pageCount ?: other.pageCount,
+            further.offset, further.half, maxOf(updatedAt, other.updatedAt),
+            listOfNotNull(finishedAt, other.finishedAt).minOrNull(),
+            (bookmarks + other.bookmarks).distinctBy { it.page }.sortedBy { it.page },
+            (time + other.time).groupBy { it.day to it.mode }.values.map { same -> same.maxBy { it.ms } }
+                .sortedWith(compareBy({ it.day }, { it.mode })),
+        )
+    }
+}
+
+class BackupComicMark(val page: Int, val createdAt: Long)
+
+/** [a] 가 [b] 보다 더 뒤를 읽었나(쪽 → 그 쪽 안 자리). 쪽을 모르면 뒤가 아니다. */
+internal fun furtherComic(a: BackupComic, b: BackupComic): Boolean {
+    val pa = a.page ?: return false
+    val pb = b.page ?: return true
+    return pa > pb || (pa == pb && (a.offset ?: 0.0) > (b.offset ?: 0.0))
+}
+
+/**
+ * 백업 속 작품 설정 하나(안드로이드 `WorkRecord`). iOS 가 쓰는 것은 넘기는 방향 · 표지 · 갈래뿐이지만 다른 칸(이름 · 보는 방식 ·
+ * 펼침면 나누기)도 옮겨 준다 — 버리면 안드로이드 → iOS → 안드로이드에서 사라진다.
+ */
+class BackupWork(
+    val key: String,
+    val title: String?,
+    val rightToLeft: Boolean?,
+    val view: String?,
+    val shelf: String?,
+    val coverAlone: Boolean?,
+    val splitSpreads: Boolean?,
+) {
+    /** [other] 의 칸으로 비어 있는 칸만 채운다(앞쪽이 이긴다). */
+    fun filledFrom(other: BackupWork): BackupWork = BackupWork(
+        key, title ?: other.title, rightToLeft ?: other.rightToLeft, view ?: other.view, shelf ?: other.shelf,
+        coverAlone ?: other.coverAlone, splitSpreads ?: other.splitSpreads,
+    )
+}
+
+/** 백업 파일 하나. */
+class BackupFile(val createdAt: Long, val books: List<BackupBook>, val comics: List<BackupComic>, val works: List<BackupWork>) {
     val isEmpty: Boolean get() = books.isEmpty() && comics.isEmpty() && works.isEmpty()
 }
 
 /** 서재의 책 한 권(맞추기 · 내보내기). [name] 은 파일 이름, [size] 는 바이트. */
 class ShelfBook(val id: String, val name: String, val size: Long, val title: String?, val author: String?)
 
-/** 가져오기 전에 보이는 것. */
+/** 서재의 만화 한 권(맞추기 · 내보내기). [size] 는 압축의 바이트, 그림 폴더는 null. */
+class ShelfComic(val id: String, val name: String, val size: Long?)
+
+/** 가져오기 전에 보이는 것. [found] · [missing] 은 책과 만화를 함께 센 권 수. */
 class ImportPreview(
     val createdAt: Long,
     val books: Int,
@@ -95,6 +160,7 @@ class ImportPreview(
     val found: Int,
     val missing: Int,
     val isEmpty: Boolean,
+    val comicsFound: Int,
 )
 
 /** 가져온 뒤 알리는 것(안드로이드 `DonePopup`). 수는 찾은 기록에 들어 있던 것(새로 더해진 수가 아니다 — 안드로이드와 같다). */
@@ -105,6 +171,8 @@ class ImportResult(
     val finished: Int,
     val works: Int,
     val missingNames: List<String>,
+    /** 찾은 만화 권 수([found] 에 들어 있다). */
+    val comics: Int,
 )
 
 /** 서재 줄 부제의 수(안드로이드 `summaryLine`). */
@@ -123,10 +191,48 @@ object RecordsCodec {
             field("version") { number(1) }
             field("createdAt") { number(file.createdAt) }
             field("books") { array(file.books) { book(it) } }
-            field("comics") { array(file.comics) { raw(it) } }
-            field("works") { array(file.works) { raw(it) } }
+            field("comics") { array(file.comics) { comic(it) } }
+            field("works") { array(file.works) { work(it) } }
         }
         return w.toString()
+    }
+
+    private fun JsonWriter.comic(c: BackupComic) = obj {
+        field("name") { string(c.name) }
+        c.size?.let { field("size") { number(it) } }
+        c.page?.let { field("page") { number(it.toLong()) } }
+        c.pageCount?.let { field("pageCount") { number(it.toLong()) } }
+        c.offset?.let { field("offset") { decimal(it) } }
+        c.half?.let { field("half") { string(it) } }
+        field("updatedAt") { number(c.updatedAt) }
+        c.finishedAt?.let { field("finishedAt") { number(it) } }
+        field("bookmarks") {
+            array(c.bookmarks) { m ->
+                obj {
+                    field("page") { number(m.page.toLong()) }
+                    field("createdAt") { number(m.createdAt) }
+                }
+            }
+        }
+        if (c.time.isNotEmpty()) field("time") { times(c.time) }
+    }
+
+    private fun JsonWriter.work(w: BackupWork) = obj {
+        field("key") { string(w.key) }
+        w.title?.let { field("title") { string(it) } }
+        w.rightToLeft?.let { field("rightToLeft") { bool(it) } }
+        w.view?.let { field("view") { string(it) } }
+        w.shelf?.let { field("shelf") { string(it) } }
+        w.coverAlone?.let { field("coverAlone") { bool(it) } }
+        w.splitSpreads?.let { field("splitSpreads") { bool(it) } }
+    }
+
+    private fun JsonWriter.times(list: List<BackupTime>) = array(list) { t ->
+        obj {
+            field("day") { string(isoDay(t.day)) }
+            field("mode") { string(t.mode) }
+            field("ms") { number(t.ms) }
+        }
     }
 
     private fun JsonWriter.book(b: BackupBook) = obj {
@@ -194,8 +300,8 @@ object RecordsCodec {
         return BackupFile(
             createdAt = long(root["createdAt"]) ?: 0L,
             books = books,
-            comics = (root["comics"] as? List<*>).orEmpty().filterIsInstance<Map<*, *>>().mapNotNull(::rawJson),
-            works = (root["works"] as? List<*>).orEmpty().filterIsInstance<Map<*, *>>().mapNotNull(::rawJson),
+            comics = (root["comics"] as? List<*>).orEmpty().filterIsInstance<Map<*, *>>().mapNotNull(::comic),
+            works = (root["works"] as? List<*>).orEmpty().filterIsInstance<Map<*, *>>().mapNotNull(::work),
         )
     }
 
@@ -223,17 +329,58 @@ object RecordsCodec {
                 string(a["note"])?.trim()?.takeIf { it.isNotEmpty() }, string(a["snippet"]) ?: "", long(a["createdAt"]) ?: 0L,
             )
         }
-        val time = (o["time"] as? List<*>).orEmpty().mapNotNull { e ->
-            val t = e as? Map<*, *> ?: return@mapNotNull null
-            val day = string(t["day"])?.let(::parseDay) ?: return@mapNotNull null
-            val mode = string(t["mode"])?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
-            val ms = long(t["ms"])?.takeIf { it > 0 } ?: return@mapNotNull null
-            BackupTime(day, mode, ms.coerceAtMost(DAY_MS))
-        }.groupBy { it.day to it.mode }.values.map { same -> same.maxBy { it.ms } }.sortedWith(compareBy({ it.day }, { it.mode }))
+        val time = times(o["time"])
         return BackupBook(
             name, long(o["size"])?.takeIf { it >= 0 }, string(o["title"]), string(o["author"]), progress,
             long(o["openedAt"]), long(o["finishedAt"]), bookmarks, notes, time,
         )
+    }
+
+    /**
+     * 만화 한 권(안드로이드 `comic()`): 음수 쪽 · 범위 밖 자리 · 모르는 반은 그 칸만 버린다. 쪽 · 책갈피 · 시간이 모두 없으면 권째
+     * 버린다(옮길 것이 없다).
+     */
+    private fun comic(o: Map<*, *>): BackupComic? {
+        val name = string(o["name"])?.takeIf { it.isNotEmpty() } ?: return null
+        val page = long(o["page"])?.takeIf { it >= 0 }?.toInt()
+        val bookmarks = (o["bookmarks"] as? List<*>).orEmpty().mapNotNull { e ->
+            val m = e as? Map<*, *> ?: return@mapNotNull null
+            val p = long(m["page"])?.takeIf { it >= 0 }?.toInt() ?: return@mapNotNull null
+            BackupComicMark(p, long(m["createdAt"]) ?: 0L)
+        }.distinctBy { it.page }
+        val time = times(o["time"])
+        if (page == null && bookmarks.isEmpty() && time.isEmpty()) return null
+        return BackupComic(
+            name, long(o["size"])?.takeIf { it >= 0 }, page, long(o["pageCount"])?.takeIf { it > 0 }?.toInt(),
+            // 자리 · 반은 쪽이 있을 때만 뜻이 있다. 모르는 반(손상 · "WHOLE")은 쪽 전체로 — 본 적 없는 반에서 열리지 않게.
+            double(o["offset"])?.takeIf { page != null && it in 0.0..1.0 }, string(o["half"])?.takeIf { page != null && (it == "LEFT" || it == "RIGHT") },
+            long(o["updatedAt"]) ?: 0L, long(o["finishedAt"]), bookmarks, time,
+        )
+    }
+
+    /** 작품 설정 하나: 참 · 거짓 칸은 진짜 참 · 거짓만, 갈래는 읽을 수 있는 것만. 정한 것이 하나도 없으면 버린다. */
+    private fun work(o: Map<*, *>): BackupWork? {
+        val key = string(o["key"])?.takeIf { it.isNotBlank() } ?: return null
+        val w = BackupWork(
+            key, string(o["title"])?.trim()?.takeIf { it.isNotEmpty() }, bool(o["rightToLeft"]), string(o["view"]),
+            string(o["shelf"])?.takeIf { io.github.kgcaudit.reader.document.comic.ShelfMark.parse(it) != null },
+            bool(o["coverAlone"]), bool(o["splitSpreads"]),
+        )
+        return w.takeIf { it.title != null || it.rightToLeft != null || it.view != null || it.shelf != null || it.coverAlone != null || it.splitSpreads != null }
+    }
+
+    private fun times(v: Any?): List<BackupTime> = (v as? List<*>).orEmpty().mapNotNull { e ->
+        val t = e as? Map<*, *> ?: return@mapNotNull null
+        val day = string(t["day"])?.let(::parseDay) ?: return@mapNotNull null
+        val mode = string(t["mode"])?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+        val ms = long(t["ms"])?.takeIf { it > 0 } ?: return@mapNotNull null
+        BackupTime(day, mode, ms.coerceAtMost(DAY_MS))
+    }.groupBy { it.day to it.mode }.values.map { same -> same.maxBy { it.ms } }.sortedWith(compareBy({ it.day }, { it.mode }))
+
+    /** JSON 의 참 · 거짓만(1 · 0 같은 숫자는 아니다 — 안드로이드와 같다). */
+    private fun bool(v: Any?): Boolean? {
+        val n = v as? NSNumber ?: return null
+        return if (n.objCType?.toKString() == "c") n.boolValue else null
     }
 
     /** 문자열만(JSON null · 숫자는 null — "null" 글자가 되지 않게). */
@@ -247,11 +394,6 @@ object RecordsCodec {
         is String -> v.toDoubleOrNull() // 안드로이드 optDouble 은 "50" 도 받는다.
         else -> null
     }
-
-    private fun rawJson(o: Map<*, *>): String? = runCatching {
-        val data = NSJSONSerialization.dataWithJSONObject(o, 0u, null) ?: return null
-        NSString.create(data, NSUTF8StringEncoding)?.toString()
-    }.getOrNull()
 
     private const val DAY_MS = 24L * 60 * 60 * 1000
 
@@ -298,37 +440,48 @@ internal fun nfc(s: String): String {
  */
 class RecordsBackup(private val store: ReadingStore, private val pendingPath: String) {
 
-    /** 백업 파일 글. 기록이 있는 책 + 기다리는 기록(책 · 만화 · 작품 설정). */
-    fun export(shelf: List<ShelfBook>, now: Long = currentTimeMillis()): String {
-        val pending = readPending()
-        val books = (shelf.mapNotNull { store.recordOf(it.id, it.name, it.size, it.title, it.author) } + pending.books)
-            .groupBy { it.key }.values.map { it.reduce(BackupBook::mergedWith) }
-        return RecordsCodec.encode(BackupFile(now, books, pending.comics, pending.works))
-    }
+    /** 백업 파일 글. 기록이 있는 책 · 만화 · 작품 설정 + 기다리는 기록. */
+    fun export(shelf: List<ShelfBook>, comics: List<ShelfComic>, now: Long = currentTimeMillis()): String =
+        RecordsCodec.encode(collect(shelf, comics, now))
 
     /** 서재 줄의 부제. */
-    fun summary(shelf: List<ShelfBook>): BackupSummary {
+    fun summary(shelf: List<ShelfBook>, comics: List<ShelfComic>): BackupSummary {
+        val all = collect(shelf, comics, 0)
+        return BackupSummary(
+            all.books.size, all.comics.size, all.books.sumOf { it.bookmarks.size } + all.comics.sumOf { it.bookmarks.size },
+            all.books.sumOf { it.annotations.size }, all.works.size,
+        )
+    }
+
+    private fun collect(shelf: List<ShelfBook>, comics: List<ShelfComic>, now: Long): BackupFile {
         val pending = readPending()
-        val books = shelf.mapNotNull { store.recordOf(it.id, it.name, it.size, it.title, it.author) }
-        val all = (books + pending.books).groupBy { it.key }.values.map { it.reduce(BackupBook::mergedWith) }
-        return BackupSummary(all.size, pending.comics.size, all.sumOf { it.bookmarks.size }, all.sumOf { it.annotations.size }, pending.works.size)
+        val books = (shelf.mapNotNull { store.recordOf(it.id, it.name, it.size, it.title, it.author) } + pending.books).mergedBooks()
+        val units = (comics.mapNotNull { store.recordOfComic(it.id, it.name, it.size) } + pending.comics).mergedComics()
+        // 이 휴대폰에서 정한 것이 앞 — 옛 판이 기다림에 남긴 작품 설정은 빈 칸만 채운다.
+        val works = (store.workRecords() + pending.works).mergedWorks()
+        return BackupFile(now, books, units, works)
     }
 
     /** 고른 파일을 미리 본다. 백업이 아니면 null. */
-    fun preview(text: String, shelf: List<ShelfBook>): ImportPreview? {
+    fun preview(text: String, shelf: List<ShelfBook>, comics: List<ShelfComic>): ImportPreview? {
         val file = RecordsCodec.decode(text) ?: return null
-        val books = file.books.groupBy { it.key }.values.map { it.reduce(BackupBook::mergedWith) }
+        val books = file.books.mergedBooks()
+        val units = file.comics.mergedComics()
         val found = books.count { targets(it, shelf).isNotEmpty() }
-        return ImportPreview(file.createdAt, books.size, file.comics.size, file.works.size, found, books.size - found + file.comics.size, file.isEmpty)
+        val comicsFound = units.count { comicTargets(it, comics).isNotEmpty() }
+        return ImportPreview(
+            file.createdAt, books.size, units.size, file.works.mergedWorks().size, found + comicsFound,
+            books.size - found + units.size - comicsFound, file.isEmpty, comicsFound,
+        )
     }
 
     /**
      * 합친다. 이 휴대폰의 기록은 지우지 않는다. 같은 파일을 두 번 가져와도 결과는 한 번 가져온 것과 같다. 못 찾은 책 · 만화 · 작품
      * 설정은 기다리는 기록으로. 백업이 아니면 null.
      */
-    fun apply(text: String, shelf: List<ShelfBook>): ImportResult? {
+    fun apply(text: String, shelf: List<ShelfBook>, comics: List<ShelfComic>): ImportResult? {
         val file = RecordsCodec.decode(text) ?: return null
-        val books = file.books.groupBy { it.key }.values.map { it.reduce(BackupBook::mergedWith) }
+        val books = file.books.mergedBooks()
         var found = 0
         var bookmarks = 0
         var notes = 0
@@ -343,22 +496,30 @@ class RecordsBackup(private val store: ReadingStore, private val pendingPath: St
             notes += b.annotations.size
             if (b.finishedAt != null) finished++
         }
+        var comicsFound = 0
+        val comicsMissing = ArrayList<BackupComic>()
+        for (c in file.comics.mergedComics()) {
+            val targets = comicTargets(c, comics)
+            if (targets.isEmpty()) { comicsMissing += c; continue }
+            for (t in targets) store.mergeComic(t.id, c)
+            comicsFound++
+            bookmarks += c.bookmarks.size
+            if (c.finishedAt != null) finished++
+        }
+        // 작품 설정은 작품이 아직 없어도 바로 둔다(안드로이드와 같다) — 열쇠가 작품 이름에서 나와, 그 만화를 나중에 넣으면 그대로 붙는다.
+        val works = file.works.mergedWorks()
+        store.mergeWorks(works)
         val pending = readPending()
-        writePending(
-            BackupFile(
-                0,
-                (pending.books + missing).groupBy { it.key }.values.map { it.reduce(BackupBook::mergedWith) },
-                (pending.comics + file.comics).distinct(),
-                (pending.works + file.works).distinct(),
-            ),
+        writePending(BackupFile(0, (pending.books + missing).mergedBooks(), (pending.comics + comicsMissing).mergedComics(), pending.works))
+        return ImportResult(
+            found + comicsFound, bookmarks, notes, finished, works.size, missing.map { it.name } + comicsMissing.map { it.name }, comicsFound,
         )
-        return ImportResult(found, bookmarks, notes, finished, file.works.size, missing.map { it.name } + file.comics.mapNotNull(::comicName))
     }
 
-    /** 서재를 훑은 뒤: 기다리던 책 중 이제 보이는 것에 붙이고 기다림에서 뺀다. 붙인 권 수. */
-    fun resumePending(shelf: List<ShelfBook>): Int {
+    /** 서재를 훑은 뒤: 기다리던 책 · 만화 중 이제 보이는 것에 붙이고 기다림에서 뺀다. 붙인 권 수. */
+    fun resumePending(shelf: List<ShelfBook>, comics: List<ShelfComic>): Int {
         val pending = readPending()
-        if (pending.books.isEmpty()) return 0
+        if (pending.isEmpty) return 0
         val left = ArrayList<BackupBook>()
         var done = 0
         for (b in pending.books) {
@@ -367,7 +528,16 @@ class RecordsBackup(private val store: ReadingStore, private val pendingPath: St
             for (t in targets) store.merge(t.id, b)
             done++
         }
-        if (done > 0) writePending(BackupFile(0, left, pending.comics, pending.works))
+        val leftComics = ArrayList<BackupComic>()
+        for (c in pending.comics) {
+            val targets = comicTargets(c, comics)
+            if (targets.isEmpty()) { leftComics += c; continue }
+            for (t in targets) store.mergeComic(t.id, c)
+            done++
+        }
+        // 옛 판이 기다림에 둔 작품 설정은 이제 이 휴대폰 설정으로 옮긴다(작품이 없어도 열쇠로 붙는다).
+        store.mergeWorks(pending.works)
+        if (done > 0 || pending.works.isNotEmpty()) writePending(BackupFile(0, left, leftComics, emptyList()))
         return done
     }
 
@@ -382,11 +552,23 @@ class RecordsBackup(private val store: ReadingStore, private val pendingPath: St
         return if (b.size != null) sameName.filter { it.size == b.size } else sameName.takeIf { it.size == 1 }.orEmpty()
     }
 
-    private fun comicName(raw: String): String? = runCatching {
-        @Suppress("CAST_NEVER_SUCCEEDS")
-        val data = (raw as NSString).dataUsingEncoding(NSUTF8StringEncoding) ?: return null
-        (NSJSONSerialization.JSONObjectWithData(data, 0u, null) as? Map<*, *>)?.get("name") as? String
-    }.getOrNull()
+    /**
+     * 이 만화 기록을 붙일 권(안드로이드 `comicTargetsOf`). 크기를 아는 기록은 이름 + 크기가 같은 권 모두, 없으면 이름이 같은 그림
+     * 폴더가 꼭 하나일 때(압축을 풀어 폴더로 옮긴 경우). 크기를 모르는 기록(그림 폴더)은 이름이 같은 권이 꼭 하나일 때만.
+     */
+    private fun comicTargets(c: BackupComic, comics: List<ShelfComic>): List<ShelfComic> {
+        val name = nfc(c.name)
+        val sameName = comics.filter { nfc(it.name) == name }
+        return if (c.size != null) {
+            sameName.filter { it.size == c.size }.ifEmpty { sameName.filter { it.size == null }.takeIf { it.size == 1 }.orEmpty() }
+        } else {
+            sameName.takeIf { it.size == 1 }.orEmpty()
+        }
+    }
+
+    private fun List<BackupBook>.mergedBooks() = groupBy { it.key }.values.map { it.reduce(BackupBook::mergedWith) }
+    private fun List<BackupComic>.mergedComics() = groupBy { it.key }.values.map { it.reduce(BackupComic::mergedWith) }
+    private fun List<BackupWork>.mergedWorks() = groupBy { it.key }.values.map { it.reduce(BackupWork::filledFrom) }
 
     private fun readPending(): BackupFile {
         val text = NSString.stringWithContentsOfFile(pendingPath, NSUTF8StringEncoding, null) ?: return BackupFile(0, emptyList(), emptyList(), emptyList())
@@ -474,8 +656,8 @@ private class JsonWriter {
         if (d == kotlin.math.floor(d) && !d.isInfinite()) out.append(d.toLong()) else out.append(d.toString())
     }
 
-    fun raw(json: String) {
-        out.append(json)
+    fun bool(b: Boolean) {
+        out.append(b)
     }
 
     private fun open() {

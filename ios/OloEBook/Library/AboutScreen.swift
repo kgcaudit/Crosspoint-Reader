@@ -167,13 +167,13 @@ struct AboutScreen: View {
             case .preview(let v, let text):
                 title("백업 파일에서 가져오기")
                 body(RecordsText.previewBody(v))
-                let books = Int(v.books), comics = Int(v.comics), found = Int(v.found)
+                let books = Int(v.books), comics = Int(v.comics), foundComics = Int(v.comicsFound), foundBooks = Int(v.found) - foundComics
                 if books + comics > 0 {
-                    Text("이 휴대폰에서 찾은 \(RecordsText.volumes(found, 0))").font(CpFont.subtitle).foregroundStyle(CpColor.text)
+                    Text("이 휴대폰에서 찾은 \(RecordsText.volumes(foundBooks, foundComics))").font(CpFont.subtitle).foregroundStyle(CpColor.text)
                 }
                 if Int(v.missing) > 0 {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("아직 못 찾은 \(RecordsText.volumes(books - found, comics))").font(CpFont.subtitle).foregroundStyle(CpColor.text)
+                        Text("아직 못 찾은 \(RecordsText.volumes(books - foundBooks, comics - foundComics))").font(CpFont.subtitle).foregroundStyle(CpColor.text)
                         Text("책 폴더를 추가하면 그때 이어집니다").font(CpFont.caption).foregroundStyle(CpColor.textMuted)
                     }
                 }
@@ -260,9 +260,9 @@ enum RecordsText {
     }
 
     static func doneTitle(_ r: ImportResult) -> String {
-        if r.found > 0 { return "\(volumes(Int(r.found), 0))의 기록을 가져왔습니다" }
-        // iOS 에는 만화가 없어 작품 설정은 붙일 곳이 없다 — 기억해 두었다가 다음 백업에 담는다.
-        if r.works > 0 { return "작품 설정 \(r.works)개를 기억해 두었습니다" }
+        if r.found > 0 { return "\(volumes(Int(r.found - r.comics), Int(r.comics)))의 기록을 가져왔습니다" }
+        // 찾은 권이 없어도 작품 설정은 붙었다 — "찾은 책이 없습니다" 라고 하면 실패한 것처럼 읽힌다(안드로이드 `doneTitle`).
+        if r.works > 0 { return "작품 설정 \(r.works)개를 가져왔습니다" }
         return "이 휴대폰에서 찾은 책이 없습니다"
     }
 
@@ -272,7 +272,7 @@ enum RecordsText {
             let finished = r.finished > 0 ? " · 읽은 책 \(r.finished)권" : ""
             return "책갈피 \(r.bookmarks)개 · 형광펜 · 메모 \(r.notes)개\(finished). \(waiting)".trimmingCharacters(in: .whitespaces)
         }
-        if r.works > 0 { return "고쳐 둔 작품 이름 · 넘기는 방향 · 보는 방식은 다음 백업에 그대로 담겨 다른 휴대폰으로 옮겨집니다. \(waiting)".trimmingCharacters(in: .whitespaces) }
+        if r.works > 0 { return "고쳐 둔 작품 이름 · 넘기는 방향 · 보는 방식이 그 작품에 붙었습니다. \(waiting)".trimmingCharacters(in: .whitespaces) }
         return waiting
     }
 }

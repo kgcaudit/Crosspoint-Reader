@@ -116,8 +116,8 @@ final class Library: ObservableObject {
         books = found
         infos = seen
         Library.saveInfos(seen)
-        // 백업에서 기다리던 책이 이제 보이면 붙인다(책 폴더를 추가한 뒤 등).
-        _ = backup.resumePending(shelf: shelfBooks)
+        // 백업에서 기다리던 책 · 만화가 이제 보이면 붙인다(책 폴더를 추가한 뒤 등).
+        _ = backup.resumePending(shelf: shelfBooks, comics: shelfComics)
         reloadRecords()
         scanning = false
     }
@@ -129,12 +129,18 @@ final class Library: ObservableObject {
         books.map { ShelfBook(id: $0.id, name: $0.displayName, size: $0.sizeBytes, title: $0.title.isEmpty ? nil : $0.title, author: $0.author) }
     }
 
-    func backupSummary() -> BackupSummary { backup.summary(shelf: shelfBooks) }
-    func exportRecords() -> String { backup.export(shelf: shelfBooks, now: Int64(Date().timeIntervalSince1970 * 1000)) }
-    func previewRecords(_ text: String) -> ImportPreview? { backup.preview(text: text, shelf: shelfBooks) }
+    /// 만화 권의 열쇠도 이름 + 크기. 그림 폴더는 크기가 없다(공통 `ComicUnit.sizeBytes` 가 null) — 이름 하나로 맞춘다.
+    private var shelfComics: [ShelfComic] {
+        comicUnits.map { ShelfComic(id: $0.id, name: $0.name, size: $0.sizeBytes) }
+    }
+
+    func backupSummary() -> BackupSummary { backup.summary(shelf: shelfBooks, comics: shelfComics) }
+    func exportRecords() -> String { backup.export(shelf: shelfBooks, comics: shelfComics, now: Int64(Date().timeIntervalSince1970 * 1000)) }
+    func previewRecords(_ text: String) -> ImportPreview? { backup.preview(text: text, shelf: shelfBooks, comics: shelfComics) }
 
     func importRecords(_ text: String) -> ImportResult? {
-        let result = backup.apply(text: text, shelf: shelfBooks)
+        // 작품 설정(방향 · 표지 · 갈래 · 이름)도 들어오므로 아래 reloadRecords 가 작품을 다시 묶는다.
+        let result = backup.apply(text: text, shelf: shelfBooks, comics: shelfComics)
         reloadRecords()
         return result
     }
