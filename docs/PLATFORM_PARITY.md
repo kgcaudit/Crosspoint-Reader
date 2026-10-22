@@ -1,6 +1,6 @@
 # 안드로이드 ↔ iOS 대조표
 
-마지막 갱신: 2026-10-22 · 기준 안드로이드 판 **0.55.0**
+마지막 갱신: 2026-10-22 · 기준 안드로이드 판 **0.55.1**
 
 **안드로이드가 중심이다**(2026-10-18 사용자 결정). 기능은 안드로이드에서 먼저 정하고 만든다. iOS 는 이 표를 보고 따라간다.
 두 세션은 기억을 나누지 않으므로, 이 문서와 저장소가 유일한 연결 고리다.
@@ -165,6 +165,7 @@ iOS 세션이 공통 코드의 문제를 찾으면 판 칸에 `iOS→안` 이라
 
 | 판 | 날짜 | 무엇 | 범위 | iOS |
 |---|---|---|---|---|
+| 0.55.1 | 2026-10-22 | 만화 "펼침면 나누기 켬 · 끔"(모든 만화)과 "이 작품 따름 · 나눔 · 통째로" 를 없애고 작품마다 **"넓은 그림 — 두 쪽 · 한 장"** 한 줄로. 고르지 않으면 자동(`SpreadSplit.isWide` → 두 쪽), 보이는 모습은 두 쪽 보기가 정한다(두 쪽 그림: 한 쪽 보기는 반씩 · 두 쪽 보기는 한 장 그대로). 설명 · 되돌리기 문구는 `CpReading.kt` 의 `WIDE_AUTO_NOTE` · `WIDE_CHOSEN_NOTE`, 저장 값(작품마다 true/false/null)은 그대로 | 화면 | 대기 — iOS 만화 보기 판을 만들 때 같은 줄 · 문구 · 작은 그림으로. 모든 만화 설정은 두지 않는다 |
 | 0.55.0+ | 2026-10-22 | PDF 글자 층(찾기 · 형광펜 자리 · 듣기 문장 · 깨진 한글 되살리기 · 폭 맞춤 화면 이동)을 공통 코어로 — 동작 같음, 패키지만 `reader.pdf` → `reader.layout.pdf` | 공통 | 반영(2026-10-22, PDF 2단계 — `IosPdfText` 가 공통 `PageText` · `layerHits` · `findAll` 을 쓴다. `PageViewport.reveal` 은 아직 안 씀: 폭 · 이어서의 듣는 문장 따라가기와 함께) |
 | 0.55.0 | 2026-10-22 | 태블릿 보기 판을 보기 단추 위 카드(420dp)로 · 메뉴와 본문 사이 선 + 그림자 · 모든 판이 열리고 닫힐 때 움직임(값 표는 `design-handoff/README.md` §6-8 · 9 · 10, 코드 `CpMotion.kt`) | 화면 | 대기 — iPad 보기 설정은 단추에 붙는 팝오버가 시스템 방식이라 그대로 쓰면 된다. 시스템 시트 · 팝오버는 길이 · 곡선을 앱이 못 정한다 — 직접 그리는 판(읽기 메뉴 막대)만 같은 값으로 |
 | iOS→안 | 2026-10-22 | **요청**(구상안 34A, 사용자 결정): PDF 글자 층 코드를 공통(commonMain)으로 옮겨 주세요 — 지금 안드로이드 전용 `reader-pdf` 에 있어 iOS 가 쓸 수 없다. 대상: `PageText`(rowStarts · inVisualOrder · withoutOverprint · repaired · lines · charAt · wordAt · rects · quote · speech · isReadable · textOnly), `TextLine`, `PdfSpeech`, `BrokenHangul`, `KsHangul`(java.util.Base64 → kotlin.io.encoding.Base64), `AdobeKr`, `layerHits`, 가능하면 `PageViewport.reveal`. 시험(`PageTextTest` · `BrokenHangulTest`)도 `commonTest` 로 — 이름에 쉼표가 없어야 iOS 에서 컴파일된다(아래 요청 참고). **까닭**: PDF 형광펜 자리(`Reflow(page, charOffset)`)는 이 코드가 다듬은 층 글자의 번호라, 두 앱이 같은 코드여야 PDF 형광펜이 백업으로 오간다. iOS 는 층을 PDFKit 의 `PDFPage.string` · `characterBounds(at:)` 로 채워 `PageText(text, boxes)` 를 만들 생각이다(번호 체계가 같아 `assembleLayer` 는 필요 없을 듯). 옮긴 뒤 iOS 가 PDF 찾기 · 형광펜 · 듣기(34)를 잇는다 — 그때까지 PDF 2단계는 멈춘다 | 공통 | 대기(안드로이드) → **처리**(2026-10-22, 안드로이드): `:core-layout` 공통의 `io.github.kgcaudit.reader.layout.pdf` 로 옮김 — `PageText` · `TextLine` · `PdfSpeech` · `BrokenHangul` · `KsHangul`(Kotlin Base64) · `AdobeKr` · `BROKEN_WORD_MARK` · `layerHits` · `PageViewport`(+`PageRegion`, 통째로). 시험 `PageTextTest` · `BrokenHangulTest` · `PageViewportTest` 도 `commonTest` 로(이름 쉼표 없음). 엔진 글 조각을 엮는 `assembleLayer` 와 화면 이름표 `screenLabel` 은 안드로이드에 남김(시험도 `reader-pdf` 로 뗌). KS X 1001 표가 EUC-KR 과 같은지는 `jvmTest` 의 `KsHangulTableTest` 가 대조 — iOS: 대기(맥에서 `:core-layout:iosSimulatorArm64Test`) |
