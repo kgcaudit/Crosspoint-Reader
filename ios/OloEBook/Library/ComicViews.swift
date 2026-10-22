@@ -1,0 +1,493 @@
+import OloCore
+import SwiftUI
+import UIKit
+
+// MARK: 말
+
+/// "만화" · "웹툰", "권" · "화"(안드로이드 `kindLabel` · `unitWord`).
+extension Work {
+    var kindLabel: String { webtoon ? "웹툰" : "만화" }
+    var unitWord: String { webtoon ? "화" : "권" }
+    var rtl: Bool { rightToLeft?.boolValue == true }
+
+    /// "만화 · 12권 · 2곳에서 모음 · 완결 · 오→왼". 모르는 것은 뺀다(안드로이드 `workSubtitle`).
+    var subtitle: String {
+        var parts = [kindLabel, "\(volumeCount)\(unitWord)"]
+        if places.count > 1 { parts.append("\(places.count)곳에서 모음") }
+        if complete { parts.append("완결") }
+        if let r = rightToLeft { parts.append(r.boolValue ? "오→왼" : "왼→오") }
+        return parts.joined(separator: " · ")
+    }
+}
+
+/// "3권을" · "12권을" · "외전을" — 받침으로 고른다. 숫자로 끝나면 읽는 소리(0 · 1 · 3 · 6 · 7 · 8 은 받침이 있다).
+func objectParticle(_ word: String) -> String {
+    guard let last = word.trimmingCharacters(in: .whitespaces).unicodeScalars.last else { return "을" }
+    let v = last.value
+    if (0xAC00...0xD7A3).contains(v) { return (v - 0xAC00) % 28 == 0 ? "를" : "을" }
+    if let d = Int(String(last)) { return [0, 1, 3, 6, 7, 8].contains(d) ? "을" : "를" }
+    return "를"
+}
+
+// MARK: 표지
+
+/// 만화 표지: 표지 그림(이름이 cover · folder 인 그림, 없으면 첫 쪽). 펼침면이면 앞표지 쪽 반만(왼→오는 오른쪽 · 오→왼은 왼쪽,
+/// 공통 `CoverCrop.front`). 칸 크기는 책 표지와 같다(1 : 1.45).
+struct ComicCover: View {
+    let unit: ComicUnit
+    let library: Library
+    var rtl = false
+    var tag: String?
+    var shadow = false
+    @State private var image: UIImage?
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 8)
+        Color.clear
+            .aspectRatio(LibraryGrid.coverAspect, contentMode: .fit)
+            .overlay(alignment: .bottom) {
+                Group {
+                    if let image {
+                        Image(uiImage: image).resizable().aspectRatio(contentMode: .fit)
+                    } else {
+                        CpColor.tileOther.aspectRatio(1 / LibraryGrid.coverAspect, contentMode: .fit)
+                            .overlay(CpIconView(icon: .grid, size: 22, color: .white))
+                    }
+                }
+                .clipShape(shape)
+                .overlay(shape.stroke(CpColor.divider, lineWidth: 1))
+                .overlay(alignment: .bottomTrailing) {
+                    if let tag {
+                        Text(tag).font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(Color.black.opacity(0.8)).clipShape(RoundedRectangle(cornerRadius: 4)).padding(6)
+                    }
+                }
+            }
+            .task(id: unit.id) { image = await ComicCovers.shared.load(unit, library: library, rtl: rtl) }
+            .accessibilityHidden(true)
+    }
+}
+
+final class ComicCovers: @unchecked Sendable {
+    static let shared = ComicCovers()
+    private let cache = NSCache<NSString, UIImage>()
+
+    func load(_ unit: ComicUnit, library: Library, rtl: Bool) async -> UIImage? {
+        let key = "\(unit.id)|\(rtl)" as NSString
+        if let img = cache.object(forKey: key) { return img }
+        guard let file = await library.comicFile(unit.id) else { return nil }
+        let end = await library.beginAccess(folderId: file.folderId)
+        defer { end() }
+        let image = await Task.detached(priority: .utility) { () -> UIImage? in
+            let book: IosComicBook? = if let names = file.images {
+                IosComicBook.companion.openFolder(path: file.url.path, fileNames: names)
+            } else {
+                IosComicBook.companion.openArchive(path: file.url.path)
+            }
+            guard let book else { return nil }
+            defer { book.close() }
+            let coverName = unit.contents?.cover
+            let index = coverName.flatMap { name in book.pages.firstIndex(of: name) } ?? 0
+            guard let data = book.data(i: Int32(index)), let img = ComicImages.decode(data as Data, maxPixel: 600) else { return nil }
+            guard let cg = img.cgImage, img.size.width > img.size.height * 1.15 else { return img }
+            let range = CoverCrop.shared.front(width: Int32(cg.width), height: Int32(cg.height), rightToLeft: rtl)
+            let rect = CGRect(x: Int(range.first), y: 0, width: Int(range.last) - Int(range.first) + 1, height: cg.height)
+            return cg.cropping(to: rect).map { UIImage(cgImage: $0) } ?? img
+        }.value
+        if let image { cache.setObject(image, forKey: key) }
+        return image
+    }
+}
+
+// MARK: 만화 탭
+
+/// 만화 탭(구상안 35A, 안드로이드 `ComicShelf`): 작품 단위 세 갈래. 읽는 중 칸은 이어 볼 권을 바로 열고, 다른 칸은 작품 화면.
+struct ComicShelves: View {
+    @ObservedObject var library: Library
+    let open: (LibraryBook) -> Void
+    let openWork: (Work) -> Void
+
+    private struct Item: Identifiable {
+        let work: Work
+        let status: WorkStatus
+        let resume: (entry: WorkEntry, progress: ComicProgress?)?
+        var id: String { work.key + "|" + work.title }
+    }
+
+    private struct Section: Identifiable {
+        let id: String
+        let title: String
+        let items: [Item]
+        var divider = false
+    }
+
+    private var sections: [Section] {
+        let items = library.works.map { w -> Item in
+            let r = ComicReading.shared.resume(work: w, progress: library.comicProgress)
+            return Item(work: w, status: library.status(w), resume: r.map { ($0.first!, $0.second) })
+        }
+        func byName(_ a: Item, _ b: Item) -> Bool {
+            a.work.title.compare(b.work.title, options: [.numeric, .caseInsensitive], locale: Locale(identifier: "ko_KR")) == .orderedAscending
+        }
+        let reading = items.filter { $0.status.shelf == .reading }
+            .sorted { ($0.status.lastReadAtEpochMs?.int64Value ?? 0) > ($1.status.lastReadAtEpochMs?.int64Value ?? 0) }
+        let finished = items.filter { $0.status.shelf == .finished }
+            .sorted { ($0.status.finishedAtEpochMs?.int64Value ?? 0) > ($1.status.finishedAtEpochMs?.int64Value ?? 0) }
+        let toRead = items.filter { $0.status.shelf == .toRead }.sorted(by: byName)
+        return [Section(id: "reading", title: "읽는 책 · \(reading.count)작품", items: reading),
+                Section(id: "finished", title: "읽은 책 · \(finished.count)작품", items: finished),
+                Section(id: "to-read", title: "읽을 책 · \(toRead.count)작품", items: toRead, divider: !(reading.isEmpty && finished.isEmpty))]
+            .filter { !$0.items.isEmpty }
+    }
+
+    var body: some View {
+        GeometryReader { g in
+            let width = LibraryGrid.cellWidth(g.size.width)
+            let columns = LibraryGrid.columns(g.size.width)
+            if library.layout == .shelf {
+                ShelfWall {
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            ShelfCrown()
+                            ForEach(sections) { section in
+                                let rows = section.items.chunked(columns)
+                                ForEach(rows.indices, id: \.self) { i in
+                                    ShelfBoard(label: i == 0 ? section.title : nil)
+                                    WoodRow(items: rows[i], width: width) { item in
+                                        ComicCover(unit: cover(item), library: library, rtl: item.work.rtl, tag: tag(item), shadow: true)
+                                            .workButton(item.work.title) { tap(item) }
+                                    }
+                                }
+                            }
+                            EmptyShelves(cellWidth: width, minHeight: g.size.height)
+                        }
+                    }
+                    .refreshable { await library.refresh() }
+                }
+                .ignoresSafeArea(edges: .bottom)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(sections) { section in
+                            if section.divider {
+                                Spacer().frame(height: 14)
+                                CpDivider()
+                            }
+                            CpSectionLabel(text: section.title)
+                                .padding(.horizontal, CpMetrics.gutter).padding(.top, 18).padding(.bottom, 6)
+                            if library.layout == .grid {
+                                ForEach(section.items.chunked(columns), id: \.first!.id) { row in
+                                    HStack(alignment: .top, spacing: LibraryGrid.gap) {
+                                        ForEach(row) { item in cell(item).frame(width: width, alignment: .leading) }
+                                    }
+                                    .padding(.horizontal, CpMetrics.gutter).padding(.vertical, 9)
+                                }
+                            } else {
+                                LazyVStack(alignment: .leading, spacing: 0) {
+                                    ForEach(section.items) { item in rowView(item) }
+                                }
+                            }
+                        }
+                        Spacer().frame(height: 24)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .refreshable { await library.refresh() }
+            }
+        }
+    }
+
+    private func cover(_ item: Item) -> ComicUnit { item.resume?.entry.unit ?? item.work.entries.first!.unit }
+
+    /// 읽는 중 칸의 표지 꼬리표: 권이 둘 이상일 때 "12권".
+    private func tag(_ item: Item) -> String? {
+        item.status.shelf == .reading && item.work.volumeCount > 1 ? "\(item.work.volumeCount)\(item.work.unitWord)" : nil
+    }
+
+    private func line(_ item: Item) -> some View {
+        Group {
+            if item.status.shelf == .reading, let r = item.resume {
+                VStack(alignment: .leading, spacing: 4) {
+                    CpProgressBar(fraction: Double(r.progress?.fraction ?? 0))
+                    if item.status.newVolumes {
+                        Text("새 \(item.work.unitWord) · \(r.entry.label)부터").foregroundStyle(CpColor.accentText)
+                    } else {
+                        Text("\(r.entry.label) · \(r.progress.map { "\(Int($0.page) + 1)쪽" } ?? "처음부터")").foregroundStyle(CpColor.textMuted)
+                    }
+                }
+            } else if item.status.shelf == .finished, let at = item.status.finishedAtEpochMs {
+                Text("다 읽음 · \(monthDay(Date(timeIntervalSince1970: at.doubleValue / 1000)))").foregroundStyle(CpColor.accentText)
+            } else {
+                Text("\(item.work.kindLabel) · \(item.work.volumeCount)\(item.work.unitWord)").foregroundStyle(CpColor.textMuted)
+            }
+        }
+        .font(CpFont.caption)
+    }
+
+    private func cell(_ item: Item) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ComicCover(unit: cover(item), library: library, rtl: item.work.rtl, tag: tag(item))
+            Text(item.work.title).font(CpFont.label).foregroundStyle(CpColor.text).lineLimit(1).padding(.top, 8)
+            line(item).padding(.top, 4)
+        }
+        .workButton(item.status.shelf == .reading ? "\(item.work.title) \(item.resume?.entry.label ?? "") 이어 읽기" : "\(item.work.title) 작품") { tap(item) }
+    }
+
+    private func rowView(_ item: Item) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            ComicCover(unit: cover(item), library: library, rtl: item.work.rtl).frame(width: 56)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.work.title).font(CpFont.body).foregroundStyle(CpColor.text).lineLimit(2)
+                Text(item.work.subtitle).font(CpFont.caption).foregroundStyle(CpColor.textMuted)
+                line(item)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, CpMetrics.gutter).padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .workButton("\(item.work.title) 작품") { tap(item) }
+    }
+
+    private func tap(_ item: Item) {
+        if item.status.shelf == .reading, let r = item.resume, let book = library.comicBook(r.entry.unit) {
+            open(book)
+        } else {
+            openWork(item.work)
+        }
+    }
+}
+
+extension View {
+    func workButton(_ label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) { self.contentShape(Rectangle()) }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(label)
+            .accessibilityAddTraits(.isButton)
+    }
+}
+
+// MARK: 작품 화면
+
+/// 작품 화면(구상안 35A, 안드로이드 `WorkScreen`): 머리 · 이어 읽기 · 권 줄들(합본 안의 권은 표지 뒤 글자 시작선에서).
+struct WorkScreen: View {
+    @ObservedObject var library: Library
+    let workKey: String
+    let open: (LibraryBook) -> Void
+    let back: () -> Void
+
+    private var work: Work? { library.works.first { $0.key == workKey } }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let work {
+                CpHeader(title: work.title, subtitle: work.subtitle,
+                         leading: AnyView(CpIconButton(icon: .back, label: "뒤로", action: back))) {}
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        if let r = ComicReading.shared.resume(work: work, progress: library.comicProgress), let p = r.second,
+                           let book = library.comicBook(r.first!.unit) {
+                            CpButton(title: "\(r.first!.label) 이어 읽기 · \(Int(p.page) + 1)쪽") { open(book) }
+                                .frame(maxWidth: .infinity)
+                                .padding(.horizontal, CpMetrics.gutter).padding(.vertical, 10)
+                        }
+                        CpSectionLabel(text: "\(work.volumeCount)\(work.unitWord)")
+                            .padding(.horizontal, CpMetrics.gutter).padding(.top, 8).padding(.bottom, 4)
+                        ForEach(Array(work.entries.enumerated()), id: \.offset) { _, e in
+                            entryRow(work, e)
+                            if let sections = e.unit.contents?.sections, sections.count > 1 {
+                                ForEach(Array(sections.enumerated()), id: \.offset) { _, s in sectionRow(e, s) }
+                            }
+                        }
+                        Spacer().frame(height: 24)
+                    }
+                }
+            } else {
+                CpHeader(title: "만화", leading: AnyView(CpIconButton(icon: .back, label: "뒤로", action: back))) {}
+                Spacer()
+            }
+        }
+        .background(CpColor.background)
+    }
+
+    /// "다 읽음 · 180쪽" · "45 / 182쪽" · "182쪽"(안드로이드 `entrySub`).
+    private func sub(_ e: WorkEntry) -> String {
+        let count = e.unit.pageCount?.intValue
+        let p = ([e.unit] + e.copies).compactMap { library.comicProgress[$0.id] }.first
+        if let p, p.finishedAtEpochMs != nil { return count.map { "다 읽음 · \($0)쪽" } ?? "다 읽음" }
+        if let p, let count { return "\(Int(p.page) + 1) / \(count)쪽" }
+        return count.map { "\($0)쪽" } ?? ""
+    }
+
+    private func entryRow(_ work: Work, _ e: WorkEntry) -> some View {
+        let p = library.comicProgress[e.unit.id]
+        return HStack(spacing: 14) {
+            ComicCover(unit: e.unit, library: library, rtl: work.rtl).frame(width: 40)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(e.omnibus ? "\(e.label) 합본" : e.label).font(CpFont.body).foregroundStyle(CpColor.text)
+                Text(sub(e)).font(CpFont.caption).foregroundStyle(p?.finishedAtEpochMs != nil ? CpColor.accentText : CpColor.textMuted)
+                if let p, p.finishedAtEpochMs == nil { CpProgressBar(fraction: Double(p.fraction)).frame(maxWidth: 200).padding(.top, 2) }
+            }
+            Spacer(minLength: 0)
+            if !e.copies.isEmpty {
+                Text("같은 \(work.unitWord) \(e.copies.count + 1)곳").font(CpFont.caption).foregroundStyle(CpColor.textMuted)
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .overlay(RoundedRectangle(cornerRadius: CpMetrics.cornerChip).stroke(CpColor.outline, lineWidth: 1))
+            }
+        }
+        .padding(.horizontal, CpMetrics.gutter).padding(.vertical, 6)
+        .workButton(e.label) { if let b = library.comicBook(e.unit) { open(b) } }
+    }
+
+    /// 합본 안의 권: 표지(40) 뒤 글자 시작선(14 + 40 = 54)에서 — 합본에 속한다(UI 규칙 1). 누르면 그 권의 첫 쪽부터.
+    private func sectionRow(_ e: WorkEntry, _ s: ComicContents.Section) -> some View {
+        let first = Int(s.firstPage), count = Int(s.pageCount)
+        return HStack(spacing: 10) {
+            Text(s.name.isEmpty ? "앞부분" : s.name).font(CpFont.body).foregroundStyle(CpColor.text)
+            Text(count > 1 ? "\(first + 1)–\(first + count)쪽" : "\(first + 1)쪽").font(CpFont.caption).foregroundStyle(CpColor.textMuted)
+            Spacer(minLength: 0)
+        }
+        .padding(.leading, CpMetrics.gutter + 54).padding(.trailing, CpMetrics.gutter)
+        .frame(minHeight: 40)
+        .workButton(s.name) {
+            guard let b = library.comicBook(e.unit) else { return }
+            library.store.saveComic(unitId: e.unit.id, page: Int32(first), pageCount: Int32(e.unit.pageCount?.intValue ?? first + 1), atEnd: false)
+            open(b)
+        }
+    }
+}
+
+// MARK: 권 끝
+
+/// 권 끝 판(구상안 36, 안드로이드 `EndCard`): "3권을 다 읽었습니다" · 다음 권 표지 · 이어서 읽기 · 서재로.
+struct ComicEndCard: View {
+    let label: String
+    let workTitle: String
+    let next: WorkEntry?
+    let webtoon: Bool
+    let library: Library
+    let onNext: (WorkEntry) -> Void
+    let toLibrary: () -> Void
+    let dismiss: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.45).ignoresSafeArea().onTapGesture(perform: dismiss)
+                .accessibilityLabel("닫기").accessibilityAddTraits(.isButton)
+            VStack(spacing: 14) {
+                Text("\(label)\(objectParticle(label)) 다 읽었습니다").font(CpFont.title).foregroundStyle(CpColor.text)
+                    .multilineTextAlignment(.center)
+                if let next {
+                    ComicCover(unit: next.unit, library: library).frame(width: 150)
+                    Text("다음: \(workTitle) \(next.label)").font(CpFont.body).foregroundStyle(CpColor.text).multilineTextAlignment(.center)
+                    CpButton(title: "이어서 읽기") { onNext(next) }
+                } else {
+                    // 세는 말은 그 줄 이름의 끝 글자(화 · 권)가 먼저, 모르면 작품의 세는 말.
+                    let unit = label.hasSuffix("화") ? "화" : label.hasSuffix("권") ? "권" : (webtoon ? "화" : "권")
+                    Text("마지막 \(unit)입니다").font(CpFont.body).foregroundStyle(CpColor.textMuted)
+                }
+                Button(action: toLibrary) {
+                    Text("서재로").font(CpFont.label).foregroundStyle(CpColor.accentText)
+                        .padding(.horizontal, 16).frame(minHeight: CpMetrics.touchTarget)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(24)
+            .background(CpColor.dialog).clipShape(RoundedRectangle(cornerRadius: CpMetrics.cornerDialog))
+            .padding(.horizontal, 40)
+        }
+        .environment(\.colorScheme, .dark)
+    }
+}
+
+// MARK: 쪽 목록 · 책갈피
+
+/// 쪽 목록(안드로이드 `PageGrid`): 칸 최소 96, 쪽마다 작은 그림과 "n쪽". 누르면 그 쪽으로.
+struct ComicPageGrid: View {
+    let engine: ComicEngine
+    let title: String
+    let current: Int
+    let go: (Int) -> Void
+    let back: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            CpHeader(title: "쪽 목록", subtitle: "\(title) · \(engine.pageCount)쪽",
+                     leading: AnyView(CpIconButton(icon: .back, label: "뒤로", action: back))) {}
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 10)], spacing: 14) {
+                        ForEach(0..<engine.pageCount, id: \.self) { i in
+                            Button { go(i) } label: {
+                                VStack(spacing: 4) {
+                                    ComicThumb(engine: engine, page: i)
+                                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(i == current ? CpColor.accent : CpColor.divider,
+                                                                                       lineWidth: i == current ? 2 : 1))
+                                    Text("\(i + 1)쪽").font(CpFont.caption).foregroundStyle(i == current ? CpColor.accentText : CpColor.textMuted)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .id(i)
+                        }
+                    }
+                    .padding(CpMetrics.gutter)
+                }
+                .onAppear { proxy.scrollTo(current, anchor: .center) }
+            }
+        }
+    }
+}
+
+struct ComicThumb: View {
+    let engine: ComicEngine
+    let page: Int
+    @State private var image: UIImage?
+
+    var body: some View {
+        Color.black.opacity(0.2)
+            .aspectRatio(0.7, contentMode: .fit)
+            .overlay { if let image { Image(uiImage: image).resizable().aspectRatio(contentMode: .fit) } }
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .task(id: page) { image = await engine.thumbnail(page, height: 160) }
+    }
+}
+
+/// 만화 책갈피 목록(안드로이드 쪽 단위 — 발췌 글이 없다).
+struct ComicBookmarks: View {
+    let engine: ComicEngine
+    let go: (Int) -> Void
+    let back: () -> Void
+    @State private var pages: [Int]?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            CpHeader(title: "책갈피", subtitle: pages.map { "\($0.count)개" },
+                     leading: AnyView(CpIconButton(icon: .back, label: "뒤로", action: back))) {}
+            if let pages {
+                if pages.isEmpty {
+                    CpEmptyMessage(text: "책갈피가 없습니다. 쪽 오른쪽 위를 누르거나 가운데를 누르고 위쪽 책갈피 단추로 꽂을 수 있습니다.")
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(pages, id: \.self) { p in
+                                Button { go(p) } label: {
+                                    HStack(spacing: 14) {
+                                        ComicThumb(engine: engine, page: p).frame(width: 40)
+                                        Text("\(p + 1)쪽").font(CpFont.body).foregroundStyle(CpColor.text)
+                                        Spacer()
+                                    }
+                                    .padding(.horizontal, CpMetrics.gutter).padding(.vertical, 6).contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+            } else {
+                Spacer()
+            }
+        }
+        .task { pages = ((try? await engine.bookmarks()) ?? []).compactMap(\.page) }
+    }
+}

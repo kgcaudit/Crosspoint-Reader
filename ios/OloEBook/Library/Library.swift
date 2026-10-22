@@ -22,7 +22,7 @@ struct LibraryBook: Identifiable, Hashable {
     /// 서재에 보이는 이름(안드로이드 `label`): 책 제목, 모르면 파일 이름.
     var label: String { title.isEmpty ? displayName : title }
 
-    enum Format: String { case epub = "EPUB", txt = "TXT", pdf = "PDF" }
+    enum Format: String { case epub = "EPUB", txt = "TXT", pdf = "PDF", comic = "만화" }
 
     /// 조판 캐시 키의 판. 같은 이름으로 고친 책에 옛 쪽이 보이지 않게.
     var edition: String { "\(sizeBytes)-\(Int64(modified.timeIntervalSince1970))" }
@@ -110,6 +110,9 @@ final class Library: ObservableObject {
         let folders = self.folders
         let known = infos
         let (found, seen) = await Task.detached(priority: .userInitiated) { Library.scan(folders: folders, known: known) }.value
+        let (units, files) = await Task.detached(priority: .userInitiated) { Library.scanComics(folders: folders) }.value
+        comicUnits = units
+        comicFiles = files
         books = found
         infos = seen
         Library.saveInfos(seen)
@@ -166,6 +169,100 @@ final class Library: ObservableObject {
         let rows = store.shelf(ids: books.map(\.id))
         records = Dictionary(rows.map { ($0.bookId, $0) }, uniquingKeysWith: { a, _ in a })
         arrange()
+        arrangeComics()
+    }
+
+    // MARK: 만화(구상안 35A · 36)
+
+    /// 만화 작품들(공통 `ComicShelf` 이 묶은 것)과 권마다 읽은 쪽.
+    @Published private(set) var works: [Work] = []
+    @Published private(set) var comicProgress: [String: ComicProgress] = [:]
+    private var comicUnits: [ComicUnit] = []
+    /// 단위 id → 그 파일(열 때).
+    private var comicFiles: [String: ComicFile] = [:]
+
+    struct ComicFile: Sendable {
+        let url: URL
+        let folderId: String?
+        /// 그림 폴더면 그 안의 파일 이름들. 압축이면 nil.
+        let images: [String]?
+        let size: Int64
+    }
+
+    /// 작품 하나의 갈래(읽는 책 · 읽은 책 · 읽을 책)와 그 열쇠들(공통 `WorkStatuses`).
+    func status(_ work: Work) -> WorkStatus { WorkStatuses.shared.of(work: work, progress: comicProgress, mark: work.shelfMark) }
+
+    func arrangeComics() {
+        comicProgress = store.comicProgress()
+        works = IosComics.shared.group(units: comicUnits, overrides: store.comicOverrides())
+    }
+
+    /// 작품 설정을 바꿨다(넘기는 방향 · 표지 · 갈래) — 다시 묶는다.
+    func setComicSetting(_ kind: String, work: Work, value: String?) {
+        store.setComicSetting(kind: kind, subject: work.key, value: value)
+        arrangeComics()
+    }
+
+    func work(of unitId: String) -> Work? { works.first { w in w.entries.contains { e in e.unit.id == unitId || e.copies.contains { $0.id == unitId } } } }
+
+    /// 만화 권을 리더가 여는 꼴로.
+    func comicBook(_ unit: ComicUnit) -> LibraryBook? {
+        guard let f = comicFiles[unit.id] else { return nil }
+        return LibraryBook(id: unit.id, url: f.url, displayName: unit.name, format: .comic, sizeBytes: f.size,
+                           modified: .distantPast, added: .distantPast, folderId: f.folderId)
+    }
+
+    func comicFile(_ id: String) -> ComicFile? { comicFiles[id] }
+
+    /// 만화 단위를 훑는다: cbz · cbt · 그림만 든 zip(35A — cbr · cb7 은 아직 아니다), 그림 3장 이상 든 폴더. 무엇이 만화인지는 공통
+    /// `ComicContents` 가 정한다.
+    private nonisolated static func scanComics(folders: [LinkedFolder]) -> ([ComicUnit], [String: ComicFile]) {
+        var units: [ComicUnit] = []
+        var files: [String: ComicFile] = [:]
+        func walk(_ root: URL, _ prefix: String, _ folderId: String?) {
+            let keys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey, .creationDateKey, .contentModificationDateKey]
+            guard let walker = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys,
+                                                              options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return }
+            let rootPath = root.standardizedFileURL.path
+            var byFolder: [String: [String]] = [:]
+            for case let url as URL in walker {
+                guard let v = try? url.resourceValues(forKeys: Set(keys)), v.isRegularFile == true else { continue }
+                let path = url.standardizedFileURL.path
+                let relative = path.hasPrefix(rootPath) ? String(path.dropFirst(rootPath.count).drop(while: { $0 == "/" })) : url.lastPathComponent
+                let parentRel = (relative as NSString).deletingLastPathComponent
+                byFolder[parentRel, default: []].append(url.lastPathComponent)
+                let name = url.lastPathComponent
+                guard IosComics.shared.opensArchive(name: name) else { continue }
+                let id = (prefix + relative).precomposedStringWithCanonicalMapping
+                let size = Int64(v.fileSize ?? 0)
+                let added = Int64((v.creationDate ?? v.contentModificationDate ?? .distantPast).timeIntervalSince1970 * 1000)
+                let parents = parentRel.isEmpty ? [] : parentRel.split(separator: "/").map(String.init)
+                if let unit = IosComics.shared.probe(path: url.path, id: id, name: name, folders: parents, sizeBytes: size, addedAt: added) {
+                    units.append(unit)
+                    files[id] = ComicFile(url: url, folderId: folderId, images: nil, size: size)
+                }
+            }
+            // 그림 폴더: 바로 아래 파일들로 판정(앱 폴더 자체는 빼고 — 거기 그림 몇 장은 작품이 아니다).
+            for (rel, names) in byFolder where !rel.isEmpty {
+                let url = root.appendingPathComponent(rel, isDirectory: true)
+                let parts = rel.split(separator: "/").map(String.init)
+                let id = (prefix + rel + "/").precomposedStringWithCanonicalMapping
+                let added = Int64(((try? url.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast).timeIntervalSince1970 * 1000)
+                if let unit = IosComics.shared.folder(id: id, name: parts.last ?? rel, folders: Array(parts.dropLast()), fileNames: names, addedAt: added) {
+                    units.append(unit)
+                    files[id] = ComicFile(url: url, folderId: folderId, images: names, size: 0)
+                }
+            }
+        }
+        walk(appFolder, "app:", nil)
+        for folder in folders {
+            var stale = false
+            guard let url = try? URL(resolvingBookmarkData: folder.bookmark, bookmarkDataIsStale: &stale) else { continue }
+            let access = url.startAccessingSecurityScopedResource()
+            defer { if access { url.stopAccessingSecurityScopedResource() } }
+            walk(url, "link:\(folder.id):", folder.id)
+        }
+        return (units, files)
     }
 
     /// 책들과 그 이름표. 이름표는 폴더 접근이 열려 있는 이 자리에서 읽는다(연결한 폴더는 훑는 동안만 열린다).
@@ -284,8 +381,10 @@ final class Library: ObservableObject {
     }
 
     /// 연결한 폴더의 책을 읽는 동안 접근을 열어 둔다. 닫을 때 돌려받은 것을 부른다.
-    func beginAccess(_ book: LibraryBook) -> () -> Void {
-        guard let folderId = book.folderId, let folder = folders.first(where: { $0.id == folderId }) else { return {} }
+    func beginAccess(_ book: LibraryBook) -> () -> Void { beginAccess(folderId: book.folderId) }
+
+    func beginAccess(folderId: String?) -> () -> Void {
+        guard let folderId, let folder = folders.first(where: { $0.id == folderId }) else { return {} }
         var stale = false
         guard let url = try? URL(resolvingBookmarkData: folder.bookmark, bookmarkDataIsStale: &stale) else { return {} }
         let access = url.startAccessingSecurityScopedResource()

@@ -11,6 +11,9 @@ import io.github.kgcaudit.reader.document.BookmarkRepository
 import io.github.kgcaudit.reader.document.Locator
 import io.github.kgcaudit.reader.document.ProgressRepository
 import io.github.kgcaudit.reader.document.ReadingProgress
+import io.github.kgcaudit.reader.document.comic.ComicOverrides
+import io.github.kgcaudit.reader.document.comic.ComicProgress
+import io.github.kgcaudit.reader.document.comic.ShelfMark
 import io.github.kgcaudit.reader.document.io.currentTimeMillis
 import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ExperimentalForeignApi
@@ -49,6 +52,9 @@ data class TimeRecord(val bookId: String, val day: Long, val mode: String, val m
  * - `R bookId openedAt finishedAt|-`
  * - `A id bookId start end color createdAt snippet note` — note 칸이 없으면 메모 없음. 빈 메모는 만들지 않는다(공통 `withNote`)
  * - `T bookId day mode millis` — 읽은 시간(책 · 날 · 방식마다 한 줄)
+ * - `C unitId page pageCount updatedAt finishedAt|-` — 만화 권의 읽은 쪽(안드로이드 `comic_progress`)
+ * - `K unitId page createdAt` — 만화 책갈피(쪽 단위, 발췌 글이 없다)
+ * - `O kind subject value` — 만화 작품 설정(RTL · COVER · SHELF, 안드로이드 `comic_overrides`)
  *
  * 여러 스레드(조판 · 서재)에서 함께 부르므로 잠근다.
  */
@@ -62,6 +68,9 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
     private val notes = ArrayList<Annotation>()
     private var nextNoteId = 1L
     private val times = LinkedHashMap<Triple<String, Long, String>, Long>()
+    private val comics = LinkedHashMap<String, ComicProgress>()
+    private val comicMarks = ArrayList<Triple<String, Int, Long>>()
+    private val comicSettings = LinkedHashMap<Pair<String, String>, String>()
 
     /**
      * 형광펜 보관소. 함수 이름(forBook · add · remove)이 책갈피 규약과 같아 한 클래스에 함께 둘 수 없다 — 같은 파일 · 같은
@@ -159,6 +168,53 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
         }
     }
 
+    // ── 만화(구상안 35A · 36) ─────────────────────────────────────────────
+
+    /** 권마다 읽은 쪽. 서재 갈래 · 이어 읽기 · 작품 화면이 한 번에 묻는다. */
+    fun comicProgress(): Map<String, ComicProgress> = locked { LinkedHashMap(comics) }
+
+    /**
+     * 읽은 쪽을 적는다. [atEnd] 면(마지막 판에 닿았다) 다 읽은 때를 처음 한 번만 적고 지우지 않는다 — 다시 앞으로 가도 "다 읽음"
+     * 이 풀리면 작품이 읽은 책에서 읽는 책으로 튀었다(안드로이드 `Library.saveComic`).
+     */
+    fun saveComic(unitId: String, page: Int, pageCount: Int, atEnd: Boolean): ComicProgress = locked {
+        val now = currentTimeMillis()
+        val finishedAt = comics[unitId]?.finishedAtEpochMs ?: if (atEnd) now else null
+        ComicProgress(page.coerceAtLeast(0), pageCount.coerceAtLeast(0), now, finishedAt).also {
+            comics[unitId] = it
+            persist()
+        }
+    }
+
+    /** 이 권의 책갈피 쪽(차례대로). */
+    fun comicBookmarks(unitId: String): List<Int> = locked { comicMarks.filter { it.first == unitId }.map { it.second }.distinct().sorted() }
+
+    /** 보이는 쪽(두 쪽이면 둘)에 책갈피가 있으면 모두 빼고, 없으면 첫 쪽에 꽂는다. 꽂았으면 true. */
+    fun toggleComicBookmark(unitId: String, pages: List<Int>): Boolean = locked {
+        val removed = comicMarks.removeAll { it.first == unitId && it.second in pages }
+        if (!removed) pages.firstOrNull()?.let { comicMarks.add(Triple(unitId, it, currentTimeMillis())) }
+        persist()
+        !removed
+    }
+
+    /** 작품마다 고른 것(넘기는 방향 · 표지 · 갈래). 공통 `ComicShelf.group` 에 그대로 넘긴다. */
+    fun comicOverrides(): ComicOverrides = locked {
+        fun bools(kind: String) = comicSettings.filterKeys { it.first == kind }.mapNotNull { (k, v) ->
+            when (v) { "1" -> k.second to true; "0" -> k.second to false; else -> null }
+        }.toMap()
+        ComicOverrides(
+            rightToLeft = bools(RTL),
+            coverAlone = bools(COVER),
+            shelf = comicSettings.filterKeys { it.first == SHELF }.mapNotNull { (k, v) -> ShelfMark.parse(v)?.let { k.second to it } }.toMap(),
+        )
+    }
+
+    /** 작품 설정 하나. [value] 가 null 이면 지운다(기본값을 따른다). [kind] 는 "RTL" · "COVER" · "SHELF". */
+    fun setComicSetting(kind: String, subject: String, value: String?) = locked {
+        if (value == null) comicSettings.remove(kind to subject) else comicSettings[kind to subject] = value
+        persist()
+    }
+
     // ── 읽은 시간 ─────────────────────────────────────────────────────────
 
     /**
@@ -252,7 +308,7 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
             val raw = line.split('\t').map(::unescape)
             // 책 id 는 한글을 모아 쓴 꼴(NFC)로. iOS 가 폴더를 훑어 주는 경로는 풀어 쓴 꼴(NFD)이라 옛 판은 그 꼴로 적었다 — Swift 는 두
             // 꼴을 같은 글로 보지만 여기(Kotlin)는 다른 글로 봐, 같은 책의 기록이 둘로 갈라졌다.
-            val idAt = when (raw.firstOrNull()) { "P", "R", "T" -> 1; "B", "A" -> 2; else -> -1 }
+            val idAt = when (raw.firstOrNull()) { "P", "R", "T", "C", "K" -> 1; "B", "A" -> 2; else -> -1 }
             val f = if (idAt in raw.indices) raw.toMutableList().also { it[idAt] = nfc(it[idAt]) } else raw
             // 깨진 줄은 그 줄만 버린다 — 기록 하나 때문에 서재 전체가 비면 안 된다.
             runCatching {
@@ -276,6 +332,15 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
                         notes.add(Annotation(id, BookId(f[2]), start, end, color, f.getOrNull(8), f[7], f[6].toLong()))
                         if (id >= nextNoteId) nextNoteId = id + 1
                     }
+                    "C" -> {
+                        val page = f[2].toInt()
+                        val count = f[3].toInt()
+                        if (page >= 0 && count >= 0) {
+                            comics[f[1]] = ComicProgress(page, count, f[4].toLong(), f.getOrNull(5)?.takeIf { it != "-" }?.toLong())
+                        }
+                    }
+                    "K" -> comicMarks.add(Triple(f[1], f[2].toInt().also { require(it >= 0) }, f[3].toLong()))
+                    "O" -> comicSettings[f[1] to f[2]] = f[3]
                     "T" -> {
                         val ms = f[4].toLong()
                         if (ms > 0) times[Triple(f[1], f[2].toLong(), f[3])] = ms.coerceAtMost(DAY_MS)
@@ -307,6 +372,9 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
             row("R", id, (opened[id] ?: finished.getValue(id)).toString(), finished[id]?.toString() ?: "-")
         }
         for ((k, v) in times) row("T", k.first, k.second.toString(), k.third, v.toString())
+        for ((id, p) in comics) row("C", id, p.page.toString(), p.pageCount.toString(), p.updatedAtEpochMs.toString(), p.finishedAtEpochMs?.toString() ?: "-")
+        for ((id, page, at) in comicMarks) row("K", id, page.toString(), at.toString())
+        for ((k, v) in comicSettings) row("O", k.first, k.second, v)
         val dir = path.substringBeforeLast('/')
         NSFileManager.defaultManager.createDirectoryAtPath(dir, withIntermediateDirectories = true, attributes = null, error = null)
         @Suppress("CAST_NEVER_SUCCEEDS")
@@ -316,6 +384,9 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
     private companion object {
         const val FINISHED_PERCENT = 99.95f
         const val DAY_MS = 24L * 60 * 60 * 1000
+        const val RTL = "RTL"
+        const val COVER = "COVER"
+        const val SHELF = "SHELF"
 
         fun escape(value: String): String = buildString {
             for (c in value) when (c) {

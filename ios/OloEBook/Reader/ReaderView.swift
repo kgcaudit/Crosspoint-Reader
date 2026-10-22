@@ -160,6 +160,10 @@ struct PageFrame: @unchecked Sendable {
     var pagesLeft: Int?
     /// PDF 쪽 안 세로 자리(천분율) — 폭 맞춤이 그 자리에서 다시 연다.
     var pdfY = 0
+    /// 만화 쪽(구상안 36): 위 막대 "45 / 180쪽 · 오→왼", 아래 줄 없음.
+    var isComic = false
+    /// 그리지 못한 쪽(그 자리에 "이 쪽을 그리지 못했습니다").
+    var brokenPages: [Int] = []
     /// 이 쪽의 글자 구간(장 안). 듣기가 이 쪽에서 시작하는 첫 문장을 찾는다.
     let pageStart: Int
     let pageEnd: Int
@@ -227,7 +231,7 @@ struct FootnoteItem: Identifiable {
 }
 
 /// 리더 위에 열린 판(안드로이드 `Panel`). 뒤로 가기: 목차 · 보기 → 메뉴, 보기 설정 · 글꼴 → 보기, 메뉴 → 지면.
-enum ReaderPanel { case none, bar, view, settings, fonts, contents, search, export, voices, footer, footerItem }
+enum ReaderPanel { case none, bar, view, settings, fonts, contents, search, export, voices, footer, footerItem, pageGrid, comicMarks }
 
 /// 쪽이 바뀐 까닭(읽는 빠르기 표본). 사람이 바로 다음 쪽으로 넘긴 것만 잰다.
 enum TurnCause { case jump, forward, backward, machine }
@@ -242,7 +246,7 @@ final class ReaderModel: ObservableObject {
             sampleTurn(cause)
             // 읽은 시간: 사람 · 자동이 넘겼으면 앞 쪽 시간을 적고, 건너뛰었으면 버린다(구상안 30).
             if let key = frame?.key { clock?.pageChanged(to: key, counted: cause != .jump) }
-            if isPdf { pdfPageChanged() }
+            if isFixed { pdfPageChanged() }
         }
     }
     /// 읽은 시간(구상안 30). 책을 열 때 만든다.
@@ -308,6 +312,28 @@ final class ReaderModel: ObservableObject {
         bookId = book.id
         openBookId = book.id
         clock = ReadingClock(store: store, bookId: book.id)
+        if book.format == .comic {
+            // 만화(구상안 36): 제목은 "작품 권", 방향 · 다음 권은 작품에서.
+            self.library = library
+            guard let file = library.comicFile(book.id) else { failure = ComicOpenError.missing.message; return }
+            let work = library.work(of: book.id)
+            comicWork = work
+            let entry = work.flatMap { w in w.entries.first { $0.unit.id == book.id || $0.copies.contains { $0.id == book.id } } }
+            let name = [work?.title, entry?.label].compactMap { $0 }.joined(separator: " ")
+            let label = name.isEmpty ? book.displayName : name
+            do {
+                let comic = try await Task.detached(priority: .userInitiated) {
+                    try ComicEngine(file: file, unitId: book.id, title: label, store: store)
+                }.value
+                engine = comic
+                isComic = true
+                title = label
+                comicLabel = entry?.label ?? book.displayName
+            } catch {
+                failure = ComicOpenError.broken.message
+            }
+            return
+        }
         if book.format == .pdf {
             do {
                 let pdf = try await PdfEngine(url: book.url, bookId: book.id, displayName: book.displayName, store: store)
@@ -373,7 +399,7 @@ final class ReaderModel: ObservableObject {
     private func pdfPageChanged() {
         pdfZoom = nil
         pdfZoomImage = nil
-        if let pdf = engine as? PdfEngine { Task { pdfPageRect = await pdf.pageRect() } }
+        if let z = engine as? any ZoomSource { Task { pdfPageRect = await z.pageRect() } }
         if pdfFit == .width {
             // 앞 쪽으로 넘겼으면 그 쪽의 끝부터(이어 읽는 자리), 아니면 저장된 자리(처음 열 때) · 머리.
             pdfOffset = enterBottom ? pdfMaxOffset : min(CGFloat(frame?.pdfY ?? 0) / 1000 * pdfStripHeight, pdfMaxOffset)
@@ -450,19 +476,19 @@ final class ReaderModel: ObservableObject {
 
     /// 확대를 시작한다(두 번 누르기 · 두 손가락). 두 쪽 · 이어서에서는 하지 않는다.
     func startZoom(at point: CGPoint, scale: CGFloat) {
-        guard isPdf, pdfFit != .continuous, frame?.hasRight != true else { return }
+        guard isFixed, !(isPdf && pdfFit == .continuous), frame?.hasRight != true else { return }
         pdfZoom = (point, scale)
         Task {
-            guard let pdf = engine as? PdfEngine, let page = frame?.page else { return }
+            guard let z = engine as? any ZoomSource, let page = frame?.page else { return }
             let size = pdfZoomBase?.size ?? .zero
-            pdfZoomImage = await pdf.zoomed(page, size: size, zoom: 3)
+            pdfZoomImage = await z.zoomed(page, size: size, zoom: 3)
         }
     }
 
     /// 확대 1 에서 쪽이 놓인 자리(화면 좌표).
     var pdfZoomBase: CGRect? {
-        guard isPdf, let img = frame?.image, img.size.width > 0 else { return nil }
-        if pdfFit == .width {
+        guard isFixed, let img = frame?.image, img.size.width > 0 else { return nil }
+        if isPdf && pdfFit == .width {
             return CGRect(x: pdfArea.minX, y: pdfArea.minY - pdfOffset, width: pdfArea.width, height: pdfStripHeight)
         }
         return pdfPageRect
@@ -470,6 +496,44 @@ final class ReaderModel: ObservableObject {
     var pdfPageRect: CGRect?
     /// 이어서의 쪽마다 높이 ÷ 폭.
     @Published private(set) var pdfAspects: [CGFloat] = []
+
+    // ── 만화(구상안 35A · 36) ──────────────────────────────────────────────
+
+    @Published private(set) var isComic = false
+    /// 이 권의 작품(방향 · 다음 권 · 표지 설정). 작품 묶기에 없으면 nil.
+    @Published private(set) var comicWork: Work?
+    /// 권 끝 판을 띄운다.
+    @Published var comicEnd = false
+    private(set) var comicLabel = ""
+    private weak var library: Library?
+
+    /// 작품 설정을 바꾼다(넘기는 방향 · 표지) — 서재가 다시 묶고, 이 권의 작품도 새 값으로.
+    func setComicSetting(_ kind: String, value: String?) {
+        guard let library, let work = comicWork else { return }
+        library.setComicSetting(kind, work: work, value: value)
+        comicWork = library.work(of: openBookId)
+    }
+
+    /// 표지를 작품마다 바꾼 수(모든 보기 설정의 풀이).
+    var comicCoverCount: Int { library?.store.comicOverrides().coverAlone.count ?? 0 }
+
+    /// 쪽이 고정된 책(PDF · 만화) — 확대 · 쪽 칸 · 넘김 자리가 같은 길이다.
+    var isFixed: Bool { isPdf || isComic }
+
+    /// 다음 권(권 끝 판의 "이어서 읽기").
+    var nextEntry: WorkEntry? {
+        guard let work = comicWork else { return nil }
+        return ComicReading.shared.nextAfter(work: work, unitId: openBookId)
+    }
+
+    func layOutComic(_ spec: ComicViewSpec) async {
+        guard let comic = engine as? ComicEngine else { return }
+        darkPaper = true
+        pdfArea = spec.area
+        pdfSpread = spec.twoPages
+        frame = await comic.layOut(spec)
+        pdfPageRect = await comic.pageRect()
+    }
 
     /// PDF 인가(구상안 32A). 보기 판 · 위 막대 · 설정 줄이 갈린다.
     @Published private(set) var isPdf = false
@@ -526,7 +590,11 @@ final class ReaderModel: ObservableObject {
             enterBottom = step < 0
         }
         let next = try? await (step > 0 ? engine.next() : engine.previous())
-        guard let next else { return false } // 책의 처음 · 끝: 아무 일도 없다.
+        guard let next else {
+            // 만화의 마지막 판에서 더 넘기면 권 끝 판(구상안 36). 책의 처음 · 끝은 아무 일도 없다.
+            if isComic && step > 0 && !quiet { comicEnd = true }
+            return false
+        }
         // 쪽이 바뀌면 고르기를 푼다(이어 고르기는 "이어서 ›" 로만 — 그냥 넘기면 고르던 것을 들고 가지 않는다).
         selection = nil
         tapped = nil
@@ -851,7 +919,7 @@ final class ReaderModel: ObservableObject {
         case .export: panel = .contents
         // 듣는 중이면 듣기 판으로 돌아온다 — 판에서 "목소리" 를 눌러 왔다.
         case .voices: panel = .none; listenSheet = listening.active
-        case .view, .contents, .search: panel = .bar
+        case .view, .contents, .search, .pageGrid, .comicMarks: panel = .bar
         case .bar, .none: panel = .none
         }
     }
@@ -910,6 +978,8 @@ struct ReaderView: View {
     let book: LibraryBook
     let library: Library
     let onClose: () -> Void
+    /// 다른 책(만화 다음 권)을 연다.
+    var openBook: ((LibraryBook) -> Void)?
 
     @StateObject private var model = ReaderModel()
     @StateObject private var prefs = ReaderPrefs()
@@ -928,7 +998,8 @@ struct ReaderView: View {
             let insets = geometry.safeAreaInsets
             let full = CGSize(width: geometry.size.width + insets.leading + insets.trailing,
                               height: geometry.size.height + insets.top + insets.bottom)
-            let paper = prefs.theme.paper(scheme)
+            // 만화는 늘 어두운 바탕(구상안 36) — 메뉴도 이 밝기를 따라 어둡다.
+            let paper = model.isComic ? comicPaper : prefs.theme.paper(scheme)
             ZStack {
                 paper.paperColor
                 if let frame = model.frame {
@@ -958,10 +1029,12 @@ struct ReaderView: View {
                                             area: model.pdfArea, token: model.pdfPill)
                         }
                     } else if curl {
-                        CurlPager(image: frame.image, key: key, previous: model.prevImage, next: model.nextImage,
+                        // 오→왼(만화): 왼쪽 가장자리를 말아 다음 쪽 — 앞 · 뒤 쪽 그림과 방향을 맞바꾼다.
+                        CurlPager(image: frame.image, key: key, previous: rtl ? model.nextImage : model.prevImage,
+                                  next: rtl ? model.prevImage : model.nextImage,
                                   paper: UIColor(paper.paperColor), spread: twoPages(full),
-                                  animate: model.flipFor == key ? model.direction : 0,
-                                  onFlip: { step in Task { await model.commitFlip(step) } },
+                                  animate: model.flipFor == key ? (rtl ? -model.direction : model.direction) : 0,
+                                  onFlip: { step in Task { await model.commitFlip(rtl ? -step : step) } },
                                   onTap: { p in pageTap(p, size: full, insets: insets) },
                                   onLongPress: { p in Task { await model.select(at: p) } },
                                   zoom: pdfZoomable ? { p, s in model.startZoom(at: p, scale: s) } : nil)
@@ -983,19 +1056,26 @@ struct ReaderView: View {
                     }
                     // 아래 줄은 화면 끝에서 14(구상안 13A, 안드로이드와 같다) — 읽는 동안 홈 표시줄을 숨긴다. 좌우는 본문 여백 선:
                     // 안드로이드의 16 은 iPhone 의 둥근 모서리에 글자가 잘린다.
-                    ReadingFooter(title: model.title, frame: frame, items: prefs.footer, speed: model.speed, ink: paper.inkMutedColor)
-                        .padding(.horizontal, CGFloat(ReaderPrefs.margins[prefs.margin]) + max(insets.leading, insets.trailing))
-                        .frame(maxHeight: .infinity, alignment: .bottom)
-                        .padding(.bottom, 14)
-                        .allowsHitTesting(false)
+                    // 만화에는 아래 줄이 없다(안드로이드와 같다) — 쪽 그림이 화면 끝까지 쓴다.
+                    if !model.isComic {
+                        ReadingFooter(title: model.title, frame: frame, items: prefs.footer, speed: model.speed, ink: paper.inkMutedColor)
+                            .padding(.horizontal, CGFloat(ReaderPrefs.margins[prefs.margin]) + max(insets.leading, insets.trailing))
+                            .frame(maxHeight: .infinity, alignment: .bottom)
+                            .padding(.bottom, 14)
+                            .allowsHitTesting(false)
+                    }
+                    if !frame.brokenPages.isEmpty {
+                        Text("이 쪽을 그리지 못했습니다").font(CpFont.subtitle).foregroundStyle(paper.inkMutedColor).allowsHitTesting(false)
+                    }
                 }
+                // 오→왼(만화): 왼쪽을 누르거나 오른쪽으로 밀면 다음 쪽 — 넘김 자리만 뒤집고 그림은 그대로.
                 TurnZones(cornerTop: insets.top, cornerRight: insets.trailing,
-                          turn: { step in Task { await model.turn(step) } },
+                          turn: { step in Task { await model.turn(rtl ? -step : step) } },
                           tap: { point, otherwise in Task { await model.tap(at: point, otherwise: otherwise) } },
                           longPress: { point in Task { await model.select(at: point) } },
                           bookmark: { Task { await model.toggleBookmark() } },
                           toggleMenu: { withAnimation(.easeOut(duration: 0.18)) { model.panel = model.panel == .none ? .bar : .none } },
-                          swipe: { step in Task { await model.swipe(step) } },
+                          swipe: { step in Task { await model.swipe(rtl ? -step : step) } },
                           pan: model.isPdf && pdfFit == .width ? { dy, ended in model.pan(dy, ended: ended) } : nil,
                           zoom: pdfZoomable ? { p, s in model.startZoom(at: p, scale: s) } : nil)
                     // 말림이면 끌기는 말림이 받는다(위에 제스처 층이 있으면 그 층이 끌기를 가로챈다). 누름은 말림이 pageTap 으로 넘긴다.
@@ -1004,7 +1084,7 @@ struct ReaderView: View {
                 // PDF 확대(구상안 33): 넘김 자리 위에 — 확대한 동안의 끌기 · 두 손가락은 이 판이 받는다.
                 if let z = model.pdfZoom, let base = model.pdfZoomBase, let frame = model.frame {
                     PdfZoomView(base: base, area: model.pdfArea,
-                                image: model.pdfZoomImage ?? (pdfFit == .width ? frame.image : frame.image.cropped(to: base)),
+                                image: model.pdfZoomImage ?? (model.isPdf && pdfFit == .width ? frame.image : frame.image.cropped(to: base)),
                                 anchor: z.anchor, scale: z.scale, paper: UIColor(paper.paperColor),
                                 onTap: { p in pageTap(p, size: full, insets: insets) }, onDone: { model.pdfZoom = nil })
                         .ignoresSafeArea()
@@ -1076,10 +1156,20 @@ struct ReaderView: View {
                             if !Task.isCancelled { model.toast = nil }
                         }
                 }
+                // 만화 권 끝(구상안 36): 다음 권 · 서재로.
+                if model.comicEnd {
+                    ComicEndCard(label: model.comicLabel, workTitle: model.comicWork?.title ?? "", next: model.nextEntry,
+                                 webtoon: model.comicWork?.webtoon == true, library: library,
+                                 onNext: { entry in
+                                     guard let next = library.comicBook(entry.unit) else { return }
+                                     Task { await model.close(); openBook?(next) }
+                                 },
+                                 toLibrary: close, dismiss: { model.comicEnd = false })
+                }
                 if model.frame == nil {
                     if model.failure != nil {
                         CpPopup(onDismiss: close) {
-                            Text("이 책을 열지 못했습니다").font(CpFont.title).foregroundStyle(CpColor.text)
+                            Text(book.format == .comic ? "이 만화를 열지 못했습니다" : "이 책을 열지 못했습니다").font(CpFont.title).foregroundStyle(CpColor.text)
                             Text(model.failure ?? "").font(CpFont.body).foregroundStyle(CpColor.textMuted)
                                 .fixedSize(horizontal: false, vertical: true)
                             HStack { Spacer(); CpButton(title: "서재로") { close() } }
@@ -1096,6 +1186,11 @@ struct ReaderView: View {
             .frame(width: full.width, height: full.height)
             .offset(x: -insets.leading, y: -insets.top)
             .task { await model.open(book, library: library) }
+            // 만화(구상안 36): 화면 · 두 쪽 · 표지 · 방향이 바뀌면 다시 낸다.
+            .task(id: comicSpec(full, insets)) {
+                guard let spec = comicSpec(full, insets) else { return }
+                await model.layOutComic(spec)
+            }
             // PDF(구상안 32A · 33): 화면 · 지면 · 쪽 맞춤 · 두 쪽 · 표지가 바뀌면 다시 낸다.
             .task(id: pdfSpec(full, insets, paper)) {
                 guard let spec = pdfSpec(full, insets, paper) else { return }
@@ -1233,6 +1328,15 @@ struct ReaderView: View {
         prefs.twoPages(full) && (!model.isPdf || prefs.pdfFit == PdfFit.page.rawValue)
     }
 
+    /// 오→왼으로 읽는 만화인가(작품마다: 사람이 고른 값 → ComicInfo → 왼→오).
+    private var rtl: Bool { model.isComic && model.comicWork?.rightToLeft?.boolValue == true }
+
+    private func comicSpec(_ full: CGSize, _ insets: EdgeInsets) -> ComicViewSpec? {
+        guard model.isComic else { return nil }
+        let cover = model.comicWork?.coverAlone?.boolValue ?? prefs.pdfCoverAlone
+        return ComicViewSpec(size: full, insets: insets, twoPages: prefs.twoPages(full), coverAlone: cover, rightToLeft: rtl)
+    }
+
     private func pdfSpec(_ full: CGSize, _ insets: EdgeInsets, _ paper: Paper) -> PdfViewSpec? {
         guard model.isPdf else { return nil }
         return PdfViewSpec(size: full, insets: insets, paper: paper, blend: prefs.blendPictures,
@@ -1250,10 +1354,10 @@ struct ReaderView: View {
     /// 말림을 쓰는가. 휴대폰 "동작 줄이기" 면 효과 없이 넘긴다. PDF 폭 · 이어서는 화면 한 장이 쪽 전체가 아니라 말지 않는다.
     private var curl: Bool { prefs.pageTurn == 4 && !reduceMotion && !(model.isPdf && pdfFit != .page) }
 
-    private var pdfFit: PdfFit { PdfFit(rawValue: prefs.pdfFit) ?? .page }
+    private var pdfFit: PdfFit { model.isPdf ? PdfFit(rawValue: prefs.pdfFit) ?? .page : .page }
 
     /// PDF 확대를 받는가: 쪽 전체 · 폭에서, 두 쪽이 아닐 때(안드로이드와 같다).
-    private var pdfZoomable: Bool { model.isPdf && pdfFit != .continuous && model.frame?.hasRight != true }
+    private var pdfZoomable: Bool { model.isFixed && pdfFit != .continuous && model.frame?.hasRight != true }
 
     /// 넘김 효과별 전환(사람이 넘겼을 때만 움직인다 — 다른 쪽 바꿈은 애니메이션 없이 바뀐다).
     private var pageTransition: AnyTransition {
@@ -1275,9 +1379,10 @@ struct ReaderView: View {
             return
         }
         let x = p.x / size.width
+        let back = rtl ? 1 : -1
         Task {
             await model.tap(at: p) {
-                if x < 0.3 { Task { await model.turn(-1) } } else if x > 0.7 { Task { await model.turn(1) } } else {
+                if x < 0.3 { Task { await model.turn(back) } } else if x > 0.7 { Task { await model.turn(-back) } } else {
                     withAnimation(.easeOut(duration: 0.18)) { model.panel = model.panel == .none ? .bar : .none }
                 }
             }

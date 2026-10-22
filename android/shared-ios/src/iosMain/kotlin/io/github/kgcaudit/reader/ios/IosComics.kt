@@ -1,0 +1,151 @@
+@file:OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
+
+package io.github.kgcaudit.reader.ios
+
+import io.github.kgcaudit.reader.document.comic.ArchiveExtensions
+import io.github.kgcaudit.reader.document.comic.ComicContents
+import io.github.kgcaudit.reader.document.comic.ComicInfo
+import io.github.kgcaudit.reader.document.comic.ComicOverrides
+import io.github.kgcaudit.reader.document.comic.ComicShelf
+import io.github.kgcaudit.reader.document.comic.ComicSpreads
+import io.github.kgcaudit.reader.document.comic.ComicUnit
+import io.github.kgcaudit.reader.document.comic.ComicUnitKind
+import io.github.kgcaudit.reader.document.comic.Work
+import io.github.kgcaudit.reader.document.image.ImageHeader
+import io.github.kgcaudit.reader.document.image.ImageSize
+import io.github.kgcaudit.reader.document.io.inputStream
+import io.github.kgcaudit.reader.document.io.NamedCharsets
+import io.github.kgcaudit.reader.document.tar.TarReader
+import io.github.kgcaudit.reader.document.zip.ZipReader
+import kotlinx.cinterop.BetaInteropApi
+import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.addressOf
+import kotlinx.cinterop.usePinned
+import platform.Foundation.NSData
+import platform.Foundation.create
+
+/**
+ * 만화(구상안 35A · 36, 안드로이드 `ComicArchive` · `ReaderData.probeComics` 의 iOS 쪽). 무엇을 만화로 치는지 · 작품 묶기 · 쪽
+ * 순서 · 두 쪽 짝짓기는 공통 코드(`ComicContents` · `ComicShelf` · `ComicSpreads`)가 정하고, 여기는 파일을 열어 그 코드에 넘긴다.
+ *
+ * 1단계는 zip(cbz · 그림만 든 zip) · tar(cbt) · 그림 폴더. CBR · CB7 은 iOS 에 풀 도구가 아직 없어 서재에 올리지 않는다(35A —
+ * 보이는데 열리지 않는 책이 가장 나쁘다).
+ */
+object IosComics {
+    /** iOS 가 열 수 있는 만화 압축 확장자. cbr · cb7 · rar · 7z 는 아직 아니다. */
+    fun opensArchive(name: String): Boolean = ext(name) in setOf("cbz", "cbt", "zip", "tar")
+
+    /** 이름만으로 만화인 것(cbz · cbt). zip · tar 는 열어 그림만 들었을 때만. */
+    private fun trusted(name: String): Boolean = ext(name) in ArchiveExtensions.COMIC
+
+    private fun ext(name: String) = name.substringAfterLast('.', "").lowercase()
+
+    /**
+     * 압축 하나를 살핀다. 만화가 아니면(그림이 없음 · 다른 파일이 섞인 zip · 열 수 없음) null. 이름이 만화라고 말하는 cbz 는 열지
+     * 못해도 서재에 둔다 — 그건 열 때 까닭을 알린다(안드로이드와 같다).
+     */
+    fun probe(path: String, id: String, name: String, folders: List<String>, sizeBytes: Long, addedAt: Long): ComicUnit? {
+        if (!opensArchive(name)) return null
+        val opened = runCatching { open(path) }.getOrNull()
+        val unit = ComicUnit(id, name, folders, ComicUnitKind.ARCHIVE, sizeBytes, addedAtEpochMs = addedAt)
+        if (opened == null) return if (trusted(name)) unit else null
+        return opened.use { a ->
+            val contents = ComicContents.ofArchive(a.names, trustExtension = trusted(name)) ?: return@use null
+            val info = contents.comicInfo?.let { n -> runCatching { a.bytes(n)?.let(::comicInfo) }.getOrNull() }
+            unit.copy(info = info, contents = contents, pageCount = contents.pages.size)
+        }
+    }
+
+    /** 그림 폴더(바로 아래 그림 3장 이상 · 책 없음). 아니면 null. */
+    fun folder(id: String, name: String, folders: List<String>, fileNames: List<String>, addedAt: Long): ComicUnit? {
+        val contents = ComicContents.ofFolder(fileNames) ?: return null
+        return ComicUnit(id, name, folders, ComicUnitKind.IMAGE_FOLDER, contents = contents, pageCount = contents.pages.size, addedAtEpochMs = addedAt)
+    }
+
+    /** 단위들 → 작품들(공통 `ComicShelf.group`). */
+    fun group(units: List<ComicUnit>, overrides: ComicOverrides): List<Work> = ComicShelf.group(units, overrides)
+
+    private fun comicInfo(bytes: ByteArray): ComicInfo? =
+        NamedCharsets.reader(bytes.inputStream(), "UTF-8")?.let { ComicInfo.parse(it) }
+
+    /** 파일 머리로 종류를 가린다(이름이 zip 이어도 tar 일 수 있다). */
+    internal fun open(path: String): Archive {
+        val source = FileSeekableSource(path)
+        val head = ByteArray(512)
+        val read = source.readAt(0, head, 0, head.size)
+        return if (read >= 512 && TarReader.looksLikeTar(head)) TarArchive(TarReader.open(source)) else ZipArchive(ZipReader.open(source))
+    }
+
+    internal interface Archive : AutoCloseable {
+        val names: List<String>
+        fun bytes(name: String): ByteArray?
+    }
+
+    private class ZipArchive(val zip: ZipReader) : Archive {
+        override val names: List<String> get() = zip.entries.keys.toList()
+        override fun bytes(name: String): ByteArray? = zip.readBytes(name)
+        override fun close() = zip.close()
+    }
+
+    private class TarArchive(val tar: TarReader) : Archive {
+        override val names: List<String> get() = tar.entries.keys.toList()
+        override fun bytes(name: String): ByteArray? = tar.openStream(name)?.use { it.readAllBytes() }
+        override fun close() = tar.close()
+    }
+}
+
+/**
+ * 만화 한 권의 쪽(뷰어). 압축은 목록만 읽고 쪽은 볼 때 항목 하나씩 꺼낸다. 폴더는 파일을 읽는다. 쪽 그림을 푸는 것(화면 크기에
+ * 맞춰 솎기)은 화면(ImageIO)이 한다.
+ */
+class IosComicBook private constructor(
+    private val archive: IosComics.Archive?,
+    private val folder: String?,
+    val pages: List<String>,
+) : AutoCloseable {
+    val pageCount: Int get() = pages.size
+
+    /** [i] 쪽의 바이트. 읽지 못하면 null — 그 쪽만 "그리지 못했습니다" 로 두고 넘기기는 막지 않는다. */
+    fun data(i: Int): NSData? {
+        val name = pages.getOrNull(i) ?: return null
+        val bytes = runCatching { if (archive != null) archive.bytes(name) else FileBytes.file("$folder/$name").openStream().use { it.readAllBytes() } }.getOrNull()
+            ?: return null
+        if (bytes.isEmpty()) return null
+        return bytes.usePinned { NSData.create(bytes = it.addressOf(0), length = bytes.size.toULong()) }
+    }
+
+    /** 쪽마다 그림 크기(머리만 읽는다). 모르면 null — 두 쪽 짝짓기에서 세로 쪽으로 친다. */
+    fun sizes(): List<ImageSize?> = pages.map { name ->
+        runCatching {
+            val bytes = if (archive != null) archive.bytes(name) else FileBytes.file("$folder/$name").openStream().use { it.readAllBytes() }
+            bytes?.let { ImageHeader.read(it.inputStream()) }
+        }.getOrNull()
+    }
+
+    /** 두 쪽 판들(공통 `ComicSpreads`): 표지 혼자 · 펼침면 혼자 · 끝에 남은 쪽 혼자. */
+    fun spreads(sizes: List<ImageSize?>, coverAlone: Boolean): List<List<Int>> = ComicSpreads.of(sizes, coverAlone)
+
+    override fun close() {
+        archive?.close()
+    }
+
+    companion object {
+        /** 압축(cbz · cbt · zip). 그림이 없거나 열 수 없으면 null. */
+        fun openArchive(path: String): IosComicBook? = runCatching {
+            val a = IosComics.open(path)
+            val contents = ComicContents.ofArchive(a.names, trustExtension = true)
+            if (contents == null || contents.pages.isEmpty()) {
+                a.close()
+                null
+            } else {
+                IosComicBook(a, null, contents.pages)
+            }
+        }.getOrNull()
+
+        /** 그림 폴더. [fileNames] 는 폴더 바로 아래 파일 이름들. */
+        fun openFolder(path: String, fileNames: List<String>): IosComicBook? {
+            val pages = ComicContents.folderPages(fileNames)
+            return if (pages.isEmpty()) null else IosComicBook(null, path, pages)
+        }
+    }
+}

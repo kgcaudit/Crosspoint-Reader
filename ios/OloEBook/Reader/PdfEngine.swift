@@ -102,7 +102,13 @@ enum PdfOpenError: Error {
 
 /// PDF 한 권(구상안 32A · 33). 쪽은 PDFKit 으로 그리고, 기록 · 목차 · 쪽 이름표는 Kotlin `IosPdfBook`(안드로이드와 같은 형식).
 /// 쪽 전체는 EPUB 과 같은 길(한 장 그림 · 넘김 효과 · 말림)로 낸다.
-actor PdfEngine: BookEngine {
+/// 확대를 그릴 수 있는 엔진(PDF · 만화).
+protocol ZoomSource: Actor {
+    func zoomed(_ p: Int, size: CGSize, zoom: CGFloat) -> UIImage?
+    func pageRect() -> CGRect?
+}
+
+actor PdfEngine: BookEngine, ZoomSource {
     private let doc: PDFDocument
     let book: IosPdfBook
     nonisolated let title: String

@@ -28,7 +28,9 @@ struct ReaderPanels: View {
                 }
             case .settings:
                 SidePanel(wide: wide, insets: insets, dismiss: model.back) {
-                    ViewSettingsScreen(prefs: prefs, isPdf: model.isPdf, back: model.back, openFooter: { model.panel = .footer })
+                    ViewSettingsScreen(prefs: prefs, isPdf: model.isPdf, isComic: model.isComic,
+                                       coverCount: model.isComic ? model.comicCoverCount : prefs.pdfCoverByBook.count,
+                                       back: model.back, openFooter: { model.panel = .footer })
                 }
             case .footer:
                 SidePanel(wide: wide, insets: insets, dismiss: model.back) {
@@ -51,6 +53,19 @@ struct ReaderPanels: View {
             case .export:
                 SidePanel(wide: wide, insets: insets, dismiss: model.back) {
                     NotesExportScreen(model: model, initialFilter: model.exportFilter, back: model.back)
+                }
+            case .pageGrid:
+                if let comic = model.engine as? ComicEngine, let frame = model.frame {
+                    SidePanel(wide: wide, insets: insets, dismiss: model.back) {
+                        ComicPageGrid(engine: comic, title: model.title, current: frame.page,
+                                      go: { p in Task { await model.jump { _ in await comic.go(p) } } }, back: model.back)
+                    }
+                }
+            case .comicMarks:
+                if let comic = model.engine as? ComicEngine {
+                    SidePanel(wide: wide, insets: insets, dismiss: model.back) {
+                        ComicBookmarks(engine: comic, go: { p in Task { await model.jump { _ in await comic.go(p) } } }, back: model.back)
+                    }
                 }
             case .voices:
                 SidePanel(wide: wide, insets: insets, dismiss: model.back) {
@@ -131,17 +146,25 @@ private struct ReaderBar: View {
                     }
                     // 진행 줄 40 · 도구 46(안드로이드 0.45 낮은 메뉴 — 두 줄 머리와 큰 단추가 읽던 쪽을 너무 가렸다).
                     // PDF 는 쪽으로: 막대 자리는 쪽 차례, 끄는 동안 "4쪽"(안드로이드와 같다).
-                    SeekBar(percent: frame.isPdf ? Double(frame.page) * 100 / Double(max(frame.pages - 1, 1)) : frame.percent,
-                            label: frame.isPdf ? { "\(Int(($0 / 100 * Double(frame.pages - 1)).rounded()) + 1)쪽" } : nil) { p in
+                    SeekBar(percent: frame.isPdf || frame.isComic ? Double(frame.page) * 100 / Double(max(frame.pages - 1, 1)) : frame.percent,
+                            label: frame.isPdf || frame.isComic ? { "\(Int(($0 / 100 * Double(frame.pages - 1)).rounded()) + 1)쪽" } : nil,
+                            rightToLeft: rtl) { p in
                         Task { await model.seek(p) }
                     }
                         .padding(.horizontal, CpMetrics.gutter)
                         .frame(height: 40)
                     HStack(spacing: 0) {
                         Spacer(minLength: 0)
+                        if frame.isComic {
+                            // 만화: 목차 대신 쪽 목록, 독서노트 대신 책갈피(안드로이드와 같다).
+                            CpToolButton(icon: .grid, label: "쪽 목록") { model.panel = .pageGrid }
+                            Spacer(minLength: 0)
+                            CpToolButton(icon: .bookmark, label: "책갈피") { model.panel = .comicMarks }
+                        } else {
                         CpToolButton(icon: .toc, label: "목차", action: openContents)
                         Spacer(minLength: 0)
                         CpToolButton(icon: .note, label: "독서노트", action: openNotes)
+                        }
                         Spacer(minLength: 0)
                         CpToolButton(icon: .view, label: "보기", selected: model.panel == .view) {
                             model.panel = model.panel == .view ? .bar : .view
@@ -158,20 +181,32 @@ private struct ReaderBar: View {
         }
     }
 
+    /// 위 막대 부제: 책 "3 / 12장", PDF "4 / 6쪽", 만화 "45 / 180쪽 · 오→왼"(두 쪽이면 "2–3").
+    private var subtitle: String {
+        if frame.isComic {
+            let pages = frame.hasRight ? "\(frame.page + 1)–\(frame.page + 2)" : "\(frame.page + 1)"
+            return "\(pages) / \(frame.pages)쪽" + (rtl ? " · 오→왼" : "")
+        }
+        return frame.isPdf ? "\(frame.page + 1) / \(frame.pages)쪽" : "\(frame.spine + 1) / \(frame.chapters)장"
+    }
+
+    private var rtl: Bool { frame.isComic && model.comicWork?.rtl == true }
+
     private var top: some View {
         HStack(spacing: 0) {
             CpIconButton(icon: .back, label: "뒤로", action: close)
             VStack(alignment: .leading, spacing: 0) {
                 // 서재 머리(19)보다 작은 17 — 제목이 길면 한 줄에서 자른다(두 줄로 늘면 판이 다시 두꺼워진다).
                 Text(model.title).font(.system(size: 17, weight: .bold)).foregroundStyle(CpColor.text).lineLimit(1)
-                Text(frame.isPdf ? "\(frame.page + 1) / \(frame.pages)쪽" : "\(frame.spine + 1) / \(frame.chapters)장")
-                    .font(CpFont.caption).foregroundStyle(CpColor.textMuted)
+                Text(subtitle).font(CpFont.caption).foregroundStyle(CpColor.textMuted)
             }
             Spacer(minLength: 8)
             // PDF 의 찾기 · 듣기는 글자 층을 만든 뒤(2단계) — 그때까지 흐리게.
+            if !frame.isComic {
             CpIconButton(icon: .search, label: "책에서 찾기", enabled: !frame.isPdf) { model.panel = .search }
             CpIconButton(icon: .headphones, label: "듣기", enabled: !frame.isPdf) {
                 Task { await model.listen(rate: prefs.listenRate, voice: prefs.listenVoice, join: prefs.listenJoin) }
+            }
             }
             CpIconButton(icon: frame.bookmarked ? .bookmarkFilled : .bookmark,
                          label: frame.bookmarked ? "책갈피 빼기" : "책갈피 꽂기",
@@ -193,29 +228,54 @@ private struct ViewPanelRows: View {
     @ObservedObject var prefs: ReaderPrefs
     @ObservedObject var brightness: ScreenBrightness
 
+    /// 밝기 밀대와 그 풀이.
+    @ViewBuilder
+    private var brightnessRows: some View {
+        HStack(spacing: 0) {
+            Text("밝기").font(CpFont.body).foregroundStyle(CpColor.text).frame(width: 72, alignment: .leading)
+            CpSlider(value: brightness.value ?? brightness.phone, label: "밝기",
+                     onChange: { brightness.set($0) }, onCommit: { brightness.set($0) })
+            Button { brightness.followPhone() } label: {
+                Text("휴대폰").font(CpFont.label)
+                    .foregroundStyle(brightness.value == nil ? CpColor.accentText : CpColor.textMuted)
+                    .padding(.horizontal, 12).frame(minHeight: CpMetrics.touchTarget)
+            }
+            .buttonStyle(.plain)
+            // 배경 견본에도 "휴대폰" 이 있다. 화면 읽기로는 둘이 같은 말로 들린다.
+            .accessibilityLabel("휴대폰 설정 밝기")
+            .padding(.leading, 4)
+        }
+        .padding(.horizontal, CpMetrics.gutter)
+        .padding(.vertical, 4)
+        CpCaption(text: "움직인 밝기는 이 책을 닫으면 휴대폰 밝기로 돌아갑니다").frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            // 배경 바로 아래 그림 흰 바탕과 밝기 — 셋 다 화면이 어떻게 보이는가를 정한다.
-            CpThemeSwatches(selected: prefs.theme) { prefs.theme = $0 }
-            CpChoice(label: "그림 흰 바탕", options: ["배경색으로", "그대로"], selected: prefs.blendPictures ? 0 : 1) { prefs.blendPictures = $0 == 0 }
-            HStack(spacing: 0) {
-                Text("밝기").font(CpFont.body).foregroundStyle(CpColor.text).frame(width: 72, alignment: .leading)
-                CpSlider(value: brightness.value ?? brightness.phone, label: "밝기",
-                         onChange: { brightness.set($0) }, onCommit: { brightness.set($0) })
-                Button { brightness.followPhone() } label: {
-                    Text("휴대폰").font(CpFont.label)
-                        .foregroundStyle(brightness.value == nil ? CpColor.accentText : CpColor.textMuted)
-                        .padding(.horizontal, 12).frame(minHeight: CpMetrics.touchTarget)
-                }
-                .buttonStyle(.plain)
-                // 배경 견본에도 "휴대폰" 이 있다. 화면 읽기로는 둘이 같은 말로 들린다.
-                .accessibilityLabel("휴대폰 설정 밝기")
-                .padding(.leading, 4)
+            // 배경 바로 아래 그림 흰 바탕과 밝기 — 셋 다 화면이 어떻게 보이는가를 정한다. 만화는 늘 어두운 바탕이라 둘 다 없고,
+            // 밝기는 아래(넘기는 방향 · 두 쪽 다음)에 둔다(구상안 36).
+            if !model.isComic {
+                CpThemeSwatches(selected: prefs.theme) { prefs.theme = $0 }
+                CpChoice(label: "그림 흰 바탕", options: ["배경색으로", "그대로"], selected: prefs.blendPictures ? 0 : 1) { prefs.blendPictures = $0 == 0 }
+                brightnessRows
             }
-            .padding(.horizontal, CpMetrics.gutter)
-            .padding(.vertical, 4)
-            CpCaption(text: "움직인 밝기는 이 책을 닫으면 휴대폰 밝기로 돌아갑니다").frame(maxWidth: .infinity, alignment: .leading)
-            if model.isPdf {
+            if model.isComic, let work = model.comicWork {
+                // 만화(구상안 36): 넘기는 방향(작품마다) · 두 쪽 · 표지(두 쪽일 때, 작품마다).
+                CpChoice(label: "넘기는 방향", options: ["왼→오", "오→왼"], selected: work.rtl ? 1 : 0) {
+                    model.setComicSetting("RTL", value: $0 == 1 ? "1" : "0")
+                }
+                CpChoice(label: "가로에서 두 쪽 보기", options: ["켬", "끔"], selected: prefs.twoPagesLandscape ? 0 : 1) { prefs.twoPagesLandscape = $0 == 0 }
+                if model.pdfSpread {
+                    CpChoice(label: "표지", options: ["따로", "함께"], selected: (work.coverAlone?.boolValue ?? prefs.pdfCoverAlone) ? 0 : 1) {
+                        model.setComicSetting("COVER", value: $0 == 0 ? "1" : "0")
+                    }
+                    .padding(.leading, CpMetrics.levelIndent)
+                    CpCaption(text: "이 작품만 · 겉표지와 속표지가 있으면 \"함께\" 로 두면 본문 펼침이 맞습니다")
+                        .padding(.leading, CpMetrics.levelIndent).frame(maxWidth: .infinity, alignment: .leading)
+                }
+                brightnessRows
+                CpLinkRow(label: "모든 보기 설정") { model.panel = .settings }
+            } else if model.isPdf {
                 // PDF(구상안 32A): 글꼴 · 크기 · 줄 간격 · 여백 대신 쪽 맞춤.
                 CpChoice(label: "쪽 맞춤", options: ["쪽 전체", "폭", "이어서"], selected: prefs.pdfFit) { prefs.pdfFit = $0 }
                 if model.pdfSpread {
@@ -252,6 +312,10 @@ private struct ViewSettingsScreen: View {
     @ObservedObject var prefs: ReaderPrefs
     /// PDF 면 문단 묶음 · 형광펜 줄을 빼고, 두 쪽 줄에 쪽 맞춤의 까닭 · 표지 줄을 더한다(구상안 32A · 33).
     var isPdf = false
+    /// 만화면 문단 · 형광펜 · 하단 정보 줄을 빼고, 표지 줄의 풀이가 "작품마다" 다.
+    var isComic = false
+    /// 책 · 작품마다 바꾼 표지 수.
+    var coverCount = 0
     let back: () -> Void
     let openFooter: () -> Void
 
@@ -260,7 +324,7 @@ private struct ViewSettingsScreen: View {
             CpHeader(title: "보기 설정", leading: AnyView(CpIconButton(icon: .back, label: "뒤로", action: back))) {}
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    if !isPdf {
+                    if !isPdf && !isComic {
                     section("문단")
                     // 줄들은 갈래 이름에 속하므로 한 단 들인다(UI 규칙 1).
                     CpChoice(label: "정렬", options: ["원본", "양쪽", "왼쪽"], selected: prefs.align) { prefs.align = $0 }
@@ -293,7 +357,7 @@ private struct ViewSettingsScreen: View {
                     // 화면(안드로이드 차례: 형광펜 · 메모 → 두 쪽 보기 → 화면 켜짐 유지 → 하단 정보).
                     section("화면")
                     // 숨겨도 지우지 않는다 — 다시 보이면 그대로 있다. PDF 의 형광펜은 2단계.
-                    if !isPdf {
+                    if !isPdf && !isComic {
                         CpChoice(label: "형광펜 · 메모", options: ["보임", "숨김"], selected: prefs.showHighlights ? 0 : 1) { prefs.showHighlights = $0 == 0 }
                             .padding(.leading, CpMetrics.levelIndent)
                     }
@@ -303,13 +367,14 @@ private struct ViewSettingsScreen: View {
                     .padding(.leading, CpMetrics.levelIndent)
                     .opacity(pdfOnePage == nil ? 1 : 0.45)
                     .allowsHitTesting(pdfOnePage == nil)
-                    if isPdf {
+                    if isPdf || isComic {
                         // 가로 두 쪽 줄에 속한다 — 한 단 더 들인다(UI 규칙 1).
                         CpChoice(label: "표지 (처음 여는 책)", options: ["따로", "함께"], selected: prefs.pdfCoverAlone ? 0 : 1) {
                             prefs.pdfCoverAlone = $0 == 0
                         }
                         .padding(.leading, CpMetrics.levelIndent * 2)
-                        CpCaption(text: "책마다 보기 판에서 바꾼 값이 이보다 먼저입니다. 바꾼 책 \(prefs.pdfCoverByBook.count)개")
+                        CpCaption(text: isComic ? "작품마다 보기 판에서 바꾼 값이 이보다 먼저입니다. 바꾼 작품 \(coverCount)개"
+                                                : "책마다 보기 판에서 바꾼 값이 이보다 먼저입니다. 바꾼 책 \(coverCount)개")
                             .padding(.leading, CpMetrics.levelIndent * 2)
                     }
                     // 휴대폰에서는 흐리게 두고 누를 수 없다 — 숨기면 iPad 에서 본 설정을 찾지 못하고, 누를 수 있으면 바뀌는 것이 없어
@@ -331,8 +396,11 @@ private struct ViewSettingsScreen: View {
                     .padding(.leading, CpMetrics.levelIndent)
                     CpCaption(text: "10분은 마지막으로 넘긴 뒤 10분입니다. 읽다 잠들어도 밤새 켜져 있지 않습니다.")
                         .padding(.leading, CpMetrics.levelIndent)
-                    CpLinkRow(label: "하단 정보", value: footerSummary, action: openFooter)
-                        .padding(.leading, CpMetrics.levelIndent)
+                    // 만화에는 아래 줄이 없다.
+                    if !isComic {
+                        CpLinkRow(label: "하단 정보", value: footerSummary, action: openFooter)
+                            .padding(.leading, CpMetrics.levelIndent)
+                    }
                 }
                 .padding(.bottom, 24)
             }
@@ -669,6 +737,8 @@ private struct SeekBar: View {
     let percent: Double
     /// 막대 옆 글(PDF 는 "4쪽"). nil 이면 "%".
     var label: ((Double) -> String)?
+    /// 오→왼 만화: 막대가 오른쪽에서 차오른다(끌기도 거꾸로).
+    var rightToLeft = false
     let seek: (Double) -> Void
     @State private var dragging: Double?
 
@@ -677,6 +747,7 @@ private struct SeekBar: View {
             CpSlider(value: (dragging ?? percent) / 100, label: "지금 위치", height: 40,
                      onChange: { dragging = $0 * 100 },
                      onCommit: { v in dragging = nil; seek(v * 100) })
+                .scaleEffect(x: rightToLeft ? -1 : 1)
             Text(label?(dragging ?? percent) ?? "\(Int((dragging ?? percent).rounded()))%").font(CpFont.label).foregroundStyle(CpColor.text)
         }
     }

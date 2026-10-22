@@ -15,10 +15,14 @@ struct OloEBookApp: App {
             ZStack {
                 LibraryView(library: library) { reading = $0 }
                 if let book = reading {
-                    ReaderView(book: book, library: library) {
+                    ReaderView(book: book, library: library, onClose: {
                         reading = nil
                         library.reloadRecords()
-                    }
+                    }, openBook: { next in
+                        // 만화 권 끝의 "이어서 읽기": 리더를 다음 권으로 새로 연다(.id 가 바뀐다).
+                        library.reloadRecords()
+                        reading = next
+                    })
                     .id(book.id)
                     .transition(.move(edge: .trailing))
                     .zIndex(1)
@@ -37,6 +41,7 @@ struct OloEBookApp: App {
                 }
                 if let i = args.firstIndex(of: "-olo-open"), i + 1 < args.count {
                     reading = (library.reading + library.toRead + library.finished).first { $0.book.displayName == args[i + 1] }?.book
+                        ?? library.works.flatMap { $0.entries.map(\.unit) }.first { $0.name == args[i + 1] }.flatMap(library.comicBook)
                 }
                 #endif
             }

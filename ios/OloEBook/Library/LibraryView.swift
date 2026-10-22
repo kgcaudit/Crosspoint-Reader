@@ -18,6 +18,9 @@ struct LibraryView: View {
     @State private var searching = false
     @State private var query = ""
     @State private var showStats = false
+    /// 책 · 만화 탭(구상안 35A). 만화 작품이 없으면 탭 자체가 없다.
+    @State private var tab = 0
+    @State private var openedWork: String?
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -31,9 +34,23 @@ struct LibraryView: View {
                     }
                     ImportWays(library: library, linkFolder: { pickingFolder = true })
                 } else {
+                    if !library.works.isEmpty {
+                        // 만화 숫자는 작품 수(안드로이드와 같다). 옆으로 밀어도 탭이 바뀐다.
+                        CpTabBar(tabs: ["책 \(library.bookCount)", "만화 \(library.works.count)"], selected: tab) { t in
+                            withAnimation(.easeOut(duration: 0.2)) { tab = t }
+                        }
+                    }
                     LibraryTools(library: library, onSort: { showSort = true }, onSearch: { searching = true }, onMore: { showMore = true })
                     if library.scanning { CpProgressBar(fraction: 0.35).padding(.horizontal, CpMetrics.gutter) }
-                    LibraryShelves(library: library, open: open)
+                    if library.works.isEmpty {
+                        LibraryShelves(library: library, open: open)
+                    } else {
+                        TabView(selection: $tab) {
+                            LibraryShelves(library: library, open: open).tag(0)
+                            ComicShelves(library: library, open: open, openWork: { openedWork = $0.key }).tag(1)
+                        }
+                        .tabViewStyle(.page(indexDisplayMode: .never))
+                    }
                 }
             }
             if showMore {
@@ -63,6 +80,10 @@ struct LibraryView: View {
                     }
                 }
             }
+            if let key = openedWork {
+                WorkScreen(library: library, workKey: key, open: open, back: { openedWork = nil })
+                    .transition(.move(edge: .trailing))
+            }
             if searching {
                 LibrarySearchScreen(library: library, query: $query, open: open, back: { searching = false })
                     .transition(.move(edge: .trailing))
@@ -86,6 +107,8 @@ struct LibraryView: View {
             let args = CommandLine.arguments
             if let i = args.firstIndex(of: "-olo-book-search"), i + 1 < args.count { query = args[i + 1]; searching = true }
             if args.contains("-olo-stats") { showStats = true }
+            if args.contains("-olo-comics") { tab = 1 }
+            if let i = args.firstIndex(of: "-olo-work"), i + 1 < args.count { tab = 1; openedWork = args[i + 1] }
             if args.contains("-olo-about") || args.contains("-olo-import") || args.contains("-olo-export-to") { showInfo = true }
         }
         #endif

@@ -8,6 +8,7 @@ protocol BookEngine: Actor {
     nonisolated var title: String { get }
     nonisolated var author: String? { get }
     nonisolated var isPdf: Bool { get }
+    nonisolated var isComic: Bool { get }
 
     func next() async throws -> PageFrame?
     func previous() async throws -> PageFrame?
@@ -55,6 +56,7 @@ struct UnsupportedFeature: Error {}
 
 extension BookEngine {
     nonisolated var isPdf: Bool { false }
+    nonisolated var isComic: Bool { false }
     func setShowHighlights(_ on: Bool) {}
     func chapterCount() async throws -> Int { 0 }
     func searchChapter(_ spine: Int, _ query: String, firstId: Int) async throws -> [SearchItem] { [] }
