@@ -1,0 +1,57 @@
+package io.github.kgcaudit.reader.data.sync
+
+import org.apache.ftpserver.FtpServer
+import org.apache.ftpserver.FtpServerFactory
+import org.apache.ftpserver.listener.ListenerFactory
+import org.apache.ftpserver.usermanager.PropertiesUserManagerFactory
+import org.apache.ftpserver.usermanager.impl.BaseUser
+import org.apache.ftpserver.usermanager.impl.WritePermission
+import java.io.File
+import java.net.ServerSocket
+
+/**
+ * 시험용 FTP 서버(아파치 FtpServer, 이 프로세스 안). 가짜가 아니라 진짜 FTP 를 말한다 — 명령 순서 · 수동 모드 · 이름 바꾸기가
+ * 서버에서 실제로 되는지 본다. 사용자 둘: 쓸 수 있는 `reader`, 읽기만 되는 `guest`.
+ */
+class TestFtpServer(val root: File) {
+    val port: Int = ServerSocket(0).use { it.localPort }
+    private var server: FtpServer? = null
+
+    fun start(): TestFtpServer {
+        root.mkdirs()
+        val factory = FtpServerFactory()
+        factory.addListener("default", ListenerFactory().apply { port = this@TestFtpServer.port }.createListener())
+        // 사용자 파일은 미리 있어야 한다(없으면 서버가 설정 오류로 멈춘다).
+        val userFile = File(root.parentFile, "ftp-users-$port.properties").apply { parentFile.mkdirs(); if (!exists()) createNewFile() }
+        val users = PropertiesUserManagerFactory().apply { file = userFile }.createUserManager()
+        users.save(BaseUser().apply { name = USER; password = PASSWORD; homeDirectory = root.absolutePath; authorities = listOf(WritePermission()) })
+        users.save(BaseUser().apply { name = "guest"; password = "guest"; homeDirectory = root.absolutePath; authorities = emptyList() })
+        factory.userManager = users
+        server = factory.createServer().also { it.start() }
+        return this
+    }
+
+    fun stop() {
+        server?.stop()
+        server = null
+    }
+
+    fun config(path: String = "/OLO", user: String = USER, password: String = PASSWORD) =
+        FtpConfig(host = "127.0.0.1", port = port, user = user, password = password, path = path)
+
+    companion object {
+        const val USER = "reader"
+        const val PASSWORD = "책갈피-1234"
+    }
+}
+
+/** 저장소를 몇 번 불렀는지 센다 — 꺼져 있을 때 서버에 아무것도 묻지 않는지 본다. */
+class CountingStore(private val inner: SyncStore) : SyncStore {
+    var calls = 0
+    override suspend fun list() = inner.list().also { calls++ }
+    override suspend fun read(entry: SyncStore.Entry, maxBytes: Long) = inner.read(entry, maxBytes).also { calls++ }
+    override suspend fun write(name: String, existing: SyncStore.Entry?, text: String) = inner.write(name, existing, text).also { calls++ }
+    override suspend fun delete(entry: SyncStore.Entry) = inner.delete(entry).also { calls++ }
+    override suspend fun <T> session(block: suspend () -> T): T = inner.session(block)
+    override suspend fun check() = inner.check().also { calls++ }
+}

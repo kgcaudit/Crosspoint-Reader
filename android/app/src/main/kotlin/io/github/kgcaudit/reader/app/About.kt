@@ -71,6 +71,14 @@ internal val OPEN_LICENSES = listOf(
         text = R.raw.license_apache_2_0,
     ),
     OpenLicense(
+        title = "Apache Commons Net",
+        subtitle = "다른 기기에서 이어 읽기의 FTP 연결",
+        badge = "Apache 2.0",
+        licenseName = "Apache 라이선스 2.0",
+        source = "아파치 소프트웨어 재단 Commons Net 3.11 (commons.apache.org/net)",
+        text = R.raw.license_apache_2_0,
+    ),
+    OpenLicense(
         title = "LZMA SDK (7-Zip)",
         subtitle = "cb7(7z) 만화를 풀 때 씁니다",
         badge = "공개 영역",
@@ -124,7 +132,7 @@ internal fun AboutScreen(records: RecordsUi, onBack: () -> Unit, onLicense: (Int
             Spacer(Modifier.height(6.dp))
             CpText(
                 "읽은 자리 · 책갈피 · 형광펜은 이 휴대폰에 남습니다. 휴대폰을 바꿀 때는 백업 파일로 옮기세요. 인터넷은 ‘다른 기기에서 이어 " +
-                    "읽기’를 켰을 때만 씁니다(구글 드라이브).",
+                    "읽기’를 켰을 때만, 내가 정한 FTP 서버에만 씁니다.",
                 // 줄 수를 막지 않는다(0.29.0). 3줄이면 큰 글자에서 "백업 파일로 옮기세요" 가 잘렸다.
                 CpTheme.type.subtitle, c.textMuted, maxLines = Int.MAX_VALUE,
             )
@@ -138,7 +146,7 @@ internal fun AboutScreen(records: RecordsUi, onBack: () -> Unit, onLicense: (Int
         CpListRow(
             SYNC_TITLE, onSync,
             subtitle = when {
-                container.sync.enabled && container.driveAccount.connected -> "구글 드라이브로 맞추는 중"
+                container.sync.enabled && container.ftpSettings.config() != null -> "FTP 서버로 맞추는 중"
                 container.sync.legacyWasOn -> "방식이 바뀌었습니다 — 다시 켜 주세요"
                 else -> "꺼짐"
             },

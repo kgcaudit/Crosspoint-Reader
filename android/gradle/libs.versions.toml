@@ -13,14 +13,16 @@ junit = "5.11.3"
 junit4 = "4.13.2"
 robolectric = "4.14.1"
 androidxTestCore = "1.6.1"
-# 구글 계정으로 드라이브 앱 공간을 쓸 허락(AuthorizationClient, 0.57.0 이어 읽기).
-playServicesAuth = "21.3.0"
+# 다른 기기에서 이어 읽기의 FTP · FTPS(0.58.0). 시험은 같은 아파치 재단의 내장 FTP 서버로 진짜 FTP 를 오간다.
+commonsNet = "3.11.1"
+ftpServer = "1.2.0"
 
 [libraries]
 coroutines-android   = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 androidx-core-ktx    = { module = "androidx.core:core-ktx",                          version.ref = "androidxCore" }
 androidx-annotation  = { module = "androidx.annotation:annotation",                  version.ref = "androidxAnnotation" }
-play-services-auth   = { module = "com.google.android.gms:play-services-auth",       version.ref = "playServicesAuth" }
+commons-net          = { module = "commons-net:commons-net",                         version.ref = "commonsNet" }
+ftpserver-core       = { module = "org.apache.ftpserver:ftpserver-core",             version.ref = "ftpServer" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose",         version.ref = "activityCompose" }
 compose-bom          = { module = "androidx.compose:compose-bom",                    version.ref = "composeBom" }
 compose-ui           = { module = "androidx.compose.ui:ui" }

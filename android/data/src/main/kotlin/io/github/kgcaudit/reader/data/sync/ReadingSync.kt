@@ -53,7 +53,7 @@ sealed interface SyncOffer {
 data class SyncDevice(val id: String, val name: String, val updatedAtEpochMs: Long)
 
 /**
- * 기기 간 이어 읽기(사용자 결정 8 → 0.57.0 구글 드라이브). 이 기기의 읽기 기록을 저장소([SyncStore] — 구글 드라이브의 앱 전용 공간)에
+ * 기기 간 이어 읽기(사용자 결정 8 → 0.58.0 FTP 서버). 이 기기의 읽기 기록을 저장소([SyncStore] — 사람이 정한 FTP 서버의 폴더)에
  * 기기별 파일 하나로 적고, 다른 기기의 파일을 읽는다. 다른 기기의 파일은 읽기만 한다.
  *
  * - 기본은 꺼짐. 꺼져 있으면 아무것도 쓰지도 읽지도 않는다(인터넷을 쓰지 않는다).
@@ -61,7 +61,7 @@ data class SyncDevice(val id: String, val name: String, val updatedAtEpochMs: Lo
  * - 책은 **파일 이름 + 크기**로 맞춘다 — 기기마다 책 폴더 · 주소가 다르다. 0.56 까지는 폴더마다 따로 적었지만 이제 저장소가 하나라
  *   폴더를 가리지 않는다.
  *
- * 맞추지 못해도(인터넷 없음 · 허락 취소 · 공간 부족) 던지지 않고 [status] 에 까닭을 남긴다. 이 기능 때문에 책이 안 열리면 안 된다.
+ * 맞추지 못해도(인터넷 없음 · 로그인 거절 · 공간 부족) 던지지 않고 [status] 에 까닭을 남긴다. 이 기능 때문에 책이 안 열리면 안 된다.
  */
 class ReadingSync(
     private val db: ReaderDatabase,
@@ -83,7 +83,7 @@ class ReadingSync(
     val status: StateFlow<SyncStatus> = _status.asStateFlow()
 
     /**
-     * 0.56 까지의 "책 폴더에 읽은 자리 남기기" 를 켜 둔 기기인가. 새 방식은 계정을 이어야 해 저절로 켜지 않는다 — 화면이 한 번 알린다.
+     * 0.56 까지의 "책 폴더에 읽은 자리 남기기" 를 켜 둔 기기인가. 새 방식은 서버를 정해야 해 저절로 켜지 않는다 — 화면이 한 번 알린다.
      * 알린 뒤 [dismissLegacy] 로 지운다.
      */
     val legacyWasOn: Boolean get() = File(stateDir, LEGACY_ENABLED).isFile
@@ -117,13 +117,13 @@ class ReadingSync(
     /** 기기 id → 읽어 둔 파일. 수정 시각 · 크기가 같으면 다시 읽지 않는다. */
     private var others: Map<String, Cached> = emptyMap()
 
-    /** 저장소에 있는 이 기기의 파일. 덮어쓸 때 쓴다(드라이브는 이름이 아니라 id 로 가리킨다). */
+    /** 저장소에 있는 이 기기의 파일. 덮어쓸 때 쓴다. */
     private var own: SyncStore.Entry? = null
 
-    /** 마지막으로 쓴 내용(때를 뺀 것). 같으면 쓰지 않는다 — 쪽을 넘길 때마다 드라이브에 올리지 않게. */
+    /** 마지막으로 쓴 내용(때를 뺀 것). 같으면 쓰지 않는다 — 쪽을 넘길 때마다 서버에 올리지 않게. */
     private var written: String? = null
 
-    /** 마지막으로 목록을 받은 때. 책을 열 때마다 드라이브에 묻지 않게 잠깐은 받아 둔 것을 쓴다. */
+    /** 마지막으로 목록을 받은 때. 책을 열 때마다 서버에 묻지 않게 잠깐은 받아 둔 것을 쓴다. */
     private var listedAt: Long = Long.MIN_VALUE / 2
 
     private class Cached(val entry: SyncStore.Entry, val file: SyncFile?)
@@ -230,15 +230,11 @@ class ReadingSync(
     private suspend fun listLocked(): Int {
         val entries = store.list()
         listedAt = clock()
-        // 이 기기의 파일이 둘이면(두 번 동시에 만든 경우) 가장 새것만 남기고 지운다 — 남겨 두면 다른 기기가 옛 것을 읽을 수 있다.
-        val mine = entries.filter { SyncCodec.deviceIdOf(it.name) == deviceId }.sortedByDescending { it.modifiedEpochMs ?: 0L }
-        own = mine.firstOrNull()
-        mine.drop(1).forEach { runCatching { store.delete(it) } }
+        own = entries.firstOrNull { SyncCodec.deviceIdOf(it.name) == deviceId }
         val before = others
         val now = HashMap<String, Cached>()
         val fresh = ArrayList<SyncFile>()
-        // 같은 기기의 파일이 둘이면 가장 새것(다른 기기에서도 위와 같은 정리가 곧 일어난다).
-        for (entry in entries.sortedByDescending { it.modifiedEpochMs ?: 0L }) {
+        for (entry in entries) {
             // 모르는 파일은 건너뛴다. 이 기기의 파일은 읽지 않는다 — 제 기록은 DB 에 있다.
             val id = SyncCodec.deviceIdOf(entry.name) ?: continue
             if (id == deviceId || id in now) continue
@@ -263,7 +259,8 @@ class ReadingSync(
     private suspend fun <T> guarded(fallback: T, work: suspend () -> T): T {
         _status.value = _status.value.copy(busy = true)
         return try {
-            work()
+            // 한 번 맞추는 동안 연결 하나 — FTP 는 일마다 잇고 로그인하면 몇 초씩 걸린다.
+            store.session { work() }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: SyncStoreException) {
@@ -272,6 +269,11 @@ class ReadingSync(
             fallback
         } catch (e: IOException) {
             _status.value = _status.value.copy(problem = SyncProblem.Offline)
+            fallback
+        } catch (e: RuntimeException) {
+            // 서버의 엉뚱한 답(읽을 수 없는 목록 모양)이 라이브러리 안에서 런타임 오류가 되기도 한다. 앱이 닫히면 안 된다.
+            android.util.Log.w(TAG, "reading state not synced", e)
+            _status.value = _status.value.copy(problem = SyncProblem.Server)
             fallback
         } finally {
             _status.value = _status.value.copy(busy = false)
@@ -285,6 +287,27 @@ class ReadingSync(
     }
 
     private fun readLong(name: String): Long? = runCatching { File(stateDir, name).readText().trim().toLong() }.getOrNull()
+
+    /**
+     * 연결 확인(설정 화면의 단추). 되면 null, 안 되면 까닭. 켜 있지 않아도 한다 — 켜기 전에 확인한다.
+     *
+     * @param via 확인할 저장소. 새로 넣은 서버 설정은 저장하기 전에 따로 만든 저장소로 확인한다 — 쓰고 있는 저장소의 설정을 잠깐
+     *   바꿔 확인하면, 그 사이 돌던 맞추기가 확인 중인(틀렸을 수도 있는) 서버로 기록을 올린다.
+     */
+    suspend fun checkConnection(via: SyncStore = store): SyncProblem? = withContext(io) {
+        try {
+            via.check()
+            null
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: SyncStoreException) {
+            e.problem
+        } catch (e: IOException) {
+            SyncProblem.Offline
+        } catch (e: RuntimeException) {
+            SyncProblem.Server
+        }
+    }
 
     // ── 지우기 ──────────────────────────────────────────────
 
@@ -301,7 +324,7 @@ class ReadingSync(
     }
 
     /**
-     * 드라이브에 저장한 기록을 모두 지우고 이 기기에서 끈다. 다른 기기는 켜져 있으면 다음에 제 파일을 다시 쓴다 — 그 기기에서도 끄라고
+     * 서버에 저장한 기록을 모두 지우고 이 기기에서 끈다. 다른 기기는 켜져 있으면 다음에 제 파일을 다시 쓴다 — 그 기기에서도 끄라고
      * 화면이 알린다.
      */
     suspend fun clearRemote(): Boolean = withContext(io) {
@@ -394,7 +417,7 @@ class ReadingSync(
     // ── 묻기(8-2) ───────────────────────────────────────────
 
     /**
-     * 책을 열 때 목록을 다시 받을지. 방금 받았으면(책을 연달아 열 때) 받아 둔 것을 쓴다 — 책마다 드라이브에 묻지 않게.
+     * 책을 열 때 목록을 다시 받을지. 방금 받았으면(책을 연달아 열 때) 받아 둔 것을 쓴다 — 책마다 서버에 묻지 않게.
      */
     private suspend fun refreshForOffer() {
         if (clock() - listedAt < OFFER_REFRESH_MS) return
@@ -457,8 +480,8 @@ class ReadingSync(
 
     companion object {
         private const val TAG = "OloSync"
-        /** 0.57 의 켬 표시. 0.56 까지의 것([LEGACY_ENABLED])과 이름을 달리 한다 — 옛 켬이 계정 없는 새 방식을 켜 두지 않게. */
-        private const val ENABLED = "drive-enabled"
+        /** 0.58 의 켬 표시. 0.56 까지의 것([LEGACY_ENABLED])과 이름을 달리 한다 — 옛 켬이 서버 설정 없는 새 방식을 켜 두지 않게. */
+        private const val ENABLED = "ftp-enabled"
         private const val LEGACY_ENABLED = "enabled"
         private const val DEVICE_ID = "device-id"
 
@@ -466,10 +489,10 @@ class ReadingSync(
          * 받은 책갈피 · 다 읽은 때의 열쇠. 0.56 은 폴더를 열쇠에 넣었다(`seen.txt`) — 새 열쇠와 맞지 않아 이름을 바꿔 새로 센다. 옛
          * 것으로 들였던 책갈피는 이미 이 기기에 있으니 다시 들어오지 않는다.
          */
-        private const val SEEN = "seen-drive.txt"
+        private const val SEEN = "seen-v2.txt"
         private const val LAST_SYNC = "last-sync"
 
-        /** 책을 열 때 드라이브 목록을 다시 받는 간격. 연달아 여는 책마다 묻지 않되, 다른 기기에서 막 읽고 온 것은 놓치지 않게 짧게. */
+        /** 책을 열 때 서버 목록을 다시 받는 간격. 연달아 여는 책마다 묻지 않되, 다른 기기에서 막 읽고 온 것은 놓치지 않게 짧게. */
         private const val OFFER_REFRESH_MS = 20_000L
 
         /** 기기 파일 하나는 책 수천 권이라도 몇 MB 다. 이보다 크면 이 앱의 파일이 아니다. */
@@ -489,7 +512,7 @@ class ReadingSync(
 
 /**
  * 이 데이터의 기기 간 이어 읽기. 상태(기기 id · 켬 · 받은 것)는 백업에서 빠지는 곳에 둔다 — 기기 id 가 새 휴대폰으로 따라가면 두
- * 기기가 한 파일을 번갈아 덮는다. [store] 는 앱이 구글 계정을 이어 준다.
+ * 기기가 한 파일을 번갈아 덮는다. [store] 는 앱이 FTP 설정으로 만든다.
  */
 fun ReaderData.readingSync(context: Context, store: SyncStore): ReadingSync =
     ReadingSync(database, store, File(context.noBackupFilesDir, "sync"), { ReadingSync.defaultDeviceName(context) })

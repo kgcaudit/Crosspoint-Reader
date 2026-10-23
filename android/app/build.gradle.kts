@@ -44,8 +44,8 @@ android {
         applicationId = providers.gradleProperty("reader.applicationId").get()
         minSdk = 26
         targetSdk = 35
-        versionCode = 115
-        versionName = "0.57.0"
+        versionCode = 116
+        versionName = "0.58.0"
         resValue("string", "app_name", providers.gradleProperty("reader.appName").get())
         // 앱 정보 화면의 날짜. 구성 캐시 때문에 빌드 파일(판 번호)이 바뀔 때 새로 잡힌다 — 곧 "그 판을 처음 빌드한 날".
         buildConfigField("String", "BUILD_DATE", "\"${LocalDate.now()}\"")
@@ -120,7 +120,6 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.annotation)
     implementation(libs.coroutines.android)
-    implementation(libs.play.services.auth)
 
     testImplementation(libs.junit4)
     testImplementation(project(":document-testing"))
@@ -130,6 +129,8 @@ dependencies {
     testImplementation(libs.coroutines.test)
     testImplementation(platform(libs.compose.bom))
     testImplementation(libs.compose.ui.test.junit4)
+    // 이어 읽기 시험이 진짜 FTP 서버(이 프로세스 안)에 대고 말한다.
+    testImplementation(libs.ftpserver.core)
     debugImplementation(libs.compose.ui.test.manifest)
 }
 

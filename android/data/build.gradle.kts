@@ -31,6 +31,7 @@ dependencies {
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
     implementation(libs.coroutines.android)
+    implementation(libs.commons.net)
 
     testImplementation(project(":document-testing"))
     testImplementation(libs.junit4)
@@ -38,6 +39,7 @@ dependencies {
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.kotlin.test)
     testImplementation(libs.coroutines.test)
+    testImplementation(libs.ftpserver.core)
 }
 
 tasks.withType<Test>().configureEach {

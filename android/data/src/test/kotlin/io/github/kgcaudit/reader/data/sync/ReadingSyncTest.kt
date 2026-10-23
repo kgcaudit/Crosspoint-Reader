@@ -30,8 +30,8 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * 두 기기가 한 구글 드라이브 앱 공간을 나눠 쓴다(0.57.0). 진짜 [DriveSyncStore] 가 가짜 드라이브([FakeDrive])에 REST 요청을 보낸다 —
- * 요청 모양(공간 · 부모 · 덮어쓰기)이 틀리면 기기에서는 "켰는데 아무 일도 없다" 로만 보인다.
+ * 두 기기가 한 FTP 서버 폴더를 나눠 쓴다(0.58.0). 진짜 [FtpSyncStore] 가 이 프로세스 안의 진짜 FTP 서버([TestFtpServer])와 말한다 —
+ * 명령이 틀리면(수동 모드 · 폴더 만들기 · 이름 바꾸기) 기기에서는 "켰는데 아무 일도 없다" 로만 보인다.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
@@ -42,15 +42,21 @@ class ReadingSyncTest {
     private lateinit var root: File
     private val tree: Uri get() = TestDocumentsProvider.treeUri
     private val dbs = ArrayList<ReaderDatabase>()
-    private val drive = FakeDrive()
+    private lateinit var ftp: TestFtpServer
 
-    /** 한 기기: 제 DB · 제 상태 폴더 · 제 이름 · 제 토큰. 드라이브는 함께 쓴다. */
+    /** 서버 폴더 안의 파일(사람이 FTP 프로그램으로 보는 그대로). */
+    private fun remote(name: String) = File(ftp.root, "OLO/$name")
+    private fun remoteText(name: String) = remote(name).takeIf { it.isFile }?.readText()
+    private fun remoteFiles() = File(ftp.root, "OLO").listFiles().orEmpty().map { it.name }.sorted()
+
+    /** 한 기기: 제 DB · 제 상태 폴더 · 제 이름 · 제 설정. 서버는 함께 쓴다. */
     private inner class Device(name: String) {
         val db = Room.inMemoryDatabaseBuilder(context, ReaderDatabase::class.java).build().also { dbs += it }
         var now = 1_000L
         val data = ReaderData(context, db, io = Dispatchers.Unconfined, clock = { now })
-        val token = FakeToken(drive)
-        val sync = ReadingSync(db, DriveSyncStore(token, drive.http), File(base, "state-$name"), { name }, clock = { now }, io = Dispatchers.Unconfined)
+        var config: FtpConfig? = ftp.config()
+        val store = CountingStore(FtpSyncStore({ config }, timeoutMs = 5_000))
+        val sync = ReadingSync(db, store, File(base, "state-$name"), { name }, clock = { now }, io = Dispatchers.Unconfined)
 
         suspend fun book(name: String) = data.library.books().first().single { it.displayName == name }.id
     }
@@ -59,10 +65,12 @@ class ReadingSyncTest {
     fun setUp() {
         base = File(context.cacheDir, "sync-test").apply { deleteRecursively(); mkdirs() }
         root = TestDocumentsProvider.install(base)
+        ftp = TestFtpServer(File(base, "ftp-root")).start()
     }
 
     @After
     fun tearDown() {
+        ftp.stop()
         dbs.forEach { it.close() }
         base.deleteRecursively()
     }
@@ -90,17 +98,17 @@ class ReadingSyncTest {
     }
 
     @Test
-    fun `one device writes its own file to the drive app space and the other offers that place without moving`() = runTest {
+    fun `one device uploads its own file to the ftp folder and the other offers that place without moving`() = runTest {
         val (a, b) = twoDevices()
         val id = a.book("데미안.epub")
         a.data.progress.save(ReadingProgress(id, at(7, 300), 61f, 2_000))
         a.data.bookmarks.add(Bookmark(Bookmark.NO_ID, id, at(2, 40), "싱클레어", 1_500))
         assertEquals(1, a.sync.writeOwn())
 
-        val written = assertNotNull(drive.text("${a.sync.deviceId}.json"), "드라이브 앱 공간에 이 기기의 파일이 없다")
+        // 정한 경로(/OLO)가 없으면 만든다. 그 안에 이 기기의 파일 하나 — 책 파일은 올리지 않는다.
+        val written = assertNotNull(remoteText("${a.sync.deviceId}.json"), "서버 폴더에 이 기기의 파일이 없다")
         assertEquals("갤럭시 S24", SyncCodec.decode(written, a.sync.deviceId)?.deviceName)
-        // 책 파일은 올리지 않는다 — 드라이브에는 기록 파일 하나뿐.
-        assertEquals(1, drive.files.size)
+        assertEquals(listOf("${a.sync.deviceId}.json"), remoteFiles())
 
         // 탭은 앞쪽을 읽고 있었다.
         b.data.progress.save(ReadingProgress(id, at(1, 0), 5f, 9_000))
@@ -116,7 +124,7 @@ class ReadingSyncTest {
     }
 
     @Test
-    fun `nothing is sent to the internet while the setting is off`() = runTest {
+    fun `nothing is sent to the server while the setting is off`() = runTest {
         val (a, b) = twoDevices()
         a.sync.enabled = false
         b.sync.enabled = false
@@ -125,28 +133,29 @@ class ReadingSyncTest {
         assertEquals(0, a.sync.writeOwn())
         assertEquals(0, a.sync.refreshAll())
         assertNull(b.sync.offerForBook(id.value))
-        // 꺼 둔 기기는 한 번도 드라이브를 부르지 않는다(인터넷을 쓰지 않는다).
-        assertTrue(drive.requests.isEmpty(), "꺼져 있는데 드라이브에 ${drive.requests.size}번 요청했다")
+        // 꺼 둔 기기는 한 번도 서버를 부르지 않는다(인터넷을 쓰지 않는다).
+        assertEquals(0, a.store.calls + b.store.calls, "꺼져 있는데 서버를 불렀다")
+        assertFalse(File(ftp.root, "OLO").exists())
     }
 
     @Test
-    fun `nothing is uploaded when nothing changed and a device that read nothing makes no file`() = runTest {
+    fun `nothing is uploaded when nothing changed, a device that read nothing makes no file and no half file is left`() = runTest {
         val (a, _) = twoDevices()
         assertEquals(0, a.sync.writeOwn())
-        assertTrue(drive.files.isEmpty(), "읽은 것이 없는데 빈 파일을 만들었다")
+        assertTrue(remoteFiles().isEmpty(), "읽은 것이 없는데 빈 파일을 만들었다")
         val id = a.book("데미안.epub")
         a.data.progress.save(ReadingProgress(id, at(3, 0), 30f, 2_000))
         assertEquals(1, a.sync.writeOwn())
-        val fileId = drive.files.keys.single()
-        // 같은 기록이면 다시 올리지 않는다 — 쪽을 넘길 때마다 드라이브를 부르지 않게.
-        val before = drive.requests.size
+        // 같은 기록이면 다시 올리지 않는다 — 쪽을 넘길 때마다 서버를 부르지 않게.
+        val before = a.store.calls
         a.now = 50_000
         assertEquals(0, a.sync.writeOwn())
-        assertEquals(before, drive.requests.size)
-        // 바뀌면 같은 파일을 덮는다(새 파일을 늘리지 않는다).
+        assertEquals(before, a.store.calls)
+        // 바뀌면 같은 이름을 통째로 바꾼다 — 임시 파일(.part)이 남지 않는다.
         a.data.progress.save(ReadingProgress(id, at(3, 900), 31f, 3_000))
         assertEquals(1, a.sync.writeOwn())
-        assertEquals(listOf(fileId), drive.files.keys.toList())
+        assertEquals(listOf("${a.sync.deviceId}.json"), remoteFiles())
+        assertEquals(at(3, 900), Locator.decodeOrNull(SyncCodec.decode(remoteText("${a.sync.deviceId}.json")!!)!!.books.single().progress!!.locator))
     }
 
     @Test
@@ -161,14 +170,17 @@ class ReadingSyncTest {
     }
 
     @Test
-    fun `copies, broken files and other files in the app space are ignored`() = runTest {
+    fun `copies, half uploaded and other files in the folder are ignored`() = runTest {
         val (a, b) = twoDevices()
         val id = a.book("데미안.epub")
         val other = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
         val far = SyncFile(other, "옛 사본", 1, listOf(BookRecord("데미안.epub", 100, progress = ProgressRecord(Locator.encode(at(30, 0)), 99f, 1))))
-        drive.put("$other (1).json", SyncCodec.encode(far))
-        drive.put("bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee.json", "{\"format\":\"olo-ebook-sync\", 깨짐")
-        drive.put("메모.txt", "hello")
+        File(ftp.root, "OLO").mkdirs()
+        remote("$other (1).json").writeText(SyncCodec.encode(far))
+        // 다른 기기가 올리는 중이던 임시 파일 — 반쪽 글이다.
+        remote(".$other.json.part").writeText(SyncCodec.encode(far))
+        remote("bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee.json").writeText("{\"format\":\"olo-ebook-sync\", 깨짐")
+        remote("메모.txt").writeText("hello")
         // 쓸 만한 것은 a 의 파일 하나뿐이다.
         a.data.progress.save(ReadingProgress(id, at(5, 0), 40f, 2_000))
         a.sync.writeOwn()
@@ -232,89 +244,81 @@ class ReadingSyncTest {
     }
 
     @Test
-    fun `opening books back to back asks the drive once, and a later open sees the other device's new place`() = runTest {
+    fun `opening books back to back asks the server once, and a later open sees the other device's new place`() = runTest {
         val (a, b) = twoDevices()
         val id = a.book("데미안.epub")
         a.data.progress.save(ReadingProgress(id, at(3, 0), 30f, 2_000))
         a.sync.writeOwn()
         assertEquals(at(3, 0), b.sync.offerForBook(id.value)?.locator)
-        val asked = drive.requests.size
+        val asked = b.store.calls
         // 연달아 열면 받아 둔 목록을 쓴다.
         b.sync.offerForBook(id.value)
-        assertEquals(asked, drive.requests.size)
-        // a 가 더 읽고, 시간이 지난 뒤 b 가 다시 열면 새 자리를 본다.
-        a.data.progress.save(ReadingProgress(id, at(8, 0), 80f, 3_000))
+        assertEquals(asked, b.store.calls)
+        // a 가 더 읽고, 시간이 지난 뒤 b 가 다시 열면 새 자리를 본다. 같은 1초 안에 바뀐 파일도 크기로 알아챈다.
+        a.data.progress.save(ReadingProgress(id, at(8, 12345), 80f, 3_000))
         a.sync.writeOwn()
         b.later()
-        assertEquals(at(8, 0), b.sync.offerForBook(id.value)?.locator)
+        assertEquals(at(8, 12345), b.sync.offerForBook(id.value)?.locator)
     }
 
     @Test
-    fun `without internet nothing fails, the reason is shown and the last known place is still offered`() = runTest {
+    fun `with the server down nothing fails, the reason is shown and the last known place is still offered`() = runTest {
         val (a, b) = twoDevices()
         val id = a.book("데미안.epub")
         a.data.progress.save(ReadingProgress(id, at(6, 0), 60f, 2_000))
         a.sync.writeOwn()
         assertNotNull(b.sync.offerForBook(id.value))
-        drive.offline = true
+        ftp.stop()
         b.later()
-        // 던지지 않는다 — 인터넷이 없다고 책이 안 열리면 안 된다. 받아 둔 자리는 그대로 묻는다.
+        // 던지지 않는다 — 서버가 꺼졌다고 책이 안 열리면 안 된다. 받아 둔 자리는 그대로 묻는다.
         assertEquals(at(6, 0), b.sync.offerForBook(id.value)?.locator)
-        assertEquals(SyncProblem.Offline, b.sync.status.value.problem)
+        assertEquals(SyncProblem.Unreachable, b.sync.status.value.problem)
         b.data.progress.save(ReadingProgress(id, at(1, 0), 2f, 9_000))
         assertEquals(0, b.sync.writeOwn())
-        // 다시 연결되면 까닭이 지워지고 밀린 기록이 올라간다.
-        drive.offline = false
+        // 서버가 돌아오면 까닭이 지워지고 밀린 기록이 올라간다.
+        ftp.start()
         assertEquals(1, b.sync.writeOwn())
         b.sync.refreshAll()
         assertNull(b.sync.status.value.problem)
     }
 
     @Test
-    fun `an expired token is renewed once silently and a revoked one asks to reconnect`() = runTest {
+    fun `a wrong password is reported as a refused login and a folder without write permission as no access`() = runTest {
         val (a, _) = twoDevices()
         val id = a.book("데미안.epub")
         a.data.progress.save(ReadingProgress(id, at(2, 0), 20f, 2_000))
-        a.sync.writeOwn()
-        // 드라이브가 토큰을 바꿨다(한 시간 만료). 한 번 새로 받아 그대로 이어간다.
-        drive.validToken = "token-2"
-        a.data.progress.save(ReadingProgress(id, at(3, 0), 30f, 3_000))
+        a.config = ftp.config(password = "틀린 비밀번호")
+        assertEquals(0, a.sync.writeOwn())
+        assertEquals(SyncProblem.Auth, a.sync.status.value.problem)
+        assertEquals(SyncProblem.Auth, a.sync.checkConnection())
+        // 읽기만 되는 계정: 로그인은 되지만 폴더를 만들 수 없다.
+        a.config = ftp.config(user = "guest", password = "guest")
+        assertEquals(SyncProblem.NoAccess, a.sync.checkConnection())
+        // 주소가 틀리면(아무도 듣지 않는 포트) "서버를 찾지 못함".
+        a.config = ftp.config().copy(port = java.net.ServerSocket(0).use { it.localPort })
+        assertEquals(SyncProblem.Unreachable, a.sync.checkConnection())
+        // 바로잡으면 확인이 되고, 확인용 파일은 남지 않는다.
+        a.config = ftp.config()
+        assertNull(a.sync.checkConnection())
+        assertTrue(remoteFiles().isEmpty())
         assertEquals(1, a.sync.writeOwn())
-        assertEquals(1, a.token.refreshes)
         assertNull(a.sync.status.value.problem)
-        // 사람이 구글 계정에서 이 앱의 허락을 거뒀다 — 새로 받아도 거절된다. 끝없이 다시 받지 않고 "다시 연결" 을 묻는다.
-        a.token.revoked = true
-        drive.validToken = "token-3"
-        a.data.progress.save(ReadingProgress(id, at(4, 0), 40f, 4_000))
-        assertEquals(0, a.sync.writeOwn())
-        assertEquals(SyncProblem.SignedOut, a.sync.status.value.problem)
-        assertEquals(2, a.token.refreshes)
     }
 
     @Test
-    fun `a full drive is reported as full`() = runTest {
-        val (a, _) = twoDevices()
-        drive.full = true
-        a.data.progress.save(ReadingProgress(a.book("데미안.epub"), at(2, 0), 20f, 2_000))
-        assertEquals(0, a.sync.writeOwn())
-        assertEquals(SyncProblem.Full, a.sync.status.value.problem)
-    }
-
-    @Test
-    fun `two copies of this device's file are cleaned to the newest`() = runTest {
+    fun `a path with korean folders is created step by step`() = runTest {
         val (a, b) = twoDevices()
+        a.config = ftp.config(path = "책/이어 읽기")
+        b.config = ftp.config(path = "책/이어 읽기")
         val id = a.book("데미안.epub")
-        // 두 번 동시에 만들어진 파일(이름이 같아도 드라이브는 둘을 둔다). 옛 것을 남기면 다른 기기가 옛 자리를 읽을 수 있다.
-        val name = "${a.sync.deviceId}.json"
-        drive.put(name, SyncCodec.encode(SyncFile(a.sync.deviceId, "갤럭시 S24", 1, listOf(BookRecord("데미안.epub", 100, progress = ProgressRecord(Locator.encode(at(1, 0)), 1f, 1))))))
-        drive.put(name, SyncCodec.encode(SyncFile(a.sync.deviceId, "갤럭시 S24", 2, listOf(BookRecord("데미안.epub", 100, progress = ProgressRecord(Locator.encode(at(5, 0)), 50f, 2))))))
-        a.sync.refreshAll()
-        assertEquals(1, drive.files.values.count { it.name == name })
-        assertEquals(at(5, 0), b.sync.offerForBook(id.value)?.locator)
+        a.data.progress.save(ReadingProgress(id, at(4, 0), 40f, 2_000))
+        assertEquals(1, a.sync.writeOwn())
+        assertTrue(File(ftp.root, "책/이어 읽기/${a.sync.deviceId}.json").isFile)
+        assertEquals(at(4, 0), b.sync.offerForBook(id.value)?.locator)
     }
 
     @Test
-    fun `forgetting a device and clearing the drive remove the files and clearing turns sync off`() = runTest {
+    fun `forgetting a device and clearing the server remove the files and clearing turns sync off`() = runTest {
         val (a, b) = twoDevices()
         val id = a.book("데미안.epub")
         a.data.progress.save(ReadingProgress(id, at(2, 0), 20f, 2_000))
@@ -324,9 +328,11 @@ class ReadingSyncTest {
         b.sync.refreshAll()
         assertTrue(b.sync.forget(a.sync.deviceId))
         assertTrue(b.sync.devices().isEmpty())
-        assertNull(drive.text("${a.sync.deviceId}.json"))
+        assertNull(remoteText("${a.sync.deviceId}.json"))
+        // 사람이 둔 다른 파일은 건드리지 않는다.
+        remote("메모.txt").writeText("hello")
         assertTrue(b.sync.clearRemote())
-        assertTrue(drive.files.isEmpty(), "드라이브에 기록이 남았다")
+        assertEquals(listOf("메모.txt"), remoteFiles(), "서버에 기록이 남았거나 남의 파일을 지웠다")
         assertFalse(b.sync.enabled)
     }
 
@@ -335,7 +341,7 @@ class ReadingSyncTest {
         val state = File(base, "state-옛 폰").apply { mkdirs() }
         File(state, "enabled").writeText("1")
         val old = Device("옛 폰")
-        // 새 방식은 계정을 이어야 해 저절로 켜지 않는다 — 켜 둔 줄 아는 사람에게 화면이 한 번 알린다.
+        // 새 방식은 서버를 정해야 해 저절로 켜지 않는다 — 켜 둔 줄 아는 사람에게 화면이 한 번 알린다.
         assertTrue(old.sync.legacyWasOn)
         assertFalse(old.sync.enabled)
         old.sync.dismissLegacy()
@@ -345,7 +351,7 @@ class ReadingSyncTest {
     @Test
     fun `the device id stays the same across restarts`() = runTest {
         val a = Device("폰")
-        val again = ReadingSync(a.db, DriveSyncStore(a.token, drive.http), File(base, "state-폰"), { "폰" })
+        val again = ReadingSync(a.db, a.store, File(base, "state-폰"), { "폰" })
         assertEquals(a.sync.deviceId, again.deviceId)
         assertTrue(SyncCodec.deviceIdOf("${a.sync.deviceId}.json") != null)
     }

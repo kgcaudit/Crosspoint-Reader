@@ -6,11 +6,13 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.test.core.app.ActivityScenario
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.core.app.ApplicationProvider
 import io.github.kgcaudit.reader.data.backup.BookRecord
@@ -18,10 +20,12 @@ import io.github.kgcaudit.reader.data.backup.ComicRecord
 import io.github.kgcaudit.reader.data.backup.ProgressRecord
 import io.github.kgcaudit.reader.data.sync.SyncCodec
 import io.github.kgcaudit.reader.data.sync.SyncFile
+import io.github.kgcaudit.reader.data.sync.SyncProblem
 import io.github.kgcaudit.reader.document.Locator
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
+import org.junit.After
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -35,12 +39,13 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * 다른 기기에서 이어 읽기(0.57.0 구글 드라이브)를 앱 화면으로: 앱 정보 › 이어 읽기 화면의 켬 · 끔과 계정 잇기, 켠 뒤 쪽을 넘기면 드라이브에
- * 올라가는가, 다른 기기가 더 읽은 책을 열면 띠가 뜨고 "거기로" 가 그 자리로 옮기는가, 잇지 못하거나 허락이 취소되면 무엇을 보이는가.
- * 드라이브 · 구글 계정은 가짜다([FakeDrive] · [FakeAccount]).
+ * 다른 기기에서 이어 읽기(0.58.0 FTP 서버)를 앱 화면으로: 앱 정보 › 이어 읽기 화면의 켬 · 끔과 서버 정하기, 켠 뒤 쪽을 넘기면 서버에
+ * 올라가는가, 다른 기기가 더 읽은 책을 열면 띠가 뜨고 "거기로" 가 그 자리로 옮기는가, 서버에 닿지 못하면 무엇을 보이는가.
+ * 서버는 가짜가 아니라 이 프로세스 안의 진짜 FTP 서버다([TestFtpServer]).
  */
 @OptIn(ExperimentalTestApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -61,39 +66,14 @@ class ReadingSyncAppTest {
     private val app = ApplicationProvider.getApplicationContext<OloApp>()
     private lateinit var root: File
     private val tablet = "0b5c2a6e-1f4d-4a3b-9c8d-7e6f5a4b3c2d"
-    private val drive = FakeDrive()
-    private val account = FakeAccount(drive)
+    private val ftp = TestFtpServer(File(app.cacheDir, "ftp/root").apply { deleteRecursively() })
 
-    /** 시험용 구글 계정. [connectResult] 를 [connect] 가 돌려준다(계정 고르기 화면 없이 바로 이어진 것처럼). */
-    private class FakeAccount(private val drive: FakeDrive) : DriveAccount {
-        override val email = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
-        override var connected = false
-        var revoked = false
-        var connects = 0
-        var connectResult: ConnectStep = ConnectStep.Done("reader@gmail.com")
+    /** 서버의 이어 읽기 폴더. */
+    private val folder get() = File(ftp.root, "OLO")
 
-        override suspend fun connect(): ConnectStep {
-            connects++
-            val r = connectResult
-            if (r is ConnectStep.Done) {
-                connected = true
-                email.value = r.email
-            }
-            return r
-        }
-
-        override suspend fun finish(data: Intent?) = connect()
-        override suspend fun token(fresh: Boolean): String? = if (!connected) null else if (revoked) "revoked" else drive.validToken
-        override suspend fun disconnect() {
-            connected = false
-            email.value = null
-        }
-    }
-
-    /** 켜 둔 기기(계정을 이어 둠) — 화면을 거치지 않고. */
+    /** 켜 둔 기기(서버를 정해 둠) — 화면을 거치지 않고. */
     private fun turnOn() {
-        account.connected = true
-        account.email.value = "reader@gmail.com"
+        app.container.ftpSettings.save(ftp.config())
         app.container.sync.enabled = true
     }
 
@@ -104,8 +84,13 @@ class ReadingSyncAppTest {
 
     @Before
     fun setUp() {
-        app.container.driveAccount = account
-        app.container.driveHttp = drive.http
+        // Robolectric 에는 안드로이드 키 저장소가 없다 — 감추지 않는 상자.
+        app.container.secretBox = object : SecretBox {
+            override fun seal(plain: String) = plain
+            override fun open(sealed: String) = sealed
+        }
+        app.container.ftpSettings.clear()
+        ftp.start()
         root = FolderProvider.install(File(app.cacheDir, "sdcard").apply { deleteRecursively(); mkdirs() })
         File(root, "소설").mkdirs()
         File(root, "소설/어린 왕자.epub").writeBytes(SampleBooks.epub())
@@ -117,6 +102,16 @@ class ReadingSyncAppTest {
                 zip.closeEntry()
             }
         }
+    }
+
+    @After
+    fun tearDown() {
+        // 화면을 끝낸다. 안 끝내면 서버를 껐다 켠 시험 다음의 시험이 "Compose 가 쉬지 않음" 으로 60초 뒤 실패했다. close() 는
+        // 위젯으로 만화를 연 시험에서 멈춰(위 규칙 주석) 기다리지 않는 finish() 로.
+        scenario?.onActivity { it.finish() }
+        // finish() 는 주 스레드 차례를 기다린다 — 비워 줘야 실제로 닫힌다.
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        ftp.stop()
     }
 
     private fun register() = runBlocking {
@@ -138,10 +133,31 @@ class ReadingSyncAppTest {
         compose.waitForIdle()
     }
 
-    /** 다른 기기(태블릿)가 드라이브에 올려 둔 파일. */
+    /** 다른 기기(태블릿)가 서버에 올려 둔 파일. */
     private fun tabletRead(books: List<BookRecord> = emptyList(), comics: List<ComicRecord> = emptyList(), at: Long = System.currentTimeMillis() - 3_600_000) {
-        drive.put("$tablet.json", SyncCodec.encode(SyncFile(tablet, "갤럭시 탭 S9", at, books, comics)))
+        folder.mkdirs()
+        File(folder, "$tablet.json").writeText(SyncCodec.encode(SyncFile(tablet, "갤럭시 탭 S9", at, books, comics)))
     }
+
+    /** 이 기기가 [dir] 에 올린 파일. */
+    private fun uploaded(dir: File = folder): SyncFile? {
+        val id = app.container.sync.deviceId
+        return File(dir, "$id.json").takeIf { it.isFile }?.let { SyncCodec.decode(it.readText(), id) }
+    }
+
+    private fun field(label: String) = compose.onAllNodes(hasContentDescription(label) and hasSetTextAction(), useUnmergedTree = true)[0]
+
+    /** 서버 설정 칸을 채운다. 포트는 시험 서버의 것. */
+    private fun fill(password: String = TestFtpServer.PASSWORD, path: String? = null) {
+        waitFor(hasContentDescription(FTP_HOST) and hasSetTextAction())
+        field(FTP_HOST).performTextReplacement("ftp://127.0.0.1/")
+        field(FTP_PORT).performTextReplacement(ftp.port.toString())
+        field(FTP_USER).performTextReplacement(TestFtpServer.USER)
+        field(FTP_PASSWORD).performTextReplacement(password)
+        path?.let { field(FTP_PATH).performTextReplacement(it) }
+    }
+
+    private fun left(matcher: SemanticsMatcher) = compose.onAllNodes(matcher, useUnmergedTree = true)[0].fetchSemanticsNode().boundsInRoot.left
 
     private fun openSyncScreen() {
         launch()
@@ -169,7 +185,7 @@ class ReadingSyncAppTest {
     }
 
     @Test
-    fun `app info leads to the sync screen and turning it on asks first then shows the account and devices one step in`() {
+    fun `app info leads to the sync screen and turning it on asks for a server that is checked before it is kept`() {
         register()
         tabletRead()
         launch()
@@ -181,47 +197,89 @@ class ReadingSyncAppTest {
         waitFor(hasText(SYNC_SWITCH))
         // 기본은 꺼짐. 꺼져 있으면 무엇을 올리는지 설명만 있다.
         assertTrue(has(hasText(SYNC_EXPLAIN)))
-        assertFalse(has(hasText("계정")))
-        // 켜면 바로 구글 화면으로 가지 않고 무엇을 하는지 먼저 묻는다. 취소하면 그대로 꺼짐.
+        assertFalse(has(hasText(FTP_HOST)))
+        // 켜면 서버 칸이 펼쳐진다. 취소하면 그대로 꺼짐.
         tap(hasText("켬"))
-        waitFor(hasText(SYNC_CONNECT_TITLE))
+        waitFor(hasContentDescription(FTP_HOST) and hasSetTextAction())
+        // 일반 FTP 가 처음 값이라 암호화되지 않는다는 말이 함께 보인다.
+        assertTrue(has(hasText(SYNC_PLAIN_WARNING)))
+        // 위계 규칙: 켬 · 끔에 속한 칸의 이름은 부모 글자 시작선에서 한 단(levelIndent) 들어간다.
+        val indent = 16f * app.resources.displayMetrics.density
+        assertEquals(indent, left(hasText(FTP_HOST)) - left(hasText(SYNC_SWITCH)), 0.5f)
         tap(hasText("취소"))
-        compose.waitUntil(10_000) { !has(hasText(SYNC_CONNECT_TITLE)) }
-        assertEquals(0, account.connects)
+        compose.waitUntil(10_000) { !has(hasText(FTP_HOST)) }
         assertFalse(app.container.sync.enabled)
+
+        // 틀린 비밀번호: 까닭을 보이고 켜지지도 저장되지도 않는다.
         tap(hasText("켬"))
-        tap(hasText("계정 고르기"))
-        waitFor(hasText("reader@gmail.com"))
+        fill(password = "틀림")
+        tap(hasText(FTP_CHECK))
+        waitFor(hasText(syncProblemText(SyncProblem.Auth)))
+        assertFalse(app.container.sync.enabled)
+        assertNull(app.container.ftpSettings.config())
+        assertFalse(File(folder, "${app.container.sync.deviceId}.json").exists())
+
+        // 고치면 연결되어 켜지고, 칸이 접히며 서버 줄 · 함께 읽는 기기가 보인다.
+        field(FTP_PASSWORD).performTextReplacement(TestFtpServer.PASSWORD)
+        tap(hasText(FTP_CHECK))
+        waitFor(hasText("127.0.0.1:${ftp.port} · /OLO"))
         assertTrue(app.container.sync.enabled)
+        // 주소창에서 복사한 "ftp://…/" 는 떼고 저장한다.
+        assertEquals("127.0.0.1", app.container.ftpSettings.config()?.host)
         waitFor(hasText("갤럭시 탭 S9"))
         waitFor(hasText("마지막으로 맞춘 때"))
-        // 위계 규칙: 켬 · 끔에 속한 줄(계정)의 글자는 부모 글자 시작선에서 한 단(levelIndent) 들어간다.
-        val parent = compose.onAllNodes(hasText(SYNC_SWITCH), useUnmergedTree = true)[0].fetchSemanticsNode().boundsInRoot.left
-        val child = compose.onAllNodes(hasText("계정"), useUnmergedTree = true)[0].fetchSemanticsNode().boundsInRoot.left
-        assertEquals(16f * app.resources.displayMetrics.density, child - parent, 0.5f)
-        // 끄면 아래 줄도 사라지고 드라이브에 묻지 않는다.
+        assertFalse(has(hasText(FTP_HOST)))
+        assertEquals(indent, left(hasText("서버")) - left(hasText(SYNC_SWITCH)), 0.5f)
+        // 연결 확인에 쓴 시험 파일은 남지 않는다.
+        assertFalse(File(folder, ".olo-check").exists())
+        // 끄면 아래 줄도 사라진다. 서버 설정은 남아 다시 켤 때 묻지 않는다.
         tap(hasText("끔"))
-        compose.waitUntil(10_000) { !has(hasText("계정")) }
+        compose.waitUntil(10_000) { !has(hasText("마지막으로 맞춘 때")) }
         assertFalse(app.container.sync.enabled)
+        tap(hasText("켬"))
+        waitFor(hasText("마지막으로 맞춘 때"))
+        assertFalse(has(hasText(FTP_HOST)))
     }
 
     @Test
-    fun `while off nothing goes to the internet and once on a page turn is uploaded to the drive`() {
+    fun `changing the server folder uploads this device's record to the new folder`() {
         register()
         openPrince()
         turnPage()
         waitFor(hasText("2 / ", substring = true))
-        // 쓰기는 잠깐 뒤에 한 번 한다 — 그 시간이 지나도 꺼진 동안에는 드라이브에 아무것도 가지 않는다.
+        turnOn()
+        scenario!!.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        waitFor(hasText("어린 왕자", substring = true))
+        compose.libraryMenu("앱 정보")
+        tap(hasText(SYNC_TITLE))
+        compose.waitUntil(20_000) { uploaded() != null }
+        tap(hasText("바꾸기"))
+        // 펼친 칸에는 지금 설정이 들어 있다 — 폴더만 바꾸면 된다.
+        waitFor(hasContentDescription(FTP_PATH) and hasSetTextAction())
+        assertTrue(has(hasText("127.0.0.1")))
+        field(FTP_PATH).performTextReplacement("/책/이어 읽기")
+        tap(hasText(FTP_CHECK))
+        waitFor(hasText("127.0.0.1:${ftp.port} · /책/이어 읽기"))
+        // 내용은 바뀌지 않았지만 새 폴더에는 처음 쓰는 것이다 — "이미 올렸다" 로 건너뛰면 다른 기기가 이 기기를 못 본다.
+        compose.waitUntil(20_000) { uploaded(File(ftp.root, "책/이어 읽기"))?.books?.size == 1 }
+    }
+
+    @Test
+    fun `while off nothing goes to the internet and once on a page turn is uploaded to the server`() {
+        register()
+        openPrince()
+        turnPage()
+        waitFor(hasText("2 / ", substring = true))
+        // 쓰기는 잠깐 뒤에 한 번 한다 — 그 시간이 지나도 꺼진 동안에는 서버에 아무것도 가지 않는다.
         compose.mainClock.advanceTimeBy(3_000)
         Thread.sleep(3_000)
         compose.waitForIdle()
-        assertTrue(drive.requests.isEmpty(), "꺼 두었는데 드라이브에 요청했다")
+        assertFalse(folder.exists(), "꺼 두었는데 서버에 올렸다")
 
         turnOn()
         turnPage()
         waitFor(hasText("3 / ", substring = true))
-        fun written() = drive.text("${app.container.sync.deviceId}.json")?.let { SyncCodec.decode(it, app.container.sync.deviceId) }
-        compose.waitUntil(20_000) { written()?.books?.singleOrNull()?.progress?.locator == princeProgress()?.let(Locator::encode) }
+        compose.waitUntil(20_000) { uploaded()?.books?.singleOrNull()?.progress?.locator == princeProgress()?.let(Locator::encode) }
     }
 
     @Test
@@ -279,31 +337,18 @@ class ReadingSyncAppTest {
     }
 
     @Test
-    fun `a connection that fails leaves sync off and says why`() {
-        register()
-        account.connectResult = ConnectStep.Failed("이 판은 아직 구글 드라이브 연결이 준비되지 않았습니다(앱 등록 필요).")
-        openSyncScreen()
-        tap(hasText("켬"))
-        tap(hasText("계정 고르기"))
-        waitFor(hasText("앱 등록 필요", substring = true))
-        assertFalse(app.container.sync.enabled)
-        assertFalse(has(hasText("계정")))
-    }
-
-    @Test
-    fun `a revoked permission asks to reconnect instead of showing the last sync time`() {
+    fun `with the server down the screen says why and syncing again after it is back clears it`() {
         register()
         turnOn()
-        account.revoked = true
+        ftp.stop()
         openSyncScreen()
-        // 화면을 열면 맞추려 하다 거절된다 — 맞춘 때 대신 할 일을 보인다.
-        waitFor(hasText("구글 드라이브 허락이 취소되었습니다"))
-        assertTrue(has(hasText("다시 연결")))
-        assertFalse(has(hasText("지금 맞추기")))
-        // 다시 이으면 줄이 돌아온다.
-        account.revoked = false
-        tap(hasText("다시 연결"))
-        waitFor(hasText("지금 맞추기"))
+        // 화면을 열면 맞추려 하다 닿지 못한다 — 맞춘 때 대신 까닭과 할 일을 보인다. 켬은 그대로다.
+        waitFor(hasText(syncProblemText(SyncProblem.Unreachable)))
+        assertTrue(app.container.sync.enabled)
+        ftp.start()
+        tap(hasText("지금 맞추기"))
+        compose.waitUntil(20_000) { !has(hasText(syncProblemText(SyncProblem.Unreachable))) }
+        compose.waitUntil(20_000) { app.container.sync.status.value.let { it.problem == null && it.lastSyncedAtEpochMs != null } }
     }
 
     @Test
@@ -315,7 +360,7 @@ class ReadingSyncAppTest {
         waitFor(hasText("어린 왕자", substring = true))
         compose.libraryMenu("앱 정보")
         waitFor(hasText("방식이 바뀌었습니다 — 다시 켜 주세요"))
-        // 옛 켬으로 새 방식이 저절로 켜지지 않는다(계정을 이어야 한다).
+        // 옛 켬으로 새 방식이 저절로 켜지지 않는다(서버를 정해야 한다).
         assertFalse(app.container.sync.enabled)
         tap(hasText(SYNC_TITLE))
         waitFor(hasText("이어 읽기 방식이 바뀌었습니다"))
