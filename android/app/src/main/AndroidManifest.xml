@@ -9,6 +9,8 @@
          앱이 오르고, 사람이 거기서 켜 준다. 전화 감지는 권한 없이 한다(오디오 모드 · 31 앞의 전화 상태). READ_PHONE_STATE 는
          묻지 않는다. -->
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <!-- 다른 기기에서 이어 읽기(0.57.0): 켰을 때만 구글 드라이브의 앱 전용 공간에 읽은 자리를 올리고 받는다. 끄면 통신하지 않는다. -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <!-- 사전(N4): 고른 말을 휴대폰에 깔린 사전 · 번역 앱에 넘긴다(ACTION_PROCESS_TEXT). 안드로이드 11 부터는
          무엇을 찾는지 밝히지 않으면 그런 앱이 깔려 있어도 "없음" 으로 보인다. -->

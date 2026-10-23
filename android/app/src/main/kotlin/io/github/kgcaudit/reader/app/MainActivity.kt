@@ -582,7 +582,8 @@ private fun OloApp(
                 onOpenComic = { id, page -> fromOutside = false; comicStart = page; comicPickCover = false; comicPromptFor = id; comicId = id },
                 onPickComicCover = { id -> fromOutside = false; comicStart = null; comicPickCover = true; comicId = id },
             ) }
-            ABOUT -> AboutScreen(records, onBack = { aboutPage = null }, onLicense = { aboutPage = it })
+            ABOUT -> AboutScreen(records, onBack = { aboutPage = null }, onLicense = { aboutPage = it }, onSync = { aboutPage = SYNC })
+            SYNC -> SyncScreen(onBack = { aboutPage = ABOUT })
             // 다 읽은 것을 누르면 연다. 닫으면 독서 기록으로 돌아온다(aboutPage 가 그대로다).
             STATS -> ReadingStatsScreen(
                 onBack = { aboutPage = null },
@@ -684,6 +685,9 @@ private const val ABOUT = -1
 
 /** [aboutPage] 의 "독서 기록"(0.51.0). 서재 위에 뜨고, 뒤로 가면 서재다. */
 private const val STATS = -2
+
+/** 앱 정보 › 다른 기기에서 이어 읽기(0.57.0). 닫으면 앱 정보로 돌아간다. */
+private const val SYNC = -3
 
 /** 열기 실패 판 제목(책). 만화는 "이 만화를 열지 못했습니다". */
 private const val BOOK_FAILURE = "이 책을 열지 못했습니다"

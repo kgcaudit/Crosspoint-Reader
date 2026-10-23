@@ -11,7 +11,6 @@ import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.test.core.app.ActivityScenario
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.core.app.ApplicationProvider
 import io.github.kgcaudit.reader.data.backup.BookRecord
@@ -39,8 +38,9 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * 기기 간 이어 읽기(사용자 결정 8)를 앱 화면으로: 앱 정보의 켬 · 끔과 그 아래 줄, 켠 뒤 쪽을 넘기면 책 폴더에 적히는가, 다른 기기가
- * 더 읽은 책을 열면 띠가 뜨고 "거기로" 가 그 자리로 옮기는가, 쓰기 허락이 없는 폴더는 다시 고르라고 묻는가.
+ * 다른 기기에서 이어 읽기(0.57.0 구글 드라이브)를 앱 화면으로: 앱 정보 › 이어 읽기 화면의 켬 · 끔과 계정 잇기, 켠 뒤 쪽을 넘기면 드라이브에
+ * 올라가는가, 다른 기기가 더 읽은 책을 열면 띠가 뜨고 "거기로" 가 그 자리로 옮기는가, 잇지 못하거나 허락이 취소되면 무엇을 보이는가.
+ * 드라이브 · 구글 계정은 가짜다([FakeDrive] · [FakeAccount]).
  */
 @OptIn(ExperimentalTestApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -61,6 +61,41 @@ class ReadingSyncAppTest {
     private val app = ApplicationProvider.getApplicationContext<OloApp>()
     private lateinit var root: File
     private val tablet = "0b5c2a6e-1f4d-4a3b-9c8d-7e6f5a4b3c2d"
+    private val drive = FakeDrive()
+    private val account = FakeAccount(drive)
+
+    /** 시험용 구글 계정. [connectResult] 를 [connect] 가 돌려준다(계정 고르기 화면 없이 바로 이어진 것처럼). */
+    private class FakeAccount(private val drive: FakeDrive) : DriveAccount {
+        override val email = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+        override var connected = false
+        var revoked = false
+        var connects = 0
+        var connectResult: ConnectStep = ConnectStep.Done("reader@gmail.com")
+
+        override suspend fun connect(): ConnectStep {
+            connects++
+            val r = connectResult
+            if (r is ConnectStep.Done) {
+                connected = true
+                email.value = r.email
+            }
+            return r
+        }
+
+        override suspend fun finish(data: Intent?) = connect()
+        override suspend fun token(fresh: Boolean): String? = if (!connected) null else if (revoked) "revoked" else drive.validToken
+        override suspend fun disconnect() {
+            connected = false
+            email.value = null
+        }
+    }
+
+    /** 켜 둔 기기(계정을 이어 둠) — 화면을 거치지 않고. */
+    private fun turnOn() {
+        account.connected = true
+        account.email.value = "reader@gmail.com"
+        app.container.sync.enabled = true
+    }
 
     private fun png(color: Int): ByteArray {
         val bitmap = Bitmap.createBitmap(60, 90, Bitmap.Config.ARGB_8888).apply { eraseColor(color) }
@@ -69,6 +104,8 @@ class ReadingSyncAppTest {
 
     @Before
     fun setUp() {
+        app.container.driveAccount = account
+        app.container.driveHttp = drive.http
         root = FolderProvider.install(File(app.cacheDir, "sdcard").apply { deleteRecursively(); mkdirs() })
         File(root, "소설").mkdirs()
         File(root, "소설/어린 왕자.epub").writeBytes(SampleBooks.epub())
@@ -82,13 +119,9 @@ class ReadingSyncAppTest {
         }
     }
 
-    private fun register(readOnly: Boolean = false) = runBlocking {
+    private fun register() = runBlocking {
         val data = app.container.data
-        if (readOnly) {
-            app.contentResolver.takePersistableUriPermission(FolderProvider.treeUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        } else {
-            data.folders.register(FolderProvider.treeUri)
-        }
+        data.folders.register(FolderProvider.treeUri)
         data.rescanAll()
         data.probeComics()
     }
@@ -105,12 +138,17 @@ class ReadingSyncAppTest {
         compose.waitForIdle()
     }
 
-    private val ownFile: File get() = File(root, ".olo/sync/${app.container.sync.deviceId}.json")
-
-    /** 다른 기기(태블릿)가 동기화 앱으로 넘겨준 파일. */
+    /** 다른 기기(태블릿)가 드라이브에 올려 둔 파일. */
     private fun tabletRead(books: List<BookRecord> = emptyList(), comics: List<ComicRecord> = emptyList(), at: Long = System.currentTimeMillis() - 3_600_000) {
-        File(root, ".olo/sync").mkdirs()
-        File(root, ".olo/sync/$tablet.json").writeText(SyncCodec.encode(SyncFile(tablet, "갤럭시 탭 S9", at, books, comics)))
+        drive.put("$tablet.json", SyncCodec.encode(SyncFile(tablet, "갤럭시 탭 S9", at, books, comics)))
+    }
+
+    private fun openSyncScreen() {
+        launch()
+        waitFor(hasText("어린 왕자", substring = true))
+        compose.libraryMenu("앱 정보")
+        tap(hasText(SYNC_TITLE))
+        waitFor(hasText(SYNC_SWITCH))
     }
 
     private fun princeRecord(locator: Locator) = BookRecord(
@@ -131,58 +169,65 @@ class ReadingSyncAppTest {
     }
 
     @Test
-    fun `the sync rows sit under app info and the devices row hangs one step under the switch`() {
+    fun `app info leads to the sync screen and turning it on asks first then shows the account and devices one step in`() {
         register()
         tabletRead()
         launch()
         waitFor(hasText("어린 왕자", substring = true))
         compose.libraryMenu("앱 정보")
-        waitFor(hasText("기기 간 이어 읽기"))
-        compose.onAllNodes(hasText("책 폴더에 읽은 자리 남기기"), useUnmergedTree = true)[0].performScrollTo()
-        // 기본은 꺼짐(8-4). 꺼져 있으면 아래 줄이 없다 — 켬 · 끔에 속한 줄이다.
-        assertFalse(app.container.sync.enabled)
-        assertFalse(has(hasText("함께 읽는 기기")))
+        waitFor(hasText(SYNC_TITLE))
+        assertTrue(has(hasText("꺼짐")))
+        tap(hasText(SYNC_TITLE))
+        waitFor(hasText(SYNC_SWITCH))
+        // 기본은 꺼짐. 꺼져 있으면 무엇을 올리는지 설명만 있다.
+        assertTrue(has(hasText(SYNC_EXPLAIN)))
+        assertFalse(has(hasText("계정")))
+        // 켜면 바로 구글 화면으로 가지 않고 무엇을 하는지 먼저 묻는다. 취소하면 그대로 꺼짐.
         tap(hasText("켬"))
-        waitFor(hasText("함께 읽는 기기"))
-        waitFor(hasText("갤럭시 탭 S9", substring = true))
+        waitFor(hasText(SYNC_CONNECT_TITLE))
+        tap(hasText("취소"))
+        compose.waitUntil(10_000) { !has(hasText(SYNC_CONNECT_TITLE)) }
+        assertEquals(0, account.connects)
+        assertFalse(app.container.sync.enabled)
+        tap(hasText("켬"))
+        tap(hasText("계정 고르기"))
+        waitFor(hasText("reader@gmail.com"))
         assertTrue(app.container.sync.enabled)
-        compose.onAllNodes(hasText("함께 읽는 기기"), useUnmergedTree = true)[0].performScrollTo()
-        compose.waitForIdle()
-        // 위계 규칙: 자식 줄의 글자는 부모(켬 · 끔 줄) 글자 시작선에서 한 단(levelIndent) 들어간다 — 같은 선이면 같은 급의 설정으로 읽힌다.
-        val parent = compose.onAllNodes(hasText("책 폴더에 읽은 자리 남기기"), useUnmergedTree = true)[0].fetchSemanticsNode().boundsInRoot.left
-        val child = compose.onAllNodes(hasText("함께 읽는 기기"), useUnmergedTree = true)[0].fetchSemanticsNode().boundsInRoot.left
-        val density = app.resources.displayMetrics.density
-        assertEquals(16f * density, child - parent, 0.5f)
-        // 끄면 아래 줄도 사라진다.
+        waitFor(hasText("갤럭시 탭 S9"))
+        waitFor(hasText("마지막으로 맞춘 때"))
+        // 위계 규칙: 켬 · 끔에 속한 줄(계정)의 글자는 부모 글자 시작선에서 한 단(levelIndent) 들어간다.
+        val parent = compose.onAllNodes(hasText(SYNC_SWITCH), useUnmergedTree = true)[0].fetchSemanticsNode().boundsInRoot.left
+        val child = compose.onAllNodes(hasText("계정"), useUnmergedTree = true)[0].fetchSemanticsNode().boundsInRoot.left
+        assertEquals(16f * app.resources.displayMetrics.density, child - parent, 0.5f)
+        // 끄면 아래 줄도 사라지고 드라이브에 묻지 않는다.
         tap(hasText("끔"))
-        compose.waitUntil(10_000) { !has(hasText("함께 읽는 기기")) }
+        compose.waitUntil(10_000) { !has(hasText("계정")) }
         assertFalse(app.container.sync.enabled)
     }
 
     @Test
-    fun `while off nothing is written and once on a page turn lands in the book folder`() {
+    fun `while off nothing goes to the internet and once on a page turn is uploaded to the drive`() {
         register()
         openPrince()
         turnPage()
         waitFor(hasText("2 / ", substring = true))
-        // 쓰기는 잠깐 뒤에 한 번 한다 — 그 시간이 지나도 꺼진 동안에는 책 폴더에 아무것도 없다.
+        // 쓰기는 잠깐 뒤에 한 번 한다 — 그 시간이 지나도 꺼진 동안에는 드라이브에 아무것도 가지 않는다.
         compose.mainClock.advanceTimeBy(3_000)
         Thread.sleep(3_000)
         compose.waitForIdle()
-        assertFalse(File(root, ".olo").exists(), "꺼 두었는데 책 폴더에 숨은 폴더가 생겼다")
+        assertTrue(drive.requests.isEmpty(), "꺼 두었는데 드라이브에 요청했다")
 
-        app.container.sync.enabled = true
+        turnOn()
         turnPage()
         waitFor(hasText("3 / ", substring = true))
-        // 파일은 만들어진 뒤 채워진다 — 읽힐 때까지 기다린다.
-        fun written() = ownFile.takeIf { it.isFile }?.let { SyncCodec.decode(it.readText(), app.container.sync.deviceId) }
+        fun written() = drive.text("${app.container.sync.deviceId}.json")?.let { SyncCodec.decode(it, app.container.sync.deviceId) }
         compose.waitUntil(20_000) { written()?.books?.singleOrNull()?.progress?.locator == princeProgress()?.let(Locator::encode) }
     }
 
     @Test
     fun `a book read further on another device offers to go there and going there moves the reader`() {
         register()
-        app.container.sync.enabled = true
+        turnOn()
         tabletRead(listOf(princeRecord(Locator.Reflow(2, 0))))
         openPrince()
         waitFor(hasText("갤럭시 탭 S9 에서 더 읽었습니다"))
@@ -204,7 +249,7 @@ class ReadingSyncAppTest {
         compose.waitForIdle()
         assertFalse(has(hasText("에서 더 읽었습니다", substring = true)))
 
-        app.container.sync.enabled = true
+        turnOn()
         scenario!!.onActivity { it.onBackPressedDispatcher.onBackPressed() }
         waitFor(hasText("어린 왕자", substring = true))
         openPrince()
@@ -219,7 +264,7 @@ class ReadingSyncAppTest {
     @Test
     fun `a comic read further elsewhere reopens at that page when asked`() {
         register()
-        app.container.sync.enabled = true
+        turnOn()
         tabletRead(comics = listOf(ComicRecord("별 01권.cbz", File(root, "만화/별 01권.cbz").length(), page = 2, pageCount = 4, updatedAtEpochMs = System.currentTimeMillis())))
         val unit = runBlocking { app.container.data.comics.units().first().single().id }
         launch()
@@ -234,21 +279,48 @@ class ReadingSyncAppTest {
     }
 
     @Test
-    fun `a folder added before sync existed is asked to be picked again`() {
-        register(readOnly = true)
+    fun `a connection that fails leaves sync off and says why`() {
+        register()
+        account.connectResult = ConnectStep.Failed("이 판은 아직 구글 드라이브 연결이 준비되지 않았습니다(앱 등록 필요).")
+        openSyncScreen()
+        tap(hasText("켬"))
+        tap(hasText("계정 고르기"))
+        waitFor(hasText("앱 등록 필요", substring = true))
+        assertFalse(app.container.sync.enabled)
+        assertFalse(has(hasText("계정")))
+    }
+
+    @Test
+    fun `a revoked permission asks to reconnect instead of showing the last sync time`() {
+        register()
+        turnOn()
+        account.revoked = true
+        openSyncScreen()
+        // 화면을 열면 맞추려 하다 거절된다 — 맞춘 때 대신 할 일을 보인다.
+        waitFor(hasText("구글 드라이브 허락이 취소되었습니다"))
+        assertTrue(has(hasText("다시 연결")))
+        assertFalse(has(hasText("지금 맞추기")))
+        // 다시 이으면 줄이 돌아온다.
+        account.revoked = false
+        tap(hasText("다시 연결"))
+        waitFor(hasText("지금 맞추기"))
+    }
+
+    @Test
+    fun `a device that used the old book folder sync is told the method changed`() {
+        File(app.noBackupFilesDir, "sync").mkdirs()
+        File(app.noBackupFilesDir, "sync/enabled").writeText("1")
+        register()
         launch()
         waitFor(hasText("어린 왕자", substring = true))
         compose.libraryMenu("앱 정보")
-        waitFor(hasText("기기 간 이어 읽기"))
-        compose.onAllNodes(hasText("책 폴더에 읽은 자리 남기기"), useUnmergedTree = true)[0].performScrollTo()
-        tap(hasText("켬"))
-        // 0.50 까지는 읽기만 받고 등록했다. 쓸 수 없는 폴더는 조용히 건너뛰지 않고, 무엇을 하면 되는지 묻는다.
-        waitFor(hasText("폴더를 한 번 더 골라 주세요"))
-        assertTrue(has(hasText("‘Books’ 폴더", substring = true)))
+        waitFor(hasText("방식이 바뀌었습니다 — 다시 켜 주세요"))
+        // 옛 켬으로 새 방식이 저절로 켜지지 않는다(계정을 이어야 한다).
+        assertFalse(app.container.sync.enabled)
+        tap(hasText(SYNC_TITLE))
+        waitFor(hasText("이어 읽기 방식이 바뀌었습니다"))
         tap(hasText("나중에"))
-        compose.waitUntil(10_000) { !has(hasText("폴더를 한 번 더 골라 주세요")) }
-        // 건너뛴 폴더에는 쓰지 않는다 — 실패로 다루지 않고 켜 둔 채다.
-        assertTrue(app.container.sync.enabled)
-        assertFalse(File(root, ".olo").exists())
+        compose.waitUntil(10_000) { !has(hasText("이어 읽기 방식이 바뀌었습니다")) }
+        assertFalse(app.container.sync.legacyWasOn)
     }
 }

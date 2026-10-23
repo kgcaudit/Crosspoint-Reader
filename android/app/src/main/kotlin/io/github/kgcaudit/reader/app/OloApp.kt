@@ -115,8 +115,23 @@ class AppContainer(private val app: Application) {
         complete
     }
 
-    /** 기기 간 이어 읽기(사용자 결정 8). 책 폴더의 `.olo/sync/` 에 쓰고 읽는다. 기본은 꺼짐. */
-    val sync = data.readingSync(app)
+    /** 이어 읽기의 구글 계정. 시험이 가짜로 바꿔 끼운다. */
+    internal var driveAccount: DriveAccount = GoogleDriveAccount(app)
+
+    /** 드라이브와의 HTTP. 시험이 가짜 드라이브로 바꿔 끼운다. */
+    internal var driveHttp: io.github.kgcaudit.reader.data.sync.DriveHttp = io.github.kgcaudit.reader.data.sync.UrlConnectionHttp()
+
+    /**
+     * 기기 간 이어 읽기(사용자 결정 8 → 0.57.0). 구글 드라이브의 앱 전용 공간에 기기별 파일을 쓰고 읽는다. 기본은 꺼짐. 계정 · HTTP 는
+     * 부를 때마다 위의 것을 거친다 — 시험이 컨테이너를 만든 뒤에 바꿔 끼워도 닿는다.
+     */
+    val sync = data.readingSync(
+        app,
+        io.github.kgcaudit.reader.data.sync.DriveSyncStore(
+            token = { fresh -> driveAccount.token(fresh) },
+            http = { request -> driveHttp.send(request) },
+        ),
+    )
 
     /** 책장 표지. 앱 파일 영역 — 캐시 영역이면 사람이 고른 표지까지 시스템이 지운다. */
     val covers = CoverStore(

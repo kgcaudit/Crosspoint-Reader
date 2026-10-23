@@ -186,6 +186,10 @@ interface ComicDao {
     @Query("SELECT * FROM comic_units WHERE folderUri = :folderUri")
     suspend fun inFolder(folderUri: String): List<ComicUnitEntity>
 
+    /** 이 기기에 지금 있는 만화 권 전부(폴더를 가리지 않는다). 드라이브 이어 읽기가 권을 이름 · 크기로 맞춘다. */
+    @Query("SELECT * FROM comic_units WHERE missing = 0 AND notComic = 0")
+    suspend fun present(): List<ComicUnitEntity>
+
     /**
      * 다른 앱이 "연결 프로그램" 으로 넘긴 압축과 같은 권: 서재에 보이는([observeVisible] 과 같은 조건) **맨 위 압축**만. 압축 속 권
      * (`NESTED`)의 이름은 안쪽 이름이라, 넣으면 바깥 묶음 파일과 이름 · 크기가 우연히 같은 안쪽 권으로 열릴 수 있다. 그림 폴더는 파일이
