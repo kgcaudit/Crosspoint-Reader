@@ -20,38 +20,12 @@ import java.time.Duration
 import javax.net.ssl.SSLException
 
 /**
- * FTP 서버 한 곳(0.58.0, 사용자 결정). [path] 폴더에 기기별 파일을 둔다 — 없으면 만든다.
+ * 서버 한 곳의 폴더에 이어 읽기 파일을 둔다. FTP · FTPS 는 아파치 commons-net, SFTP 는 JSch([SftpConnection]).
  *
- * @param secure 명시적 FTPS(AUTH TLS). 일반 FTP 는 비밀번호 · 내용이 암호화되지 않고 오간다 — 집 안 공유기 너머의 NAS 라면 괜찮지만
- *   인터넷 너머의 서버라면 FTPS 를 권한다. 인증서는 검증한다(자체 서명 인증서는 [SyncProblem.Tls]).
- * @param path 서버 안 폴더. "/OLO" · "책/이어 읽기" 처럼. 앞 "/" 가 없으면 로그인한 자리에서부터.
- */
-data class FtpConfig(
-    val host: String,
-    val port: Int = DEFAULT_PORT,
-    val secure: Boolean = false,
-    val user: String,
-    val password: String,
-    val path: String,
-) {
-    /** 화면에 보일 한 줄("nas.local · /OLO"). 비밀번호는 넣지 않는다. */
-    val label: String get() = (if (port == DEFAULT_PORT) host else "$host:$port") + " · " + path.ifBlank { "/" }
-
-    override fun toString(): String = "FtpConfig($label, secure=$secure, user=$user)"
-
-    companion object {
-        const val DEFAULT_PORT: Int = 21
-    }
-}
-
-/**
- * [FtpConfig] 의 폴더에 이어 읽기 파일을 둔다. 아파치 commons-net 으로 FTP · FTPS 를 쓴다.
- *
- * - **수동 모드(PASV)** 만 쓴다 — 휴대폰은 늘 공유기 · 통신사 NAT 뒤라 서버가 휴대폰으로 거꾸로 잇는 능동 모드는 열리지 않는다.
  * - **통째로 바꾼다**: 임시 이름(`.이름.part`)으로 올린 뒤 이름을 바꾼다. 바로 덮어쓰면 다른 기기가 반쯤 올라간 글을 읽어 깨진
  *   파일로 버렸다가, 다음 목록에서야 다시 읽는다.
- * - 이름은 UTF-8 로 보낸다(OPTS UTF8) — 경로에 한글을 쓰는 사람이 많다. 받지 않는 서버도 ASCII 경로는 그대로 된다.
  * - 한 번 맞추는 동안([session]) 연결 하나를 쓴다. 맞추기 밖에서 부르면 일마다 잇고 끊는다.
+ * - [FtpSecurity.Auto] 는 명시적 FTPS 로 다룬다 — 일반 FTP 로 내려가는 것은 설정 화면이 사람에게 보이며 정한다.
  *
  * @param config 지금 설정. 사람이 바꾸면 다음 연결부터 따른다. null 이면 맞추지 않는다.
  */
@@ -61,49 +35,113 @@ class FtpSyncStore(
     private val io: CoroutineDispatcher = Dispatchers.IO,
 ) : SyncStore {
 
+    /** 서버와의 연결 하나. 오류는 [SyncStoreException] 으로 바꿔 던진다. */
+    internal interface Connection {
+        fun list(): List<SyncStore.Entry>
+
+        /** 없으면(목록과 읽기 사이에 다른 기기가 바꾸는 중) null. */
+        fun read(name: String, maxBytes: Long): String?
+
+        fun write(name: String, bytes: ByteArray)
+
+        /** 이미 없으면 조용히 끝난다. */
+        fun delete(name: String)
+
+        fun close()
+    }
+
     /** [session] 안에서 쓰는 연결. 세션 밖이면 null. */
     @Volatile
-    private var open: FTPClient? = null
+    private var open: Connection? = null
 
     override suspend fun <T> session(block: suspend () -> T): T {
         if (open != null) return block()
-        val client = withContext(io) { connect() }
-        open = client
+        val connection = withContext(io) { connect() }
+        open = connection
         try {
             return block()
         } finally {
             open = null
-            withContext(io) { close(client) }
+            withContext(io) { connection.close() }
         }
     }
 
     /** [session] 안이면 그 연결로, 밖이면 새로 이어서 한 번. */
-    private suspend fun <T> withClient(work: (FTPClient) -> T): T {
-        open?.let { c -> return withContext(io) { guard { work(c) } } }
-        return session { withContext(io) { guard { work(open!!) } } }
+    private suspend fun <T> withConnection(work: (Connection) -> T): T {
+        open?.let { c -> return withContext(io) { work(c) } }
+        return session { withContext(io) { work(open!!) } }
     }
 
-    override suspend fun list(): List<SyncStore.Entry> = withClient { c ->
+    override suspend fun list(): List<SyncStore.Entry> = withConnection { it.list() }
+
+    override suspend fun read(entry: SyncStore.Entry, maxBytes: Long): String? = withConnection { c ->
+        if (entry.sizeBytes != null && entry.sizeBytes > maxBytes) null else c.read(entry.id, maxBytes)
+    }
+
+    override suspend fun write(name: String, existing: SyncStore.Entry?, text: String): SyncStore.Entry = withConnection { c ->
+        val bytes = text.toByteArray(Charsets.UTF_8)
+        c.write(name, bytes)
+        SyncStore.Entry(id = name, name = name, modifiedEpochMs = null, sizeBytes = bytes.size.toLong())
+    }
+
+    override suspend fun delete(entry: SyncStore.Entry) {
+        withConnection { it.delete(entry.id) }
+    }
+
+    /**
+     * 연결 확인: 잇고 · 로그인 · 폴더 만들기 · 시험 파일 쓰고 지우기. 하나라도 안 되면 그 까닭으로 던진다. 쓰던 연결이 있어도 새로 잇는다 —
+     * 확인은 늘 지금 설정으로 해야 한다.
+     */
+    override suspend fun check() {
+        withContext(io) {
+            val c = connect()
+            try {
+                c.write(PROBE, PROBE.toByteArray())
+                c.delete(PROBE)
+            } finally {
+                c.close()
+            }
+        }
+    }
+
+    private fun connect(): Connection {
+        val cfg = config() ?: throw SyncStoreException(SyncProblem.Unreachable, "no server set")
+        return when (cfg.protocol) {
+            FtpProtocol.Sftp -> SftpConnection.open(cfg, timeoutMs)
+            FtpProtocol.Ftp -> FtpConnection.open(cfg, timeoutMs)
+        }
+    }
+
+    internal companion object {
+        /** 연결 확인에 잠깐 쓰는 이름. 점으로 시작해 기기 파일로 읽히지 않는다. */
+        const val PROBE = ".olo-check"
+
+        /** 올리는 중의 이름. 점으로 시작해 다른 기기의 목록에서 기기 파일로 읽히지 않는다. */
+        fun partName(name: String) = ".$name.part"
+    }
+}
+
+/** FTP · FTPS 연결. */
+internal class FtpConnection private constructor(private val c: FTPClient) : FtpSyncStore.Connection {
+
+    override fun list(): List<SyncStore.Entry> = guard {
         val files: Array<FTPFile> = if (c.hasFeature("MLSD")) c.mlistDir() else c.listFiles()
         files.filter { it.isFile }.map { f ->
             SyncStore.Entry(id = f.name, name = f.name, modifiedEpochMs = f.timestamp?.timeInMillis, sizeBytes = f.size.takeIf { it >= 0 })
         }
     }
 
-    override suspend fun read(entry: SyncStore.Entry, maxBytes: Long): String? = withClient { c ->
-        if (entry.sizeBytes != null && entry.sizeBytes > maxBytes) return@withClient null
+    override fun read(name: String, maxBytes: Long): String? = guard {
         val out = ByteArrayOutputStream()
-        if (!c.retrieveFile(entry.id, out)) {
-            // 목록과 읽기 사이에 다른 기기가 바꾸는 중이었다(이름 바꾸기 직전) — 이번엔 건너뛰고 다음에 읽는다.
-            if (c.replyCode == FTPReply.FILE_UNAVAILABLE) return@withClient null
-            failed(c, "read ${entry.id}")
+        if (!c.retrieveFile(name, out)) {
+            if (c.replyCode == FTPReply.FILE_UNAVAILABLE) return@guard null
+            failed(c, "read $name")
         }
         if (out.size() > maxBytes) null else out.toString("UTF-8")
     }
 
-    override suspend fun write(name: String, existing: SyncStore.Entry?, text: String): SyncStore.Entry = withClient { c ->
-        val bytes = text.toByteArray(Charsets.UTF_8)
-        val temp = ".$name.part"
+    override fun write(name: String, bytes: ByteArray) = guard {
+        val temp = FtpSyncStore.partName(name)
         if (!c.storeFile(temp, ByteArrayInputStream(bytes))) failed(c, "store $temp")
         if (!c.rename(temp, name)) {
             // 이름 바꾸기가 있는 파일을 덮지 않는 서버(일부 윈도 IIS · 오래된 NAS)가 있다. 옛것을 지우고 다시 — 그 사이 잠깐 파일이
@@ -114,107 +152,104 @@ class FtpSyncStore(
                 failed(c, "rename $temp")
             }
         }
-        SyncStore.Entry(id = name, name = name, modifiedEpochMs = null, sizeBytes = bytes.size.toLong())
     }
 
-    override suspend fun delete(entry: SyncStore.Entry) {
-        withClient { c ->
-            // 이미 없으면(550) 바라던 대로다.
-            if (!c.deleteFile(entry.id) && c.replyCode != FTPReply.FILE_UNAVAILABLE) failed(c, "delete ${entry.id}")
-        }
+    override fun delete(name: String) = guard {
+        // 이미 없으면(550) 바라던 대로다.
+        if (!c.deleteFile(name) && c.replyCode != FTPReply.FILE_UNAVAILABLE) failed(c, "delete $name")
     }
 
-    /** 연결 확인: 잇고 · 로그인 · 폴더 만들기 · 시험 파일 쓰고 지우기. 하나라도 안 되면 그 까닭으로 던진다. */
-    override suspend fun check() {
-        withClient { c ->
-            if (!c.storeFile(PROBE, ByteArrayInputStream(PROBE.toByteArray()))) failed(c, "store probe")
-            c.deleteFile(PROBE)
-        }
-    }
+    override fun close() = closeQuietly(c)
 
-    // ── 잇기 ────────────────────────────────────────────────
-
-    private fun connect(): FTPClient {
-        val cfg = config() ?: throw SyncStoreException(SyncProblem.Unreachable, "no ftp server set")
-        val client = if (cfg.secure) FTPSClient(false) else FTPClient()
-        client.controlEncoding = "UTF-8"
-        client.connectTimeout = timeoutMs
-        client.defaultTimeout = timeoutMs
-        client.setDataTimeout(Duration.ofMillis(timeoutMs.toLong()))
-        guard {
+    companion object {
+        fun open(cfg: FtpConfig, timeoutMs: Int): FtpConnection {
+            val tls = cfg.security != FtpSecurity.None
+            val trust = PinningTrustManager(cfg.host.trim(), cfg.trusted)
+            val client = if (tls) FTPSClient(cfg.security == FtpSecurity.Implicit).apply { trustManager = trust } else FTPClient()
+            client.controlEncoding = if (cfg.encoding == FtpEncoding.EucKr) "EUC-KR" else "UTF-8"
+            client.connectTimeout = timeoutMs
+            client.defaultTimeout = timeoutMs
+            client.setDataTimeout(Duration.ofMillis(timeoutMs.toLong()))
             try {
-                client.connect(cfg.host.trim(), cfg.port)
-                if (!FTPReply.isPositiveCompletion(client.replyCode)) failed(client, "connect")
-                client.soTimeout = timeoutMs
-                if (!client.login(cfg.user, cfg.password)) throw SyncStoreException(SyncProblem.Auth, "login refused: ${client.replyString?.trim()}")
-                if (client is FTPSClient) {
-                    // 데이터 연결도 암호화한다(PROT P). 안 하면 이름 · 비밀번호만 감추고 읽은 자리는 그대로 보낸다.
-                    client.execPBSZ(0)
-                    client.execPROT("P")
+                guard {
+                    try {
+                        client.connect(cfg.host.trim(), cfg.port)
+                    } catch (e: SSLException) {
+                        // 명시적 FTPS: AUTH TLS 를 거절(4xx · 5xx — 431 "서비스 없음" 을 쓰는 서버도 있다)했다면 서버가 암호화를 받지 않는
+                        // 것 — 인증서 문제와 다르게 알린다(자동이면 화면이 일반 FTP 로 다시 해 본다).
+                        trust.seen?.let { throw SyncStoreException(SyncProblem.Untrusted, "untrusted certificate", e, fingerprint = it) }
+                        if (cfg.security != FtpSecurity.Implicit && client.replyCode >= 400) throw SyncStoreException(SyncProblem.NoTls, "AUTH TLS refused: ${client.replyString?.trim()}", e)
+                        throw e
+                    }
+                    if (!FTPReply.isPositiveCompletion(client.replyCode)) failed(client, "connect")
+                    client.soTimeout = timeoutMs
+                    if (!client.login(cfg.user, cfg.password)) throw SyncStoreException(SyncProblem.Auth, "login refused: ${client.replyString?.trim()}")
+                    if (client is FTPSClient) {
+                        // 데이터 연결도 암호화한다(PROT P). 안 하면 이름 · 비밀번호만 감추고 읽은 자리는 그대로 보낸다.
+                        client.execPBSZ(0)
+                        client.execPROT("P")
+                    }
+                    if (cfg.encoding == FtpEncoding.Auto) runCatching { client.sendCommand("OPTS UTF8 ON") }
+                    client.setFileType(FTP.BINARY_FILE_TYPE)
+                    if (cfg.passive) client.enterLocalPassiveMode() else client.enterLocalActiveMode()
+                    enterFolder(client, cfg.path)
                 }
-                runCatching { client.sendCommand("OPTS UTF8 ON") }
-                client.setFileType(FTP.BINARY_FILE_TYPE)
-                client.enterLocalPassiveMode()
-                enterFolder(client, cfg.path)
             } catch (e: Exception) {
-                close(client)
+                closeQuietly(client)
+                // 데이터 연결의 인증서도 같은 판단을 거친다 — 거기서 거절돼도 지문을 묻는다.
+                if (e !is SyncStoreException || e.problem != SyncProblem.Untrusted) trust.seen?.let { throw SyncStoreException(SyncProblem.Untrusted, "untrusted certificate", e, fingerprint = it) }
                 throw e
             }
+            return FtpConnection(client)
         }
-        return client
-    }
 
-    /** [path] 로 들어간다. 없는 폴더는 한 칸씩 만든다. */
-    private fun enterFolder(c: FTPClient, path: String) {
-        val trimmed = path.trim()
-        if (trimmed.startsWith("/") && !c.changeWorkingDirectory("/")) failed(c, "cwd /", SyncProblem.NoAccess)
-        for (part in trimmed.split('/').map { it.trim() }.filter { it.isNotEmpty() && it != "." }) {
-            if (c.changeWorkingDirectory(part)) continue
-            if (!c.makeDirectory(part) || !c.changeWorkingDirectory(part)) failed(c, "mkdir $part", SyncProblem.NoAccess)
+        /** [path] 로 들어간다. 없는 폴더는 한 칸씩 만든다. */
+        private fun enterFolder(c: FTPClient, path: String) {
+            val trimmed = path.trim()
+            if (trimmed.startsWith("/") && !c.changeWorkingDirectory("/")) failed(c, "cwd /", SyncProblem.NoAccess)
+            for (part in trimmed.split('/').map { it.trim() }.filter { it.isNotEmpty() && it != "." }) {
+                if (c.changeWorkingDirectory(part)) continue
+                if (!c.makeDirectory(part) || !c.changeWorkingDirectory(part)) failed(c, "mkdir $part", SyncProblem.NoAccess)
+            }
         }
-    }
 
-    private fun close(client: FTPClient) {
-        runCatching { if (client.isConnected) client.logout() }
-        runCatching { client.disconnect() }
-    }
-
-    /** 서버의 거절 답을 사람에게 보일 갈래로. */
-    private fun failed(c: FTPClient, what: String, fallback: SyncProblem = SyncProblem.Server): Nothing {
-        val problem = when (c.replyCode) {
-            // 452 · 552: 저장 공간 부족.
-            452, 552 -> SyncProblem.Full
-            530 -> SyncProblem.Auth
-            // 550 · 553: 권한 없음 · 이름 허용 안 됨.
-            550, 553 -> SyncProblem.NoAccess
-            else -> fallback
+        private fun closeQuietly(client: FTPClient) {
+            runCatching { if (client.isConnected) client.logout() }
+            runCatching { client.disconnect() }
         }
-        throw SyncStoreException(problem, "$what failed: ${c.replyString?.trim()}")
-    }
 
-    /** 소켓 오류를 갈래로 바꾼다. */
-    private inline fun <T> guard(work: () -> T): T = try {
-        work()
-    } catch (e: SyncStoreException) {
-        throw e
-    } catch (e: SSLException) {
-        throw SyncStoreException(SyncProblem.Tls, "tls failed", e)
-    } catch (e: UnknownHostException) {
-        throw SyncStoreException(SyncProblem.Unreachable, "unknown host", e)
-    } catch (e: ConnectException) {
-        throw SyncStoreException(SyncProblem.Unreachable, "connection refused", e)
-    } catch (e: NoRouteToHostException) {
-        throw SyncStoreException(SyncProblem.Offline, "no route", e)
-    } catch (e: SocketTimeoutException) {
-        throw SyncStoreException(SyncProblem.Offline, "timed out", e)
-    } catch (e: FTPConnectionClosedException) {
-        throw SyncStoreException(SyncProblem.Offline, "server closed the connection", e)
-    } catch (e: IOException) {
-        throw SyncStoreException(SyncProblem.Offline, "ftp i/o failed", e)
-    }
+        /** 서버의 거절 답을 사람에게 보일 갈래로. */
+        private fun failed(c: FTPClient, what: String, fallback: SyncProblem = SyncProblem.Server): Nothing {
+            val problem = when (c.replyCode) {
+                // 452 · 552: 저장 공간 부족.
+                452, 552 -> SyncProblem.Full
+                530 -> SyncProblem.Auth
+                // 550 · 553: 권한 없음 · 이름 허용 안 됨.
+                550, 553 -> SyncProblem.NoAccess
+                else -> fallback
+            }
+            throw SyncStoreException(problem, "$what failed: ${c.replyString?.trim()}")
+        }
 
-    private companion object {
-        /** 연결 확인에 잠깐 쓰는 이름. 점으로 시작해 기기 파일로 읽히지 않는다. */
-        const val PROBE = ".olo-check"
+        /** 소켓 오류를 갈래로 바꾼다. */
+        private inline fun <T> guard(work: () -> T): T = try {
+            work()
+        } catch (e: SyncStoreException) {
+            throw e
+        } catch (e: SSLException) {
+            throw SyncStoreException(SyncProblem.Tls, "tls failed", e)
+        } catch (e: UnknownHostException) {
+            throw SyncStoreException(SyncProblem.Unreachable, "unknown host", e)
+        } catch (e: ConnectException) {
+            throw SyncStoreException(SyncProblem.Unreachable, "connection refused", e)
+        } catch (e: NoRouteToHostException) {
+            throw SyncStoreException(SyncProblem.Offline, "no route", e)
+        } catch (e: SocketTimeoutException) {
+            throw SyncStoreException(SyncProblem.Offline, "timed out", e)
+        } catch (e: FTPConnectionClosedException) {
+            throw SyncStoreException(SyncProblem.Offline, "server closed the connection", e)
+        } catch (e: IOException) {
+            throw SyncStoreException(SyncProblem.Offline, "ftp i/o failed", e)
+        }
     }
 }

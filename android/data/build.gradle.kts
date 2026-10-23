@@ -32,6 +32,8 @@ dependencies {
     ksp(libs.room.compiler)
     implementation(libs.coroutines.android)
     implementation(libs.commons.net)
+    // SFTP(SSH). 순수 자바라 안드로이드에서 그대로 돈다(BSD).
+    implementation(libs.jsch)
 
     testImplementation(project(":document-testing"))
     testImplementation(libs.junit4)
@@ -40,6 +42,7 @@ dependencies {
     testImplementation(libs.kotlin.test)
     testImplementation(libs.coroutines.test)
     testImplementation(libs.ftpserver.core)
+    testImplementation(libs.sshd.sftp)
 }
 
 tasks.withType<Test>().configureEach {

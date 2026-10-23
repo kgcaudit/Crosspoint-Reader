@@ -131,6 +131,7 @@ dependencies {
     testImplementation(libs.compose.ui.test.junit4)
     // 이어 읽기 시험이 진짜 FTP 서버(이 프로세스 안)에 대고 말한다.
     testImplementation(libs.ftpserver.core)
+    testImplementation(libs.sshd.sftp)
     debugImplementation(libs.compose.ui.test.manifest)
 }
 

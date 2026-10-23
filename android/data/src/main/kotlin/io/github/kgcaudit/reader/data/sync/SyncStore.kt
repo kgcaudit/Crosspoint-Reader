@@ -3,8 +3,8 @@ package io.github.kgcaudit.reader.data.sync
 import java.io.IOException
 
 /**
- * 기기별 이어 읽기 파일을 두는 곳(0.58.0). 지금은 사람이 정한 FTP 서버의 한 폴더([FtpSyncStore]) 하나다. 시험은 진짜 FTP 서버(내장)
- * 또는 가짜를 꽂는다.
+ * 기기별 이어 읽기 파일을 두는 곳(0.58.0). 지금은 사람이 정한 FTP · FTPS · SFTP 서버의 한 폴더([FtpSyncStore]) 하나다. 시험은
+ * 진짜 서버(내장)를 꽂는다.
  *
  * 0.56 까지는 책 폴더 안 `.olo/sync/` 에 쓰고, 사람이 깐 동기화 앱이 그 폴더를 맞춰 주기를 바랐다. 구글 드라이브 · 원드라이브의
  * 안드로이드 앱은 폴더를 양방향으로 맞춰 주지 않아, 따로 앱(Syncthing · FolderSync)을 깔지 않으면 아무 일도 일어나지 않았다. 0.57 의
@@ -54,14 +54,32 @@ enum class SyncProblem {
     /** 서버 저장 공간이 가득 찼다. */
     Full,
 
-    /** 보안 연결(FTPS)을 맺지 못했다 — 서버가 FTPS 를 받지 않거나 인증서를 믿을 수 없다. */
+    /** 보안 연결(FTPS)을 맺지 못했다 — 연결 중에 끊기거나 서로 맞는 암호 방식이 없다. */
     Tls,
+
+    /** 서버가 암호화(FTPS 의 AUTH TLS)를 받지 않는다. 보안 연결 "자동" 이면 화면이 일반 FTP 로 다시 해 본다. */
+    NoTls,
+
+    /**
+     * 믿을 수 없는 인증서 · 처음 보는 서버 키. NAS 가 스스로 만든 인증서가 대부분이다. [SyncStoreException.fingerprint] 를 사람에게
+     * 보이고, 믿으면 설정에 적어 다음부터 그 지문만 받는다. 믿은 뒤 지문이 바뀌면 다시 이것 — 누가 가운데서 가로챌 수 있다.
+     */
+    Untrusted,
 
     /** 서버 쪽 오류. 다음 기회에 다시. */
     Server,
 }
 
-class SyncStoreException(val problem: SyncProblem, message: String, cause: Throwable? = null) : IOException(message, cause)
+class SyncStoreException(
+    val problem: SyncProblem,
+    message: String,
+    cause: Throwable? = null,
+    /** [SyncProblem.Untrusted] 일 때 서버가 보인 인증서 · 키의 SHA-256 지문("AB:CD:…"). */
+    val fingerprint: String? = null,
+) : IOException(message, cause)
+
+/** 연결 확인의 결과. 되면 [problem] 이 null. */
+data class SyncCheck(val problem: SyncProblem?, val fingerprint: String? = null)
 
 /** 이어 읽기의 지금 모습. 화면의 "마지막으로 맞춘 때" 줄이 본다. */
 data class SyncStatus(val lastSyncedAtEpochMs: Long? = null, val problem: SyncProblem? = null, val busy: Boolean = false)

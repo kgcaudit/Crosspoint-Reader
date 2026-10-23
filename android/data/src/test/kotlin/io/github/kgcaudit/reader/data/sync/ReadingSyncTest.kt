@@ -290,16 +290,16 @@ class ReadingSyncTest {
         a.config = ftp.config(password = "틀린 비밀번호")
         assertEquals(0, a.sync.writeOwn())
         assertEquals(SyncProblem.Auth, a.sync.status.value.problem)
-        assertEquals(SyncProblem.Auth, a.sync.checkConnection())
+        assertEquals(SyncProblem.Auth, a.sync.checkConnection().problem)
         // 읽기만 되는 계정: 로그인은 되지만 폴더를 만들 수 없다.
         a.config = ftp.config(user = "guest", password = "guest")
-        assertEquals(SyncProblem.NoAccess, a.sync.checkConnection())
+        assertEquals(SyncProblem.NoAccess, a.sync.checkConnection().problem)
         // 주소가 틀리면(아무도 듣지 않는 포트) "서버를 찾지 못함".
         a.config = ftp.config().copy(port = java.net.ServerSocket(0).use { it.localPort })
-        assertEquals(SyncProblem.Unreachable, a.sync.checkConnection())
+        assertEquals(SyncProblem.Unreachable, a.sync.checkConnection().problem)
         // 바로잡으면 확인이 되고, 확인용 파일은 남지 않는다.
         a.config = ftp.config()
-        assertNull(a.sync.checkConnection())
+        assertNull(a.sync.checkConnection().problem)
         assertTrue(remoteFiles().isEmpty())
         assertEquals(1, a.sync.writeOwn())
         assertNull(a.sync.status.value.problem)
