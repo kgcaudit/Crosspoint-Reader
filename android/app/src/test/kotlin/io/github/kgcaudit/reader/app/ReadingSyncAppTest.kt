@@ -112,6 +112,7 @@ class ReadingSyncAppTest {
 
     @After
     fun tearDown() {
+        app.container.changes.close()
         // 화면을 끝낸다. 안 끝내면 서버를 껐다 켠 시험 다음의 시험이 "Compose 가 쉬지 않음" 으로 60초 뒤 실패했다. close() 는
         // 위젯으로 만화를 연 시험에서 멈춰(위 규칙 주석) 기다리지 않는 finish() 로.
         scenario?.onActivity { it.finish() }
@@ -326,16 +327,17 @@ class ReadingSyncAppTest {
         assertEquals(androidx.work.NetworkType.CONNECTED, work.constraints.requiredNetworkType)
         assertNull(uploaded())
         // 다시 하기가 걸린 동안 또 바뀌어도 15분 기다림이 밀리지 않는다(같은 일 그대로).
-        app.container.changes.flush()
-        compose.waitUntil(20_000) { app.container.sync.status.value.busy.not() }
-        assertEquals(work.id, retryWork()!!.id)
+        runBlocking { app.container.data.progress.save(io.github.kgcaudit.reader.document.ReadingProgress(id, Locator.Reflow(2, 9), 41f, System.currentTimeMillis())) }
+        runBlocking { app.container.changes.runNow() }
+        assertEquals(SyncProblem.Unreachable, app.container.sync.status.value.problem)
+        assertEquals(listOf(work.id), androidx.work.WorkManager.getInstance(app).getWorkInfosForUniqueWork(SyncRetry.WORK).get().map { it.id })
         // 아직 꺼져 있으면 일은 "다시" 를 청한다.
         val worker = androidx.work.testing.TestListenableWorkerBuilder<SyncRetryWorker>(app).build()
         assertEquals(androidx.work.ListenableWorker.Result.retry(), runBlocking { worker.doWork() })
         // 서버가 깨어나면 밀린 자리가 올라가고 일은 끝난다.
         ftp.start()
         assertEquals(androidx.work.ListenableWorker.Result.success(), runBlocking { worker.doWork() })
-        assertEquals(Locator.encode(Locator.Reflow(2, 0)), uploaded()?.books?.single()?.progress?.locator)
+        assertEquals(Locator.encode(Locator.Reflow(2, 9)), uploaded()?.books?.single()?.progress?.locator)
         assertNull(app.container.sync.status.value.problem)
     }
 
@@ -346,16 +348,16 @@ class ReadingSyncAppTest {
         app.container.ftpSettings.save(ftp.config(password = "틀림"))
         app.container.sync.enabled = true
         runBlocking { app.container.data.progress.save(io.github.kgcaudit.reader.document.ReadingProgress(id, Locator.Reflow(1, 0), 10f, System.currentTimeMillis())) }
-        app.container.changes.flush()
-        compose.waitUntil(20_000) { app.container.sync.status.value.problem == SyncProblem.Auth }
+        runBlocking { app.container.changes.runNow() }
+        assertEquals(SyncProblem.Auth, app.container.sync.status.value.problem)
         // 비밀번호가 틀린 것은 기다려도 같다 — 다시 하기를 걸지 않고 화면이 까닭을 보인다.
         assertNull(retryWork())
         // 서버가 꺼져 다시 하기가 걸린 뒤, 사람이 동기화를 끄면 걸린 일도 거둔다.
         app.container.ftpSettings.save(ftp.config())
         ftp.stop()
         runBlocking { app.container.data.progress.save(io.github.kgcaudit.reader.document.ReadingProgress(id, Locator.Reflow(1, 5), 11f, System.currentTimeMillis())) }
-        app.container.changes.flush()
-        compose.waitUntil(20_000) { retryWork()?.state == androidx.work.WorkInfo.State.ENQUEUED }
+        runBlocking { app.container.changes.runNow() }
+        assertEquals(androidx.work.WorkInfo.State.ENQUEUED, retryWork()?.state)
         openSyncScreen()
         tap(hasText("끔"))
         compose.waitUntil(10_000) { retryWork()?.state == androidx.work.WorkInfo.State.CANCELLED }
