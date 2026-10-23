@@ -360,26 +360,31 @@ class AppWalkthroughTest {
         }
         save(bitmap, "00-launcher-icon")
 
-        // 먹붓 마크(OLO-Design 806cabb, 0.32.1): 붓으로 그린 쪽 외곽선 · 줄 글자 · 흰 책등. 쪽 안은 비어 바탕(주황)이 비친다 —
-        // 면이 꽉 차 보이면 붓 느낌이 사라진다(디자인 세션이 "면이 꽉 차 보임" 을 오류로 꼽았다). 0.31 아이콘은 반대로 쪽이
-        // 흰 면이고 책등이 틈이었다.
+        // 펼친 하드커버 + 책갈피 끈(OLO-Design 2e3b100, 0.56.3 — 사용자 확정 L1). 0.32.1 먹붓 책은 쪽 · 책등이 둥글어 실제 책
+        // 느낌이 없었다. 쪽은 반투명 흰 채움(바탕이 비치되 바탕보다 밝다), 윤곽 · 책등은 흰 붓 획, 끈은 책 아래로 늘어진다.
         fun at(fx: Float, fy: Float) = bitmap.getPixel((size * fx).toInt(), (size * fy).toInt())
         fun light(c: Int) = Color.red(c) > 240 && Color.green(c) > 240 && Color.blue(c) > 240
         val bg = bitmap.getPixel((inset + 12).toInt(), size / 2)
         assertTrue(Color.red(bg) > 190 && Color.green(bg) in 90..160, "바탕색이 주황이 아니다: #${Integer.toHexString(bg)}")
         assertTrue(light(at(0.5f, 0.5f)), "책등이 흰 붓 획이 아니다: #${Integer.toHexString(at(0.5f, 0.5f))}")
         val inside = at(0.38f, 0.5f)
-        assertTrue(Color.red(inside) > 190 && Color.green(inside) < 160, "쪽 안이 비어 있지 않다(면이 꽉 찼다): #${Integer.toHexString(inside)}")
-        // 줄 글자: 쪽 안의 같은 세로줄에서 바탕보다 밝은 가로 획이 여럿.
+        // 비어 있으면(바탕 그대로) 쪽이 판으로 안 보이고, 흰 면이면 계열의 반투명 채움과 어긋난다.
+        assertTrue(Color.green(inside) in (Color.green(bg) + 30)..235, "쪽 안이 반투명 흰 채움이 아니다: #${Integer.toHexString(inside)}")
+        // 쪽의 같은 세로줄에서 밝은 가로 획: 윗 · 아랫 윤곽 2 + 글줄 3.
         val x = (size * 0.33f).toInt()
         var strokes = 0
         var wasLight = false
-        for (y in (size * 0.33f).toInt()..(size * 0.66f).toInt()) {
-            val isLight = Color.green(bitmap.getPixel(x, y)) > 175
+        for (y in (size * 0.30f).toInt()..(size * 0.68f).toInt()) {
+            val isLight = Color.green(bitmap.getPixel(x, y)) > 235
             if (isLight && !wasLight) strokes++
             wasLight = isLight
         }
-        assertTrue(strokes >= 3, "쪽에 줄 글자가 보이지 않는다: ${strokes}줄")
+        assertTrue(strokes >= 5, "쪽 윤곽과 글줄이 다 보이지 않는다: 밝은 획 ${strokes}개")
+        // 책갈피 끈: 책 아래(오른쪽 쪽 밑)로 늘어진다. 같은 높이의 왼쪽은 바탕이다(끈은 하나).
+        val y = (size * 0.71f).toInt()
+        val ribbon = ((size * 0.53f).toInt()..(size * 0.62f).toInt()).any { light(bitmap.getPixel(it, y)) || Color.green(bitmap.getPixel(it, y)) > 230 }
+        assertTrue(ribbon, "책 아래로 늘어진 책갈피 끈이 없다")
+        assertTrue(Color.green(bitmap.getPixel((size * 0.42f).toInt(), y)) < 170, "끈 자리 맞은편(왼쪽)이 바탕이 아니다")
     }
 
     @Test
