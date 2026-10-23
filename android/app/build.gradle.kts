@@ -104,6 +104,8 @@ android {
     sourceSets.getByName("test").resources.srcDir("../text-platform/src/test/resources")
     packaging {
         resources.excludes += setOf("META-INF/*.version", "META-INF/**/LICENSE*", "kotlin/**", "DebugProbesKt.bin")
+        // commons-net 과 JSch 가 같은 이름의 OSGi 목록(자바 9 판)을 싣고 와 묶을 때 부딪친다. 안드로이드는 OSGi 를 쓰지 않는다.
+        resources.excludes += setOf("META-INF/versions/9/OSGI-INF/MANIFEST.MF")
     }
 }
 
