@@ -16,6 +16,8 @@ androidxTestCore = "1.6.1"
 # 다른 기기에서 이어 읽기의 FTP · FTPS(0.58.0). 시험은 같은 아파치 재단의 내장 FTP 서버로 진짜 FTP 를 오간다.
 commonsNet = "3.11.1"
 ftpServer = "1.2.0"
+jsch = "0.2.20"
+sshd = "2.12.1"
 
 [libraries]
 coroutines-android   = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
@@ -23,6 +25,8 @@ androidx-core-ktx    = { module = "androidx.core:core-ktx",                     
 androidx-annotation  = { module = "androidx.annotation:annotation",                  version.ref = "androidxAnnotation" }
 commons-net          = { module = "commons-net:commons-net",                         version.ref = "commonsNet" }
 ftpserver-core       = { module = "org.apache.ftpserver:ftpserver-core",             version.ref = "ftpServer" }
+jsch                 = { module = "com.github.mwiede:jsch",                          version.ref = "jsch" }
+sshd-sftp            = { module = "org.apache.sshd:sshd-sftp",                       version.ref = "sshd" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose",         version.ref = "activityCompose" }
 compose-bom          = { module = "androidx.compose:compose-bom",                    version.ref = "composeBom" }
 compose-ui           = { module = "androidx.compose.ui:ui" }

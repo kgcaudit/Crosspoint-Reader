@@ -44,8 +44,8 @@ android {
         applicationId = providers.gradleProperty("reader.applicationId").get()
         minSdk = 26
         targetSdk = 35
-        versionCode = 116
-        versionName = "0.58.0"
+        versionCode = 117
+        versionName = "0.59.0"
         resValue("string", "app_name", providers.gradleProperty("reader.appName").get())
         // 앱 정보 화면의 날짜. 구성 캐시 때문에 빌드 파일(판 번호)이 바뀔 때 새로 잡힌다 — 곧 "그 판을 처음 빌드한 날".
         buildConfigField("String", "BUILD_DATE", "\"${LocalDate.now()}\"")
@@ -104,6 +104,8 @@ android {
     sourceSets.getByName("test").resources.srcDir("../text-platform/src/test/resources")
     packaging {
         resources.excludes += setOf("META-INF/*.version", "META-INF/**/LICENSE*", "kotlin/**", "DebugProbesKt.bin")
+        // commons-net 과 JSch 가 같은 이름의 OSGi 목록(자바 9 판)을 싣고 와 묶을 때 부딪친다. 안드로이드는 OSGi 를 쓰지 않는다.
+        resources.excludes += setOf("META-INF/versions/9/OSGI-INF/MANIFEST.MF")
     }
 }
 
