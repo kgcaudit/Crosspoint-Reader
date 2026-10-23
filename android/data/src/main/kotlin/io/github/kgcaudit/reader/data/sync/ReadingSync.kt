@@ -126,6 +126,9 @@ class ReadingSync(
     /** 마지막으로 목록을 받은 때. 책을 열 때마다 서버에 묻지 않게 잠깐은 받아 둔 것을 쓴다. */
     private var listedAt: Long = Long.MIN_VALUE / 2
 
+    /** 마지막으로 서버에 닿지 못한 때. 잠깐은 책을 열어도 다시 묻지 않는다 — 꺼진 서버에 책마다 시간 제한만큼 기다리지 않게. */
+    private var unreachableAt: Long = Long.MIN_VALUE / 2
+
     private class Cached(val entry: SyncStore.Entry, val file: SyncFile?)
 
     /** 지금까지 본 다른 기기, 최근에 기록을 남긴 것부터. */
@@ -266,9 +269,11 @@ class ReadingSync(
         } catch (e: SyncStoreException) {
             android.util.Log.w(TAG, "reading state not synced: ${e.problem}", e)
             _status.value = _status.value.copy(problem = e.problem)
+            if (e.problem in UNREACHED) unreachableAt = clock()
             fallback
         } catch (e: IOException) {
             _status.value = _status.value.copy(problem = SyncProblem.Offline)
+            unreachableAt = clock()
             fallback
         } catch (e: RuntimeException) {
             // 서버의 엉뚱한 답(읽을 수 없는 목록 모양)이 라이브러리 안에서 런타임 오류가 되기도 한다. 앱이 닫히면 안 된다.
@@ -282,6 +287,7 @@ class ReadingSync(
 
     private fun markSynced() {
         val at = clock()
+        unreachableAt = Long.MIN_VALUE / 2
         _status.value = _status.value.copy(lastSyncedAtEpochMs = at, problem = null)
         runCatching { stateDir.mkdirs(); File(stateDir, LAST_SYNC).writeText(at.toString()) }
     }
@@ -421,6 +427,7 @@ class ReadingSync(
      */
     private suspend fun refreshForOffer() {
         if (clock() - listedAt < OFFER_REFRESH_MS) return
+        if (clock() - unreachableAt < UNREACHABLE_PAUSE_MS) return
         lock.withLock { guarded(0) { listLocked() } }
     }
 
@@ -494,6 +501,14 @@ class ReadingSync(
 
         /** 책을 열 때 서버 목록을 다시 받는 간격. 연달아 여는 책마다 묻지 않되, 다른 기기에서 막 읽고 온 것은 놓치지 않게 짧게. */
         private const val OFFER_REFRESH_MS = 20_000L
+
+        /** 닿지 못한 뒤 책을 열 때 다시 묻지 않는 동안. "지금 맞추기" · 앱 열기 · 다시 하기 작업은 이것과 상관없이 묻는다. */
+        private const val UNREACHABLE_PAUSE_MS = 60_000L
+
+        private val UNREACHED = setOf(SyncProblem.Offline, SyncProblem.Unreachable, SyncProblem.Asleep)
+
+        /** 사람이 고칠 것이 없고 시간이 지나면 풀리는 까닭 — 나중에 저절로 다시 해 볼 만한 것. */
+        val RETRYABLE: Set<SyncProblem> = setOf(SyncProblem.Offline, SyncProblem.Unreachable, SyncProblem.Asleep, SyncProblem.Server, SyncProblem.Full)
 
         /** 기기 파일 하나는 책 수천 권이라도 몇 MB 다. 이보다 크면 이 앱의 파일이 아니다. */
         private const val MAX_BYTES = 8L * 1024 * 1024

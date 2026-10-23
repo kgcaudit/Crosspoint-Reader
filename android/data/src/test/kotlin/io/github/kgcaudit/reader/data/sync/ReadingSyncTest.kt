@@ -273,6 +273,14 @@ class ReadingSyncTest {
         // 던지지 않는다 — 서버가 꺼졌다고 책이 안 열리면 안 된다. 받아 둔 자리는 그대로 묻는다.
         assertEquals(at(6, 0), b.sync.offerForBook(id.value)?.locator)
         assertEquals(SyncProblem.Unreachable, b.sync.status.value.problem)
+        // 닿지 못한 뒤 1분 동안은 책을 열어도 다시 묻지 않는다 — 꺼진 서버에 책마다 시간 제한만큼 기다리지 않게.
+        val asked = b.store.sessions
+        b.now += 30_000
+        assertEquals(at(6, 0), b.sync.offerForBook(id.value)?.locator)
+        assertEquals(asked, b.store.sessions)
+        b.now += 31_000
+        b.sync.offerForBook(id.value)
+        assertEquals(asked + 1, b.store.sessions)
         b.data.progress.save(ReadingProgress(id, at(1, 0), 2f, 9_000))
         assertEquals(0, b.sync.writeOwn())
         // 서버가 돌아오면 까닭이 지워지고 밀린 기록이 올라간다.

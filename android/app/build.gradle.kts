@@ -44,8 +44,8 @@ android {
         applicationId = providers.gradleProperty("reader.applicationId").get()
         minSdk = 26
         targetSdk = 35
-        versionCode = 117
-        versionName = "0.59.0"
+        versionCode = 118
+        versionName = "0.59.1"
         resValue("string", "app_name", providers.gradleProperty("reader.appName").get())
         // 앱 정보 화면의 날짜. 구성 캐시 때문에 빌드 파일(판 번호)이 바뀔 때 새로 잡힌다 — 곧 "그 판을 처음 빌드한 날".
         buildConfigField("String", "BUILD_DATE", "\"${LocalDate.now()}\"")
@@ -115,6 +115,8 @@ kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarg
 base { archivesName.set("OLO-eBook-" + android.defaultConfig.versionName + (if (releaseKey == null) "-devkey" else "")) }
 
 dependencies {
+    // 서버에 닿지 못한 읽은 자리를 나중에(네트워크가 있을 때) 다시 올린다 — 앱을 닫아 둔 사이에도.
+    implementation(libs.work.runtime)
     implementation(project(":reader-reflow"))
     implementation(project(":reader-pdf"))
     implementation(project(":data"))
@@ -133,6 +135,7 @@ dependencies {
     testImplementation(libs.compose.ui.test.junit4)
     // 이어 읽기 시험이 진짜 FTP 서버(이 프로세스 안)에 대고 말한다.
     testImplementation(libs.ftpserver.core)
+    testImplementation(libs.work.testing)
     debugImplementation(libs.compose.ui.test.manifest)
 }
 

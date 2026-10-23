@@ -485,7 +485,7 @@ internal object ContinueWidgets {
 }
 
 /**
- * 읽기 기록이 바뀌면 위젯을 다시 그리고, 기기 간 이어 읽기를 켰으면 책 폴더에 이 기기의 기록을 쓴다. 리더마다 고리를 걸지 않는다 — DB 표가 바뀐 것을 본다
+ * 읽기 기록이 바뀌면 위젯을 다시 그리고, 기기 간 이어 읽기를 켰으면 서버에 이 기기의 기록을 쓴다. 리더마다 고리를 걸지 않는다 — DB 표가 바뀐 것을 본다
  * (Room 의 바뀜 알림). 리더가 늘어도(만화 · 웹툰 · 그림책) 빠뜨릴 자리가 없다.
  *
  * 쪽을 넘길 때마다 그리지 않게 잠깐 기다렸다 한 번 한다. 앱이 뒤로 갈 때는 기다리지 않고 바로 한다([flush]) — 그 뒤에 프로세스가
@@ -515,11 +515,21 @@ internal class ReadingChanges(private val context: Context, private val containe
         pending = scope.launch { run() }
     }
 
+    /** 기다림 없이 이 자리에서 끝까지(시험). [flush] 는 다른 스레드에 맡겨, 끝났는지 알 길이 없다. */
+    internal suspend fun runNow() = run()
+
+    /** 걸린 일을 거둔다(시험의 끝). 안 거두면 끝난 시험의 늦은 쓰기가 다음 시험의 작업 예약에 끼어든다. */
+    internal fun close() {
+        scope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
+    }
+
     private suspend fun run() {
         // 하나가 실패해도 다른 하나는 한다 — 위젯을 못 그렸다고 다른 기기에 읽은 자리가 안 가면 안 된다.
         runCatching { ContinueWidgets.refresh(context) }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; android.util.Log.w("OloWidget", "widget not refreshed", it) }
-        // 기기 간 이어 읽기: 이 기기의 기록을 책 폴더에 적는다(꺼져 있으면 아무것도 하지 않는다).
+        // 기기 간 이어 읽기: 이 기기의 기록을 서버에 적는다(꺼져 있으면 아무것도 하지 않는다). 서버에 닿지 못했으면 나중에 다시
+        // 하도록 걸어 둔다 — 앱이 뒤로 갈 때 서버가 잠들어 있으면 마지막 자리가 이 휴대폰에만 남는다.
         runCatching { container.sync.writeOwn() }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; android.util.Log.w("OloSync", "reading state not written", it) }
+        SyncRetry.afterSync(context, container.sync)
     }
 
     private companion object {

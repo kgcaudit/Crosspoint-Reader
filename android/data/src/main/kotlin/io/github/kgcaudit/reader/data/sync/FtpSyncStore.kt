@@ -32,6 +32,8 @@ import javax.net.ssl.SSLException
 class FtpSyncStore(
     private val config: () -> FtpConfig?,
     private val timeoutMs: Int = 15_000,
+    /** 잠든 서버를 한 번 더 기다리는 시간. 디스크를 멈춘 NAS 는 깨어나 첫 답을 하기까지 20 ~ 40초 걸린다. */
+    private val wakeTimeoutMs: Int = 45_000,
     private val io: CoroutineDispatcher = Dispatchers.IO,
 ) : SyncStore {
 
@@ -104,12 +106,23 @@ class FtpSyncStore(
         }
     }
 
+    /**
+     * 잇는다. 답이 없으면([SyncProblem.Asleep]) 한 번만 더 넉넉히 기다린다 — 첫 시도가 잠든 NAS 를 깨우고, 깨어나는 동안 두 번째가
+     * 기다린다. 처음부터 길게 기다리지 않는 까닭: 꺼진 서버라면 책을 열 때마다 그만큼 띠가 늦는다.
+     */
     private fun connect(): Connection {
         val cfg = config() ?: throw SyncStoreException(SyncProblem.Unreachable, "no server set")
-        return when (cfg.protocol) {
-            FtpProtocol.Sftp -> SftpConnection.open(cfg, timeoutMs)
-            FtpProtocol.Ftp -> FtpConnection.open(cfg, timeoutMs)
+        return try {
+            open(cfg, timeoutMs)
+        } catch (e: SyncStoreException) {
+            if (e.problem != SyncProblem.Asleep || wakeTimeoutMs <= timeoutMs) throw e
+            open(cfg, wakeTimeoutMs)
         }
+    }
+
+    private fun open(cfg: FtpConfig, timeout: Int): Connection = when (cfg.protocol) {
+        FtpProtocol.Sftp -> SftpConnection.open(cfg, timeout)
+        FtpProtocol.Ftp -> FtpConnection.open(cfg, timeout)
     }
 
     internal companion object {
@@ -245,10 +258,13 @@ internal class FtpConnection private constructor(private val c: FTPClient) : Ftp
         } catch (e: NoRouteToHostException) {
             throw SyncStoreException(SyncProblem.Offline, "no route", e)
         } catch (e: SocketTimeoutException) {
-            throw SyncStoreException(SyncProblem.Offline, "timed out", e)
+            throw SyncStoreException(SyncProblem.Asleep, "timed out", e)
         } catch (e: FTPConnectionClosedException) {
             throw SyncStoreException(SyncProblem.Offline, "server closed the connection", e)
         } catch (e: IOException) {
+            // commons-net 은 인사를 기다리다 시간이 다 된 것을 IOException("Timed out waiting for initial connect reply") 으로 싼다
+            // — 속의 시간 초과를 봐야 잠든 서버를 "인터넷 없음" 으로 잘못 알리지 않고 한 번 더 기다린다.
+            if (generateSequence<Throwable>(e) { it.cause }.any { it is SocketTimeoutException }) throw SyncStoreException(SyncProblem.Asleep, "timed out", e)
             throw SyncStoreException(SyncProblem.Offline, "ftp i/o failed", e)
         }
     }

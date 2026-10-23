@@ -58,3 +58,26 @@ tasks.withType<Test>().configureEach {
         systemProperty("robolectric.dependency.repo.url", it)
     }
 }
+
+// 서버 시험(진짜 FTPS · SFTP 서버)은 따로 JVM 에서 돌린다. MINA SSHD(시험용 SFTP 서버)가 자바 파일 시스템 제공자를 등록하는데,
+// 같은 JVM 의 Robolectric 이 그것을 만들지 못해 그 뒤 시험이 모두 SQLite 네이티브 오류로 무너졌다(전체 시험 129건 — 순서에 따라
+// 나타났다 안 나타났다 한다). 보통 시험의 실행 경로에서는 MINA 를 빼, 순서가 바뀌어도 다시 일어나지 않게 한다.
+afterEvaluate {
+    val unit = tasks.named<Test>("testDebugUnitTest")
+    // MINA 를 빼기 전의 경로 — 서버 시험은 이것으로 돈다.
+    val full = unit.get().classpath
+    val servers = tasks.register<Test>("testSyncServersDebug") {
+        description = "FTP · FTPS · SFTP server tests in their own JVM (MINA SSHD breaks Robolectric)."
+        testClassesDirs = unit.get().testClassesDirs
+        classpath = full
+        filter.includeTestsMatching("*.FtpConnectionTest")
+        filter.isFailOnNoMatchingTests = false
+    }
+    unit.configure {
+        classpath = full.filter { !it.name.startsWith("sshd-") }
+        filter.excludeTestsMatching("*.FtpConnectionTest")
+        // "--tests '*FtpConnectionTest*'" 처럼 서버 시험만 고르면 이 작업에는 남는 시험이 없다 — 실패로 보지 않는다(서버 시험은 아래가 돈다).
+        filter.isFailOnNoMatchingTests = false
+        dependsOn(servers)
+    }
+}

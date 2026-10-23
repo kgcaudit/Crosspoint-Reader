@@ -86,6 +86,7 @@ internal const val FTP_CHECK = "연결 확인"
 internal fun syncProblemText(problem: SyncProblem): String = when (problem) {
     SyncProblem.Offline -> "인터넷에 연결되지 않아 맞추지 못했습니다. 연결되면 다시 맞춥니다."
     SyncProblem.Unreachable -> "서버를 찾지 못했습니다. 주소 · 포트가 맞는지, 서버가 켜져 있는지 확인하세요."
+    SyncProblem.Asleep -> "서버가 답하지 않습니다(잠들어 있거나 꺼져 있음). 깨어나면 다시 맞춥니다."
     SyncProblem.Auth -> "사용자 이름이나 비밀번호가 맞지 않습니다."
     SyncProblem.NoAccess -> "저장 폴더에 쓸 수 없습니다. 폴더 이름과 그 사용자의 쓰기 권한을 확인하세요."
     SyncProblem.Full -> "서버 저장 공간이 가득 찼습니다. 기록은 몇 KB 라 공간을 비우면 바로 맞춥니다."
@@ -173,7 +174,12 @@ internal data class TrustAsk(val config: FtpConfig, val fingerprint: String)
 internal enum class FtpPick { Security, Mode, Encoding }
 
 /** 화면 상태. 서버 정하기 · 확인 · 맞추기 · 지우기의 흐름을 여기 모은다 — 화면은 그리기만. */
-internal class SyncScreenUi(private val sync: ReadingSync, private val settings: FtpSettings, private val scope: CoroutineScope) {
+internal class SyncScreenUi(
+    private val sync: ReadingSync,
+    private val settings: FtpSettings,
+    private val scope: CoroutineScope,
+    private val context: android.content.Context,
+) {
     var enabled by mutableStateOf(sync.enabled && settings.config() != null)
     var server by mutableStateOf(settings.config())
     var devices by mutableStateOf(sync.devices())
@@ -203,6 +209,7 @@ internal class SyncScreenUi(private val sync: ReadingSync, private val settings:
         cancelEdit()
         sync.enabled = false
         enabled = false
+        SyncRetry.cancel(context)
     }
 
     fun edit() {
@@ -283,6 +290,7 @@ internal class SyncScreenUi(private val sync: ReadingSync, private val settings:
         scope.launch {
             sync.syncNow()
             devices = sync.devices()
+            SyncRetry.afterSync(context, sync)
         }
     }
 
@@ -316,7 +324,8 @@ internal fun SyncScreen(onBack: () -> Unit) {
     BackHandler(onBack = onBack)
     val container = LocalContext.current.container
     val scope = rememberCoroutineScope()
-    val ui = remember { SyncScreenUi(container.sync, container.ftpSettings, scope) }
+    val context = LocalContext.current
+    val ui = remember { SyncScreenUi(container.sync, container.ftpSettings, scope, context.applicationContext) }
     // 화면을 열 때마다 맞춘다 — "함께 읽는 기기" 의 마지막 때가 맞게.
     LaunchedEffect(ui) { ui.refresh() }
     val c = CpTheme.colors

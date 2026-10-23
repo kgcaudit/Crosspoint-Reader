@@ -86,6 +86,38 @@ class TestFtpServer(val root: File, private val tls: FtpSecurity = FtpSecurity.N
 }
 
 /**
+ * 잠든 NAS 흉내: 잇기는 바로 받지만, [wakeAfterMs] 가 지나기 전에는 아무 말도 하지 않는다(디스크를 돌리는 중). 깬 뒤에는 [targetPort]
+ * 로 그대로 잇는다. 기다리다 지쳐 끊은 연결은 버린다.
+ */
+class SleepyProxy(private val targetPort: Int, wakeAfterMs: Long) {
+    private val server = ServerSocket(0)
+    val port: Int = server.localPort
+    private val wakeAt = System.currentTimeMillis() + wakeAfterMs
+
+    init {
+        Thread {
+            while (!server.isClosed) {
+                val client = runCatching { server.accept() }.getOrNull() ?: break
+                Thread {
+                    runCatching {
+                        Thread.sleep((wakeAt - System.currentTimeMillis()).coerceAtLeast(0))
+                        val upstream = java.net.Socket("127.0.0.1", targetPort)
+                        val a = Thread { runCatching { client.getInputStream().copyTo(upstream.getOutputStream()) }; runCatching { upstream.shutdownOutput() } }
+                        a.start()
+                        runCatching { upstream.getInputStream().copyTo(client.getOutputStream()) }
+                        a.join(1_000)
+                        upstream.close()
+                    }
+                    runCatching { client.close() }
+                }.apply { isDaemon = true }.start()
+            }
+        }.apply { isDaemon = true }.start()
+    }
+
+    fun close() = server.close()
+}
+
+/**
  * 시험용 SFTP 서버(아파치 MINA SSHD, 이 프로세스 안). 서버 키는 시작할 때 만든다 — 앱은 처음 잇는 순간 그 지문을 물어야 한다.
  */
 class TestSftpServer(val root: File) {
@@ -121,11 +153,14 @@ class TestSftpServer(val root: File) {
 
 /** 저장소를 몇 번 불렀는지 센다 — 꺼져 있을 때 서버에 아무것도 묻지 않는지 본다. */
 class CountingStore(private val inner: SyncStore) : SyncStore {
+    /** 부른 수 — 실패한 것도 센다(꺼진 서버에 몇 번 물었는지 봐야 한다). */
     var calls = 0
-    override suspend fun list() = inner.list().also { calls++ }
-    override suspend fun read(entry: SyncStore.Entry, maxBytes: Long) = inner.read(entry, maxBytes).also { calls++ }
-    override suspend fun write(name: String, existing: SyncStore.Entry?, text: String) = inner.write(name, existing, text).also { calls++ }
-    override suspend fun delete(entry: SyncStore.Entry) = inner.delete(entry).also { calls++ }
-    override suspend fun <T> session(block: suspend () -> T): T = inner.session(block)
-    override suspend fun check() = inner.check().also { calls++ }
+    override suspend fun list(): List<SyncStore.Entry> { calls++; return inner.list() }
+    override suspend fun read(entry: SyncStore.Entry, maxBytes: Long): String? { calls++; return inner.read(entry, maxBytes) }
+    override suspend fun write(name: String, existing: SyncStore.Entry?, text: String): SyncStore.Entry { calls++; return inner.write(name, existing, text) }
+    override suspend fun delete(entry: SyncStore.Entry) { calls++; inner.delete(entry) }
+    /** 연결을 연 수(맞추기 한 번에 하나). 꺼진 서버면 일은 세지 않고 이것만 는다. */
+    var sessions = 0
+    override suspend fun <T> session(block: suspend () -> T): T { sessions++; return inner.session(block) }
+    override suspend fun check() { calls++; inner.check() }
 }
