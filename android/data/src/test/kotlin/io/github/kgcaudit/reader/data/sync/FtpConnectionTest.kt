@@ -106,10 +106,11 @@ class FtpConnectionTest {
         // 일반 FTP 로 990 에 붙으면 인사가 오지 않는다 — 실패하되 멈추지 않는다.
         runBlocking {
             try {
-                FtpSyncStore({ server.config().copy(security = FtpSecurity.None) }, timeoutMs = 2_000).check()
+                FtpSyncStore({ server.config().copy(security = FtpSecurity.None) }, timeoutMs = 1_000, wakeTimeoutMs = 1_000).check()
                 fail("plain ftp on an implicit port connected")
             } catch (e: SyncStoreException) {
-                assertTrue(e.problem in setOf(SyncProblem.Offline, SyncProblem.Server), e.problem.toString())
+                // 암묵적 FTPS 서버는 TLS 인사를 기다리며 말이 없다 — "답하지 않음".
+                assertTrue(e.problem in setOf(SyncProblem.Asleep, SyncProblem.Offline, SyncProblem.Server), e.problem.toString())
             }
         }
     }
@@ -155,5 +156,39 @@ class FtpConnectionTest {
         assertFalse(matchesHost(cert, "127.0.0.2"))
         // CN 만 nas.local 이다 — 다른 이름(SAN)이 아니면 받지 않는다(요즘 규칙).
         assertFalse(matchesHost(cert, "nas.local"))
+    }
+
+    @Test
+    fun `a sleeping server is waited for once more and a silent one is told apart from no internet`() {
+        val server = ftp(FtpSecurity.None)
+        // 2.5초 뒤에 깨는 NAS: 첫 시도(1초)는 시간이 다 되고, 두 번째(6초)가 깨어난 서버를 만난다.
+        val sleepy = SleepyProxy(server.port, wakeAfterMs = 2_500).also { p -> stops += { p.close() } }
+        val config = server.config().copy(port = sleepy.port)
+        runBlocking { FtpSyncStore({ config }, timeoutMs = 1_000, wakeTimeoutMs = 6_000).check() }
+        // 깨지 않는 서버: 기다려도 답이 없으면 "인터넷 없음" 이 아니라 "서버가 답하지 않음".
+        val silent = SleepyProxy(server.port, wakeAfterMs = 60_000).also { p -> stops += { p.close() } }
+        val started = System.currentTimeMillis()
+        runBlocking {
+            try {
+                FtpSyncStore({ config.copy(port = silent.port) }, timeoutMs = 500, wakeTimeoutMs = 1_000).check()
+                fail("a silent server connected")
+            } catch (e: SyncStoreException) {
+                assertEquals(SyncProblem.Asleep, e.problem)
+            }
+        }
+        // 한 번만 더 기다린다(0.5 + 1초) — 끝없이 다시 하지 않는다.
+        assertTrue(System.currentTimeMillis() - started < 5_000)
+        // SFTP 도 같은 갈래.
+        val sshSilent = SleepyProxy(sftp().port, wakeAfterMs = 60_000).also { p -> stops += { p.close() } }
+        checkFailsWith(TestSftpServer(File(tmp.root, "x")).config().copy(port = sshSilent.port), SyncProblem.Asleep)
+    }
+
+    private fun checkFailsWith(config: FtpConfig, problem: SyncProblem) = runBlocking {
+        try {
+            FtpSyncStore({ config }, timeoutMs = 500, wakeTimeoutMs = 1_000).check()
+            fail("expected $problem")
+        } catch (e: SyncStoreException) {
+            assertEquals(problem, e.problem, e.message)
+        }
     }
 }

@@ -165,8 +165,9 @@ internal class SftpConnection private constructor(private val session: Session, 
                     SyncStoreException(SyncProblem.Auth, "login refused", e)
                 causes.any { it is UnknownHostException || it is ConnectException } ->
                     SyncStoreException(SyncProblem.Unreachable, "unreachable", e)
-                causes.any { it is SocketTimeoutException || it is NoRouteToHostException } || "timeout" in message.lowercase() ->
-                    SyncStoreException(SyncProblem.Offline, "timed out", e)
+                causes.any { it is NoRouteToHostException } -> SyncStoreException(SyncProblem.Offline, "no route", e)
+                causes.any { it is SocketTimeoutException } || "timeout" in message.lowercase() ->
+                    SyncStoreException(SyncProblem.Asleep, "timed out", e)
                 else -> SyncStoreException(SyncProblem.Offline, "ssh failed: $message", e)
             }
         } catch (e: java.io.IOException) {
