@@ -107,10 +107,10 @@ internal fun koreanDate(iso: String): String {
  * (0.20.4, 좋은생각 109쪽).
  */
 @Composable
-internal fun AboutScreen(records: RecordsUi, onBack: () -> Unit, onLicense: (Int) -> Unit) {
+internal fun AboutScreen(records: RecordsUi, onBack: () -> Unit, onLicense: (Int) -> Unit, onSync: () -> Unit = {}) {
     BackHandler(onBack = onBack)
     val c = CpTheme.colors
-    val sync = rememberSyncUi()
+    val container = androidx.compose.ui.platform.LocalContext.current.container
     Box(Modifier.fillMaxSize().background(c.background).windowInsetsPadding(WindowInsets.safeDrawing)) {
     // 라이선스가 늘거나 글자를 키우면 화면을 넘는다 — 기록 행이 그 아래에 묻히지 않게 굴린다.
     Column(Modifier.align(Alignment.TopCenter).then(tabletWidth()).fillMaxSize().verticalScroll(rememberScrollState())) {
@@ -123,7 +123,8 @@ internal fun AboutScreen(records: RecordsUi, onBack: () -> Unit, onLicense: (Int
             CpText("EPUB · TXT · PDF를 간편하게 읽고 책갈피를 꽂는 뷰어입니다.", CpTheme.type.body, c.text, maxLines = Int.MAX_VALUE)
             Spacer(Modifier.height(6.dp))
             CpText(
-                "인터넷을 쓰지 않습니다. 읽은 자리 · 책갈피 · 형광펜은 이 휴대폰에 남습니다. 휴대폰을 바꿀 때는 백업 파일로 옮기세요.",
+                "읽은 자리 · 책갈피 · 형광펜은 이 휴대폰에 남습니다. 휴대폰을 바꿀 때는 백업 파일로 옮기세요. 인터넷은 ‘다른 기기에서 이어 " +
+                    "읽기’를 켰을 때만 씁니다(구글 드라이브).",
                 // 줄 수를 막지 않는다(0.29.0). 3줄이면 큰 글자에서 "백업 파일로 옮기세요" 가 잘렸다.
                 CpTheme.type.subtitle, c.textMuted, maxLines = Int.MAX_VALUE,
             )
@@ -132,7 +133,16 @@ internal fun AboutScreen(records: RecordsUi, onBack: () -> Unit, onLicense: (Int
         CpDivider()
         ReadingRecordsRows(records)
         CpDivider()
-        ReadingSyncRows(sync)
+        CpSectionLabel("기기 간 이어 읽기")
+        // 켬 · 끔은 화면을 열 때 읽는다 — 이어 읽기 화면에서 바꾸고 돌아오면 이 화면이 새로 그려진다.
+        CpListRow(
+            SYNC_TITLE, onSync,
+            subtitle = when {
+                container.sync.enabled && container.driveAccount.connected -> "구글 드라이브로 맞추는 중"
+                container.sync.legacyWasOn -> "방식이 바뀌었습니다 — 다시 켜 주세요"
+                else -> "꺼짐"
+            },
+        )
         CpDivider()
         CpSectionLabel("오픈소스 라이선스")
         OPEN_LICENSES.forEachIndexed { i, license ->
@@ -140,9 +150,7 @@ internal fun AboutScreen(records: RecordsUi, onBack: () -> Unit, onLicense: (Int
         }
     }
     ReadingRecordsPopups(records)
-    ReadingSyncPopups(sync)
     CpToast(records.toast, { records.toast = null }, Modifier.align(Alignment.BottomCenter), durationMs = 2_500)
-    CpToast(sync.toast, { sync.toast = null }, Modifier.align(Alignment.BottomCenter), durationMs = 2_500)
     }
 }
 
