@@ -21,7 +21,9 @@ class TestFtpServer(val root: File) {
         root.mkdirs()
         val factory = FtpServerFactory()
         factory.addListener("default", ListenerFactory().apply { port = this@TestFtpServer.port }.createListener())
-        val users = PropertiesUserManagerFactory().apply { file = File(root.parentFile, "ftp-users-$port.properties") }.createUserManager()
+        // 사용자 파일은 미리 있어야 한다(없으면 서버가 설정 오류로 멈춘다).
+        val userFile = File(root.parentFile, "ftp-users-$port.properties").apply { parentFile.mkdirs(); if (!exists()) createNewFile() }
+        val users = PropertiesUserManagerFactory().apply { file = userFile }.createUserManager()
         users.save(BaseUser().apply { name = USER; password = PASSWORD; homeDirectory = root.absolutePath; authorities = listOf(WritePermission()) })
         users.save(BaseUser().apply { name = "guest"; password = "guest"; homeDirectory = root.absolutePath; authorities = emptyList() })
         factory.userManager = users
