@@ -81,6 +81,9 @@ struct LibrarySearchScreen: View {
                 .scrollDismissesKeyboard(.immediately)
             }
         }
+        // 넓은 화면에서도 600 가운데(구상안 48) — 줄이 화면 끝까지 늘면 이름과 갈래 꼬리표가 한참 멀다.
+        .frame(maxWidth: 600)
+        .frame(maxWidth: .infinity)
         .background(CpColor.background)
     }
 }

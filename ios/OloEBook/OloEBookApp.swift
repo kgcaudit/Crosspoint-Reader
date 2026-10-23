@@ -44,6 +44,11 @@ struct OloEBookApp: App {
                 }
             }
             .animation(.easeOut(duration: 0.2), value: reading?.id)
+            #if DEBUG
+            // 화면 확인용: -olo-window 1194x834 는 앱을 그 창 크기로 짜고 화면에 맞게 줄여 보인다 — 시뮬레이터를 명령으로 돌릴 수
+            // 없어 iPad 가로 · 나란히 보기 배치(구상안 48)를 이것으로 찍는다. 출시 빌드에는 없다.
+            .modifier(DebugWindow())
+            #endif
             .task {
                 await library.refresh()
                 #if DEBUG
@@ -87,3 +92,25 @@ struct OloEBookApp: App {
         }
     }
 }
+
+#if DEBUG
+private struct DebugWindow: ViewModifier {
+    func body(content: Content) -> some View {
+        let args = CommandLine.arguments
+        if let i = args.firstIndex(of: "-olo-window"), i + 1 < args.count {
+            let p = args[i + 1].split(separator: "x").compactMap { Double($0) }
+            if p.count == 2 {
+                GeometryReader { g in
+                    let k = min(g.size.width / p[0], g.size.height / p[1])
+                    content.frame(width: p[0], height: p[1]).scaleEffect(k, anchor: .topLeading)
+                        .frame(width: g.size.width, height: g.size.height, alignment: .topLeading)
+                }
+            } else {
+                content
+            }
+        } else {
+            content
+        }
+    }
+}
+#endif

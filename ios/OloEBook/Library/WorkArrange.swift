@@ -65,6 +65,9 @@ struct WorkArrangeScreen: View {
                     .padding(.bottom, 24)
                 }
             }
+            // 넓은 화면에서도 600 가운데(구상안 48) — 줄 이름과 설명이 화면 끝까지 늘지 않게.
+            .frame(maxWidth: IosAdaptive.shared.CONTENT_MAX)
+            .frame(maxWidth: .infinity)
             .background(CpColor.background)
             if let picking { popup(picking) }
         }
