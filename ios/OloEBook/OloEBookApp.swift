@@ -14,6 +14,7 @@ struct OloEBookApp: App {
     @State private var reading: LibraryBook?
     /// 보던 장면에서 표지를 고르는 작품(구상안 44). nil 이면 그냥 읽기.
     @State private var coverPick: String?
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         // 글꼴 폴더를 측정기에 알린다 — 첫 조판보다 먼저여야 고른 글꼴로 첫 쪽이 짜인다.
@@ -63,11 +64,25 @@ struct OloEBookApp: App {
                 }
                 #endif
             }
-            // 다른 앱에서 열기("공유 › OLO eBook", 파일 앱에서 누르기): 받은 파일 폴더로 들여와 바로 연다.
+            // 다른 앱에서 열기("공유 › OLO eBook", 파일 앱에서 누르기): 받은 파일 폴더로 들여와 바로 연다. 이어 읽기 위젯(구상안 47)은
+            // olo://continue?book=… 로 그 책 · 권을 연다 — 지금 다른 책을 보고 있으면 그 책을 닫고.
             .onOpenURL { url in
                 Task {
+                    if let target = WidgetShared.target(of: url) {
+                        if library.isEmpty { await library.refresh() }
+                        guard !target.id.isEmpty else { return }
+                        let book = target.comic
+                            ? library.works.flatMap { $0.entries.flatMap { [$0.unit] + $0.copies } }.first { $0.id == target.id }.flatMap(library.comicBook)
+                            : library.shelfItem(target.id)?.book
+                        if let book, book.id != reading?.id { coverPick = nil; reading = book }
+                        return
+                    }
                     if let book = await library.receive(url) { reading = book }
                 }
+            }
+            // 앱이 뒤로 가면 위젯을 고쳐 둔다 — 책을 연 채 홈으로 나가면 닫을 때 적는 길을 지나지 않는다.
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .background { library.reloadRecords() }
             }
         }
     }

@@ -193,6 +193,8 @@ final class Library: ObservableObject {
         records = Dictionary(rows.map { ($0.bookId, $0) }, uniquingKeysWith: { a, _ in a })
         arrange()
         arrangeComics()
+        // 이어 읽기 위젯(구상안 47): 책을 닫음 · 새로고침 · 앱이 뒤로 감 — 기록이 바뀌는 때마다.
+        WidgetFeed.update(self)
     }
 
     // MARK: 만화(구상안 35A · 36)

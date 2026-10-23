@@ -20,6 +20,10 @@
 		};
 /* End PBXAggregateTarget section */
 
+/* Begin PBXBuildFile section */
+		0C10000000000000000000E1 /* OloWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 0C10000000000000000000F1 /* OloWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		0C10000000000000000000X1 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -28,18 +32,49 @@
 			remoteGlobalIDString = 0C10000000000000000000T2;
 			remoteInfo = OloCore;
 		};
+		0C10000000000000000000X2 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 0C10000000000000000000P0 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 0C10000000000000000000T3;
+			remoteInfo = OloWidget;
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		0C10000000000000000000B7 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				0C10000000000000000000E1 /* OloWidget.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		0C10000000000000000000F0 /* OloEBook.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OloEBook.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		0C10000000000000000000F1 /* OloWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = OloWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		0C10000000000000000000S1 /* OloEBook */ = {isa = PBXFileSystemSynchronizedRootGroup; path = OloEBook; sourceTree = "<group>"; };
+		0C10000000000000000000S2 /* OloWidget */ = {isa = PBXFileSystemSynchronizedRootGroup; path = OloWidget; sourceTree = "<group>"; };
+		0C10000000000000000000S3 /* Shared */ = {isa = PBXFileSystemSynchronizedRootGroup; path = Shared; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		0C10000000000000000000B2 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0C10000000000000000000B5 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -53,6 +88,8 @@
 			isa = PBXGroup;
 			children = (
 				0C10000000000000000000S1 /* OloEBook */,
+				0C10000000000000000000S2 /* OloWidget */,
+				0C10000000000000000000S3 /* Shared */,
 				0C10000000000000000000G1 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -61,6 +98,7 @@
 			isa = PBXGroup;
 			children = (
 				0C10000000000000000000F0 /* OloEBook.app */,
+				0C10000000000000000000F1 /* OloWidget.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -75,19 +113,43 @@
 				0C10000000000000000000B1 /* Sources */,
 				0C10000000000000000000B2 /* Frameworks */,
 				0C10000000000000000000B3 /* Resources */,
+				0C10000000000000000000B7 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				0C10000000000000000000D1 /* PBXTargetDependency */,
+				0C10000000000000000000D2 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				0C10000000000000000000S1 /* OloEBook */,
+				0C10000000000000000000S3 /* Shared */,
 			);
 			name = OloEBook;
 			productName = OloEBook;
 			productReference = 0C10000000000000000000F0 /* OloEBook.app */;
 			productType = "com.apple.product-type.application";
+		};
+		0C10000000000000000000T3 /* OloWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0C10000000000000000000L4 /* Build configuration list for PBXNativeTarget "OloWidget" */;
+			buildPhases = (
+				0C10000000000000000000B4 /* Sources */,
+				0C10000000000000000000B5 /* Frameworks */,
+				0C10000000000000000000B6 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				0C10000000000000000000S2 /* OloWidget */,
+				0C10000000000000000000S3 /* Shared */,
+			);
+			name = OloWidget;
+			productName = OloWidget;
+			productReference = 0C10000000000000000000F1 /* OloWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -100,6 +162,9 @@
 				LastUpgradeCheck = 2710;
 				TargetAttributes = {
 					0C10000000000000000000T1 = {
+						CreatedOnToolsVersion = 27.1;
+					};
+					0C10000000000000000000T3 = {
 						CreatedOnToolsVersion = 27.1;
 					};
 				};
@@ -120,12 +185,20 @@
 			targets = (
 				0C10000000000000000000T1 /* OloEBook */,
 				0C10000000000000000000T2 /* OloCore */,
+				0C10000000000000000000T3 /* OloWidget */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		0C10000000000000000000B3 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0C10000000000000000000B6 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -165,6 +238,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		0C10000000000000000000B4 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -172,6 +252,11 @@
 			isa = PBXTargetDependency;
 			target = 0C10000000000000000000T2 /* OloCore */;
 			targetProxy = 0C10000000000000000000X1 /* PBXContainerItemProxy */;
+		};
+		0C10000000000000000000D2 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 0C10000000000000000000T3 /* OloWidget */;
+			targetProxy = 0C10000000000000000000X2 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -229,6 +314,7 @@
 		0C10000000000000000000C3 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = OloEBook.entitlements;
 				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_UIFileSharingEnabled = YES;
@@ -266,6 +352,7 @@
 		0C10000000000000000000C4 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = OloEBook.entitlements;
 				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_UIFileSharingEnabled = YES;
@@ -312,6 +399,54 @@
 			};
 			name = Release;
 		};
+		0C10000000000000000000C7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = OloWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = OloWidgetInfo.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "이어 읽기";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.kgcaudit.oloebook.widget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		0C10000000000000000000C8 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = OloWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = OloWidgetInfo.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "이어 읽기";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.kgcaudit.oloebook.widget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -338,6 +473,15 @@
 			buildConfigurations = (
 				0C10000000000000000000C5 /* Debug */,
 				0C10000000000000000000C6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		0C10000000000000000000L4 /* Build configuration list for PBXNativeTarget "OloWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0C10000000000000000000C7 /* Debug */,
+				0C10000000000000000000C8 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

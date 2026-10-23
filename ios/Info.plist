@@ -10,6 +10,18 @@
 	<array>
 		<string>audio</string>
 	</array>
+	<!-- 위젯을 누르면 olo://continue?book=… 로 그 책을 연다(구상안 47). -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>io.github.kgcaudit.oloebook</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>olo</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>

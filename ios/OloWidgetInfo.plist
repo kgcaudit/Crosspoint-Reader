@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  이어 읽기 위젯(구상안 47)이 WidgetKit 의 확장이라는 표시. 빌드 설정(GENERATE_INFOPLIST_FILE)이 사전을 만들지 못해 이것만 둔다.
+  OloWidget 폴더 밖에 두는 까닭은 앱의 Info.plist 와 같다(그 폴더는 통째로 위젯에 담긴다).
+-->
+<plist version="1.0">
+<dict>
+	<key>NSExtension</key>
+	<dict>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.widgetkit-extension</string>
+	</dict>
+</dict>
+</plist>
