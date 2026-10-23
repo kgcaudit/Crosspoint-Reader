@@ -109,6 +109,8 @@ class ReadingSyncAppTest {
         // 화면을 끝낸다. 안 끝내면 서버를 껐다 켠 시험 다음의 시험이 "Compose 가 쉬지 않음" 으로 60초 뒤 실패했다. close() 는
         // 위젯으로 만화를 연 시험에서 멈춰(위 규칙 주석) 기다리지 않는 finish() 로.
         scenario?.onActivity { it.finish() }
+        // finish() 는 주 스레드 차례를 기다린다 — 비워 줘야 실제로 닫힌다.
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
         ftp.stop()
     }
 
