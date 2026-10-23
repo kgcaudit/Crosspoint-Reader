@@ -1,7 +1,6 @@
 package io.github.kgcaudit.reader.app
 
 import io.github.kgcaudit.reader.data.sync.FtpConfig
-import io.github.kgcaudit.reader.data.sync.FtpProtocol
 import io.github.kgcaudit.reader.data.sync.FtpSecurity
 
 import org.apache.ftpserver.FtpServer
@@ -88,35 +87,3 @@ internal class TestFtpServer(val root: File, private val tls: FtpSecurity = FtpS
         private const val STORE_PASSWORD = "olo-test"
     }
 }
-
-/**
- * 시험용 SFTP 서버(아파치 MINA SSHD, 이 프로세스 안). 서버 키는 시작할 때 만든다 — 앱은 처음 잇는 순간 그 지문을 물어야 한다.
- */
-internal class TestSftpServer(val root: File) {
-    val port: Int = ServerSocket(0).use { it.localPort }
-    private var server: org.apache.sshd.server.SshServer? = null
-
-    fun start(): TestSftpServer {
-        root.mkdirs()
-        server = org.apache.sshd.server.SshServer.setUpDefaultServer().apply {
-            host = "127.0.0.1"
-            port = this@TestSftpServer.port
-            keyPairProvider = org.apache.sshd.server.keyprovider.SimpleGeneratorHostKeyProvider(File(root.parentFile, "sftp-key-$port").toPath())
-            passwordAuthenticator = org.apache.sshd.server.auth.password.PasswordAuthenticator { u, p, _ -> u == TestFtpServer.USER && p == TestFtpServer.PASSWORD }
-            subsystemFactories = listOf(org.apache.sshd.sftp.server.SftpSubsystemFactory())
-            fileSystemFactory = org.apache.sshd.common.file.virtualfs.VirtualFileSystemFactory(root.toPath())
-            start()
-        }
-        return this
-    }
-
-    fun stop() {
-        server?.stop(true)
-        server = null
-    }
-
-    fun config(path: String = FtpSettings.DEFAULT_PATH, password: String = TestFtpServer.PASSWORD, trusted: String? = null) = FtpConfig(
-        host = "127.0.0.1", port = port, protocol = FtpProtocol.Sftp, user = TestFtpServer.USER, password = password, path = path, trusted = trusted,
-    )
-}
-
