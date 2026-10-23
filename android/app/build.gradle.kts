@@ -120,7 +120,6 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.annotation)
     implementation(libs.coroutines.android)
-    implementation(libs.play.services.auth)
 
     testImplementation(libs.junit4)
     testImplementation(project(":document-testing"))
