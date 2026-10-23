@@ -82,8 +82,14 @@ internal enum class WidgetSize(val minWidthDp: Float, val minHeightDp: Float, va
     }
 }
 
-/** 표지 · 글 · 목록이 나란히 들어가는 폭. 이보다 좁으면(2×2 · 3×2) 한 권만. */
-private const val WIDE_MIN_WIDTH = 220f
+/**
+ * 표지 · 글 · 목록이 나란히 들어가는 폭. 이보다 좁으면(2×2 · 3×2) 한 권만.
+ *
+ * 0.56.1 까지 220dp 였다 — 칸이 큰 휴대폰(삼성 · 접는 폰)의 2×2 는 폭이 230dp 남짓이라 넓은 판이 뽑혀 제목이 "Co…", 목록이
+ * "92 / %" 로 접혔다(사용자 지적). 넓은 판은 표지(높이 × 0.68) + 글 칸 + 목록 칸이 각각 100dp 는 있어야 읽힌다 → 280dp.
+ * 흔한 4×2 는 330dp 이상이라 넓은 판으로 남는다.
+ */
+private const val WIDE_MIN_WIDTH = 280f
 
 /** 목록 세 줄이 잘리지 않는 높이: 판 여백 28 + "최근에 읽은" 16 + 줄 32 × 3. */
 private const val WIDE_THREE_ROWS_HEIGHT = 140f

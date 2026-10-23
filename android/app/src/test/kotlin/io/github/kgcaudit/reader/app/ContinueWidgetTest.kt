@@ -207,6 +207,11 @@ class ContinueWidgetTest {
         // 2×2 는 한 권, 4×2 는 목록(낮으면 두 줄), 4×4 는 큰 판. 런처가 아직 크기를 알리지 않은 것은 render 가 넓은 판으로 받는다.
         assertEquals(WidgetSize.Small, WidgetSize.of(130f, 130f))
         assertEquals(WidgetSize.Small, WidgetSize.of(150f, 400f))
+        // 칸이 큰 휴대폰의 2×2(230dp 남짓 정사각)도 한 권 — 0.56.1 은 넓은 판을 눌러 담아 글이 세로로 접혔다.
+        assertEquals(WidgetSize.Small, WidgetSize.of(235f, 235f))
+        assertEquals(WidgetSize.Small, WidgetSize.of(260f, 180f))
+        // 좁은 휴대폰(폭 360dp)의 4×2 는 넓은 판.
+        assertEquals(WidgetSize.Wide, WidgetSize.of(310f, 170f))
         assertEquals(WidgetSize.WideShort, WidgetSize.of(300f, 110f))
         assertEquals(WidgetSize.Wide, WidgetSize.of(300f, 180f))
         assertEquals(WidgetSize.Wide, WidgetSize.of(330f, 280f))
