@@ -5,6 +5,9 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import io.github.kgcaudit.reader.data.sync.FtpConfig
+import io.github.kgcaudit.reader.data.sync.FtpEncoding
+import io.github.kgcaudit.reader.data.sync.FtpProtocol
+import io.github.kgcaudit.reader.data.sync.FtpSecurity
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -69,10 +72,16 @@ internal class FtpSettings(context: Context, private val box: () -> SecretBox) {
         return FtpConfig(
             host = host,
             port = prefs.getInt(PORT, FtpConfig.DEFAULT_PORT),
-            secure = prefs.getBoolean(SECURE, false),
+            protocol = enumOr(prefs.getString(PROTOCOL, null), FtpProtocol.Ftp),
+            // 0.58.0 첫 판은 켬 · 끔(secure)만 적었다. 끔이던 서버를 자동으로 바꾸면, 스스로 만든 인증서가 있는 NAS 에서 잘 되던
+            // 맞추기가 "인증서를 믿을 수 없음" 으로 멈춘다 — 적힌 대로 옮긴다.
+            security = enumOr(prefs.getString(SECURITY, null), if (prefs.getBoolean(SECURE, false)) FtpSecurity.Explicit else FtpSecurity.None),
             user = prefs.getString(USER, "").orEmpty(),
             password = password,
             path = prefs.getString(PATH, DEFAULT_PATH).orEmpty(),
+            passive = prefs.getBoolean(PASSIVE, true),
+            encoding = enumOr(prefs.getString(ENCODING, null), FtpEncoding.Auto),
+            trusted = prefs.getString(TRUSTED, null),
         )
     }
 
@@ -80,16 +89,25 @@ internal class FtpSettings(context: Context, private val box: () -> SecretBox) {
         prefs.edit()
             .putString(HOST, config.host.trim())
             .putInt(PORT, config.port)
-            .putBoolean(SECURE, config.secure)
+            .putString(PROTOCOL, config.protocol.name)
+            .putString(SECURITY, config.security.name)
+            .remove(SECURE)
             .putString(USER, config.user.trim())
             .putString(PASSWORD, box().seal(config.password))
             .putString(PATH, config.path.trim())
+            .putBoolean(PASSIVE, config.passive)
+            .putString(ENCODING, config.encoding.name)
+            .apply { if (config.trusted != null) putString(TRUSTED, config.trusted) else remove(TRUSTED) }
             .apply()
     }
 
     fun clear() {
         prefs.edit().clear().apply()
     }
+
+    /** 모르는 이름(다음 판이 더한 값을 옛 판이 읽음)이면 처음 값. */
+    private inline fun <reified E : Enum<E>> enumOr(name: String?, fallback: E): E =
+        name?.let { n -> enumValues<E>().firstOrNull { it.name == n } } ?: fallback
 
     companion object {
         private const val PREFS = "sync_ftp"
@@ -99,8 +117,13 @@ internal class FtpSettings(context: Context, private val box: () -> SecretBox) {
         private const val USER = "user"
         private const val PASSWORD = "password"
         private const val PATH = "path"
+        private const val PROTOCOL = "protocol"
+        private const val SECURITY = "security"
+        private const val PASSIVE = "passive"
+        private const val ENCODING = "encoding"
+        private const val TRUSTED = "trusted"
 
-        /** 서버 안 폴더의 처음 값. 서버 맨 위에 여러 앱의 파일이 섞이지 않게 제 폴더를 쓴다. */
-        const val DEFAULT_PATH = "/OLO"
+        /** 저장 폴더의 처음 값(사용자 결정). 서버 맨 위에 여러 앱의 파일이 섞이지 않게 OLO 앱들이 함께 쓸 제 폴더를 둔다. */
+        const val DEFAULT_PATH = "/OLO Ecosystem"
     }
 }

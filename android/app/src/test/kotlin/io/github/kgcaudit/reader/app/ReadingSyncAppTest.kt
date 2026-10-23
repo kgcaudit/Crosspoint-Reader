@@ -20,6 +20,7 @@ import io.github.kgcaudit.reader.data.backup.ComicRecord
 import io.github.kgcaudit.reader.data.backup.ProgressRecord
 import io.github.kgcaudit.reader.data.sync.SyncCodec
 import io.github.kgcaudit.reader.data.sync.SyncFile
+import io.github.kgcaudit.reader.data.sync.FtpSecurity
 import io.github.kgcaudit.reader.data.sync.SyncProblem
 import io.github.kgcaudit.reader.document.Locator
 import kotlinx.coroutines.flow.first
@@ -43,7 +44,8 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * 다른 기기에서 이어 읽기(0.58.0 FTP 서버)를 앱 화면으로: 앱 정보 › 이어 읽기 화면의 켬 · 끔과 서버 정하기, 켠 뒤 쪽을 넘기면 서버에
+ * 다른 기기에서 이어 읽기(0.58.0 FTP · FTPS · SFTP)를 앱 화면으로: 앱 정보 › 동기화 설정의 켬 · 끔과 서버 정하기(인증서 믿기 ·
+ * 일반 FTP 로 내려가기 포함), 켠 뒤 쪽을 넘기면 서버에
  * 올라가는가, 다른 기기가 더 읽은 책을 열면 띠가 뜨고 "거기로" 가 그 자리로 옮기는가, 서버에 닿지 못하면 무엇을 보이는가.
  * 서버는 가짜가 아니라 이 프로세스 안의 진짜 FTP 서버다([TestFtpServer]).
  */
@@ -69,7 +71,7 @@ class ReadingSyncAppTest {
     private val ftp = TestFtpServer(File(app.cacheDir, "ftp/root").apply { deleteRecursively() })
 
     /** 서버의 이어 읽기 폴더. */
-    private val folder get() = File(ftp.root, "OLO")
+    private val folder get() = File(ftp.root, "OLO Ecosystem")
 
     /** 켜 둔 기기(서버를 정해 둠) — 화면을 거치지 않고. */
     private fun turnOn() {
@@ -147,14 +149,17 @@ class ReadingSyncAppTest {
 
     private fun field(label: String) = compose.onAllNodes(hasContentDescription(label) and hasSetTextAction(), useUnmergedTree = true)[0]
 
-    /** 서버 설정 칸을 채운다. 포트는 시험 서버의 것. */
-    private fun fill(password: String = TestFtpServer.PASSWORD, path: String? = null) {
+    /** 서버 설정 칸 셋을 채운다. 포트는 주소에 붙여 쓴다. */
+    private fun fill(password: String = TestFtpServer.PASSWORD, address: String = "ftp://127.0.0.1:${ftp.port}/") {
         waitFor(hasContentDescription(FTP_HOST) and hasSetTextAction())
-        field(FTP_HOST).performTextReplacement("ftp://127.0.0.1/")
-        field(FTP_PORT).performTextReplacement(ftp.port.toString())
+        field(FTP_HOST).performTextReplacement(address)
         field(FTP_USER).performTextReplacement(TestFtpServer.USER)
         field(FTP_PASSWORD).performTextReplacement(password)
-        path?.let { field(FTP_PATH).performTextReplacement(it) }
+    }
+
+    private fun back() {
+        scenario!!.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        compose.waitForIdle()
     }
 
     private fun left(matcher: SemanticsMatcher) = compose.onAllNodes(matcher, useUnmergedTree = true)[0].fetchSemanticsNode().boundsInRoot.left
@@ -198,11 +203,13 @@ class ReadingSyncAppTest {
         // 기본은 꺼짐. 꺼져 있으면 무엇을 올리는지 설명만 있다.
         assertTrue(has(hasText(SYNC_EXPLAIN)))
         assertFalse(has(hasText(FTP_HOST)))
-        // 켜면 서버 칸이 펼쳐진다. 취소하면 그대로 꺼짐.
+        // 켜면 서버 칸 셋이 펼쳐진다(구상안 C). 폴더 · 보안 연결은 고급 설정 안에 있어 처음엔 보이지 않는다. 취소하면 그대로 꺼짐.
         tap(hasText("켬"))
         waitFor(hasContentDescription(FTP_HOST) and hasSetTextAction())
-        // 일반 FTP 가 처음 값이라 암호화되지 않는다는 말이 함께 보인다.
-        assertTrue(has(hasText(SYNC_PLAIN_WARNING)))
+        assertTrue(has(hasText(FTP_ADVANCED)))
+        assertTrue(has(hasText("${FtpSettings.DEFAULT_PATH} · 자동")))
+        assertFalse(has(hasText(FTP_PATH)))
+        assertFalse(has(hasText(FTP_SECURITY)))
         // 위계 규칙: 켬 · 끔에 속한 칸의 이름은 부모 글자 시작선에서 한 단(levelIndent) 들어간다.
         val indent = 16f * app.resources.displayMetrics.density
         assertEquals(indent, left(hasText(FTP_HOST)) - left(hasText(SYNC_SWITCH)), 0.5f)
@@ -222,10 +229,16 @@ class ReadingSyncAppTest {
         // 고치면 연결되어 켜지고, 칸이 접히며 서버 줄 · 함께 읽는 기기가 보인다.
         field(FTP_PASSWORD).performTextReplacement(TestFtpServer.PASSWORD)
         tap(hasText(FTP_CHECK))
-        waitFor(hasText("127.0.0.1:${ftp.port} · /OLO"))
+        // 시험 서버는 암호화를 받지 않는다 — 보안 연결 "자동" 은 일반 FTP 로 다시 해 잇고, 그 사실을 서버 줄에 빨갛게 알린다.
+        waitFor(hasText("127.0.0.1:${ftp.port} · ${FtpSettings.DEFAULT_PATH} · 암호화 안 됨"))
+        assertTrue(has(hasText(SYNC_PLAIN_WARNING)))
         assertTrue(app.container.sync.enabled)
-        // 주소창에서 복사한 "ftp://…/" 는 떼고 저장한다.
-        assertEquals("127.0.0.1", app.container.ftpSettings.config()?.host)
+        // 주소창에서 복사한 "ftp://…/" 는 떼고, 포트는 주소에서 읽어 저장한다. 된 쪽(암호화 없음)을 저장한다 — 자동으로 남기면
+        // 나중에 가운데서 "암호화 안 받음" 으로 속여도 조용히 내려간다.
+        val saved = app.container.ftpSettings.config()!!
+        assertEquals("127.0.0.1", saved.host)
+        assertEquals(ftp.port, saved.port)
+        assertEquals(FtpSecurity.None, saved.security)
         waitFor(hasText("갤럭시 탭 S9"))
         waitFor(hasText("마지막으로 맞춘 때"))
         assertFalse(has(hasText(FTP_HOST)))
@@ -242,6 +255,65 @@ class ReadingSyncAppTest {
     }
 
     @Test
+    fun `a self signed ftps server shows its fingerprint and connects encrypted once trusted`() {
+        val tls = TestFtpServer(File(app.cacheDir, "ftps/root").apply { deleteRecursively() }, FtpSecurity.Explicit).start()
+        try {
+            register()
+            openSyncScreen()
+            tap(hasText("켬"))
+            fill(address = "127.0.0.1:${tls.port}")
+            tap(hasText(FTP_CHECK))
+            // 자동은 FTPS 를 먼저 한다 — 스스로 만든 인증서라 지문을 보이고 묻는다. 일반 FTP 로 몰래 내려가지 않는다.
+            waitFor(hasText("처음 보는 인증서입니다"))
+            assertTrue(has(hasText(tls.certificateFingerprint, substring = true)))
+            // 판의 취소(칸의 취소는 앞에 있다 — 나중에 그려진 판의 것을 누른다)는 아무것도 저장하지 않고 칸을 남긴다.
+            compose.onAllNodes(hasText("취소"), useUnmergedTree = true).let { it[it.fetchSemanticsNodes().size - 1] }.performClick()
+            compose.waitUntil(10_000) { !has(hasText("처음 보는 인증서입니다")) }
+            assertNull(app.container.ftpSettings.config())
+            tap(hasText(FTP_CHECK))
+            tap(hasText("이 인증서 믿기"))
+            waitFor(hasText("마지막으로 맞춘 때"))
+            val saved = app.container.ftpSettings.config()!!
+            assertEquals(FtpSecurity.Explicit, saved.security)
+            assertEquals(tls.certificateFingerprint, saved.trusted)
+            assertFalse(has(hasText(SYNC_PLAIN_WARNING)))
+            assertFalse(has(hasText("암호화 안 됨", substring = true)))
+        } finally {
+            tls.stop()
+        }
+    }
+
+    @Test
+    fun `an sftp address hides the ftp only settings and asks for the server key`() {
+        val sftp = TestSftpServer(File(app.cacheDir, "sftp/root").apply { deleteRecursively() }).start()
+        try {
+            register()
+            openSyncScreen()
+            tap(hasText("켬"))
+            fill(address = "sftp://127.0.0.1:${sftp.port}")
+            waitFor(hasText("${FtpSettings.DEFAULT_PATH} · SFTP"))
+            // SFTP 는 늘 암호화되고 연결이 하나라 보안 연결 · 연결 모드 줄이 없다.
+            tap(hasText(FTP_ADVANCED))
+            waitFor(hasText(FTP_ENCODING))
+            assertFalse(has(hasText(FTP_SECURITY)))
+            assertFalse(has(hasText(FTP_MODE)))
+            back()
+            compose.waitUntil(10_000) { !has(hasText(FTP_ENCODING)) }
+            tap(hasText(FTP_CHECK))
+            waitFor(hasText("처음 보는 서버 키입니다"))
+            tap(hasText("이 서버 키 믿기"))
+            waitFor(hasText("마지막으로 맞춘 때"))
+            val saved = app.container.ftpSettings.config()!!
+            assertEquals(io.github.kgcaudit.reader.data.sync.FtpProtocol.Sftp, saved.protocol)
+            assertTrue(saved.trusted != null)
+            assertTrue(File(sftp.root, "OLO Ecosystem").isDirectory)
+            assertFalse(has(hasText(SYNC_PLAIN_WARNING)))
+        } finally {
+            sftp.stop()
+        }
+    }
+
+    @Test
     fun `changing the server folder uploads this device's record to the new folder`() {
         register()
         openPrince()
@@ -254,12 +326,16 @@ class ReadingSyncAppTest {
         tap(hasText(SYNC_TITLE))
         compose.waitUntil(20_000) { uploaded() != null }
         tap(hasText("바꾸기"))
-        // 펼친 칸에는 지금 설정이 들어 있다 — 폴더만 바꾸면 된다.
+        // 펼친 칸에는 지금 설정이 들어 있다 — 고급 설정에서 저장 폴더만 바꾸면 된다.
+        waitFor(hasText("127.0.0.1:${ftp.port}"))
+        tap(hasText(FTP_ADVANCED))
         waitFor(hasContentDescription(FTP_PATH) and hasSetTextAction())
-        assertTrue(has(hasText("127.0.0.1")))
         field(FTP_PATH).performTextReplacement("/책/이어 읽기")
+        back()
+        compose.waitUntil(10_000) { !has(hasContentDescription(FTP_PATH) and hasSetTextAction()) }
+        assertTrue(has(hasText("/책/이어 읽기 · 암호화 없음")))
         tap(hasText(FTP_CHECK))
-        waitFor(hasText("127.0.0.1:${ftp.port} · /책/이어 읽기"))
+        waitFor(hasText("127.0.0.1:${ftp.port} · /책/이어 읽기", substring = true))
         // 내용은 바뀌지 않았지만 새 폴더에는 처음 쓰는 것이다 — "이미 올렸다" 로 건너뛰면 다른 기기가 이 기기를 못 본다.
         compose.waitUntil(20_000) { uploaded(File(ftp.root, "책/이어 읽기"))?.books?.size == 1 }
     }

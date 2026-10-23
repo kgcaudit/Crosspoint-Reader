@@ -131,8 +131,8 @@ internal fun AboutScreen(records: RecordsUi, onBack: () -> Unit, onLicense: (Int
             CpText("EPUB · TXT · PDF를 간편하게 읽고 책갈피를 꽂는 뷰어입니다.", CpTheme.type.body, c.text, maxLines = Int.MAX_VALUE)
             Spacer(Modifier.height(6.dp))
             CpText(
-                "읽은 자리 · 책갈피 · 형광펜은 이 휴대폰에 남습니다. 휴대폰을 바꿀 때는 백업 파일로 옮기세요. 인터넷은 ‘다른 기기에서 이어 " +
-                    "읽기’를 켰을 때만, 내가 정한 FTP 서버에만 씁니다.",
+                "읽은 자리 · 책갈피 · 형광펜은 이 휴대폰에 남습니다. 휴대폰을 바꿀 때는 백업 파일로 옮기세요. 인터넷은 ‘동기화 설정’을 " +
+                    "켰을 때만, 내가 정한 서버에만 씁니다.",
                 // 줄 수를 막지 않는다(0.29.0). 3줄이면 큰 글자에서 "백업 파일로 옮기세요" 가 잘렸다.
                 CpTheme.type.subtitle, c.textMuted, maxLines = Int.MAX_VALUE,
             )
@@ -146,7 +146,7 @@ internal fun AboutScreen(records: RecordsUi, onBack: () -> Unit, onLicense: (Int
         CpListRow(
             SYNC_TITLE, onSync,
             subtitle = when {
-                container.sync.enabled && container.ftpSettings.config() != null -> "FTP 서버로 맞추는 중"
+                container.sync.enabled && container.ftpSettings.config() != null -> "서버로 맞추는 중"
                 container.sync.legacyWasOn -> "방식이 바뀌었습니다 — 다시 켜 주세요"
                 else -> "꺼짐"
             },
