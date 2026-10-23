@@ -2,6 +2,8 @@
 <resources>
     <!-- 화면 글은 코드에 둔다(한국어뿐이다). 홈 화면 위젯은 런처가 읽는 글이라 자원으로 둔다. -->
     <string name="widget_name">이어 읽기</string>
+    <string name="widget_name_single">이어 읽기(한 권)</string>
+    <string name="widget_description_single">읽던 책 한 권을 보여 줍니다.</string>
     <string name="widget_description">읽던 책과 최근에 읽은 책을 보여 줍니다.</string>
     <string name="widget_continue_label">이어 읽기</string>
     <string name="widget_open_app">OLO eBook 열기</string>
