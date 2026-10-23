@@ -101,6 +101,9 @@ class TestSftpServer(val root: File) {
             passwordAuthenticator = org.apache.sshd.server.auth.password.PasswordAuthenticator { u, p, _ -> u == TestFtpServer.USER && p == TestFtpServer.PASSWORD }
             subsystemFactories = listOf(org.apache.sshd.sftp.server.SftpSubsystemFactory())
             fileSystemFactory = org.apache.sshd.common.file.virtualfs.VirtualFileSystemFactory(root.toPath())
+            // OpenSSH 의 "덮어쓰는 이름 바꾸기"(posix-rename) 를 알리지 않는다 — 그것이 없는 서버(옛 NAS · 일부 SFTP 서버)처럼,
+            // 있는 파일 위로 이름을 바꾸지 못해야 앱의 "지우고 다시" 길이 시험된다.
+            org.apache.sshd.sftp.SftpModuleProperties.OPENSSH_EXTENSIONS.set(this, "fsync@openssh.com=1")
             start()
         }
         return this
