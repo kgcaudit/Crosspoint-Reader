@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  빌드 설정(GENERATE_INFOPLIST_FILE)이 채우지 못하는 것만 둔다: 이 앱이 여는 문서 형식 · 화면을 꺼도 이어 읽는 듣기(audio).
+  빌드 설정(GENERATE_INFOPLIST_FILE)이 채우지 못하는 것만 둔다: 이 앱이 여는 문서 형식 · 화면을 꺼도 이어 읽는 듣기(audio) ·
+  못 올린 읽은 자리를 다시 올리는 뒤 작업(fetch).
   OloEBook 폴더 밖에 두는 까닭: 그 폴더는 통째로 앱에 담기므로 거기 두면 Info.plist 가 두 번 만들어져 빌드가 깨진다.
 -->
 <plist version="1.0">
@@ -9,6 +10,12 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
+		<string>fetch</string>
+	</array>
+	<!-- 기기 간 이어 읽기(구상안 50 · 2A): 앱이 뒤로 갈 때 서버가 잠들어 못 올린 자리를 iOS 가 정한 때 다시 올린다. -->
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>io.github.kgcaudit.oloebook.sync</string>
 	</array>
 	<!-- 위젯을 누르면 olo://continue?book=… 로 그 책을 연다(구상안 47). -->
 	<key>CFBundleURLTypes</key>

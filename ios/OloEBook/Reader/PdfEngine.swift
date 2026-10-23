@@ -336,6 +336,11 @@ actor PdfEngine: BookEngine, ZoomSource {
         return try await show(n)
     }
 
+    func goToPlace(_ place: SyncPlace) async throws -> PageFrame? {
+        guard let p = place.page else { return nil }
+        return try await show(min(max(p, 0), pageCount - 1))
+    }
+
     func seek(_ percent: Double) async throws -> PageFrame {
         // 진도 막대: 0 % 는 첫 쪽, 100 % 는 마지막 쪽(안드로이드 pageAt).
         try await show(Int((min(max(percent, 0), 100) / 100 * Double(pageCount - 1)).rounded()))

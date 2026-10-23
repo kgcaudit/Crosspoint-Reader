@@ -324,6 +324,48 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
         persist()
     }
 
+    // ── 기기 간 이어 읽기(구상안 50) ──────────────────────────────────────
+
+    /** 다 읽은 때(없으면 null). */
+    fun finishedOf(bookId: String): Long? = locked { finished[bookId] }
+
+    /**
+     * 다른 기기의 다 읽은 때를 둔다. 이 기기에서 연 적 없는 책이면 연 때도 적는다(그 기기의 연 때, 없으면 다 읽은 때) — 없으면 "읽은 책"
+     * 이 아니라 "읽을 책" 갈래에 남는다(안드로이드 `insertIfAbsent`).
+     */
+    fun syncFinished(bookId: String, at: Long, openedAt: Long?) = locked {
+        opened.getOrPut(bookId) { openedAt ?: at }
+        finished[bookId] = at
+        persist()
+    }
+
+    /** 다른 기기에서 받은 책갈피를 더한다(겹침은 부르는 쪽이 이미 걸렀다). 깨진 자리는 버린다. */
+    fun syncBookmarks(bookId: String, marks: List<BackupBookmark>) = locked {
+        val id = BookId(bookId)
+        for (m in marks) {
+            val locator = Locator.decodeOrNull(m.locator) ?: continue
+            bookmarks.add(Bookmark(nextBookmarkId++, id, locator, m.snippet, m.createdAt))
+        }
+        if (marks.isNotEmpty()) persist()
+    }
+
+    /** 다른 기기에서 받은 만화 책갈피. 같은 쪽이 있으면 두지 않는다. */
+    fun syncComicBookmarks(unitId: String, marks: List<BackupComicMark>) = locked {
+        val have = comicMarks.filter { it.first == unitId }.mapTo(HashSet()) { it.second }
+        for (m in marks) if (have.add(m.page)) comicMarks.add(Triple(unitId, m.page, m.createdAt))
+        if (marks.isNotEmpty()) persist()
+    }
+
+    /**
+     * 만화 권의 다 읽은 때. 읽은 자리는 건드리지 않는다. 펼친 적 없는 권은 첫 쪽에 다 읽은 때만 적는다 — 고친 때를 0 으로 두어 서재 ·
+     * 위젯의 "최근" 에 끼지 않는다(안드로이드와 같다).
+     */
+    fun syncComicFinished(unitId: String, at: Long, pageCount: Int?) = locked {
+        val old = comics[unitId]
+        comics[unitId] = old?.copy(finishedAtEpochMs = at) ?: ComicProgress(0, (pageCount ?: 1).coerceAtLeast(1), 0L, at)
+        persist()
+    }
+
     /** 작품 설정들(백업에 담을 것). 빼낸 작품(`#own:` 열쇠)은 이 휴대폰의 파일 주소라 담지 않는다(안드로이드 `collectWorks`). */
     fun workRecords(): List<BackupWork> = locked {
         val keys = comicSettings.keys.filter { it.first in WORK_KINDS && !it.second.startsWith(OWN_PREFIX) }.map { it.second }.distinct()

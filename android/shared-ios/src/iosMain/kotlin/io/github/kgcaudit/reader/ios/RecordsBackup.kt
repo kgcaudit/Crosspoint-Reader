@@ -186,7 +186,13 @@ object RecordsCodec {
     /** 안드로이드 org.json `toString(1)` 처럼 한 칸 들여쓰기. null 칸은 키째 뺀다(안드로이드 `putOpt`). */
     fun encode(file: BackupFile): String {
         val w = JsonWriter()
-        w.obj {
+        w.records(file)
+        return w.toString()
+    }
+
+    /** [file] 을 객체 하나로 쓴다. 이어 읽기 파일(`SyncCodec`)이 이것을 `records` 칸에 그대로 품는다 — 같은 기록을 두 모양으로 적지 않게. */
+    internal fun JsonWriter.records(file: BackupFile) {
+        obj {
             field("format") { string(FORMAT) }
             field("version") { number(1) }
             field("createdAt") { number(file.createdAt) }
@@ -194,7 +200,6 @@ object RecordsCodec {
             field("comics") { array(file.comics) { comic(it) } }
             field("works") { array(file.works) { work(it) } }
         }
-        return w.toString()
     }
 
     private fun JsonWriter.comic(c: BackupComic) = obj {
@@ -295,6 +300,11 @@ object RecordsCodec {
         @Suppress("CAST_NEVER_SUCCEEDS")
         val data = (text as NSString).dataUsingEncoding(NSUTF8StringEncoding) ?: return null
         val root = runCatching { NSJSONSerialization.JSONObjectWithData(data, 0u, null) }.getOrNull() as? Map<*, *> ?: return null
+        return decodeRoot(root)
+    }
+
+    /** 이미 풀린 JSON 객체에서 읽는다(이어 읽기 파일의 `records` 칸). 형식이 다르면 null. */
+    internal fun decodeRoot(root: Map<*, *>): BackupFile? {
         if (root["format"] != FORMAT) return null
         val books = (root["books"] as? List<*>).orEmpty().mapNotNull { (it as? Map<*, *>)?.let(::book) }
         return BackupFile(
@@ -604,7 +614,7 @@ internal fun isFurther(candidate: BackupProgress, than: BackupProgress): Boolean
 }
 
 /** 한 칸 들여쓰기 JSON 쓰기(안드로이드 org.json `toString(1)` 과 같은 모양). */
-private class JsonWriter {
+internal class JsonWriter {
     private val out = StringBuilder()
     private var depth = 0
     private val first = ArrayList<Boolean>()

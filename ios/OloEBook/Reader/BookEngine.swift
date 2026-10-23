@@ -20,6 +20,9 @@ protocol BookEngine: Actor {
     func goToBookmark(_ id: Int64) async throws -> PageFrame?
     func contents() async throws -> (rows: [ContentsItem], current: Int)
     func goToContents(_ index: Int) async throws -> PageFrame?
+    /// 다른 기기가 더 읽은 자리로(구상안 50 "거기로"). 책은 [spine] · [offset], PDF 는 [page], 만화는 [page] · [half], 만화로 연 책은
+    /// [locator](책의 자리). 갈 수 없으면 nil.
+    func goToPlace(_ place: SyncPlace) async throws -> PageFrame?
     func close()
 
     // 글자(책만)
@@ -54,8 +57,18 @@ protocol BookEngine: Actor {
 /// 엔진에 없는 기능을 불렀다(PDF 의 찾기 등). 부르는 쪽은 `try?` 로 받아 아무 일도 없게 둔다.
 struct UnsupportedFeature: Error {}
 
+/// "거기로" 의 자리(구상안 50).
+struct SyncPlace: Sendable {
+    var spine: Int?
+    var offset: Int?
+    var page: Int?
+    var half: String?
+    var locator: String?
+}
+
 extension BookEngine {
     nonisolated var isPdf: Bool { false }
+    func goToPlace(_ place: SyncPlace) async throws -> PageFrame? { nil }
     nonisolated var isComic: Bool { false }
     func setShowHighlights(_ on: Bool) {}
     func chapterCount() async throws -> Int { 0 }

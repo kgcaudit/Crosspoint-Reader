@@ -2,6 +2,12 @@ import SwiftUI
 
 /// 화면 방향을 앱이 정한다(구상안 45). 시스템이 창마다 이 값을 묻는다.
 final class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        // 기기 간 이어 읽기의 다시 하기(구상안 50 · 2A). 시스템 규칙: 앱이 다 뜨기 전에 등록해야 깨워 준다.
+        SyncCenter.registerBackground()
+        return true
+    }
+
     func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
         ScreenRotation.mask
     }
@@ -21,6 +27,9 @@ struct OloEBookApp: App {
         _ = FontLibrary.shared
         // 서재부터 고른 방향으로 연다(설정은 읽기 화면에 있지만 앱 전체에 걸린다 — 안드로이드와 같다).
         ScreenRotation.apply(UserDefaults.standard.integer(forKey: "reader.rotation"))
+        #if DEBUG
+        SyncSelfTest.runIfAsked()
+        #endif
     }
 
     var body: some Scene {
@@ -50,7 +59,10 @@ struct OloEBookApp: App {
             .modifier(DebugWindow())
             #endif
             .task {
+                SyncCenter.shared.attach(library)
                 await library.refresh()
+                // 기기 간 이어 읽기: 훑은 뒤 다른 기기가 남긴 책갈피 · 다 읽은 때를 합치고 이 기기 기록을 올린다(꺼져 있으면 아무것도 하지 않는다).
+                Task { await SyncCenter.shared.syncNow() }
                 #if DEBUG
                 // 화면 확인용(시뮬레이터는 명령으로 누를 수 없다): -olo-open "<파일 이름>" 으로 그 책을 연다. 출시 빌드에는 없다.
                 let args = CommandLine.arguments
@@ -85,9 +97,17 @@ struct OloEBookApp: App {
                     if let book = await library.receive(url) { reading = book }
                 }
             }
-            // 앱이 뒤로 가면 위젯을 고쳐 둔다 — 책을 연 채 홈으로 나가면 닫을 때 적는 길을 지나지 않는다.
+            // 앱이 뒤로 가면 위젯 · 이어 읽기를 고쳐 둔다 — 책을 연 채 홈으로 나가면 닫을 때 적는 길을 지나지 않는다.
             .onChange(of: scenePhase) { _, phase in
-                if phase == .background { library.reloadRecords() }
+                if phase == .background {
+                    library.reloadRecords()
+                    // 이어 읽기: 마지막 자리를 서버에 올린다. 뒤로 간 앱은 몇 초 안에 멈추므로 시간을 빌린다 — 못 올리면 뒤 작업이 다시 한다.
+                    let id = UIApplication.shared.beginBackgroundTask(withName: "olo-sync")
+                    Task {
+                        await SyncCenter.shared.writeOwn()
+                        UIApplication.shared.endBackgroundTask(id)
+                    }
+                }
             }
         }
     }

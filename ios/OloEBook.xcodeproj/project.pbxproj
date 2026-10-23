@@ -21,6 +21,9 @@
 /* End PBXAggregateTarget section */
 
 /* Begin PBXBuildFile section */
+		0C10000000000000000000E2 /* Citadel in Frameworks */ = {isa = PBXBuildFile; productRef = 0C10000000000000000000R2 /* Citadel */; };
+		0C10000000000000000000E3 /* NIOSSH in Frameworks */ = {isa = PBXBuildFile; productRef = 0C10000000000000000000R4 /* NIOSSH */; };
+		0C10000000000000000000E4 /* NIOCore in Frameworks */ = {isa = PBXBuildFile; productRef = 0C10000000000000000000R6 /* NIOCore */; };
 		0C10000000000000000000E1 /* OloWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 0C10000000000000000000F1 /* OloWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -71,6 +74,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0C10000000000000000000E2 /* Citadel in Frameworks */,
+				0C10000000000000000000E3 /* NIOSSH in Frameworks */,
+				0C10000000000000000000E4 /* NIOCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -126,6 +132,11 @@
 				0C10000000000000000000S3 /* Shared */,
 			);
 			name = OloEBook;
+			packageProductDependencies = (
+				0C10000000000000000000R2 /* Citadel */,
+				0C10000000000000000000R4 /* NIOSSH */,
+				0C10000000000000000000R6 /* NIOCore */,
+			);
 			productName = OloEBook;
 			productReference = 0C10000000000000000000F0 /* OloEBook.app */;
 			productType = "com.apple.product-type.application";
@@ -178,6 +189,11 @@
 			);
 			mainGroup = 0C10000000000000000000G0;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				0C10000000000000000000R1 /* XCRemoteSwiftPackageReference "Citadel" */,
+				0C10000000000000000000R3 /* XCRemoteSwiftPackageReference "swift-nio-ssh" */,
+				0C10000000000000000000R5 /* XCRemoteSwiftPackageReference "swift-nio" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 0C10000000000000000000G1 /* Products */;
 			projectDirPath = "";
@@ -489,6 +505,51 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		0C10000000000000000000R1 /* XCRemoteSwiftPackageReference "Citadel" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/orlandos-nl/Citadel.git";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 0.12.1;
+			};
+		};
+		0C10000000000000000000R3 /* XCRemoteSwiftPackageReference "swift-nio-ssh" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Wellz26/swift-nio-ssh.git";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 0.3.7;
+			};
+		};
+		0C10000000000000000000R5 /* XCRemoteSwiftPackageReference "swift-nio" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-nio.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.81.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		0C10000000000000000000R2 /* Citadel */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0C10000000000000000000R1 /* XCRemoteSwiftPackageReference "Citadel" */;
+			productName = Citadel;
+		};
+		0C10000000000000000000R4 /* NIOSSH */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0C10000000000000000000R3 /* XCRemoteSwiftPackageReference "swift-nio-ssh" */;
+			productName = NIOSSH;
+		};
+		0C10000000000000000000R6 /* NIOCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0C10000000000000000000R5 /* XCRemoteSwiftPackageReference "swift-nio" */;
+			productName = NIOCore;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 0C10000000000000000000P0 /* Project object */;
 }

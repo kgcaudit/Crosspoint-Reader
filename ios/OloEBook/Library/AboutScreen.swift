@@ -14,6 +14,8 @@ struct AboutScreen: View {
     @State private var popup: RecordsPopup?
     @State private var busy: String?
     @State private var toast: String?
+    @ObservedObject private var sync = SyncCenter.shared
+    @State private var showSync = false
     @State private var lastBackup = UserDefaults.standard.object(forKey: "records.lastBackupAt") as? Date
 
     var body: some View {
@@ -32,13 +34,17 @@ struct AboutScreen: View {
                             }
                         }
                         .padding(.horizontal, CpMetrics.gutter).padding(.vertical, 12)
-                        Text("인터넷을 쓰지 않습니다. 읽은 자리 · 책갈피 · 형광펜은 이 휴대폰에 남습니다. 휴대폰을 바꿀 때는 백업 파일로 옮기세요.")
+                        Text("읽은 자리 · 책갈피 · 형광펜은 이 휴대폰에 남습니다. 휴대폰을 바꿀 때는 백업 파일로 옮기세요. 인터넷은 ‘동기화 설정’을 켰을 때만, 내가 정한 서버에만 씁니다.")
                             .font(CpFont.subtitle).foregroundStyle(CpColor.textMuted).fixedSize(horizontal: false, vertical: true)
                             .padding(.horizontal, CpMetrics.gutter).padding(.bottom, 8)
                         CpSectionLabel(text: "읽기 기록").padding(.horizontal, CpMetrics.gutter).padding(.top, 14).padding(.bottom, 4)
                         row("백업 파일 만들기", summary.map(RecordsText.summaryLine) ?? " ", dim: !canBackUp) { makeBackup() }
                         row("백업 파일에서 가져오기",
                             lastBackup.map { "마지막 백업 \(RecordsText.date($0))" } ?? "다른 휴대폰에서 만든 백업 파일을 고릅니다") { importing = true }
+                        CpDivider().padding(.top, 8)
+                        // 기기 간 이어 읽기(구상안 50). 켬 · 끔은 화면을 열 때 읽는다 — 동기화 화면에서 바꾸고 돌아오면 다시 그려진다.
+                        CpSectionLabel(text: "기기 간 이어 읽기").padding(.horizontal, CpMetrics.gutter).padding(.top, 14).padding(.bottom, 4)
+                        row("동기화 설정", sync.enabled ? "서버로 맞추는 중" : "꺼짐") { showSync = true }
                     }
                     .frame(maxWidth: 600, alignment: .leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -53,6 +59,11 @@ struct AboutScreen: View {
                 }
             }
             if let popup { popupView(popup) }
+            if showSync {
+                SyncScreen { showSync = false }
+                    .transition(.move(edge: .trailing))
+                    .zIndex(2)
+            }
             if let toast {
                 CpToast(message: toast)
                     .frame(maxHeight: .infinity, alignment: .bottom)
@@ -63,6 +74,7 @@ struct AboutScreen: View {
                     }
             }
         }
+        .animation(.easeOut(duration: 0.2), value: showSync)
         // 서재를 다 훑으면(앱을 켜자마자 열었을 때) 다시 센다 — 한 번만 세면 "아직 기록이 없습니다" 로 남는다.
         .task(id: library.bookCount) { summary = library.backupSummary() }
         .task {
@@ -75,6 +87,8 @@ struct AboutScreen: View {
                 try? library.exportRecords().write(toFile: args[i + 1], atomically: true, encoding: .utf8)
             }
             if let i = args.firstIndex(of: "-olo-import"), i + 1 < args.count { await read(URL(fileURLWithPath: args[i + 1])) }
+            // -olo-sync-screen 은 동기화 설정(구상안 50)을 연다.
+            if args.contains("-olo-sync-screen") { showSync = true }
             #endif
         }
         .fileExporter(isPresented: Binding(get: { exporting != nil }, set: { if !$0 { exporting = nil } }),

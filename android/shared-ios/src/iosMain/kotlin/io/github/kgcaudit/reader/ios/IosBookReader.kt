@@ -654,6 +654,18 @@ class IosBookReader private constructor(
         return show(l.resolve(Locator.Reflow(spine, start)))
     }
 
+    /**
+     * 다른 기기가 더 읽은 자리로(기기 간 이어 읽기의 "거기로", 구상안 50). 없는 장이면 지금 쪽 그대로 — 다른 판의 책(장 수가 다름)에서
+     * 엉뚱한 곳으로 뛰지 않게. "읽던 곳으로" 칩은 띄우지 않는다(사람이 고른 이동이다).
+     */
+    @Throws(Exception::class)
+    suspend fun goToPlace(spine: Int, offset: Int): ReaderFrame {
+        val l = layout()
+        if (spine !in l.spine().indices) return show(position ?: error("not laid out"))
+        returnTo = null
+        return show(l.resolve(Locator.Reflow(spine, offset.coerceAtLeast(0))))
+    }
+
     /** 찾기를 끝냈다 — 칠을 지우고 지금 쪽을 다시 낸다. */
     @Throws(Exception::class)
     suspend fun clearMark(): ReaderFrame {

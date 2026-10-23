@@ -84,6 +84,10 @@ actor ReaderEngine: BookEngine {
     }
 
     func goToContents(_ index: Int) async throws -> PageFrame? { try await reader.goToContents(index: Int32(index)).map(PageFrame.init) }
+    func goToPlace(_ place: SyncPlace) async throws -> PageFrame? {
+        guard let spine = place.spine, let offset = place.offset else { return nil }
+        return PageFrame(try await reader.goToPlace(spine: Int32(spine), offset: Int32(offset)))
+    }
 
     func bookmarks() async throws -> [BookmarkItem] {
         try await reader.bookmarks().map {
@@ -1042,6 +1046,102 @@ final class ReaderModel: ObservableObject {
     }
 
     /// 목차 · 책갈피에서 골랐다: 그 쪽으로 가고 판을 닫는다(메뉴로 돌아가지 않고 바로 지면으로 — 안드로이드와 같다).
+    // ── 기기 간 이어 읽기 띠(구상안 50, 결정 8-2) ──────────────────────────
+
+    /// 다른 기기가 더 읽은 자리. [beyond] 는 지금 보이는 쪽(웹툰이면 그 자리)보다 한 쪽 이상 뒤인지 — 같은 쪽 안이면 묻지 않는다.
+    struct SyncAsk {
+        let title: String
+        let detail: String
+        let place: SyncPlace
+        let beyond: (PageFrame?, (k: Int, i: Int, f: Float)?) -> Bool
+    }
+
+    @Published private(set) var syncAsk: SyncAsk?
+    /// 거둔 띠는 이 책을 닫을 때까지 다시 뜨지 않는다. 놓쳤으면 다시 열 때 또 뜬다.
+    @Published private(set) var syncDone = false
+    private var syncBaseline: String?
+
+    var syncShown: Bool {
+        guard let ask = syncAsk, !syncDone else { return false }
+        return ask.beyond(frame, webtoon?.here())
+    }
+
+    /// 책을 연 뒤 한 번 묻는다. 꺼져 있으면 아무것도 읽지 않는다. 못 읽어도 책은 그대로 읽힌다.
+    func askSync(_ book: LibraryBook, library: Library) async {
+        let sync = SyncCenter.shared
+        guard sync.enabled else { return }
+        if book.format == .comic {
+            guard let unit = library.shelfComics.first(where: { $0.id == book.id }),
+                  let o = await sync.offerForComic(id: book.id, name: unit.name, size: unit.size?.int64Value) else { return }
+            setAsk(o.deviceName, "\(o.page + 1)쪽", at: o.updatedAt, SyncPlace(page: Int(o.page), half: o.half)) { frame, here in
+                // 웹툰은 그림 안 자리까지(반 장 이상 아래면). 쪽 넘김은 쪽으로.
+                if let here, here.k == 0 {
+                    return SyncRules.shared.comicBeyond(remotePage: o.page, remoteOffset: o.offset, localPage: Int32(here.i), localOffset: KotlinDouble(value: Double(here.f)))
+                }
+                guard let frame else { return false }
+                return SyncRules.shared.comicBeyond(remotePage: o.page, remoteOffset: nil, localPage: Int32(frame.page), localOffset: nil)
+            }
+            return
+        }
+        guard let shelf = library.shelfBooks.first(where: { $0.id == book.id }),
+              let o = await sync.offerForBook(id: book.id, name: shelf.name, size: shelf.size) else { return }
+        if bookComic {
+            // 만화 뷰어로 연 책: 쪽마다 진도가 다르니 진도로 견준다.
+            setAsk(o.deviceName, "\(Int(o.percent))%", at: o.updatedAt, SyncPlace(locator: o.locator)) { frame, _ in
+                guard let frame else { return false }
+                return Double(o.percent) > frame.percent + 0.01
+            }
+        } else if isPdf, let page = o.page?.intValue {
+            setAsk(o.deviceName, "\(page + 1)쪽", at: o.updatedAt, SyncPlace(page: page)) { frame, _ in
+                guard let frame else { return false }
+                return SyncRules.shared.pageBeyond(remotePage: Int32(page), shownLast: Int32(frame.page + (frame.hasRight ? 1 : 0)))
+            }
+        } else if let spine = o.spine?.intValue, let offset = o.offset?.intValue {
+            setAsk(o.deviceName, "\(Int(o.percent))%", at: o.updatedAt, SyncPlace(spine: spine, offset: offset)) { frame, _ in
+                guard let frame else { return false }
+                return SyncRules.shared.reflowBeyond(remoteSpine: Int32(spine), remoteOffset: Int32(offset), shownSpine: Int32(frame.spine),
+                                                     shownEndExclusive: Int32(frame.pageEnd))
+            }
+        }
+    }
+
+    private func setAsk(_ device: String, _ detail: String, at: Int64, _ place: SyncPlace, beyond: @escaping (PageFrame?, (k: Int, i: Int, f: Float)?) -> Bool) {
+        syncBaseline = frame?.key
+        syncAsk = SyncAsk(title: SyncText.shared.promptTitle(deviceName: device),
+                          detail: "\(detail) · \(SyncWhen.text(Date(timeIntervalSince1970: Double(at) / 1000)))", place: place, beyond: beyond)
+        #if DEBUG
+        // 화면 확인용: -olo-sync-go 는 띠가 뜨면 "거기로" 를 누른다(시뮬레이터는 명령으로 누를 수 없다). 출시 빌드에는 없다.
+        if CommandLine.arguments.contains("-olo-sync-go") {
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(2))
+                await self?.syncGo()
+            }
+        }
+        #endif
+        // 읽기를 막지 않는 알림이라 오래 두지 않는다(8초).
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(8))
+            self?.syncDone = true
+        }
+    }
+
+    /// 쪽을 넘기면 거둔다. 막 연 책의 첫 쪽이 나온 것은 넘김이 아니다 — 그것까지 넘김으로 보면 띠가 뜨자마자 사라진다.
+    func syncMoved(_ key: String?) {
+        guard syncAsk != nil, !syncDone else { return }
+        if syncBaseline == nil { syncBaseline = key } else if key != syncBaseline { syncDone = true }
+    }
+
+    /// "거기로": 자리를 옮기는 것은 이것뿐이다.
+    func syncGo() async {
+        guard let ask = syncAsk else { return }
+        syncDone = true
+        if let toon = webtoon, let page = ask.place.page {
+            toon.go(episode: 0, index: page)
+            return
+        }
+        await jump { try await $0.goToPlace(ask.place) }
+    }
+
     func jump(_ go: (any BookEngine) async throws -> PageFrame?) async {
         guard let engine, let f = try? await go(engine) else { return }
         lastActivity = Date()
@@ -1365,11 +1465,22 @@ struct ReaderView: View {
                         }
                     }
                 }
+                // 기기 간 이어 읽기 띠(구상안 50): 다른 기기가 지금 보이는 쪽보다 뒤를 읽었을 때만. 8초 · 쪽을 넘기면 거둔다.
+                if let ask = model.syncAsk, model.syncShown, model.panel == .none {
+                    CpSyncPrompt(title: ask.title, detail: ask.detail) { Task { await model.syncGo() } }
+                        .padding(.bottom, insets.bottom)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
             .clipped()
             .frame(width: full.width, height: full.height)
             .offset(x: -insets.leading, y: -insets.top)
-            .task { await model.open(book, library: library) }
+            .task {
+                await model.open(book, library: library)
+                await model.askSync(book, library: library)
+            }
+            .onChange(of: model.frame?.key) { _, key in model.syncMoved(key) }
             // 만화(구상안 36): 화면 · 두 쪽 · 표지 · 방향이 바뀌면 다시 낸다.
             .task(id: comicSpec(full, insets)) {
                 guard let spec = comicSpec(full, insets) else { return }

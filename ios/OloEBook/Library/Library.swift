@@ -142,12 +142,12 @@ final class Library: ObservableObject {
     // MARK: 기록 백업(구상안 31A)
 
     /// 맞추기의 열쇠: 파일 이름 + 크기(안드로이드와 같다 — 기기마다 경로가 달라도 같은 파일을 찾는다).
-    private var shelfBooks: [ShelfBook] {
+    var shelfBooks: [ShelfBook] {
         books.map { ShelfBook(id: $0.id, name: $0.displayName, size: $0.sizeBytes, title: $0.title.isEmpty ? nil : $0.title, author: $0.author) }
     }
 
     /// 만화 권의 열쇠도 이름 + 크기. 그림 폴더는 크기가 없다(공통 `ComicUnit.sizeBytes` 가 null) — 이름 하나로 맞춘다.
-    private var shelfComics: [ShelfComic] {
+    var shelfComics: [ShelfComic] {
         comicUnits.map { ShelfComic(id: $0.id, name: $0.name, size: $0.sizeBytes) }
     }
 
@@ -195,6 +195,8 @@ final class Library: ObservableObject {
         arrangeComics()
         // 이어 읽기 위젯(구상안 47): 책을 닫음 · 새로고침 · 앱이 뒤로 감 — 기록이 바뀌는 때마다.
         WidgetFeed.update(self)
+        // 기기 간 이어 읽기(구상안 50): 같은 때 이 기기 기록을 올린다. 바뀐 것이 없으면 서버에 잇지도 않는다.
+        Task { await SyncCenter.shared.writeOwn() }
     }
 
     // MARK: 만화(구상안 35A · 36)

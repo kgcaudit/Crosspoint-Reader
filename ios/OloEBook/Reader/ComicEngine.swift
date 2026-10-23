@@ -408,6 +408,17 @@ actor ComicEngine: BookEngine, ZoomSource {
         return show(index)
     }
 
+    /// 만화 권은 쪽 · 펼침면의 반, 만화로 연 책(그림책 · PDF)은 책의 자리를 이 뷰어의 쪽으로 바꿔서.
+    func goToPlace(_ place: SyncPlace) async throws -> PageFrame? {
+        if let encoded = place.locator, let book = self.place as? BookPlace {
+            guard let locator = LocatorCompanion.shared.decodeOrNull(encoded: encoded), let p = book.pageOf(locator: locator) else { return nil }
+            return go(Int(truncating: p))
+        }
+        guard let p = place.page else { return nil }
+        let half = SpreadSplit.Half.entries.first { $0.name == place.half && $0 != .whole } ?? .whole
+        return go(p, half: half)
+    }
+
     func peek(_ step: Int) async -> UIImage? {
         let i = index + step
         guard units.indices.contains(i) else { return nil }
