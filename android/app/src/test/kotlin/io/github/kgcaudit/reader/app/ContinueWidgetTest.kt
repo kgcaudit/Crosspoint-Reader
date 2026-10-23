@@ -326,6 +326,24 @@ class ContinueWidgetTest {
         val preview = android.view.LayoutInflater.from(app).inflate(R.layout.widget_continue_preview, FrameLayout(app), false)
         assertEquals("어린 왕자", preview.text(R.id.widget_title))
         assertEquals("최근에 읽은", preview.text(R.id.widget_recent_label))
+        // 2×2 항목도 작은 판과 같은 뼈대 · 본보기 글이다.
+        assertEquals(ids(R.layout.widget_continue_small), ids(R.layout.widget_continue_single_preview))
+        assertEquals("어린 왕자", android.view.LayoutInflater.from(app).inflate(R.layout.widget_continue_single_preview, FrameLayout(app), false).text(R.id.widget_title))
+        // 고르기 화면에 두 항목(4×2 · 2×2, 확정 구상안). 0.56.0 은 받는 쪽이 하나라 4×2 만 보였다.
+        fun provider(cls: Class<*>): Map<String, String> {
+            val meta = app.packageManager.getReceiverInfo(android.content.ComponentName(app, cls), android.content.pm.PackageManager.GET_META_DATA)
+            val parser = app.resources.getXml(meta.metaData.getInt("android.appwidget.provider"))
+            while (parser.next() != org.xmlpull.v1.XmlPullParser.START_TAG) Unit
+            return (0 until parser.attributeCount).associate { parser.getAttributeName(it) to parser.getAttributeValue(it) }
+        }
+        val wide = provider(ContinueWidget::class.java)
+        val single = provider(ContinueWidgetSingle::class.java)
+        assertEquals("4" to "2", wide["targetCellWidth"] to wide["targetCellHeight"])
+        assertEquals("2" to "2", single["targetCellWidth"] to single["targetCellHeight"])
+        assertEquals("@${R.layout.widget_continue_single_preview}", single["previewLayout"])
+        // 설정 화면 · 크기 바꾸기는 두 항목이 같다.
+        assertEquals(wide["configure"], single["configure"])
+        assertEquals(wide["widgetFeatures"], single["widgetFeatures"])
         val info = app.packageManager.getReceiverInfo(android.content.ComponentName(app, ContinueWidget::class.java), android.content.pm.PackageManager.GET_META_DATA)
         assertTrue(info.metaData.getInt("android.appwidget.provider") != 0)
     }
@@ -423,12 +441,15 @@ class ContinueWidgetTest {
     fun `a placed widget is redrawn after reading moves on`() {
         val manager = shadowOf(AppWidgetManager.getInstance(app))
         val id = manager.createWidget(ContinueWidget::class.java, R.layout.widget_continue_empty)
+        // 고르기 화면의 2×2 항목("한 권")으로 놓은 위젯도 같이 다시 그려진다 — 받는 쪽이 달라 빠뜨리면 옛 책에 머문다.
+        val single = manager.createWidget(ContinueWidgetSingle::class.java, R.layout.widget_continue_empty)
         val prince = bookId("어린 왕자.epub")
         runBlocking { data.progress.save(ReadingProgress(prince, Locator.Reflow(1, 0), 33f, 5_000)) }
         // 리더마다 고리를 걸지 않는다 — 진도 표가 바뀐 것만으로 잠깐 뒤 다시 그려진다.
+        fun percent(widget: Int) = manager.getViewFor(widget)?.findViewById<TextView>(R.id.widget_percent)?.text?.toString()
         compose.waitUntil(15_000) {
             shadowOf(android.os.Looper.getMainLooper()).idle()
-            (manager.getViewFor(id)?.findViewById<TextView>(R.id.widget_percent))?.text?.toString() == "33%"
+            percent(id) == "33%" && percent(single) == "33%"
         }
     }
 

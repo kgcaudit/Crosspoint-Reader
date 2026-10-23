@@ -147,7 +147,7 @@ private const val REOPEN_GRACE_MS = 60_000L
  * 정해 둔 때마다 깨어나지 않는다(updatePeriodMillis = 0). 읽은 자리가 바뀌면 앱이 [ContinueWidgets.schedule] 로 고쳐 그린다.
  * 시스템이 그리라고 부르면(위젯을 놓음 · 휴대폰을 켬) 여기서 그린다.
  */
-class ContinueWidget : AppWidgetProvider() {
+open class ContinueWidget : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
         // 그리기는 DB · 표지를 읽는다 — 방송 받는 손(메인 스레드)에서 하면 멈춘다. 끝날 때까지 방송을 붙들어 둔다. 방송 밖에서
         // 바로 불리면(일부 런처 · 시험) 붙들 방송이 없어 null 이다.
@@ -205,13 +205,24 @@ class ContinueWidget : AppWidgetProvider() {
     }
 }
 
+/**
+ * 위젯 고르기 화면의 두 번째 항목 "이어 읽기(한 권)"(0.56.1, 확정 구상안의 고르기 화면). 처음부터 2×2 로 놓이는 것만 다르고,
+ * 그리기 · 설정 · 크기에 따른 배치는 [ContinueWidget] 과 같다 — 놓은 뒤 늘이면 넓은 판 · 큰 판이 된다.
+ * 0.56.0 은 받는 쪽이 하나라 고르기 화면에 4×2 만 보였다(사용자 지적).
+ */
+class ContinueWidgetSingle : ContinueWidget()
+
+/** 같은 위젯을 받는 쪽 모두. */
+internal val PROVIDERS = listOf(ContinueWidget::class.java, ContinueWidgetSingle::class.java)
+
 /** 위젯 그리기 · 다시 그리기. 앱 전체에 하나([AppContainer.widgets]). */
 internal object ContinueWidgets {
 
     /** 놓인 위젯이 있으면 지금 모습으로 다시 그린다. 없으면 아무것도 읽지 않는다(위젯을 안 쓰는 사람에게 비용이 없다). */
     suspend fun refresh(context: Context) {
         val manager = AppWidgetManager.getInstance(context) ?: return
-        val ids = manager.getAppWidgetIds(ComponentName(context, ContinueWidget::class.java))
+        // 고르기 화면의 두 항목(4×2 · 2×2)은 받는 쪽이 다를 뿐 같은 위젯이다 — 하나만 모으면 다른 쪽이 옛 책에 머문다.
+        val ids = PROVIDERS.flatMap { manager.getAppWidgetIds(ComponentName(context, it)).asList() }.toIntArray()
         if (ids.isEmpty()) return
         render(context, manager, ids)
     }
