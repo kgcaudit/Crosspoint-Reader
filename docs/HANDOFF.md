@@ -305,6 +305,9 @@ ReadingSession(layout, data.bookmarks, data.progress)
 - 시험: `SleepyProxy`(잇기는 받고 정한 시간까지 말이 없는 시험용 중계 — 잠든 NAS 흉내)로 한 번 더 기다리기 · 깨지 않는 서버의
   갈래, ReadingSyncTest 에 쉬기, 앱 시험 둘(다시 하기가 네트워크 조건으로 걸리고 같은 일 유지 · 서버가 깨면 올라감 / 비밀번호
   틀림은 안 걸림 · 끄면 거둠). 망가뜨리기 7건.
+- 시험 구조: `:data` 의 서버 시험(`FtpConnectionTest` — 진짜 FTPS · SFTP)은 **따로 JVM**(`testSyncServersDebug`, `testDebugUnitTest`
+  가 먼저 부른다)에서 돈다. MINA SSHD 가 자바 파일 시스템 제공자를 등록하면 같은 JVM 의 Robolectric 이 그 뒤 모든 SQLite 시험에서
+  무너졌다(전체 시험 129건 실패 — 시험 순서에 따라 나타났다 사라짐). 보통 시험의 실행 경로에서는 MINA 를 뺐다.
 
 **0.59.0 — 동기화 설정: 칸 셋 + 고급 설정, FTPS 인증서 믿기, SFTP** (2026-10-23, 사용자 결정: 다른 앱 화면(이름 · 프로토콜 · 암호화 ·
 연결 모드 · 인코딩)을 넣되 "창이 길고 난잡하다" → 외부 조사 후 구상안 C 확정 · SFTP 넣음 · 문구 셋)
