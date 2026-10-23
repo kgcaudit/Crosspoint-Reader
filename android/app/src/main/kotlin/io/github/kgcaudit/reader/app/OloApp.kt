@@ -115,23 +115,17 @@ class AppContainer(private val app: Application) {
         complete
     }
 
-    /** 이어 읽기의 구글 계정. 시험이 가짜로 바꿔 끼운다. */
-    internal var driveAccount: DriveAccount = GoogleDriveAccount(app)
+    /** FTP 비밀번호를 감추는 상자. 시험이 감추지 않는 상자로 바꿔 끼운다(Robolectric 에는 안드로이드 키 저장소가 없다). */
+    internal var secretBox: SecretBox = KeystoreBox()
 
-    /** 드라이브와의 HTTP. 시험이 가짜 드라이브로 바꿔 끼운다. */
-    internal var driveHttp: io.github.kgcaudit.reader.data.sync.DriveHttp = io.github.kgcaudit.reader.data.sync.UrlConnectionHttp()
+    /** 이어 읽기의 FTP 서버 설정. */
+    internal val ftpSettings = FtpSettings(app) { secretBox }
 
     /**
-     * 기기 간 이어 읽기(사용자 결정 8 → 0.57.0). 구글 드라이브의 앱 전용 공간에 기기별 파일을 쓰고 읽는다. 기본은 꺼짐. 계정 · HTTP 는
-     * 부를 때마다 위의 것을 거친다 — 시험이 컨테이너를 만든 뒤에 바꿔 끼워도 닿는다.
+     * 기기 간 이어 읽기(0.58.0, 사용자 결정 — 구글 드라이브 대신 FTP). 사람이 정한 서버 폴더에 기기별 파일을 쓰고 읽는다. 기본은 꺼짐.
+     * 설정은 연결할 때마다 다시 읽는다 — 서버를 바꾸면 다음 맞추기부터 새 서버로 간다.
      */
-    val sync = data.readingSync(
-        app,
-        io.github.kgcaudit.reader.data.sync.DriveSyncStore(
-            token = { fresh -> driveAccount.token(fresh) },
-            http = { request -> driveHttp.send(request) },
-        ),
-    )
+    val sync = data.readingSync(app, io.github.kgcaudit.reader.data.sync.FtpSyncStore({ ftpSettings.config() }))
 
     /** 책장 표지. 앱 파일 영역 — 캐시 영역이면 사람이 고른 표지까지 시스템이 지운다. */
     val covers = CoverStore(

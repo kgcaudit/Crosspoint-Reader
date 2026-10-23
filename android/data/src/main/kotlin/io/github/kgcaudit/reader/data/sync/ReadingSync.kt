@@ -288,10 +288,15 @@ class ReadingSync(
 
     private fun readLong(name: String): Long? = runCatching { File(stateDir, name).readText().trim().toLong() }.getOrNull()
 
-    /** 연결 확인(설정 화면의 단추). 되면 null, 안 되면 까닭. 켜 있지 않아도 한다 — 켜기 전에 확인한다. */
-    suspend fun checkConnection(): SyncProblem? = withContext(io) {
+    /**
+     * 연결 확인(설정 화면의 단추). 되면 null, 안 되면 까닭. 켜 있지 않아도 한다 — 켜기 전에 확인한다.
+     *
+     * @param via 확인할 저장소. 새로 넣은 서버 설정은 저장하기 전에 따로 만든 저장소로 확인한다 — 쓰고 있는 저장소의 설정을 잠깐
+     *   바꿔 확인하면, 그 사이 돌던 맞추기가 확인 중인(틀렸을 수도 있는) 서버로 기록을 올린다.
+     */
+    suspend fun checkConnection(via: SyncStore = store): SyncProblem? = withContext(io) {
         try {
-            store.check()
+            via.check()
             null
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
