@@ -221,6 +221,35 @@ class ChapterParserTest {
     }
 
     @Test
+    fun `a picture sized in percent fills the box around it instead of the page`() {
+        // 「듄의 아이들」 장 머리 장식: 상자는 2.5em, 그림은 그 100%. 본문 폭 기준으로 풀면 100×100 그림이 쪽 폭 가득 흐리게 늘었다.
+        val chapter = parse(
+            """<div class="icon"><img src="../Images/icon_7_9.jpg"/></div><p>본문</p>""",
+            css = ".icon{margin:3.5em auto 1.7em !important;width:2.5em !important;} .icon img{width:100%;}",
+        )
+        val image = chapter.blocks.filterIsInstance<Block.Image>().single()
+        assertEquals(CssLength(2.5f, CssUnit.Em), image.sizing.width)
+    }
+
+    @Test
+    fun `the nearest box with a width decides and odd boxes fall back to the page`() {
+        val nested = parse(
+            """<div class="outer"><div class="inner"><img src="a.jpg" style="width:50%; max-width:100%"/></div></div>""",
+            css = ".outer{width:20em} .inner{width:4em}",
+        )
+        val a = nested.blocks.filterIsInstance<Block.Image>().single()
+        assertEquals(CssLength(2f, CssUnit.Em), a.sizing.width)
+        assertEquals(CssLength(4f, CssUnit.Em), a.sizing.maxWidth)
+
+        // 상자 폭이 퍼센트 · 0 · 없음이면 예전처럼 본문 폭의 퍼센트로 둔다(깨진 입력에 관대하게).
+        for (box in listOf("width:50%", "width:0", "")) {
+            val chapter = parse("""<div style="$box"><img src="b.jpg" width="80%"/></div>""")
+            val b = chapter.blocks.filterIsInstance<Block.Image>().single()
+            assertEquals(CssLength(80f, CssUnit.Percent), b.sizing.width, "상자 '$box'")
+        }
+    }
+
+    @Test
     fun `a size set by a css class wins over the html attribute`() {
         // Calibre 변환본의 모양: 클래스가 의도다(장 제목 그림을 폭의 45% 로).
         val chapter = parse(
