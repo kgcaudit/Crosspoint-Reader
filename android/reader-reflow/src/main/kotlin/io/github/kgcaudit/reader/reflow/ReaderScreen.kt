@@ -669,21 +669,17 @@ fun ReaderScreen(
             info = FooterInfo(
                 bookTitle = reader.title,
                 chapterTitle = position?.let { p -> toc?.let { t -> t.getOrNull(currentTocIndex(t, p.spineIndex))?.label } },
-                // 두쪽이면 두 쪽을 묶어 "5–6 / 12"(T5). 오른쪽이 빈 펼침은 한 쪽 번호만.
-                page = when {
-                    position == null -> ""
-                    state.rightPage != null -> "${position.pageIndex + 1}–${position.pageIndex + 2} / ${position.pageCount}"
-                    else -> "${position.pageIndex + 1} / ${position.pageCount}"
-                },
+                page = if (position == null) "" else pageLabel(state.pageNumber, state.pageTotal, twoPages = state.rightPage != null),
                 percent = state.percent,
-                chapterPagesLeft = position?.let { it.pageCount - it.pageIndex - 1 - (if (state.rightPage != null) 1 else 0) },
-                // 남은 시간(E5): 이 장에서 보이는 쪽 뒤로 남은 글자 ÷ 읽는 속도. 속도를 모르면 빈칸.
+                chapterPagesLeft = state.pageNumber?.let { n -> state.pageTotal?.let { t -> t - n - (if (state.rightPage != null) 1 else 0) } },
+                // 남은 시간(E5): 이 장에서 보이는 쪽 뒤로 남은 글자 ÷ 읽는 속도. 속도를 모르면 빈칸. 쪽의 글자 번호는 조각 안의
+                // 번호라 조각 시작([ReaderState.chapterOffset])을 더한다 — 큰 TXT 는 조각마다 남은 시간이 처음으로 돌아갔다.
                 chapterMinutesLeft = speedRevision.let { _ ->
-                    (state.rightPage ?: state.page)?.let { shown -> speed.minutesFor((state.chapterLength - shown.endCharExclusive).toDouble()) }
+                    (state.rightPage ?: state.page)?.let { shown -> speed.minutesFor((state.chapterLength - state.chapterOffset - shown.endCharExclusive).toDouble()) }
                 },
                 bookMinutesLeft = speedRevision.let { _ ->
                     (state.rightPage ?: state.page)?.let { shown ->
-                        speed.minutesFor((state.chapterLength - shown.endCharExclusive).toDouble() + state.charsAfterChapter)
+                        speed.minutesFor((state.chapterLength - state.chapterOffset - shown.endCharExclusive).toDouble() + state.charsAfterChapter)
                     }
                 },
             ),
@@ -907,7 +903,7 @@ private fun ReaderBar(
     val position = state.position
     CpReaderBar(
         title = reader.title,
-        subtitle = if (position != null) "${position.spineIndex + 1} / ${state.chapterCount}장" + readLockMark() else null,
+        subtitle = if (position != null) "${state.chapterIndex + 1} / ${state.chapterCount}장" + readLockMark() else null,
         bookmarked = state.bookmarked,
         onBookmark = onBookmark,
         onSearch = onSearch,
@@ -1104,6 +1100,19 @@ private fun ParagraphSettings(prefs: ReaderPrefs, onChange: (ReaderPrefs) -> Uni
 }
 
 private const val TAG = "OloReader"
+
+/**
+ * 화면 아래 쪽 표시. 두쪽이면 두 쪽을 묶어 "5–6 / 12"(T5), 오른쪽이 빈 펼침은 한 쪽 번호만. 큰 TXT 를 뒤에서 세는 동안 모르는
+ * 수는 "…"(0.60.0, 사용자 결정). 천 단위는 쉼표 — 큰 TXT 는 한 장이 천 쪽을 넘는다.
+ */
+internal fun pageLabel(number: Int?, total: Int?, twoPages: Boolean): String {
+    fun n(v: Int?) = v?.let { String.format(java.util.Locale.ROOT, "%,d", it) } ?: PAGE_COUNTING
+    val shown = if (twoPages && number != null) "${n(number)}–${n(number + 1)}" else n(number)
+    return "$shown / ${n(total)}"
+}
+
+/** 아직 세는 쪽 수. */
+internal const val PAGE_COUNTING = "…"
 
 /** 쪽이 보이는 동안 넘기기 · 찾아가기가 실패했을 때의 알림. */
 internal const val PAGE_FAILED = "이 쪽으로 가지 못했습니다. 다시 해 보거나 목차로 옮겨 보세요."

@@ -94,7 +94,8 @@ internal fun ReflowSyncPrompt(reader: BookReader) {
     val state by reader.state.collectAsState()
     val page = state.rightPage ?: state.page
     val position = state.position
-    val remote = offer?.locator as? Locator.Reflow
+    // 다른 기기의 자리는 책 자리(큰 TXT 는 나누기 전 한 장의 글자 번호)라 리더 안의 자리로 바꿔 견준다.
+    val remote = (offer?.locator as? Locator.Reflow)?.let(reader::layoutLocator)
     val beyond = remote != null && page != null && position != null && SyncRules.reflowBeyond(remote, position.spineIndex, page.endCharExclusive)
     SyncPromptHost(offer, beyond, "${offer?.percent?.toInt() ?: 0}%", position) {
         if (remote != null) reader.goTo(Bookmark(Bookmark.NO_ID, id, remote, null, 0L))
