@@ -195,6 +195,10 @@ final class SyncCenter: ObservableObject {
     /// 서버 일 한 덩이: 잇고 · [work] · 끊는다. 맞추지 못한 까닭은 [problem] 에, 닿지 못했으면 1분은 책을 열어도 다시 묻지 않는다.
     /// [wake] 가 false 면 잠든 서버를 한 번 더 기다리지 않는다(뒤로 간 앱 — 시간이 30초쯤뿐이다).
     private func session(wake: Bool = true, _ work: (SyncConnection, IosReadingSync) async throws -> Void) async -> Bool {
+        #if DEBUG
+        // 기기 점검은 책을 열고 넘기며 기록을 바꾼다(끝나면 되돌린다) — 그 기록을 서버에 올리지 않는다.
+        if CommandLine.arguments.contains("-olo-device-check") { return false }
+        #endif
         guard enabled, let engine, let server, let password = Keychain.password else { return false }
         busy = true
         defer { busy = false }

@@ -55,6 +55,9 @@ struct OloEBookApp: App {
             }
             .animation(.easeOut(duration: 0.2), value: reading?.id)
             #if DEBUG
+            .onReceive(DeviceCheck.shared.$current) { book in if DeviceCheck.shared.active { reading = book } }
+            #endif
+            #if DEBUG
             // 화면 확인용: -olo-window 1194x834 는 앱을 그 창 크기로 짜고 화면에 맞게 줄여 보인다 — 시뮬레이터를 명령으로 돌릴 수
             // 없어 iPad 가로 · 나란히 보기 배치(구상안 48)를 이것으로 찍는다. 출시 빌드에는 없다.
             .modifier(DebugWindow())
@@ -79,6 +82,14 @@ struct OloEBookApp: App {
                         ?? library.works.flatMap { $0.entries.map(\.unit) }.first { $0.id.contains(args[i + 1]) }.flatMap(library.comicBook)
                     // -olo-pick-cover 는 연 권을 "보던 장면에서 표지 고르기" 로 연다(구상안 44).
                     if args.contains("-olo-pick-cover"), let book = reading { coverPick = library.work(of: book.id)?.key }
+                }
+                // -olo-device-check: 서재의 모든 책 · 만화를 차례로 열어 점검한다(DeviceCheck).
+                if args.contains("-olo-device-check") {
+                    let books = (library.reading + library.toRead + library.finished).map(\.book)
+                    let comics = library.works.flatMap { $0.entries.map(\.unit) }.compactMap(library.comicBook)
+                    // 뒤에 이름들을 주면(-olo-device-check 02.txt 14.txt) 그 책만.
+                    let names = Set(args.drop { $0 != "-olo-device-check" }.dropFirst().prefix { !$0.hasPrefix("-") })
+                    DeviceCheck.shared.start((books + comics).filter { names.isEmpty || names.contains($0.displayName) })
                 }
                 #endif
             }

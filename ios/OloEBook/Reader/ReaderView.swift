@@ -190,7 +190,9 @@ struct PageFrame: @unchecked Sendable {
     let section: String
     let charsLeftChapter: Int
     let charsLeftBook: Int
-    var key: String { "\(spine):\(page)" }
+    /// 이 화면의 이름. 만화의 넓은 그림을 반씩 볼 때는 반도 넣는다 — 빼면 두 반이 같은 이름이라 반을 넘겨도 "쪽이 그대로" 로 보여,
+    /// 말림이 말지 않고 낡은 앞 · 뒤 그림이 남고 읽은 시간이 끊기지 않았다(기기 점검에서 찾음).
+    var key: String { halfLabel.isEmpty ? "\(spine):\(page)" : "\(spine):\(page):\(halfLabel)" }
 
     init(_ f: ReaderFrame) {
         image = f.image
@@ -1548,6 +1550,9 @@ struct ReaderView: View {
                 await model.open(book, library: library)
                 await model.askSync(book, library: library)
             }
+            #if DEBUG
+            .task { await DeviceCheck.shared.run(model: model, book: book) }
+            #endif
             .onChange(of: model.frame?.key) { _, key in model.syncMoved(key) }
             // 만화(구상안 36): 화면 · 두 쪽 · 표지 · 방향이 바뀌면 다시 낸다.
             .task(id: comicSpec(full, insets)) {
