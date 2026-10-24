@@ -74,9 +74,6 @@ internal class ReadLockController(private val context: Context) : ReadLock {
     var toastKey by mutableIntStateOf(0)
         private set
 
-    /** 통화로 멈춘 자동 진행이 있다. 띠의 말이 달라진다. */
-    var pausedAuto by mutableStateOf(false)
-        private set
 
     /** 지금 떠 있는 읽기 메뉴 수(윗줄이 들어오고 나가는 차례가 겹칠 수 있어 수로 센다). */
     private var menus by mutableIntStateOf(0)
@@ -275,17 +272,14 @@ internal class ReadLockController(private val context: Context) : ReadLock {
             Effect.PauseAuto -> {
                 paused = holds.filter { it.running }
                 paused.forEach { it.pause() }
-                pausedAuto = paused.isNotEmpty()
             }
             Effect.ResumeAuto -> {
                 // 그사이 닫힌 리더의 것은 잇지 않는다.
                 paused.filter { it in holds }.forEach { it.resume() }
                 paused = emptyList()
-                pausedAuto = false
             }
             Effect.ForgetAuto -> {
                 paused = emptyList()
-                pausedAuto = false
             }
             // 잠긴 순간의 안내는 안드로이드가 띄운다("앱을 고정했어요") — 우리 것을 겹치지 않는다(0.54.3 사용자 결정).
             Effect.ShowLocked -> Unit

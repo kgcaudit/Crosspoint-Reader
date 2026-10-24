@@ -260,6 +260,30 @@ class ReadingSyncAppTest {
     }
 
     @Test
+    fun `cancelling while the connection is being checked keeps sync off and saves nothing`() {
+        // 2초 뒤에야 답하는 서버 — 확인하는 사이에 사람이 취소한다.
+        val slow = SleepyProxy(ftp.port, wakeAfterMs = 2_000)
+        try {
+            register()
+            openSyncScreen()
+            tap(hasText("켬"))
+            fill(address = "127.0.0.1:${slow.port}")
+            tap(hasText(FTP_CHECK))
+            waitFor(hasText("확인 중…"))
+            tap(hasText("취소"))
+            compose.waitUntil(10_000) { !has(hasText(FTP_HOST)) }
+            // 확인이 끝날 만큼 기다려도(주 스레드를 돌리며 — Thread.sleep 은 주 스레드를 세워 확인의 뒷부분이 돌지 않는다)
+            // 저장되거나 켜지지 않는다. 전에는 끝난 확인이 취소를 덮어 "연결했습니다" 였다.
+            runCatching { compose.waitUntil(6_000) { app.container.ftpSettings.config() != null } }
+            assertNull(app.container.ftpSettings.config())
+            assertFalse(app.container.sync.enabled)
+            assertFalse(has(hasText("연결했습니다")))
+        } finally {
+            slow.close()
+        }
+    }
+
+    @Test
     fun `a self signed ftps server shows its fingerprint and connects encrypted once trusted`() {
         val tls = TestFtpServer(File(app.cacheDir, "ftps/root").apply { deleteRecursively() }, FtpSecurity.Explicit).start()
         try {

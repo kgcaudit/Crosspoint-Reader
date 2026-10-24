@@ -69,7 +69,9 @@ class CoverStore(
             memory.get(key)?.let { return@withLock it }
             val version = _version.value
             val custom = File(dir, "custom/${key(book.id)}.jpg").takeIf { it.isFile }?.let(::decodeFile)
-            val own = ownCover(book.id.value + bookFace(book), book.sizeBytes, book.displayName) { extract(book) }
+            // 표지 이름표를 읽지 못해도(DB 깨짐) 기본 이름표로 — 표지를 그리다 앱이 닫히지 않게.
+            val face = runCatching { bookFace(book) }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }.getOrDefault("")
+            val own = ownCover(book.id.value + face, book.sizeBytes, book.displayName) { extract(book) }
             val cover = Cover(custom ?: own.image, custom = custom != null, hasOwn = own.image != null)
             // 꺼내는 사이에 표지를 고르거나 되돌렸으면 담지 않는다 — 고르기 전에 읽은 옛 표지가 메모리에 남아, 바꿨다는
             // 알림이 뜬 뒤에도 책장에 옛 표지가 보였다. 못 읽은 책도 담지 않는다 — 저장소가 돌아오면 다시 찾아야 한다.

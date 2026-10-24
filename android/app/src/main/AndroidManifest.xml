@@ -2,14 +2,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- 사용자에게 묻는 권한이 없다. 책은 사용자가 SAF 로 고른 폴더에서만 읽는다(저장소 전체 권한 불필요).
-         인터넷도 쓰지 않는다. 화면 끄고 듣기에 필요한 권한 셋(설치할 때 저절로 허락됨)은 :reader-reflow 의
-         매니페스트에 있다. -->
+         인터넷은 '동기화 설정' 을 켰을 때만 쓴다(아래). 화면 끄고 듣기에 필요한 권한 셋(설치할 때 저절로 허락됨)은
+         :reader-reflow 의 매니페스트에 있다. -->
 
     <!-- 읽기 잠금의 "알림도 끄기"(방해 금지). 묻는 권한이 아니다(설치할 때 허락) — 이것을 밝혀야 설정 › 방해 금지 권한 목록에
          앱이 오르고, 사람이 거기서 켜 준다. 전화 감지는 권한 없이 한다(오디오 모드 · 31 앞의 전화 상태). READ_PHONE_STATE 는
          묻지 않는다. -->
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
-    <!-- 다른 기기에서 이어 읽기(0.57.0): 켰을 때만 구글 드라이브의 앱 전용 공간에 읽은 자리를 올리고 받는다. 끄면 통신하지 않는다. -->
+    <!-- 동기화 설정(0.58.0): 켰을 때만 사람이 정한 FTP · FTPS · SFTP 서버에 읽은 자리를 올리고 받는다. 끄면 통신하지 않는다. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
     <!-- 사전(N4): 고른 말을 휴대폰에 깔린 사전 · 번역 앱에 넘긴다(ACTION_PROCESS_TEXT). 안드로이드 11 부터는

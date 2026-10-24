@@ -413,7 +413,8 @@ class AppContainer(private val app: Application) {
      */
     suspend fun isPictureBook(book: LibraryBook): Boolean = withContext(Dispatchers.IO) {
         if (book.format != BookFormat.EPUB) return@withContext false
-        data.library.pictureBook(book.id, book.sizeBytes)?.let { return@withContext it }
+        // DB 를 읽지 못해도(깨짐) 앱이 닫히지 않게 — 살펴 둔 값이 없는 것처럼 직접 살핀다.
+        runCatching { data.library.pictureBook(book.id, book.sizeBytes) }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }.getOrNull()?.let { return@withContext it }
         val found = try {
             EpubDocument.open(book.id, book.displayName, data.sources.seekableSource(Uri.parse(book.id.value))).use { it.pictureBook() != null }
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -421,7 +422,7 @@ class AppContainer(private val app: Application) {
         } catch (e: Exception) {
             return@withContext false
         }
-        runCatching { data.library.setPictureBook(book.id, book.sizeBytes, found) }
+        runCatching { data.library.setPictureBook(book.id, book.sizeBytes, found) }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
         found
     }
 

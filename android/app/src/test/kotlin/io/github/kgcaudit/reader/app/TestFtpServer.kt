@@ -87,3 +87,35 @@ internal class TestFtpServer(val root: File, private val tls: FtpSecurity = FtpS
         private const val STORE_PASSWORD = "olo-test"
     }
 }
+
+/**
+ * 잠든 NAS 흉내: 잇기는 바로 받지만, [wakeAfterMs] 가 지나기 전에는 아무 말도 하지 않는다(디스크를 돌리는 중). 깬 뒤에는 [targetPort]
+ * 로 그대로 잇는다. 기다리다 지쳐 끊은 연결은 버린다.
+ */
+internal class SleepyProxy(private val targetPort: Int, wakeAfterMs: Long) {
+    private val server = ServerSocket(0)
+    val port: Int = server.localPort
+    private val wakeAt = System.currentTimeMillis() + wakeAfterMs
+
+    init {
+        Thread {
+            while (!server.isClosed) {
+                val client = runCatching { server.accept() }.getOrNull() ?: break
+                Thread {
+                    runCatching {
+                        Thread.sleep((wakeAt - System.currentTimeMillis()).coerceAtLeast(0))
+                        val upstream = java.net.Socket("127.0.0.1", targetPort)
+                        val a = Thread { runCatching { client.getInputStream().copyTo(upstream.getOutputStream()) }; runCatching { upstream.shutdownOutput() } }
+                        a.start()
+                        runCatching { upstream.getInputStream().copyTo(client.getOutputStream()) }
+                        a.join(1_000)
+                        upstream.close()
+                    }
+                    runCatching { client.close() }
+                }.apply { isDaemon = true }.start()
+            }
+        }.apply { isDaemon = true }.start()
+    }
+
+    fun close() = server.close()
+}

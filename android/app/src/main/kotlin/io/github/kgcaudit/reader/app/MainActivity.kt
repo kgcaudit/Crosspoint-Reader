@@ -88,10 +88,6 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * 리더가 볼륨키 넘김을 켜 두었으면 음량 단추를 가져간다. 화면(컴포즈)이 먹지 않은 키가 여기로 온다 — 지면에는
-     * 초점을 가진 곳이 없어 컴포즈의 키 처리로는 받을 수 없다. 떼는 것도 먹어야 시스템 음량 판이 뜨지 않는다.
-     */
-    /**
      * 읽기 잠금은 안드로이드 확인 창의 답을 여기서 확인한다 — 창이 닫히면 초점이 돌아오고, 그때 고정 상태를 본다. 거절했으면
      * 아무것도 잠기지 않았다. 시스템 동작(뒤로 + 최근 앱 길게)으로 풀린 것도 앞으로 돌아오거나 초점을 얻을 때 알아챈다.
      */
@@ -111,6 +107,10 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
+    /**
+     * 리더가 볼륨키 넘김을 켜 두었으면 음량 단추를 가져간다. 화면(컴포즈)이 먹지 않은 키가 여기로 온다 — 지면에는
+     * 초점을 가진 곳이 없어 컴포즈의 키 처리로는 받을 수 없다. 떼는 것도 먹어야 시스템 음량 판이 뜨지 않는다.
+     */
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean =
         volumeKeys.dispatch(event) || super.onKeyDown(keyCode, event)
 
@@ -445,7 +445,15 @@ private fun OloApp(
     LaunchedEffect(openId) {
         val id = openId ?: return@LaunchedEffect
         if (reader != null) return@LaunchedEffect
-        val book = container.data.library.get(BookId(id))
+        // DB 를 읽지 못하면(깨짐) 다시 열지 않는다 — 앱이 닫히는 것보다 서재가 낫다.
+        val book = try {
+            container.data.library.get(BookId(id))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("OloApp", "book to reopen unreadable", e)
+            null
+        }
         if (book == null) { openId = null; return@LaunchedEffect }
         // 그림만 든 EPUB · 만화로 보기를 고른 PDF 는 만화 뷰어로(0.50.0). 판정이 실패해도 책으로는 연다.
         val comic = id != asBook && book.format != BookFormat.TXT && try {

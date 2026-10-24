@@ -65,6 +65,9 @@ internal class KeystoreBox : SecretBox {
 internal class FtpSettings(context: Context, private val box: () -> SecretBox) {
     private val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
+    /** 서버를 정해 두었는가 — 비밀번호를 열지 않고(키 저장소를 거치지 않고) 본다. 앱 정보 부제처럼 그릴 때마다 묻는 곳에. */
+    fun hasConfig(): Boolean = !prefs.getString(HOST, null).isNullOrBlank() && prefs.contains(PASSWORD)
+
     /** 저장된 설정. 주소가 없거나 비밀번호를 열지 못하면 null(맞추지 않는다). */
     fun config(): FtpConfig? {
         val host = prefs.getString(HOST, null)?.takeIf { it.isNotBlank() } ?: return null

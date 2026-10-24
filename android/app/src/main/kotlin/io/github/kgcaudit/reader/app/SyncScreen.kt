@@ -93,6 +93,7 @@ internal fun syncProblemText(problem: SyncProblem): String = when (problem) {
     SyncProblem.Tls -> "보안 연결(FTPS)을 맺지 못했습니다. 고급 설정의 보안 연결을 바꿔 보세요."
     SyncProblem.NoTls -> "이 서버는 암호화(FTPS)를 받지 않습니다. 고급 설정의 보안 연결을 ‘자동’ 으로 두세요."
     SyncProblem.Untrusted -> "서버 인증서(키)가 믿은 것과 다릅니다. 누가 가운데서 가로챌 수 있어 맞추지 않았습니다. ‘바꾸기’ 에서 다시 연결 확인을 하세요."
+    SyncProblem.Incompatible -> "서버와 맞는 연결 방식이 없습니다(오래된 SSH 키 방식이거나, FTPS 데이터 연결에 세션 재사용을 요구하는 서버). 주소를 sftp:// 로 바꾸거나 고급 설정의 보안 연결을 바꿔 보세요."
     SyncProblem.Server -> "서버가 잠시 답하지 않습니다. 조금 뒤 다시 맞춥니다."
 }
 
@@ -180,8 +181,9 @@ internal class SyncScreenUi(
     private val scope: CoroutineScope,
     private val context: android.content.Context,
 ) {
-    var enabled by mutableStateOf(sync.enabled && settings.config() != null)
+    // 설정을 여는 것은 키 저장소 복호화다 — 화면을 열 때 한 번만.
     var server by mutableStateOf(settings.config())
+    var enabled by mutableStateOf(sync.enabled && server != null)
     var devices by mutableStateOf(sync.devices())
 
     /** 서버 설정 칸을 펼쳤으면 그 칸들. */
@@ -217,7 +219,13 @@ internal class SyncScreenUi(
         form = FtpForm(server)
     }
 
+    /** 돌고 있는 연결 확인. 취소 · 끔이면 거둔다 — 안 거두면 확인이 끝난 뒤 사람이 취소한 설정이 저장되고 켜졌다. */
+    private var checkJob: kotlinx.coroutines.Job? = null
+
     fun cancelEdit() {
+        checkJob?.cancel()
+        checkJob = null
+        checking = false
         form = null
         formError = null
         advanced = false
@@ -250,7 +258,8 @@ internal class SyncScreenUi(
     private fun run(config: FtpConfig, fallBackToPlain: Boolean) {
         checking = true
         formError = null
-        scope.launch {
+        checkJob?.cancel()
+        checkJob = scope.launch {
             var tried = config
             var result: SyncCheck = sync.checkConnection(FtpSyncStore({ tried }))
             if (result.problem == SyncProblem.NoTls && fallBackToPlain) {
@@ -496,7 +505,7 @@ private fun SyncPopups(ui: SyncScreenUi) {
         val message = (
             if (sftp) "${ask.config.host} 에 처음 잇습니다. SSH 서버는 처음 이을 때 키를 확인해야 합니다."
             else "${ask.config.host} 의 인증서는 공인 기관이 서명하지 않았습니다(대부분 NAS 가 스스로 만든 인증서)."
-            ) + " 지문이 서버 설정 화면의 것과 같으면 믿어도 됩니다.\n\nSHA-256\n${ask.fingerprint}\n\n믿으면 이 서버의 이 ${what}만 기억합니다. 나중에 바뀌면 다시 묻습니다."
+            ) + " 지문이 서버 설정 화면의 것과 같으면 믿어도 됩니다.\n\n" + (if (sftp) ask.fingerprint else "SHA-256\n${ask.fingerprint}") + "\n\n믿으면 이 서버의 이 ${what}만 기억합니다. 나중에 바뀌면 다시 묻습니다."
         CpPopup(title = title, message = message, onDismiss = { ui.trustAsk = null }) {
             CpPopupButtons {
                 CpButton("취소", { ui.trustAsk = null }, primary = false)
