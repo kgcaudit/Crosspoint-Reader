@@ -445,8 +445,32 @@ class BookLayoutTest {
         private val inner: io.github.kgcaudit.reader.document.ReflowDocument,
         var broken: Set<Int>,
     ) : io.github.kgcaudit.reader.document.ReflowDocument by inner {
-        override suspend fun openChapter(index: Int): java.io.Reader =
-            if (index in broken) throw java.util.zip.ZipException("invalid stored block lengths") else inner.openChapter(index)
+        /** 깨진 장을 열려 한 수. */
+        var attempts = 0
+
+        override suspend fun openChapter(index: Int): java.io.Reader {
+            if (index in broken) {
+                attempts++
+                throw java.util.zip.ZipException("invalid stored block lengths")
+            }
+            return inner.openChapter(index)
+        }
+    }
+
+    @Test
+    fun `a broken chapter is read once per open book instead of on every page call`() = runTest {
+        // 안내 쪽은 부분 캐시다. 쪽 수 · 쪽 · 장 글 · 링크를 물을 때마다 다시 해석해, 큰 깨진 파일에서는 넘길 때마다 걸렸다.
+        openEpub().use { epub ->
+            val flaky = FlakyChapters(epub, broken = setOf(1))
+            val book = layout(flaky)
+            book.ensurePaginated(1)
+            book.pageCount(1)
+            book.page(1, 0)
+            book.chapterText(1)
+            book.links(1)
+            book.next(book.resolve(Locator.Reflow(0, 0)))
+            assertEquals(1, flaky.attempts)
+        }
     }
 
     @Test

@@ -107,11 +107,15 @@ class ChapterParser(
         /** `display:none` 이나 `<script>` 안. 0 보다 크면 내용을 통째로 버린다. */
         private var skipDepth = 0
 
-        /**
-         * 버리는 요소의 이름. 깊이는 **같은 이름의** 태그만 센다 — 아무 태그나 세면 숨긴 `<div>` 안의 닫히지 않은 `<p>` 하나에
-         * 깊이가 끝내 0 으로 돌아오지 않아 장의 나머지가 통째로 사라졌다.
-         */
+        /** 버리는 요소의 이름. */
         private var skipTag = ""
+
+        /**
+         * 버리는 요소 안에서 열린 태그들(짝이 오면 뺀다). 깊이를 수로만 세면 둘 다 틀렸다: 아무 태그나 세면 숨긴 `<div>` 안의 닫히지
+         * 않은 `<p>` 하나에 끝내 0 으로 돌아오지 않았고, 같은 이름만 세면 닫힘이 생략된 숨긴 `<p>` 뒤의 `<p>` 에서 그랬다 — 둘 다 장의
+         * 나머지가 통째로 사라졌다.
+         */
+        private val skipOpen = ArrayList<String>()
 
         /** `<style>` 안. 본문이 아니라 CSS 로 모은다. */
         private var styleDepth = 0
@@ -145,8 +149,14 @@ class ChapterParser(
             val void = tag in TagDefaults.VOID_TAGS
             // 빈 요소는 깊이를 세지 않는다 — 닫힘 사건이 오지 않을 수 있다(위 VOID_TAGS).
             if (skipDepth > 0) {
-                if (tag == skipTag) skipDepth++
-                return
+                // 숨긴 요소의 닫힘이 생략된 것이면(HTML 이 허락한다) 건너뛰기를 끝내고 이 태그를 보통대로 다룬다. 같은 이름만 세던
+                // 때는 `<p class="hidden">x <p>본문</p>…` 에서 둘째 <p> 가 깊이를 올리고 </p> 마다 하나씩만 내려, 장의 나머지가
+                // 오류 없이 사라졌다.
+                if (!skipEndsAt(tag)) {
+                    if (!void) skipOpen.add(tag)
+                    return
+                }
+                endSkip()
             }
             if (styleDepth > 0) {
                 if (tag == "style") styleDepth++
@@ -224,18 +234,20 @@ class ChapterParser(
 
         private fun endElement(tag: String) {
             if (skipDepth > 0) {
-                if (tag != skipTag) return
-                skipDepth--
-                // 스킵이 끝나면 그 요소의 프레임과 스택도 함께 닫는다.
-                if (skipDepth == 0 && frames.isNotEmpty() && elements.isNotEmpty()) {
-                    val frame = frames.removeAt(frames.size - 1)
-                    popElement()
-                    if (frame.isBlock) {
-                        flushParagraph()
-                        blockStyle = frame.restoreStyle
-                    }
+                // 숨긴 요소 안에서 열린 것의 닫힘이면 그것만 닫는다(사이의 닫히지 않은 것도 함께).
+                val inner = skipOpen.lastIndexOf(tag)
+                if (inner >= 0) {
+                    while (skipOpen.size > inner) skipOpen.removeAt(skipOpen.size - 1)
+                    return
                 }
-                return
+                if (tag == skipTag) {
+                    endSkip()
+                    return
+                }
+                // 바깥 요소의 닫힘(`<div><span style="display:none">x</div>`): 숨긴 요소도 거기서 끝난다. 이 닫힘은 보통대로.
+                // 기다리던 `</span>` 가 오지 않아 장의 나머지를 버렸다.
+                if (frames.dropLast(1).none { it.tag == tag }) return
+                endSkip()
             }
             if (styleDepth > 0) {
                 if (tag != "style") return
@@ -254,6 +266,31 @@ class ChapterParser(
          * 짝이 생략된 요소를 닫는다(HTML 이 허락한다): 새 `<li>` 는 같은 목록의 열린 `<li>` 를, 새 `<dt>`/`<dd>` 는 열린
          * `<dt>`/`<dd>` 를, 새 블록은 바로 위의 열린 `<p>` 를 닫는다. 잘 짜인 XHTML 에서는 일어나지 않는다.
          */
+        /** 숨긴 [skipTag] 의 생략된 닫힘인가 — 그 안에서 연 것이 없고, 새 [tag] 가 그것을 닫는 태그일 때([closeImplied] 와 같은 규칙). */
+        private fun skipEndsAt(tag: String): Boolean {
+            if (skipOpen.isNotEmpty()) return false
+            return when (skipTag) {
+                "p" -> tag in TagDefaults.BLOCK_TAGS
+                "li" -> tag == "li"
+                "dt", "dd" -> tag == "dt" || tag == "dd"
+                else -> false
+            }
+        }
+
+        /** 건너뛰기를 끝내고 숨긴 요소의 프레임과 스택을 닫는다. */
+        private fun endSkip() {
+            skipDepth = 0
+            skipOpen.clear()
+            if (frames.isNotEmpty() && elements.isNotEmpty()) {
+                val frame = frames.removeAt(frames.size - 1)
+                popElement()
+                if (frame.isBlock) {
+                    flushParagraph()
+                    blockStyle = frame.restoreStyle
+                }
+            }
+        }
+
         private fun closeImplied(tag: String) {
             when (tag) {
                 "li" -> closeOpen(setOf("li"), stopAt = setOf("ul", "ol"))
@@ -335,7 +372,10 @@ class ChapterParser(
 
         private fun recordAnchor(event: XmlEvent.StartElement) {
             val id = event.attribute("id") ?: event.attribute("name") ?: return
-            if (id.isNotBlank()) anchors.putIfMissing(id, text.length)
+            // 앞에 접힌 공백이 기다리면 다음 글자 앞에 한 칸이 들어간다 — 그 칸이 아니라 다음 글자를 가리킨다([openLink] 와 같다).
+            // 공백을 가리키면 쪽이 그 사이에서 나뉠 때 목차가 한 쪽 앞으로 갔다.
+            val lead = if (pendingSpace && text.length > paragraphStart) 1 else 0
+            if (id.isNotBlank()) anchors.putIfMissing(id, text.length + lead)
         }
 
         private fun adoptEmbeddedCss() {
@@ -390,16 +430,24 @@ class ChapterParser(
         /** `<pre>` 안. 줄바꿈마다 문단을 끊고 나머지 공백은 그대로 둔다. */
         private fun appendPreformatted(value: String) {
             val chunk = StringBuilder()
+            var afterNewline = false
             for (ch in value) {
                 when (ch) {
                     '\n' -> {
+                        // 빈 줄("\n\n")은 빈 문단이라 버려졌다 — 시의 연 사이 · 코드의 빈 줄이 사라졌다. 줄 높이 하나를 남기게
+                        // 빈칸(NBSP) 하나를 둔다. 여는 태그 바로 뒤의 줄바꿈 하나는 HTML 이 버리는 것이라 그대로 둔다.
+                        if (afterNewline && chunk.isEmpty()) chunk.append('\u00A0')
                         commit(chunk)
                         chunk.setLength(0)
                         flushParagraph()
+                        afterNewline = true
+                        continue
                     }
-                    '\r' -> Unit
+                    // 윈도 줄 끝("\r\n")의 \r 은 빈 줄 판단을 끊지 않는다.
+                    '\r' -> continue
                     else -> chunk.append(ch)
                 }
+                afterNewline = false
             }
             commit(chunk)
         }
@@ -571,9 +619,10 @@ class ChapterParser(
         fun htmlLength(raw: String): CssLength? {
             val text = raw.trim().lowercase()
             val length = when {
-                text.endsWith("%") -> text.dropLast(1).trim().toFloatOrNull()?.let { CssLength(it, CssUnit.Percent) }
-                text.endsWith("px") -> text.dropLast(2).trim().toFloatOrNull()?.let { CssLength(it, CssUnit.Px) }
-                else -> text.toFloatOrNull()?.let { CssLength(it, CssUnit.Px) } ?: CssLength.parse(text)
+                // 무한대("1e39")는 버린다([CssLength.parse] 와 같다).
+                text.endsWith("%") -> text.dropLast(1).trim().toFloatOrNull()?.takeIf { it.isFinite() }?.let { CssLength(it, CssUnit.Percent) }
+                text.endsWith("px") -> text.dropLast(2).trim().toFloatOrNull()?.takeIf { it.isFinite() }?.let { CssLength(it, CssUnit.Px) }
+                else -> text.toFloatOrNull()?.takeIf { it.isFinite() }?.let { CssLength(it, CssUnit.Px) } ?: CssLength.parse(text)
             }
             return length?.takeIf { it.value > 0f }
         }

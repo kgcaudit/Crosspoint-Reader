@@ -81,13 +81,27 @@ class CssSelectorTest {
         assertNull(CssSelector.parse("+ p"))
         assertNull(CssSelector.parse("h1 +"))
         // 괄호 · 대괄호 안의 `+` `~` 는 결합자가 아니다.
-        assertTrue(matches("p:nth-child(2n+1)", el("p")))
+        assertTrue(matches("p:not(.a+.b)", el("p")))
         assertTrue(matches("p[class~=x]", el("p")))
     }
 
     @Test
-    fun `pseudo-classes and attribute selectors are stripped - keeping the rest`() {
+    fun `first-child matches only the first paragraph and other structural pseudo-classes drop the rule`() {
+        // 흔한 책 CSS: p { text-indent: 1em } p:first-child { text-indent: 0 }. 떼어 내면 모든 문단이 들여쓰기를 잃었다.
         assertTrue(matches("p:first-child", el("p")))
+        assertFalse(matches("p:first-child", ElementInfo("p", previousSibling = ElementInfo("h2"))))
+        assertTrue(matches(".poem p:first-child", el("div", classes = "poem"), el("p")))
+        // 앞 형제를 보는 것보다 우선한다(의사 클래스는 클래스만큼).
+        assertTrue(CssSelector.parse("p:first-child")!!.specificity > CssSelector.parse("p")!!.specificity)
+        // 맞힐 수 없는 것 · 읽는 화면에서 일어나지 않는 상태는 규칙째 버린다 — 떼면 모든 요소에 퍼진다.
+        listOf("p:last-child", "li:nth-child(2n+1)", "p:only-child", "p:first-of-type", "div:empty", "a:hover", "a:focus").forEach {
+            assertNull(CssSelector.parse(it), it)
+        }
+    }
+
+    @Test
+    fun `pseudo-classes and attribute selectors are stripped - keeping the rest`() {
+        assertTrue(matches("a:link", el("a")))
         assertTrue(matches("p[lang]", el("p")))
         assertTrue(matches("p[lang=\"ko\"].quote", el("p", classes = "quote")))
         // 태그 없이 의사 클래스만 남으면 버린다 — 전체에 잘못 적용되는 것보다 낫다.

@@ -467,6 +467,52 @@ class ChapterParserTest {
     }
 
     @Test
+    fun `a hidden element whose close is omitted or mismatched does not swallow the rest of the chapter`() {
+        val css = ".hidden { display: none }"
+        // 닫힘이 생략된 숨긴 문단 뒤의 문단: 같은 이름만 세던 때는 깊이가 끝내 0 으로 돌아오지 않았다.
+        val p = parse("<html><body><p class=\"hidden\">숨김 <p>본문</p><p>다음</p></body></html>", css)
+        assertTrue("본문" in p.text && "다음" in p.text, "숨긴 문단 뒤가 사라졌다: '${p.text}'")
+        assertFalse("숨김" in p.text)
+        // 바깥 요소가 먼저 닫힌 숨긴 요소.
+        val span = parse("<html><body><div><span style=\"display:none\">숨김</div><p>뒤</p></body></html>")
+        assertTrue("뒤" in span.text, "바깥이 닫힌 숨긴 요소 뒤가 사라졌다: '${span.text}'")
+        // 닫힘이 생략된 숨긴 목록 항목.
+        val li = parse("<html><body><ul><li class=\"hidden\">숨김<li>둘</li></ul><p>뒤</p></body></html>", css)
+        assertTrue("둘" in li.text && "뒤" in li.text, "숨긴 항목 뒤가 사라졌다: '${li.text}'")
+        // 숨긴 요소 안의 같은 이름 요소는 여전히 함께 숨는다.
+        val nested = parse("<html><body><div class=\"hidden\"><div>속</div>숨김</div><p>보임</p></body></html>", css)
+        assertEquals("보임", nested.text.trim())
+    }
+
+    @Test
+    fun `a blank line inside pre keeps its line and the newline after the opening tag does not`() {
+        // 시의 연 사이 · 코드의 빈 줄은 빈 문단이라 버려져 사라졌다.
+        val poem = parse("<html><body><pre>첫 연\n\n둘째 연</pre></body></html>")
+        assertEquals(3, poem.paragraphs().size, "빈 줄이 사라졌다: '${poem.text}'")
+        // 여는 태그 바로 뒤의 줄바꿈 하나는 HTML 이 버린다 — 빈 줄을 만들지 않는다. 윈도 줄 끝도 같다.
+        assertEquals(1, parse("<html><body><pre>\n한 줄</pre></body></html>").paragraphs().size)
+        assertEquals(3, parse("<html><body><pre>가\r\n\r\n나</pre></body></html>").paragraphs().size)
+    }
+
+    @Test
+    fun `an inline anchor points at the next word and not at the space before it`() {
+        // 접힌 공백 뒤의 앵커가 그 공백을 가리켜, 쪽이 그 사이에서 나뉘면 목차가 한 쪽 앞으로 갔다.
+        val chapter = parse("<html><body><p>앞 문장 끝 <span id=\"s2\"/>다음 절</p></body></html>")
+        assertEquals(chapter.text.indexOf("다음"), chapter.anchors["s2"])
+    }
+
+    @Test
+    fun `an infinite number in a length is ignored instead of breaking the layout`() {
+        // 무한대 길이는 그림 크기 · 글자 배율을 무한 · NaN 으로 만들어, 문단 나머지가 화면 밖 한 줄에 놓였다.
+        assertNull(CssLength.parse("1e39em"))
+        assertEquals(12f, CssLength.parse("12px")?.value)
+        fun sizing(width: String) = parse("<html><body><img src=\"a.png\" width=\"$width\"/></body></html>").blocks.filterIsInstance<Block.Image>().single().sizing
+        assertEquals(ImageSizing.Auto, sizing("1e39"))
+        assertEquals(ImageSizing.Auto, sizing("1e39px"))
+        assertTrue(sizing("120") != ImageSizing.Auto, "보통 width 를 버렸다")
+    }
+
+    @Test
     fun `a less-than sign inside a script does not hide the chapter`() {
         // 스크립트 안의 a<b 를 태그로 읽으면 </script> 까지 삼켜 장 전체가 스크립트 안으로 들어갔다.
         val chapter = parse("<html><body><script>if (a<b) x();</script><p>visible</p></body></html>")

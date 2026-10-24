@@ -61,7 +61,9 @@ data class CssLength(val value: Float, val unit: CssUnit) {
                 // 단위 없는 0 만 허용한다. 단위 없는 다른 숫자는 CSS 에서 무효다.
                 null -> text
             }
-            val number = numberText.trim().toFloatOrNull() ?: return null
+            // "1e39" 는 Float 로 무한대다. 받으면 그림 크기 · 글자 배율이 무한 · NaN 이 되어, 줄 나누기가 넘침을 알아채지
+            // 못하고 문단 나머지를 화면 밖 한 줄에 놓았다.
+            val number = numberText.trim().toFloatOrNull()?.takeIf { it.isFinite() } ?: return null
             if (resolvedUnit == null) return if (number == 0f) CssLength(0f, CssUnit.Em) else null
             return CssLength(number, resolvedUnit)
         }
