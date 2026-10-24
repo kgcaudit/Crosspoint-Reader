@@ -110,6 +110,29 @@ class BookLinksTest {
     }
 
     @Test
+    fun `a bookmark preview cut at 80 characters never keeps half an emoji`() {
+        // 쪽 첫 글자부터 80 칸(ReadingSession.snippetAt) — 80번째 칸이 이모지의 앞 반쪽인 일부러 망가뜨린 자리.
+        val text = "가".repeat(79) + "😀" + "나머지"
+        val cut = excerpt(text, 0, 80, emptySet())
+        assertEquals("가".repeat(79), cut)
+        assertTrue(cut.none { it.isSurrogate() })
+        // 81 칸이면 이모지가 통째로 들어간다.
+        assertEquals("가".repeat(79) + "😀", excerpt(text, 0, 81, emptySet()))
+        // 시작이 이모지 가운데여도 뒤 반쪽을 버린다.
+        assertEquals("나머지", excerpt(text, 80, text.length, emptySet()))
+    }
+
+    @Test
+    fun `a highlight excerpt cut at the limit never keeps half an emoji`() {
+        // max 자리에 이모지가 걸린 칠한 글.
+        val text = "가".repeat(399) + "😀" + "가".repeat(50)
+        val cut = excerpt(text, 0, text.length, emptySet(), max = 400)
+        assertEquals("가".repeat(399) + "…", cut)
+        assertTrue(cut.none { it.isSurrogate() })
+        assertEquals("가".repeat(399) + "😀" + "…", excerpt(text, 0, text.length, emptySet(), max = 401))
+    }
+
+    @Test
     fun `search finds several words separated by non-breaking spaces`() {
         // 어절 사이를 NBSP(U+00A0) · 좁은 NBSP(U+202F) · 전각 공백(U+3000)으로 띄운 책. `\s` 는 이것들을 모른다 —
         // 두 어절 이상을 찾으면 언제나 0건이었다.
