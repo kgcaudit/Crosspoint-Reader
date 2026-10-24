@@ -18,6 +18,9 @@ import io.github.kgcaudit.reader.layout.LayoutSpec
 import io.github.kgcaudit.reader.layout.Page
 import io.github.kgcaudit.reader.layout.book.BookFontTable
 import io.github.kgcaudit.reader.layout.book.BookLayout
+import io.github.kgcaudit.reader.layout.book.ChapterGuard
+import io.github.kgcaudit.reader.layout.book.LayoutRepositories
+import io.github.kgcaudit.reader.layout.book.LocatorSpace
 import io.github.kgcaudit.reader.layout.book.LinkTarget
 import io.github.kgcaudit.reader.layout.book.ReadingPosition
 import io.github.kgcaudit.reader.layout.book.ReadingSession
@@ -25,6 +28,14 @@ import io.github.kgcaudit.reader.layout.cache.PageStore
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.usePinned
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import platform.Foundation.NSData
 import platform.Foundation.create
 import platform.UIKit.UIImage
@@ -80,6 +91,14 @@ class ReaderFrame(
     /** 보이는 쪽 뒤로 이 장 · 책에 남은 글자(남은 시간). 책은 뒤 장의 파일 크기로 어림한다(공통 `charsAfterChapter`). */
     val charsLeftChapter: Int = 0,
     val charsLeftBook: Long = 0,
+    /** 화면이 말하는 장(위 막대 "n / m장", 0 부터). 조각으로 나눈 큰 TXT 는 조각이 아니라 책 한 장이다(안드로이드 0.60.0). */
+    val chapterIndex: Int = spineIndex,
+    /**
+     * 아래 줄 "12 / 1,480" 의 두 수(1 부터). 조각으로 나눈 큰 TXT 를 뒤에서 세는 동안 모르는 수는 −1(화면은 "…"). 나누지 않은 책은
+     * 장 안의 쪽 번호 · 쪽 수.
+     */
+    val pageNumber: Int = pageIndex + 1,
+    val pageTotal: Int = pageCount,
 )
 
 /** 서재에 보일 책 이름 · 저자. */
@@ -164,7 +183,19 @@ class IosBookReader private constructor(
     private var notes: List<Annotation>? = null
 
     private suspend fun loadNotes(): List<Annotation> =
-        notes ?: runCatching { store.annotations.forBook(document.meta.id) }.getOrDefault(emptyList()).also { notes = it }
+        notes ?: runCatching { repos.annotations.forBook(document.meta.id) }.getOrDefault(emptyList()).also { notes = it }
+
+    /**
+     * 저장 자리 ↔ 조판 자리(안드로이드 0.60.0). 조각으로 나눈 큰 TXT 는 저장소에 나누기 전 한 장의 글자 자리(`r:0:N`)를 두고, 리더
+     * 안은 조각 자리로만 돈다 — 바꾸는 곳을 저장소 문턱 하나로 모아 책갈피 · 진도 · 형광펜 코드가 EPUB 과 같은 길을 탄다.
+     */
+    private var spaceCache: LocatorSpace? = null
+    private suspend fun space(): LocatorSpace = spaceCache ?: LocatorSpace.of(document).also { spaceCache = it }
+    private val repos = LayoutRepositories(store, store, store.annotations, ::space)
+
+    /** 조각으로 나눈 TXT 의 쪽 수를 뒤에서 센다. 화면 조판과 다른 스레드 · 다른 측정기 — 넘기기를 막지 않는다. */
+    private val background = CoroutineScope(SupervisorJob() + Dispatchers.Default.limitedParallelism(1))
+    private var counting: Job? = null
 
     /** 링크로 건너가기 전에 읽던 곳. 목차 · 진도 · 책갈피 · 찾기로 다른 곳에 가면 뜻을 잃어 지운다. */
     private var returnTo: Locator.Reflow? = null
@@ -290,14 +321,63 @@ class IosBookReader private constructor(
         val anchor = position?.let { p -> layout?.locatorAt(p.spineIndex, p.pageIndex) }
         val withEdition = withBookFonts(spec.copy(edition = edition))
         if (withEdition != this.spec || layout == null) {
-            val newLayout = BookLayout(document, withEdition, pages, measurer(withEdition), fonts = fontTable())
+            counting?.cancel()
+            val locks = PieceLocks()
+            val newLayout = BookLayout(document, withEdition, pages, measurer(withEdition), fonts = fontTable(), guard = locks)
             layout = newLayout
-            session = ReadingSession(newLayout, store, store)
+            session = ReadingSession(newLayout, repos.bookmarks, repos.progress)
             this.spec = withEdition
             position = anchor?.let { newLayout.resolve(it) } ?: session!!.restore()
             newLayout.pruneStaleCaches()
+            startCounting(withEdition, locks)
         }
         return show(position!!)
+    }
+
+    /**
+     * 조각으로 나눈 큰 TXT 의 나머지 조각을 뒤에서 조판해 쪽 수를 센다(안드로이드 0.60.0). 화면은 보이는 조각만 짜고 바로 뜨므로,
+     * 이것이 끝나야 "12 / …" 가 "12 / 1,480" 이 된다. 화면 조판과 같은 조각을 함께 짜지 않게 [locks] 를 함께 쓴다.
+     */
+    private suspend fun startCounting(newSpec: LayoutSpec, locks: PieceLocks) {
+        counting?.cancel()
+        if (!space().isSplit) return
+        val faces = bookFaces
+        counting = background.launch {
+            // 측정기는 스레드 안전하지 않아 따로 만든다. 같은 설정이라 같은 캐시를 채운다 — 화면이 그 조각에 오면 짜지 않고 읽는다.
+            val counter = BookLayout(document, newSpec, pages, CoreTextMeasurer.forSpec(newSpec, faces), fonts = fontTable ?: BookFontTable.EMPTY, guard = locks)
+            while (true) {
+                val next = counter.nextUncounted() ?: break
+                try {
+                    counter.ensurePaginated(next)
+                } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // 설정을 바꿔 옛 캐시 폴더가 지워지는 중이면 쓰기가 실패한다 — 새 설정의 셈이 다시 시작된다.
+                    return@launch
+                }
+            }
+        }
+    }
+
+    /**
+     * 지금 쪽의 번호 · 쪽 수(뒤에서 센 만큼). 화면이 세는 동안("12 / …") 가끔 물어 아래 줄을 고친다 — 쪽을 다시 그리지 않는다.
+     * 모르는 수는 −1. 세기가 끝났으면 [done].
+     */
+    @Throws(Exception::class)
+    suspend fun pageNumberNow(): PageNumberRow {
+        val p = position ?: return PageNumberRow(-1, -1, true)
+        val n = layout().pageNumber(p)
+        return PageNumberRow(n.number ?: -1, n.total ?: -1, n.total != null)
+    }
+
+    /**
+     * 저장된 자리(다른 기기 · 동기화가 준 책 자리)를 리더 안의 자리로 — 조각으로 나눈 TXT 만 다르다. 두 칸 배열 [장, 글자].
+     * 동기화 띠는 책을 처음 짜기 전에 놓이기도 해 자리 체계를 스스로 구한다.
+     */
+    @Throws(Exception::class)
+    suspend fun layoutPlace(spine: Int, offset: Int): List<Int> {
+        val at = space().toLayout(Locator.Reflow(spine, offset.coerceAtLeast(0)))
+        return listOf(at.spine, at.charOffset)
     }
 
     /** 다음 쪽. 책 끝이면 null. */
@@ -371,8 +451,23 @@ class IosBookReader private constructor(
     private val darkPaper: Boolean get() = PagePainter.luminanceOf(paper) < 0.18
 
     /** 그 장에서 보이는 형광펜(숨김이면 없다). 장 하나에 걸친 것만 — 쪽을 넘는 칠은 다음 단계. */
-    private suspend fun visibleNotes(spine: Int): List<Annotation> =
-        if (!showHighlights) emptyList() else loadNotes().filter { it.start.spine == spine && it.end.spine == spine }
+    private suspend fun visibleNotes(spine: Int): List<Annotation> = if (!showHighlights) emptyList() else notesFor(spine)
+
+    /**
+     * 이 장(조각)에 걸친 칠(안드로이드 0.60.0 `notesFor`). 조각 경계를 넘는 칠(0.59 까지 한 장이던 큰 TXT 에 칠한 것)은 이 조각
+     * 안만 남긴 사본으로 낸다 — 지면의 그리기 · 누르기는 이 조각의 글자 번호로 쓴다. 고치기 · 가기는 id 로 원본을 찾는다.
+     */
+    private suspend fun notesFor(spine: Int): List<Annotation> {
+        val all = loadNotes().filter { it.start.spine <= spine && spine <= it.end.spine }
+        if (all.none { it.start.spine != it.end.spine }) return all
+        val length = runCatching { layout().chapterLength(spine) }.getOrDefault(0)
+        return all.mapNotNull { a ->
+            if (a.start.spine == a.end.spine) return@mapNotNull a
+            val start = if (a.start.spine == spine) a.start else Locator.Reflow(spine, 0)
+            val end = if (a.end.spine == spine) a.end else Locator.Reflow(spine, length)
+            runCatching { a.copy(start = start, end = end) }.getOrNull()
+        }
+    }
 
     private suspend fun row(a: Annotation): NoteRow {
         val l = layout()
@@ -394,8 +489,12 @@ class IosBookReader private constructor(
         val l = layout()
         val first = l.resolve(a.start)
         val last = l.resolve(Locator.Reflow(a.end.spine, (a.end.charOffset - 1).coerceAtLeast(0)))
-        if (first.spineIndex != last.spineIndex || first.pageIndex == last.pageIndex) null
-        else "${first.pageIndex + 1}–${last.pageIndex + 1}쪽에 걸침"
+        if (first.spineIndex == last.spineIndex && first.pageIndex == last.pageIndex) return@runCatching null
+        // 조각으로 나눈 TXT 는 조각을 넘어도 한 장이다 — 쪽 번호도 장 전체로 센 수(세는 중이면 알리지 않는다).
+        if (first.spineIndex != last.spineIndex && !space().isSplit) return@runCatching null
+        val from = l.pageNumber(first).number ?: return@runCatching null
+        val to = l.pageNumber(last).number ?: return@runCatching null
+        "$from–${to}쪽에 걸침"
     }.getOrNull()
 
     /** 지금 쪽의 ([x], [y]) 에 가장 가까운 글자 자리. 글자가 없는 쪽(그림뿐)이면 -1. */
@@ -495,9 +594,9 @@ class IosBookReader private constructor(
         val pen = HighlightColor.entries.getOrElse(color) { HighlightColor.Yellow }
         val same = loadNotes().firstOrNull { it.start == Locator.Reflow(spine, from) && it.end == Locator.Reflow(spine, to) }
         if (same != null) {
-            store.annotations.update(same.copy(color = pen).withNote(note ?: same.note))
+            repos.annotations.update(same.copy(color = pen).withNote(note ?: same.note))
         } else {
-            store.annotations.add(
+            repos.annotations.add(
                 Annotation(
                     Annotation.NO_ID, l.bookId, Locator.Reflow(spine, from), Locator.Reflow(spine, to), pen, null,
                     l.excerpt(spine, from, to).takeWhole(SNIPPET_MAX), currentTimeMillis(),
@@ -512,7 +611,7 @@ class IosBookReader private constructor(
     @Throws(Exception::class)
     suspend fun recolor(id: Long, color: Int): ReaderFrame {
         loadNotes().firstOrNull { it.id == id }?.let { a ->
-            store.annotations.update(a.copy(color = HighlightColor.entries.getOrElse(color) { a.color }))
+            repos.annotations.update(a.copy(color = HighlightColor.entries.getOrElse(color) { a.color }))
         }
         notes = null
         return show(position!!)
@@ -521,14 +620,14 @@ class IosBookReader private constructor(
     /** 메모를 고친다. 빈 글이면 메모를 지운다(칠은 남는다). */
     @Throws(Exception::class)
     suspend fun setNote(id: Long, note: String?): ReaderFrame {
-        loadNotes().firstOrNull { it.id == id }?.let { store.annotations.update(it.withNote(note)) }
+        loadNotes().firstOrNull { it.id == id }?.let { repos.annotations.update(it.withNote(note)) }
         notes = null
         return show(position!!)
     }
 
     @Throws(Exception::class)
     suspend fun removeNote(id: Long): ReaderFrame {
-        store.annotations.remove(id)
+        repos.annotations.remove(id)
         notes = null
         return show(position!!)
     }
@@ -668,9 +767,11 @@ class IosBookReader private constructor(
     @Throws(Exception::class)
     suspend fun goToPlace(spine: Int, offset: Int): ReaderFrame {
         val l = layout()
-        if (spine !in l.spine().indices) return show(position ?: error("not laid out"))
+        // 다른 기기의 자리는 책 자리(큰 TXT 는 나누기 전 한 장의 글자 번호)라 리더 안의 자리로 바꾼다.
+        val at = space().toLayout(Locator.Reflow(spine, offset.coerceAtLeast(0)))
+        if (at.spine !in l.spine().indices) return show(position ?: error("not laid out"))
         returnTo = null
-        return show(l.resolve(Locator.Reflow(spine, offset.coerceAtLeast(0))))
+        return show(l.resolve(at))
     }
 
     /** 찾기를 끝냈다 — 칠을 지우고 지금 쪽을 다시 낸다. */
@@ -761,7 +862,7 @@ class IosBookReader private constructor(
      */
     @Throws(Exception::class)
     suspend fun removeBookmark(id: Long): ReaderFrame {
-        store.remove(id)
+        repos.bookmarks.remove(id)
         return show(position ?: error("not laid out"))
     }
 
@@ -775,6 +876,7 @@ class IosBookReader private constructor(
     }
 
     fun close() {
+        background.cancel()
         (document as? Closeable)?.close()
         bookFaces?.release()
         bookFaces = null
@@ -798,13 +900,20 @@ class IosBookReader private constructor(
         val dx = if (spread) spreadInset else 0f
         shown = page?.let { Shown(left.spineIndex, listOfNotNull(it to dx, rightPage?.let { r -> r to dx + spec!!.viewportWidthPx })) }
         val end = (rightPage ?: page)?.endCharExclusive ?: 0
-        val chapterLeft = (runCatching { l.chapterLength(left.spineIndex) }.getOrDefault(0) - end).coerceAtLeast(0)
-        val after = charsAfter.getOrPut(left.spineIndex) { runCatching { l.charsAfterChapter(left.spineIndex) }.getOrDefault(0L) }
+        // 장은 화면이 말하는 장 — 조각으로 나눈 TXT 는 책 전체이고, 쪽의 글자 번호는 조각 안의 번호라 조각 시작을 더한다. 빼면
+        // 남은 시간이 조각마다 처음으로 돌아갔다(안드로이드 0.60.0).
+        val span = runCatching { l.chapterSpan(left.spineIndex) }.getOrNull()
+        val chapterLeft = ((span?.length ?: 0) - (span?.offset ?: 0) - end).coerceAtLeast(0)
+        val after = span?.charsAfter ?: charsAfter.getOrPut(left.spineIndex) { runCatching { l.charsAfterChapter(left.spineIndex) }.getOrDefault(0L) }
+        val number = runCatching { l.pageNumber(left) }.getOrNull()
         val toc = outline()
         return ReaderFrame(
             image = image,
             spineIndex = left.spineIndex,
-            chapterCount = l.spine().size,
+            chapterCount = span?.count ?: l.spine().size,
+            chapterIndex = span?.index ?: left.spineIndex,
+            pageNumber = number?.let { it.number ?: -1 } ?: (left.pageIndex + 1),
+            pageTotal = number?.let { it.total ?: -1 } ?: left.pageCount,
             pageIndex = left.pageIndex,
             pageCount = left.pageCount,
             percent = saved.percent,
@@ -984,4 +1093,22 @@ private fun ByteArray.toUIImage(): UIImage? {
     if (isEmpty()) return null
     val data = usePinned { NSData.create(bytes = it.addressOf(0), length = size.toULong()) }
     return UIImage.imageWithData(data)
+}
+
+
+/** 쪽 번호 · 쪽 수(−1 은 아직 세는 중). [done] 이면 더 묻지 않아도 된다. */
+class PageNumberRow(val number: Int, val total: Int, val done: Boolean)
+
+/**
+ * 조각마다 하나의 자물쇠(안드로이드 `PieceLocks`). 화면 조판과 뒤에서 쪽 수를 세는 조판이 같은 조각을 함께 짜면 캐시 파일 하나에
+ * 두 쓰기가 섞인다. 설정마다 새로 만든다(설정이 다르면 캐시 폴더가 다르다).
+ */
+private class PieceLocks : ChapterGuard {
+    private val table = Mutex()
+    private val locks = HashMap<Int, Mutex>()
+
+    override suspend fun <T> locked(spineIndex: Int, block: suspend () -> T): T {
+        val lock = table.withLock { locks.getOrPut(spineIndex) { Mutex() } }
+        return lock.withLock { block() }
+    }
 }

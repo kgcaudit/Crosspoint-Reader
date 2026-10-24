@@ -91,6 +91,18 @@ actor ReaderEngine: BookEngine {
     }
 
     func goToContents(_ index: Int) async throws -> PageFrame? { try await reader.goToContents(index: Int32(index)).map(PageFrame.init) }
+    /// 쪽 번호 · 쪽 수(뒤에서 센 만큼, 큰 TXT). 모르는 수는 nil, [done] 이면 세기가 끝났다.
+    func pageNumberNow() async -> (number: Int?, total: Int?, done: Bool) {
+        guard let n = try? await reader.pageNumberNow() else { return (nil, nil, true) }
+        return (n.number < 0 ? nil : Int(n.number), n.total < 0 ? nil : Int(n.total), n.done)
+    }
+
+    /// 다른 기기의 책 자리 → 리더 안의 자리(큰 TXT 는 조각 자리).
+    func layoutPlace(spine: Int, offset: Int) async -> (spine: Int, offset: Int) {
+        guard let p = try? await reader.layoutPlace(spine: Int32(spine), offset: Int32(offset)), p.count == 2 else { return (spine, offset) }
+        return (Int(truncating: p[0]), Int(truncating: p[1]))
+    }
+
     func goToPlace(_ place: SyncPlace) async throws -> PageFrame? {
         guard let spine = place.spine, let offset = place.offset else { return nil }
         return PageFrame(try await reader.goToPlace(spine: Int32(spine), offset: Int32(offset)))
@@ -190,6 +202,11 @@ struct PageFrame: @unchecked Sendable {
     let section: String
     let charsLeftChapter: Int
     let charsLeftBook: Int
+    /// 화면이 말하는 장(위 막대 "n / m장"). 조각으로 나눈 큰 TXT 는 책 한 장(안드로이드 0.60.0).
+    var chapter = 0
+    /// 아래 줄 "12 / 1,480" 의 두 수(1 부터). 큰 TXT 를 뒤에서 세는 동안 모르는 수는 nil — "…".
+    var pageNumber: Int?
+    var pageTotal: Int?
     /// 이 화면의 이름. 만화의 넓은 그림을 반씩 볼 때는 반도 넣는다 — 빼면 두 반이 같은 이름이라 반을 넘겨도 "쪽이 그대로" 로 보여,
     /// 말림이 말지 않고 낡은 앞 · 뒤 그림이 남고 읽은 시간이 끊기지 않았다(기기 점검에서 찾음).
     var key: String { halfLabel.isEmpty ? "\(spine):\(page)" : "\(spine):\(page):\(halfLabel)" }
@@ -209,6 +226,9 @@ struct PageFrame: @unchecked Sendable {
         section = f.section
         charsLeftChapter = Int(f.charsLeftChapter)
         charsLeftBook = Int(f.charsLeftBook)
+        chapter = Int(f.chapterIndex)
+        pageNumber = f.pageNumber < 0 ? nil : Int(f.pageNumber)
+        pageTotal = f.pageTotal < 0 ? nil : Int(f.pageTotal)
     }
 
     /// PDF 쪽(펼침이면 왼쪽 쪽). 남은 시간은 아직 세지 않는다(글자가 아니라 쪽 단위 빠르기가 따로 있다 — 안드로이드 `speed.pages`).
@@ -270,6 +290,7 @@ final class ReaderModel: ObservableObject {
             // 읽은 시간: 사람 · 자동이 넘겼으면 앞 쪽 시간을 적고, 건너뛰었으면 버린다(구상안 30).
             if let key = frame?.key { clock?.pageChanged(to: key, counted: cause != .jump) }
             if isFixed { pdfPageChanged() }
+            watchCounting()
         }
     }
     /// 읽은 시간(구상안 30). 책을 열 때 만든다.
@@ -861,6 +882,30 @@ final class ReaderModel: ObservableObject {
     /// 손으로 말았는데 쪽을 옮기지 못했다(맨 앞 · 맨 끝 · 읽기 실패). 말림 화면은 이미 다른 그림을 보이고 있어 지금 쪽 그림으로 되돌린다.
     @Published private(set) var curlReset = 0
 
+    /// 큰 TXT 의 쪽 수를 뒤에서 세는 동안(아래 줄 "12 / …") 1초마다 물어 아래 줄만 고친다(안드로이드 0.60.0 — 안드로이드는 셀 때마다
+    /// 상태를 흘려보낸다). 쪽을 다시 그리지 않는다. 다 세면 멈춘다.
+    private var counting: Task<Void, Never>?
+
+    private func watchCounting() {
+        guard counting == nil, let f = frame, f.pageTotal == nil, !f.isPdf, !f.isComic, let e = engine as? ReaderEngine else { return }
+        counting = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard let key = self?.frame?.key else { break }
+                let n = await e.pageNumberNow()
+                // 묻는 사이 쪽이 바뀌었으면 다음 번에 — 옛 쪽의 번호를 새 쪽에 붙이지 않게.
+                guard let self, !Task.isCancelled, var now = self.frame, now.key == key else { continue }
+                if now.pageNumber != n.number || now.pageTotal != n.total {
+                    now.pageNumber = n.number
+                    now.pageTotal = n.total
+                    self.frame = now
+                }
+                if n.done { break }
+            }
+            self?.counting = nil
+        }
+    }
+
     /// 쪽이 보이는 동안 넘기기 · 찾아가기가 실패했다(캐시 · 파일 읽기 실패 등) — 알림 한 번(안드로이드 `PAGE_FAILED`, 0.59.2).
     /// 전에는 `try?` 가 삼켜 옛 쪽이 말없이 남았다. 취소(빠르게 연달아 누름)와 그 책에 없는 기능은 실패가 아니다.
     private func failedToGo(_ error: Error) {
@@ -1158,9 +1203,12 @@ final class ReaderModel: ObservableObject {
                 return SyncRules.shared.pageBeyond(remotePage: Int32(page), shownLast: Int32(frame.page + (frame.hasRight ? 1 : 0)))
             }
         } else if let spine = o.spine?.intValue, let offset = o.offset?.intValue {
+            // 다른 기기의 자리는 책 자리(큰 TXT 는 나누기 전 한 장의 글자 번호)라 리더 안의 자리로 바꿔 견준다 — 그대로 견주면 둘째
+            // 조각부터 읽는 중에 "더 읽었다" 를 잘못 알았다(안드로이드 0.60.0). 가는 곳(SyncPlace)은 책 자리 그대로(리더가 바꾼다).
+            let here = await (engine as? ReaderEngine)?.layoutPlace(spine: spine, offset: offset) ?? (spine: spine, offset: offset)
             setAsk(o.deviceName, "\(Int(o.percent))%", at: o.updatedAt, SyncPlace(spine: spine, offset: offset)) { frame, _ in
                 guard let frame else { return false }
-                return SyncRules.shared.reflowBeyond(remoteSpine: Int32(spine), remoteOffset: Int32(offset), shownSpine: Int32(frame.spine),
+                return SyncRules.shared.reflowBeyond(remoteSpine: Int32(here.spine), remoteOffset: Int32(here.offset), shownSpine: Int32(frame.spine),
                                                      shownEndExclusive: Int32(frame.pageEnd))
             }
         }
@@ -1250,6 +1298,7 @@ final class ReaderModel: ObservableObject {
     }
 
     func close() async {
+        counting?.cancel()
         webtoon?.close()
         clock?.pause()
         if listening.active { listening.close() }

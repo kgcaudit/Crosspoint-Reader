@@ -227,7 +227,8 @@ private struct ReaderBar: View {
             let pages = frame.hasRight ? "\(frame.page + 1)–\(frame.page + 2)" : "\(frame.page + 1)"
             return "\(pages) / \(frame.pages)쪽" + frame.halfLabel + (rtl ? " · 오→왼" : "")
         }
-        return frame.isPdf ? "\(frame.page + 1) / \(frame.pages)쪽" : "\(frame.spine + 1) / \(frame.chapters)장"
+        // 장은 화면이 말하는 장 — 큰 TXT 는 조각이 아니라 책 한 장("1 / 1장", 안드로이드 0.60.0).
+        return frame.isPdf ? "\(frame.page + 1) / \(frame.pages)쪽" : "\(frame.chapter + 1) / \(frame.chapters)장"
     }
 
     private var rtl: Bool { frame.isComic && model.comicRTL }

@@ -23,6 +23,8 @@ kotlin {
         commonMain.dependencies {
             api(project(":document"))
             api(project(":core-layout"))
+            // 큰 TXT 의 쪽 수를 뒤에서 센다(다른 스레드 · 조각 자물쇠, 안드로이드 0.60.0). 공통 코어는 코루틴에 기대지 않는다.
+            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:${libs.versions.coroutines.get()}")
         }
         iosTest.dependencies {
             implementation(libs.kotlin.test)

@@ -45,6 +45,23 @@ enum FooterItem: String, CaseIterable, Identifiable {
 
 /// 아래 줄의 글(안드로이드 `CpReading` 의 문구와 같다).
 enum FooterText {
+    /// 아래 줄 쪽 표시(안드로이드 0.60.0 `pageLabel`). 두 쪽이면 "5–6 / 12". 큰 TXT 를 뒤에서 세는 동안 모르는 수는 "…", 천 단위는 쉼표
+    /// — 큰 TXT 는 한 장이 천 쪽을 넘는다.
+    static func pageLabel(_ number: Int?, _ total: Int?, twoPages: Bool) -> String {
+        func n(_ v: Int?) -> String { v.map { grouped.string(from: NSNumber(value: $0)) ?? "\($0)" } ?? "…" }
+        let shown = twoPages && number != nil ? "\(n(number))–\(n(number! + 1))" : n(number)
+        return "\(shown) / \(n(total))"
+    }
+
+    private static let grouped: NumberFormatter = {
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.usesGroupingSeparator = true
+        f.groupingSeparator = ","
+        return f
+    }()
+
     /// "1분 미만" · "4분" · "2시간" · "2시간 10분".
     static func minutes(_ m: Int) -> String {
         if m <= 0 { return "1분 미만" }
@@ -158,11 +175,20 @@ struct ReadingFooter: View {
             // 모르면(시뮬레이터 −1) 비운다 — "배터리 -100%" 보다 낫다.
             return level < 0 ? "" : "배터리 \(Int((level * 100).rounded()))%"
         case .page:
-            let n = frame.hasRight ? "\(frame.page + 1)–\(frame.page + 2) / \(frame.pages)" : "\(frame.page + 1) / \(frame.pages)"
+            // 책은 조각을 이어 센 수(큰 TXT 를 세는 동안 "…", 천 단위 쉼표 — 안드로이드 0.60.0 `pageLabel`).
+            let n = frame.isPdf || frame.isComic
+                ? (frame.hasRight ? "\(frame.page + 1)–\(frame.page + 2) / \(frame.pages)" : "\(frame.page + 1) / \(frame.pages)")
+                : FooterText.pageLabel(frame.pageNumber, frame.pageTotal, twoPages: frame.hasRight)
             // 인쇄된 쪽 번호가 파일 순서와 다르면 앞에 — "iv · 4 / 230"(안드로이드 PDF).
             return frame.pageLabel.map { "\($0) · \(n)" } ?? n
         case .percent: return "\(Int(frame.percent.rounded()))%"
-        case .chapterLeft: return FooterText.chapterLeft(frame.pagesLeft ?? max(frame.pages - frame.page - 1 - (frame.hasRight ? 1 : 0), 0))
+        case .chapterLeft:
+            // 큰 TXT 는 장이 책 전체라 조각을 이어 센 수로 — 세는 중이면 비운다(안드로이드 0.60.0).
+            if !frame.isPdf && !frame.isComic {
+                guard let n = frame.pageNumber, let t = frame.pageTotal else { return "" }
+                return FooterText.chapterLeft(max(t - n - (frame.hasRight ? 1 : 0), 0))
+            }
+            return FooterText.chapterLeft(frame.pagesLeft ?? max(frame.pages - frame.page - 1 - (frame.hasRight ? 1 : 0), 0))
         // 남은 시간: 책은 글자, PDF 는 쪽으로 잰다(글자를 읽을 수 없다 — 안드로이드와 같다). 두 쪽이면 오른쪽 쪽 뒤부터 남은 것.
         case .chapterTime:
             let left = frame.isPdf ? frame.pagesLeft ?? -1 : frame.charsLeftChapter
