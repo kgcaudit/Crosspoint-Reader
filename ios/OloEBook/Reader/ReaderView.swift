@@ -1358,7 +1358,7 @@ struct ReaderView: View {
     @State private var closing = false
     #if DEBUG
     @State private var debugApplied = false
-    /// 메뉴 없이 읽을 때의 화면 크기 · 안전 영역(메뉴가 열려도 조판이 바뀌지 않게).
+    /// 이 화면 크기에서 본 가장 작은 안전 영역(상태 막대가 나타났다 사라져도 조판이 바뀌지 않게).
     @State private var readingInsets: (full: CGSize, insets: EdgeInsets)?
     #endif
 
@@ -1367,9 +1367,13 @@ struct ReaderView: View {
             let raw = geometry.safeAreaInsets
             let full = CGSize(width: geometry.size.width + raw.leading + raw.trailing,
                               height: geometry.size.height + raw.top + raw.bottom)
-            // 메뉴가 열린 동안은 읽던 때의 안전 영역을 쓴다. iPad 는 메뉴를 열면 상태 막대가 나타나 위 안전 영역이 0 → 24 로 바뀌는데,
-            // 그 값으로 다시 짜면 메뉴를 열 때마다 쪽 경계가 달라져 다른 글이 보였다(실기기에서 찾음). 화면 크기가 바뀌면(회전) 새 값.
-            let insets = model.panel == .none ? raw : (readingInsets.flatMap { $0.full == full ? $0.insets : nil } ?? raw)
+            // 조판에는 이 화면 크기에서 본 가장 작은 안전 영역을 쓴다. iPad 는 메뉴를 열면 상태 막대가 나타나 위 안전 영역이 0 → 32 로
+            // 바뀌는데, 그 값으로 다시 짜면 메뉴를 열 때마다 쪽 경계가 달라져 다른 글이 보였다(실기기에서 찾음). 메뉴 상태로 가르면 안 된다 —
+            // 메뉴를 닫는 순간 상태 막대는 아직 사라지는 중이라 32 를 "읽을 때 값" 으로 잡아, 열고 닫을 때마다 두 번씩 다시 짰다(기기
+            // 기록). 상태 막대는 안전 영역을 늘리기만 하므로 가장 작은 값이 읽을 때의 값이다. 화면 크기가 바뀌면(회전) 새로 잰다.
+            let pageInsets = readingInsets.flatMap { $0.full == full ? $0.insets : nil } ?? raw
+            // 메뉴 · 판 · 시트 같은 화면 부품은 실제 안전 영역 — 고정값을 쓰면 iPad 에서 메뉴 막대가 상태 막대와 겹쳤다(실기기에서 찾음).
+            let insets = raw
             // 만화는 늘 어두운 바탕(구상안 36) — 메뉴도 이 밝기를 따라 어둡다.
             let paper = model.isComic ? comicPaper : prefs.theme.paper(scheme)
             ZStack {
@@ -1381,7 +1385,7 @@ struct ReaderView: View {
                                           paper: UIColor(paper.paperColor), target: (frame.page, frame.pdfY), jumpToken: model.continuousJump,
                                           step: model.continuousStep.step, stepToken: model.continuousStep.token,
                                           image: { i, w in await pdf.continuousStrip(i, width: w) },
-                                          onTap: { p in pageTap(p, size: full, insets: insets) },
+                                          onTap: { p in pageTap(p, size: full, insets: pageInsets) },
                                           onSwipe: { s in Task { await model.swipe(s) } },
                                           onSettle: { t, y, c in Task { await model.continuousSettled(top: t, y: y, center: c) } },
                                           onScroll: { c in model.continuousScrolled(center: c) },
@@ -1421,7 +1425,7 @@ struct ReaderView: View {
                                   paper: UIColor(paper.paperColor), spread: twoPages(full),
                                   animate: model.flipFor == key ? (rtl ? -model.direction : model.direction) : 0,
                                   onFlip: { step in Task { await model.commitFlip(rtl ? -step : step) } },
-                                  onTap: { p in pageTap(local(p), size: full, insets: insets) },
+                                  onTap: { p in pageTap(local(p), size: full, insets: pageInsets) },
                                   onLongPress: { p in Task { await model.select(at: local(p)) } },
                                   zoom: pdfZoomable ? { p, s in model.startZoom(at: local(p), scale: s) } : nil,
                                   reset: model.curlReset)
@@ -1446,7 +1450,7 @@ struct ReaderView: View {
                     }
                     // 윗여백 안에서 끝나 글자를 가리지 않는다. 노치 · 다이내믹 아일랜드가 있으면 그 아래로.
                     if frame.bookmarked {
-                        CpRibbon().padding(.top, insets.top).padding(.trailing, 20 + insets.trailing)
+                        CpRibbon().padding(.top, pageInsets.top).padding(.trailing, 20 + pageInsets.trailing)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                             .allowsHitTesting(false)
                     }
@@ -1455,7 +1459,7 @@ struct ReaderView: View {
                     // 만화에는 아래 줄이 없다(안드로이드와 같다) — 쪽 그림이 화면 끝까지 쓴다.
                     if !model.isComic {
                         ReadingFooter(title: model.title, frame: frame, items: prefs.footer, speed: model.speed, ink: paper.inkMutedColor)
-                            .padding(.horizontal, CGFloat(ReaderPrefs.margins[prefs.margin]) + max(insets.leading, insets.trailing))
+                            .padding(.horizontal, CGFloat(ReaderPrefs.margins[prefs.margin]) + max(pageInsets.leading, pageInsets.trailing))
                             .frame(maxHeight: .infinity, alignment: .bottom)
                             .padding(.bottom, 14)
                             .allowsHitTesting(false)
@@ -1465,7 +1469,7 @@ struct ReaderView: View {
                     }
                 }
                 // 오→왼(만화): 왼쪽을 누르거나 오른쪽으로 밀면 다음 쪽 — 넘김 자리만 뒤집고 그림은 그대로.
-                TurnZones(cornerTop: insets.top, cornerRight: insets.trailing, zones: zones, rightToLeft: rtl,
+                TurnZones(cornerTop: pageInsets.top, cornerRight: pageInsets.trailing, zones: zones, rightToLeft: rtl,
                           surface: surfaceLabel,
                           turn: { step in Task { await model.turn(step) } },
                           tap: { point, otherwise in Task { await model.tap(at: point, otherwise: otherwise) } },
@@ -1487,7 +1491,7 @@ struct ReaderView: View {
                     PdfZoomView(base: base, area: model.pdfArea,
                                 image: model.pdfZoomImage ?? (model.isPdf && pdfFit == .width ? frame.image : frame.image.cropped(to: base)),
                                 anchor: z.anchor, scale: z.scale, paper: UIColor(paper.paperColor),
-                                onTap: { p in pageTap(p, size: full, insets: insets) }, onDone: { model.pdfZoom = nil })
+                                onTap: { p in pageTap(p, size: full, insets: pageInsets) }, onDone: { model.pdfZoom = nil })
                         .ignoresSafeArea()
                 }
                 if model.selection != nil || model.tapped != nil {
@@ -1606,8 +1610,12 @@ struct ReaderView: View {
             }
             .clipped()
             .frame(width: full.width, height: full.height)
-            .onChange(of: InsetsKey(full: full, insets: raw, reading: model.panel == .none), initial: true) { _, k in
-                if k.reading { readingInsets = (k.full, k.insets) }
+            .onChange(of: InsetsKey(full: full, insets: raw), initial: true) { _, k in
+                guard let seen = readingInsets, seen.full == k.full else { readingInsets = (k.full, k.insets); return }
+                let i = seen.insets, r = k.insets
+                let least = EdgeInsets(top: min(i.top, r.top), leading: min(i.leading, r.leading),
+                                       bottom: min(i.bottom, r.bottom), trailing: min(i.trailing, r.trailing))
+                if least != i { readingInsets = (k.full, least) }
             }
             // 화면 전체에 그리려고 실제 안전 영역만큼 되돌린다 — 조판에 쓰는 고정값(insets)으로 되돌리면 상태 막대가 나타날 때 쪽이 그만큼 밀렸다.
             .offset(x: -raw.leading, y: -raw.top)
@@ -1620,24 +1628,24 @@ struct ReaderView: View {
             #endif
             .onChange(of: model.frame?.key) { _, key in model.syncMoved(key) }
             // 만화(구상안 36): 화면 · 두 쪽 · 표지 · 방향이 바뀌면 다시 낸다.
-            .task(id: comicSpec(full, insets)) {
-                guard let spec = comicSpec(full, insets) else { return }
+            .task(id: comicSpec(full, pageInsets)) {
+                guard let spec = comicSpec(full, pageInsets) else { return }
                 await model.layOutComic(spec)
             }
             // PDF(구상안 32A · 33): 화면 · 지면 · 쪽 맞춤 · 두 쪽 · 표지가 바뀌면 다시 낸다.
-            .task(id: pdfSpec(full, insets, paper)) {
-                guard let spec = pdfSpec(full, insets, paper) else { return }
+            .task(id: pdfSpec(full, pageInsets, paper)) {
+                guard let spec = pdfSpec(full, pageInsets, paper) else { return }
                 await model.layOutPdf(spec)
             }
-            .task(id: LayoutKey(spec: model.engine == nil ? nil : prefs.spec(size: full, insets: insets, bookFonts: model.bookFonts,
+            .task(id: LayoutKey(spec: model.engine == nil ? nil : prefs.spec(size: full, insets: pageInsets, bookFonts: model.bookFonts,
                                                                                twoPages: twoPages(full)),
                                 paper: paper, blend: prefs.blendPictures, highlights: prefs.showHighlights,
-                                spread: twoPages(full) ? Spread(width: full.width, leftInset: insets.leading) : nil)) {
+                                spread: twoPages(full) ? Spread(width: full.width, leftInset: pageInsets.leading) : nil)) {
                 guard model.engine != nil else { return }
                 let two = twoPages(full)
-                await model.layOut(prefs.spec(size: full, insets: insets, bookFonts: model.bookFonts, twoPages: two), paper,
+                await model.layOut(prefs.spec(size: full, insets: pageInsets, bookFonts: model.bookFonts, twoPages: two), paper,
                                    blend: prefs.blendPictures, highlights: prefs.showHighlights,
-                                   spread: two ? Spread(width: full.width, leftInset: insets.leading) : nil)
+                                   spread: two ? Spread(width: full.width, leftInset: pageInsets.leading) : nil)
                 #if DEBUG
                 // 화면 확인용: -olo-turn N 쪽 넘기고 -olo-panel bar|view|settings|fonts|contents|voices|footer|footerItem 로 판을 연다, -olo-search <말> 은 찾기 판에서 찾는다. 출시 빌드에는 없다.
                 let args = CommandLine.arguments
@@ -1881,7 +1889,6 @@ struct ReaderView: View {
     private struct InsetsKey: Equatable {
         let full: CGSize
         let insets: EdgeInsets
-        let reading: Bool
     }
 
     private struct KeepAwakeKey: Equatable {
