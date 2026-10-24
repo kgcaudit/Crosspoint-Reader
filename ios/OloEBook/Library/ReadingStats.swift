@@ -190,13 +190,25 @@ struct ReadingStatsScreen: View {
     /// 보고 있는 달(그 달 1일).
     @State private var month = Calendar.current.dateInterval(of: .month, for: Date())?.start ?? Date()
     @State private var showAll = false
+    /// 센 결과. 달을 넘기거나 "모두 보기" 를 눌러 다시 그릴 때마다 기록 전체를 다시 읽고 세지 않게 둔다.
+    @State private var counted: ReadingStats?
+
+    private var statsKey: String { "\(library.reading.count)|\(library.finished.count)|\(library.toRead.count)|\(library.scanning)" }
+
+    private func count() -> ReadingStats {
+        ReadingStats.of(times: library.store.times(), items: library.reading + library.finished + library.toRead)
+    }
 
     var body: some View {
+        screen.task(id: statsKey) { counted = count() }
+    }
+
+    private var screen: some View {
         VStack(spacing: 0) {
             CpHeader(title: "독서 기록", subtitle: "이 휴대폰에서 읽은 시간",
                      leading: AnyView(CpIconButton(icon: .back, label: "뒤로", action: back))) {}
             // 서재가 바뀌면(앱을 켜자마자 열어 아직 훑는 중이었다) 다시 센다 — 한 번만 세면 다 읽은 책 · 책 이름이 비었다.
-            let stats = ReadingStats.of(times: library.store.times(), items: library.reading + library.finished + library.toRead)
+            let stats = counted ?? count()
             Group {
                 if stats.isEmpty {
                     CpEmptyMessage(text: "아직 읽은 기록이 없습니다. 책장을 넘기며 읽으면 여기에 쌓입니다.")

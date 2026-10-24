@@ -29,7 +29,8 @@ struct AboutScreen: View {
                                 .overlay(CpIconView(icon: .book, size: 26, color: .white))
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("OLO eBook").font(CpFont.title).foregroundStyle(CpColor.text)
-                                Text("iOS \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "") · 공통 코어 안드로이드 0.54.9")
+                                // 손으로 적은 "공통 코어 안드로이드 판" 은 그대로 낡아(0.54.9 로 남아 있었다) 빼고, 이 앱의 판 · 빌드만.
+                                Text("판 \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""))")
                                     .font(CpFont.subtitle).foregroundStyle(CpColor.textMuted)
                             }
                         }

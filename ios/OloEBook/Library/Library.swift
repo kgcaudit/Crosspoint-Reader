@@ -81,7 +81,9 @@ final class Library: ObservableObject {
     private var books: [LibraryBook] = []
     private var records: [String: ShelfRecord] = [:]
 
-    static let appFolder = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    nonisolated static let appFolder = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    /// 이름순 견주기의 말 — 견줄 때마다 만들면 수천 번 만들었다.
+    nonisolated static let korean = Locale(identifier: "ko_KR")
     /// 다른 앱에서 받은 책을 두는 곳. 앱 폴더 안에 두어 파일 앱에서도 보이고 지울 수 있다.
     static let incomingFolder = appFolder.appendingPathComponent("받은 파일", isDirectory: true)
 
@@ -109,6 +111,7 @@ final class Library: ObservableObject {
 
     func refresh() async {
         scanning = true
+        renewStaleBookmarks()
         let folders = self.folders
         let known = infos
         let (found, seen, readBooks) = await Task.detached(priority: .userInitiated) { Library.scan(folders: folders, known: known) }.value
@@ -330,14 +333,15 @@ final class Library: ObservableObject {
         var files: [String: ComicFile] = [:]
         var read: [String] = []
         func walk(_ root: URL, _ prefix: String, _ folderId: String?) {
-            let keys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey, .creationDateKey, .contentModificationDateKey]
+            let keys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey, .creationDateKey, .contentModificationDateKey, .ubiquitousItemDownloadingStatusKey]
             guard let walker = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys,
-                                                              options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return }
+                                                              options: [.skipsPackageDescendants]) else { return }
             read.append(prefix)
             let rootPath = root.standardizedFileURL.path
             var byFolder: [String: [String]] = [:]
             for case let url as URL in walker {
-                guard let v = try? url.resourceValues(forKeys: Set(keys)), v.isRegularFile == true else { continue }
+                if Library.skipHidden(url, walker) { continue }
+                guard let v = try? url.resourceValues(forKeys: Set(keys)), v.isRegularFile == true, Library.downloaded(url, v) else { continue }
                 let path = url.standardizedFileURL.path
                 let relative = path.hasPrefix(rootPath) ? String(path.dropFirst(rootPath.count).drop(while: { $0 == "/" })) : url.lastPathComponent
                 let parentRel = (relative as NSString).deletingLastPathComponent
@@ -348,7 +352,9 @@ final class Library: ObservableObject {
                 let size = Int64(v.fileSize ?? 0)
                 let added = Int64((v.creationDate ?? v.contentModificationDate ?? .distantPast).timeIntervalSince1970 * 1000)
                 let parents = parentRel.isEmpty ? [] : parentRel.split(separator: "/").map(String.init)
-                if let unit = IosComics.shared.probe(path: url.path, id: id, name: name, folders: parents, sizeBytes: size, addedAt: added) {
+                let probeKey = "\(id)|\(size)|\(v.contentModificationDate?.timeIntervalSince1970 ?? 0)"
+                if let unit = Library.probed(probeKey) ?? IosComics.shared.probe(path: url.path, id: id, name: name, folders: parents, sizeBytes: size, addedAt: added) {
+                    Library.remember(probeKey, unit)
                     units.append(unit)
                     files[id] = ComicFile(url: url, folderId: folderId, images: nil, size: size)
                 }
@@ -415,12 +421,13 @@ final class Library: ObservableObject {
 
     /// 읽지 못하면 nil(빈 폴더와 가린다).
     private nonisolated static func scan(root: URL, prefix: String, folderId: String?) -> [LibraryBook]? {
-        let keys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey, .creationDateKey]
+        let keys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey, .creationDateKey, .ubiquitousItemDownloadingStatusKey]
         guard let walker = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys,
-                                                          options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return nil }
+                                                          options: [.skipsPackageDescendants]) else { return nil }
         let rootPath = root.standardizedFileURL.path
         var out: [LibraryBook] = []
         for case let url as URL in walker {
+            if skipHidden(url, walker) { continue }
             let format: LibraryBook.Format
             switch url.pathExtension.lowercased() {
             case "epub": format = .epub
@@ -428,7 +435,7 @@ final class Library: ObservableObject {
             case "pdf": format = .pdf
             default: continue
             }
-            guard let values = try? url.resourceValues(forKeys: Set(keys)), values.isRegularFile == true else { continue }
+            guard let values = try? url.resourceValues(forKeys: Set(keys)), values.isRegularFile == true, downloaded(url, values) else { continue }
             let path = url.standardizedFileURL.path
             let relative = path.hasPrefix(rootPath) ? String(path.dropFirst(rootPath.count).drop(while: { $0 == "/" })) : url.lastPathComponent
             out.append(LibraryBook(
@@ -444,6 +451,44 @@ final class Library: ObservableObject {
             ))
         }
         return out
+    }
+
+    /// 만화 압축 판별 결과(이 실행 동안, 판 열쇠 = id · 크기 · 고친 때). 새로고침 · 받은 파일마다 모든 압축을 다시 열었다.
+    nonisolated(unsafe) private static var probes: [String: ComicUnit] = [:]
+    private static let probeLock = NSLock()
+
+    nonisolated static func probed(_ key: String) -> ComicUnit? {
+        probeLock.lock()
+        defer { probeLock.unlock() }
+        return probes[key]
+    }
+
+    nonisolated static func remember(_ key: String, _ unit: ComicUnit) {
+        probeLock.lock()
+        defer { probeLock.unlock() }
+        probes[key] = unit
+    }
+
+    /// 숨은 파일 · 폴더는 건너뛴다. 다만 iCloud 에서 아직 내려받지 않은 파일의 자리표(".이름.icloud")는 내려받기를 시작해 둔다 —
+    /// 다음 훑기에 나타난다.
+    nonisolated static func skipHidden(_ url: URL, _ walker: FileManager.DirectoryEnumerator) -> Bool {
+        let name = url.lastPathComponent
+        guard name.hasPrefix(".") else { return false }
+        if name.hasSuffix(".icloud"), name.count > 8 {
+            let real = url.deletingLastPathComponent().appendingPathComponent(String(name.dropFirst().dropLast(7)))
+            try? FileManager.default.startDownloadingUbiquitousItem(at: real)
+        }
+        if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true { walker.skipDescendants() }
+        return true
+    }
+
+    /// 내려받아져 있는가(iCloud 가 아닌 파일은 늘 참). 아니면 내려받기를 시작하고 이번 훑기에서는 뺀다 — 덜 받은 파일을 열어 이름표 ·
+    /// 만화 판별을 하면 실패한 결과(파일 이름이 제목 · 만화 아님)가 같은 판의 열쇠로 남아 받은 뒤에도 고쳐지지 않았다.
+    nonisolated static func downloaded(_ url: URL, _ values: URLResourceValues) -> Bool {
+        // .downloaded(받았지만 최신이 아님)는 읽을 수 있다 — 아예 받지 않은 것만.
+        guard values.ubiquitousItemDownloadingStatus == .notDownloaded else { return true }
+        try? FileManager.default.startDownloadingUbiquitousItem(at: url)
+        return false
     }
 
     // MARK: 갈래
@@ -468,7 +513,7 @@ final class Library: ObservableObject {
 
     private func sorted(_ items: [ShelfItem], recent: ((ShelfItem, ShelfItem) -> Bool)?) -> [ShelfItem] {
         let byName: (ShelfItem, ShelfItem) -> Bool = {
-            $0.book.label.compare($1.book.label, options: [.numeric, .caseInsensitive], locale: Locale(identifier: "ko_KR")) == .orderedAscending
+            $0.book.label.compare($1.book.label, options: [.numeric, .caseInsensitive], locale: Library.korean) == .orderedAscending
         }
         switch sort {
         case .recent: return items.sorted(by: recent ?? byName)
@@ -484,11 +529,32 @@ final class Library: ObservableObject {
         let access = url.startAccessingSecurityScopedResource()
         defer { if access { url.stopAccessingSecurityScopedResource() } }
         guard let data = try? url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil) else { return }
-        // 같은 폴더를 두 번 연결하면 책이 두 번 보인다.
-        if folders.contains(where: { $0.name == url.lastPathComponent && $0.bookmark == data }) { return }
+        // 같은 폴더를 두 번 연결하면 책이 두 번 보인다. 북마크 바이트는 만들 때마다 달라 경로로 견준다.
+        let path = url.standardizedFileURL.path
+        if folders.contains(where: { f in
+            var stale = false
+            return (try? URL(resolvingBookmarkData: f.bookmark, bookmarkDataIsStale: &stale))?.standardizedFileURL.path == path
+        }) { return }
         folders.append(LinkedFolder(id: UUID().uuidString, name: url.lastPathComponent, bookmark: data))
         persistFolders()
         await refresh()
+    }
+
+    /// 낡은 북마크(폴더를 옮기거나 이름을 바꿈 · iCloud 동기화 뒤)는 아직 풀릴 때 새로 만들어 둔다. 그대로 두면 언젠가 풀리지 않아
+    /// 그 폴더의 책들이 말없이 사라진다.
+    private func renewStaleBookmarks() {
+        var changed = false
+        for (i, folder) in folders.enumerated() {
+            var stale = false
+            guard let url = try? URL(resolvingBookmarkData: folder.bookmark, bookmarkDataIsStale: &stale), stale else { continue }
+            let access = url.startAccessingSecurityScopedResource()
+            defer { if access { url.stopAccessingSecurityScopedResource() } }
+            if let fresh = try? url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil) {
+                folders[i] = LinkedFolder(id: folder.id, name: url.lastPathComponent, bookmark: fresh)
+                changed = true
+            }
+        }
+        if changed { persistFolders() }
     }
 
     func unlink(_ folder: LinkedFolder) async {
@@ -525,12 +591,19 @@ final class Library: ObservableObject {
         try? fm.createDirectory(at: Library.incomingFolder, withIntermediateDirectories: true)
         let target = Library.incomingFolder.appendingPathComponent(url.lastPathComponent)
         let size = { (u: URL) in (try? fm.attributesOfItem(atPath: u.path)[.size] as? Int64) ?? nil }
+        // iOS 가 "복사해서 열기" 로 넘긴 파일은 앱 폴더 안 Inbox 에 놓인다 — 거기서 또 복사하면 앱 폴더를 훑을 때 같은 책이 두 권 보였다.
+        // 그때는 옮긴다(받은 파일 폴더 하나에만 남게).
+        let inbox = Library.appFolder.appendingPathComponent("Inbox", isDirectory: true).standardizedFileURL.path + "/"
+        let fromInbox = url.standardizedFileURL.path.hasPrefix(inbox)
         if url.standardizedFileURL != target.standardizedFileURL {
             if fm.fileExists(atPath: target.path), size(target) == size(url) {
                 // 이미 들였다.
+                if fromInbox { try? fm.removeItem(at: url) }
             } else {
                 try? fm.removeItem(at: target)
-                do { try fm.copyItem(at: url, to: target) } catch { return nil }
+                do {
+                    if fromInbox { try fm.moveItem(at: url, to: target) } else { try fm.copyItem(at: url, to: target) }
+                } catch { return nil }
             }
         }
         await refresh()
@@ -541,10 +614,16 @@ final class Library: ObservableObject {
 /// EPUB 표지 그림. 서재를 넘길 때마다 zip 을 다시 열지 않게 기억한다.
 final class Covers: @unchecked Sendable {
     static let shared = Covers()
-    private let cache = NSCache<NSString, UIImage>()
+    private let cache: NSCache<NSString, UIImage> = {
+        let c = NSCache<NSString, UIImage>()
+        // 줄인 표지 한 장이 1MB 남짓 — 100MB 를 넘기면 오래 안 본 것부터 내려놓는다.
+        c.totalCostLimit = 100 * 1024 * 1024
+        return c
+    }()
     private let missing = NSCache<NSString, NSNumber>()
 
-    func cached(_ book: LibraryBook) -> UIImage? { CoverStore.shared.custom(book.id) ?? cache.object(forKey: key(book)) }
+    /// 서재 칸에 쓰는 표지 크기(긴 변, 픽셀). 원본 그대로 쥐면 EPUB 표지 한 장이 10MB 를 넘기도 해, 책이 수백 권이면 메모리가 넘쳤다.
+    static let maxPixel: CGFloat = 900
 
     /// 서재에 보일 표지: 고른 표지(구상안 44)가 있으면 그것, 없으면 책의 것. 만화로 보는 그림책은 펼침면 표지의 앞 반(구상안 46,
     /// 공통 `CoverCrop.front`) — 만화 탭의 권 표지와 같은 규칙.
@@ -569,12 +648,25 @@ final class Covers: @unchecked Sendable {
         defer { end() }
         let path = book.url.path
         let pdf = book.format == .pdf
-        let image = await Task.detached(priority: .utility) {
-            pdf ? PdfPages.cover(url: URL(fileURLWithPath: path)) : IosBookReader.companion.cover(path: path)
+        let image = await Task.detached(priority: .utility) { () -> UIImage? in
+            let full = pdf ? PdfPages.cover(url: URL(fileURLWithPath: path)) : IosBookReader.companion.cover(path: path)
+            return full.map { Covers.shrink($0) }
         }.value
-        if let image { cache.setObject(image, forKey: key) } else { missing.setObject(1, forKey: key) }
+        if let image {
+            cache.setObject(image, forKey: key, cost: Int(image.size.width * image.size.height * image.scale * image.scale * 4))
+        } else {
+            missing.setObject(1, forKey: key)
+        }
         return image
     }
 
     private func key(_ book: LibraryBook) -> NSString { "\(book.id)|\(book.edition)" as NSString }
+
+    /// 긴 변 [maxPixel] 로 줄인다(더 작으면 그대로). 원본은 이 함수를 나가면 놓인다.
+    static func shrink(_ image: UIImage) -> UIImage {
+        let w = image.size.width * image.scale, h = image.size.height * image.scale
+        let k = maxPixel / max(w, h)
+        guard k < 1 else { return image }
+        return image.preparingThumbnail(of: CGSize(width: (w * k).rounded(), height: (h * k).rounded())) ?? image
+    }
 }

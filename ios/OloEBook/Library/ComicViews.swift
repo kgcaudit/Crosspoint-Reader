@@ -34,7 +34,8 @@ func objectParticle(_ word: String) -> String {
 /// 만화 표지: 표지 그림(이름이 cover · folder 인 그림, 없으면 첫 쪽). 펼침면이면 앞표지 쪽 반만(왼→오는 오른쪽 · 오→왼은 왼쪽,
 /// 공통 `CoverCrop.front`). 칸 크기는 책 표지와 같다(1 : 1.45).
 struct ComicCover: View {
-    let unit: ComicUnit
+    /// nil 이면 권이 없는 작품 — 빈 표지를 그린다.
+    let unit: ComicUnit?
     let library: Library
     var rtl = false
     var tag: String?
@@ -67,11 +68,13 @@ struct ComicCover: View {
                     }
                 }
             }
-            .task(id: "\(unit.id)|\(workKey ?? "")|\(picked.version)") {
+            .task(id: "\(unit?.id ?? "")|\(workKey ?? "")|\(picked.version)") {
                 if let key = workKey, let chosen = CoverStore.shared.custom(IosCovers.shared.workId(workKey: key)) {
                     image = chosen
-                } else {
+                } else if let unit {
                     image = await ComicCovers.shared.load(unit, library: library, rtl: rtl)
+                } else {
+                    image = nil
                 }
             }
             .accessibilityHidden(true)
@@ -179,7 +182,7 @@ struct ComicShelves: View {
                 .ignoresSafeArea(edges: .bottom)
             } else {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(sections) { section in
                             if section.divider {
                                 Spacer().frame(height: 14)
@@ -209,7 +212,8 @@ struct ComicShelves: View {
         }
     }
 
-    private func cover(_ item: Item) -> ComicUnit { item.resume?.entry.unit ?? item.work.entries.first!.unit }
+    /// 표지로 쓸 권. 권이 하나도 없는 작품(합치기 · 빼기 뒤에 빈 것)은 nil — 강제로 꺼내면 앱이 죽었다.
+    private func cover(_ item: Item) -> ComicUnit? { item.resume?.entry.unit ?? item.work.entries.first?.unit }
 
     /// 읽는 중 칸의 표지 꼬리표: 권이 둘 이상일 때 "12권".
     private func tag(_ item: Item) -> String? {
@@ -325,7 +329,7 @@ struct WorkScreen: View {
                         ScrollView {
                             VStack(alignment: .leading, spacing: 0) {
                                 HStack(alignment: .bottom, spacing: 20) {
-                                    ComicCover(unit: work.entries.first!.unit, library: library, rtl: work.rtl, workKey: work.key).frame(width: 110)
+                                    ComicCover(unit: work.entries.first?.unit, library: library, rtl: work.rtl, workKey: work.key).frame(width: 110)
                                     info(work, fill: false)
                                 }
                                 .padding(.horizontal, 24).padding(.vertical, 8)
@@ -364,7 +368,7 @@ struct WorkScreen: View {
         HStack(alignment: .top, spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    ComicCover(unit: work.entries.first!.unit, library: library, rtl: work.rtl, workKey: work.key).frame(width: 200)
+                    ComicCover(unit: work.entries.first?.unit, library: library, rtl: work.rtl, workKey: work.key).frame(width: 200)
                     info(work, fill: true)
                 }
                 .padding(.leading, 24).padding(.trailing, 16).padding(.top, 8).padding(.bottom, 24)

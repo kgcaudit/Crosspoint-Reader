@@ -17,7 +17,7 @@ enum BookFinder {
             [i.book.label, i.book.author ?? "", i.book.displayName].contains { squash($0).contains(q) }
         }
         let byLabel: (ShelfItem, ShelfItem) -> Bool = {
-            $0.book.label.compare($1.book.label, options: [.numeric, .caseInsensitive], locale: Locale(identifier: "ko_KR")) == .orderedAscending
+            $0.book.label.compare($1.book.label, options: [.numeric, .caseInsensitive], locale: Library.korean) == .orderedAscending
         }
         return [reading, finished, toRead].flatMap { $0.filter(hit).sorted(by: byLabel) }
     }

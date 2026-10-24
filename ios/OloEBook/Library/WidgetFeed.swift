@@ -12,6 +12,8 @@ enum WidgetFeed {
     private static let coverHeight: CGFloat = 480
 
     private static var last: WidgetSnapshot?
+    /// 표지를 바꾼 판수. 위젯 글은 같아도 표지만 바꿨으면 다시 적는다 — 전에는 글만 견줘 위젯 표지가 옛것으로 남았다.
+    private static var lastCovers = -1
 
     static func update(_ library: Library) {
         guard WidgetShared.folder != nil else { return }
@@ -22,15 +24,18 @@ enum WidgetFeed {
             models[Int(kind)] = WidgetSnapshot.Model(top: m.top.map(item), recent: m.recent.map(item))
         }
         let snapshot = WidgetSnapshot(models: models)
-        guard snapshot != last else { return }
+        let covers = CoverStore.shared.version
+        guard snapshot != last || covers != lastCovers else { return }
         last = snapshot
+        lastCovers = covers
         Task { await write(snapshot, library: library) }
     }
 
     /// 읽은 책(열어 본 것)과 읽은 만화 권(쪽 기록이 있는 것). 만화는 "작품 권" 이름 — 권 이름("1권")만으로는 무슨 만화인지 모른다.
     private static func candidates(_ library: Library) -> [WidgetCandidate] {
         let store = library.store
-        let books = (library.reading + library.finished + library.toRead).compactMap { item -> WidgetCandidate? in
+        // 연 적도 진도도 없는 책은 후보가 아니다 — 읽을 책까지 책마다 기록을 물으면 기록을 다시 읽을 때마다 주 스레드에서 수백 번 물었다.
+        let books = (library.reading + library.finished + library.toRead).filter { $0.openedAt != nil || $0.percent != nil }.compactMap { item -> WidgetCandidate? in
             let progress = store.progressOf(bookId: item.book.id)
             let opened = item.openedAt.map { Int64($0.timeIntervalSince1970 * 1000) } ?? 0
             let readAt = max(opened, progress?.updatedAtEpochMs ?? 0)

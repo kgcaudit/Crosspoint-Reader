@@ -285,7 +285,8 @@ private struct LibraryShelves: View {
             if library.layout == .shelf {
                 ShelfWall {
                     ScrollView {
-                        VStack(spacing: 0) {
+                        // 화면에 가까운 줄만 만든다 — VStack 이면 화면 밖 칸까지 한꺼번에 표지를 읽어, 책이 수백 권이면 메모리가 넘쳤다.
+                        LazyVStack(spacing: 0) {
                             ShelfCrown()
                             ForEach(sections) { section in
                                 let rows = section.items.chunked(columns)
@@ -306,7 +307,7 @@ private struct LibraryShelves: View {
                 .ignoresSafeArea(edges: .bottom)
             } else {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(sections) { section in
                             let items = section.items
                             if section.divider {
@@ -381,12 +382,15 @@ extension ShelfItem {
 }
 
 /// "10월 18일". 해가 바뀌어도 서재에서는 날짜만으로 충분하다 — 해까지 적으면 칸 폭을 넘는다(안드로이드 `monthDay`).
-func monthDay(_ date: Date) -> String {
+func monthDay(_ date: Date) -> String { monthDayFormat.string(from: date) }
+
+/// 꼴 하나를 다시 쓴다(칸마다 새로 만들면 서재를 굴릴 때 늦었다).
+private let monthDayFormat: DateFormatter = {
     let f = DateFormatter()
     f.locale = Locale(identifier: "ko_KR")
     f.dateFormat = "M월 d일"
-    return f.string(from: date)
-}
+    return f
+}()
 
 /// 격자 칸: 표지 · 이름 · 갈래에 따른 줄(읽는 책: 진도, 읽은 책: 다 읽은 날, 읽을 책: 형식). 칸 폭은 화면에서 나오고 표지는 칸 밑면에 선다.
 struct BookCell: View {
