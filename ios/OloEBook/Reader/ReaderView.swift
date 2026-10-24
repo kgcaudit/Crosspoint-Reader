@@ -1337,15 +1337,26 @@ struct ReaderView: View {
                                             area: model.pdfArea, token: model.pdfPill)
                         }
                     } else if curl {
+                        // 쪽 그림이 있는 자리만 만다(한 쪽 보기의 만화 · PDF). 화면 전체를 말면 그림 위아래의 빈 여백까지 종이처럼
+                        // 접혀 보였다(실기기에서 찾음). 앞 · 뒤 쪽도 지금 쪽 자리로 잘라 넘긴다 — 쪽 크기가 같은 책이 대부분이고,
+                        // 다르면 넘긴 뒤 새 자리로 다시 놓인다. 두 쪽 보기는 화면 가운데가 책등이라 그대로 화면 전체.
+                        let box = curlBox(full)
+                        let area = box ?? CGRect(origin: .zero, size: full)
+                        let crop: (UIImage?) -> UIImage? = { img in box.flatMap { b in img?.cropped(to: b) } ?? img }
+                        let local: (CGPoint) -> CGPoint = { CGPoint(x: $0.x + area.minX, y: $0.y + area.minY) }
                         // 오→왼(만화): 왼쪽 가장자리를 말아 다음 쪽 — 앞 · 뒤 쪽 그림과 방향을 맞바꾼다.
-                        CurlPager(image: frame.image, key: key, previous: rtl ? model.nextImage : model.prevImage,
-                                  next: rtl ? model.prevImage : model.nextImage,
+                        CurlPager(image: crop(frame.image) ?? frame.image, key: key, previous: crop(rtl ? model.nextImage : model.prevImage),
+                                  next: crop(rtl ? model.prevImage : model.nextImage),
                                   paper: UIColor(paper.paperColor), spread: twoPages(full),
                                   animate: model.flipFor == key ? (rtl ? -model.direction : model.direction) : 0,
                                   onFlip: { step in Task { await model.commitFlip(rtl ? -step : step) } },
-                                  onTap: { p in pageTap(p, size: full, insets: insets) },
-                                  onLongPress: { p in Task { await model.select(at: p) } },
-                                  zoom: pdfZoomable ? { p, s in model.startZoom(at: p, scale: s) } : nil)
+                                  onTap: { p in pageTap(local(p), size: full, insets: insets) },
+                                  onLongPress: { p in Task { await model.select(at: local(p)) } },
+                                  zoom: pdfZoomable ? { p, s in model.startZoom(at: local(p), scale: s) } : nil)
+                            .frame(width: area.width, height: area.height)
+                            // 들린 종이는 입체로 기울어 자리 밖으로 삐져나온다 — 쪽 자리 밖은 그리지 않는다.
+                            .clipped()
+                            .position(x: area.midX, y: area.midY)
                             .accessibilityLabel("\(model.title), \(frame.page + 1)쪽")
                             // 한 쪽 ↔ 두 쪽은 책등 자리가 달라 말림을 새로 만든다(UIPageViewController 는 책등을 만들 때 정한다).
                             .id(twoPages(full))
@@ -1671,6 +1682,12 @@ struct ReaderView: View {
     }
 
     /// 이 화면 크기에서 두 쪽으로 보이는가(구상안 27). PDF 는 쪽 전체에서만(폭 · 이어서는 한 쪽씩, 구상안 33).
+    /// 말림을 놓을 자리: 한 쪽 보기의 만화 · PDF 면 지금 쪽 그림의 자리(화면 좌표), 아니면 nil(화면 전체 — 책은 지면이 곧 화면).
+    private func curlBox(_ full: CGSize) -> CGRect? {
+        guard model.isFixed, !twoPages(full), let r = model.pdfPageRect, r.width > 1, r.height > 1 else { return nil }
+        return r.intersection(CGRect(origin: .zero, size: full))
+    }
+
     private func twoPages(_ full: CGSize) -> Bool {
         prefs.twoPages(full) && (!model.isPdf || prefs.pdfFit == PdfFit.page.rawValue)
     }
