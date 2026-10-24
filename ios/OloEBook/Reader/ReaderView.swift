@@ -258,6 +258,10 @@ final class ReaderModel: ObservableObject {
     @Published private(set) var frame: PageFrame? {
         didSet {
             guard frame?.key != oldValue?.key else { return }
+            // 앞 · 뒤 쪽 그림은 이 쪽 기준으로 새로 그린다(prefetch). 낡은 것을 남기면 미리 그리기가 끝나기 전에 손으로 말 때 한 단계 전의
+            // 그림이 말려 나와, 화면의 쪽과 아래 줄 쪽이 어긋나고 맨 앞에서는 빈 쪽이 보였다(실기기에서 찾음).
+            prevImage = nil
+            nextImage = nil
             let cause = turnCause
             turnCause = .jump
             sampleTurn(cause)
@@ -805,7 +809,7 @@ final class ReaderModel: ObservableObject {
     /// 손가락으로 다 말았다: 자리를 옮긴다(그림은 이미 넘어가 있다).
     func commitFlip(_ step: Int) async {
         guard let engine else { return }
-        guard let next = await going({ try await (step > 0 ? engine.next() : engine.previous()) }) else { return }
+        guard let next = await going({ try await (step > 0 ? engine.next() : engine.previous()) }) else { curlReset += 1; return }
         selection = nil
         tapped = nil
         lastActivity = Date()
@@ -840,9 +844,18 @@ final class ReaderModel: ObservableObject {
     /// 두 장, 수십 MB)을 그렸다.
     func prefetch(curl: Bool) async {
         guard let engine, curl else { prevImage = nil; nextImage = nil; return }
-        nextImage = await engine.peek(1)
-        prevImage = await engine.peek(-1)
+        // 그리는 사이 쪽이 바뀌었으면 버린다 — 옛 쪽의 앞 · 뒤 그림이다.
+        let key = frame?.key
+        let next = await engine.peek(1)
+        guard frame?.key == key else { return }
+        nextImage = next
+        let prev = await engine.peek(-1)
+        guard frame?.key == key else { return }
+        prevImage = prev
     }
+
+    /// 손으로 말았는데 쪽을 옮기지 못했다(맨 앞 · 맨 끝 · 읽기 실패). 말림 화면은 이미 다른 그림을 보이고 있어 지금 쪽 그림으로 되돌린다.
+    @Published private(set) var curlReset = 0
 
     /// 쪽이 보이는 동안 넘기기 · 찾아가기가 실패했다(캐시 · 파일 읽기 실패 등) — 알림 한 번(안드로이드 `PAGE_FAILED`, 0.59.2).
     /// 전에는 `try?` 가 삼켜 옛 쪽이 말없이 남았다. 취소(빠르게 연달아 누름)와 그 책에 없는 기능은 실패가 아니다.
@@ -1352,11 +1365,9 @@ struct ReaderView: View {
                                   onFlip: { step in Task { await model.commitFlip(rtl ? -step : step) } },
                                   onTap: { p in pageTap(local(p), size: full, insets: insets) },
                                   onLongPress: { p in Task { await model.select(at: local(p)) } },
-                                  zoom: pdfZoomable ? { p, s in model.startZoom(at: local(p), scale: s) } : nil)
-                            .frame(width: area.width, height: area.height)
-                            // 들린 종이는 입체로 기울어 자리 밖으로 삐져나온다 — 쪽 자리 밖은 그리지 않는다.
-                            .clipped()
-                            .position(x: area.midX, y: area.midY)
+                                  zoom: pdfZoomable ? { p, s in model.startZoom(at: local(p), scale: s) } : nil,
+                                  reset: model.curlReset)
+                            .modifier(CurlArea(box: box))
                             .accessibilityLabel("\(model.title), \(frame.page + 1)쪽")
                             // 한 쪽 ↔ 두 쪽은 책등 자리가 달라 말림을 새로 만든다(UIPageViewController 는 책등을 만들 때 정한다).
                             .id(twoPages(full))
@@ -1565,6 +1576,10 @@ struct ReaderView: View {
                     if let i = args.firstIndex(of: "-olo-turn"), i + 1 < args.count, let n = Int(args[i + 1]) {
                         for _ in 0..<n { await model.turn(1) }
                     }
+                    // -olo-back N: 넘긴 뒤 N 쪽 되돌아간다(앞으로 읽다 뒤로 가는 길 확인).
+                    if let i = args.firstIndex(of: "-olo-back"), i + 1 < args.count, let n = Int(args[i + 1]) {
+                        for _ in 0..<n { await model.turn(-1) }
+                    }
                     if let i = args.firstIndex(of: "-olo-theme"), i + 1 < args.count, let t = PaperTheme(rawValue: args[i + 1]) { prefs.theme = t }
                     if let i = args.firstIndex(of: "-olo-search"), i + 1 < args.count {
                         model.search.query = args[i + 1]
@@ -1682,6 +1697,22 @@ struct ReaderView: View {
     }
 
     /// 이 화면 크기에서 두 쪽으로 보이는가(구상안 27). PDF 는 쪽 전체에서만(폭 · 이어서는 한 쪽씩, 구상안 33).
+    /// 말림을 쪽 그림 자리에 놓는다. 자리 지정(position)은 쓰지 않는다 — 말림(UIKit)에 씌우면 누르기가 닿지 않아 가운데를 눌러도
+    /// 메뉴가 뜨지 않았다(실기기에서 찾음). 여백으로 밀어 놓는다. 자리가 없으면(책 · 두 쪽) 그대로 화면 전체.
+    private struct CurlArea: ViewModifier {
+        let box: CGRect?
+        func body(content: Content) -> some View {
+            if let box {
+                // 들린 종이는 입체로 기울어 자리 밖으로 삐져나온다 — 쪽 자리 밖은 그리지 않는다.
+                content.frame(width: box.width, height: box.height).clipped()
+                    .padding(.leading, box.minX).padding(.top, box.minY)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            } else {
+                content
+            }
+        }
+    }
+
     /// 말림을 놓을 자리: 한 쪽 보기의 만화 · PDF 면 지금 쪽 그림의 자리(화면 좌표), 아니면 nil(화면 전체 — 책은 지면이 곧 화면).
     private func curlBox(_ full: CGSize) -> CGRect? {
         guard model.isFixed, !twoPages(full), let r = model.pdfPageRect, r.width > 1, r.height > 1 else { return nil }

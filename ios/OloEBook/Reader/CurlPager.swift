@@ -26,6 +26,8 @@ struct CurlPager: UIViewControllerRepresentable {
     let onLongPress: (CGPoint) -> Void
     /// PDF 확대(두 번 누르기 2.5배 · 두 손가락). nil 이면 받지 않는다 — 받으면 한 번 누름이 두 번째를 기다린다.
     var zoom: ((CGPoint, CGFloat) -> Void)?
+    /// 늘면 지금 쪽 그림으로 되돌린다 — 손으로 말았는데 쪽이 옮겨지지 않았을 때(말린 그림이 남지 않게).
+    var reset = 0
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -63,6 +65,14 @@ struct CurlPager: UIViewControllerRepresentable {
         let c = context.coordinator
         c.parent = self
         pager.view.backgroundColor = paper
+        if reset != c.shownReset {
+            c.shownReset = reset
+            c.userFlipped = false
+            c.shownKey = key
+            c.shownImage = image
+            c.show(pager, pages(image, step: 0), direction: .forward, animated: false)
+            return
+        }
         guard key != c.shownKey else {
             // 같은 쪽을 다시 그렸다(칠 · 테마 · 듣는 문장): 말지 않고 바꿔 끼운다.
             if c.shownImage !== image {
@@ -112,6 +122,7 @@ struct CurlPager: UIViewControllerRepresentable {
         var shownKey = ""
         weak var shownImage: UIImage?
         var userFlipped = false
+        var shownReset = 0
         private var pendingStep = 0
         weak var double: UITapGestureRecognizer?
         weak var pinch: UIPinchGestureRecognizer?
