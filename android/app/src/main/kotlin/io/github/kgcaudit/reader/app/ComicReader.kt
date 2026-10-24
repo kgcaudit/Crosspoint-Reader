@@ -76,6 +76,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import io.github.kgcaudit.reader.document.image.ImageSize
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -495,7 +496,16 @@ fun ComicReader(
                 }
                 Box(
                     Modifier.fillMaxSize().clipToBounds()
-                        .semantics { contentDescription = "만화 ${pagesLabel(shown.map(::realOf).distinct())}쪽" }
+                        // 화면 읽기(TalkBack)가 쪽을 넘기고 메뉴를 열 길 — 지면은 손짓만 받는다(책 지면과 같은 동작).
+                        .semantics {
+                            contentDescription = "만화 ${pagesLabel(shown.map(::realOf).distinct())}쪽"
+                            customActions = listOf(
+                                androidx.compose.ui.semantics.CustomAccessibilityAction("다음 쪽") { advanceNow(true); true },
+                                androidx.compose.ui.semantics.CustomAccessibilityAction("앞 쪽") { advanceNow(false); true },
+                                androidx.compose.ui.semantics.CustomAccessibilityAction("읽기 메뉴") { panel = ComicPanel.Bar; true },
+                                androidx.compose.ui.semantics.CustomAccessibilityAction("책갈피 꽂기 · 빼기") { toggleBookmarkNow(); true },
+                            )
+                        }
                         .pointerInput(shown, w, h, rtl) {
                             detectTapGestures(
                                 // 지금 값을 거쳐 읽고 쓴다 — 쪽 비율을 나중에 알게 되면 확대 상태가 새로 만들어지는데, 이 처리기는 그대로라

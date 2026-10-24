@@ -38,8 +38,6 @@ data class ListenState(
     val timerEndsAtMs: Long? = null,
     /** 사람에게 알릴 말(엔진 없음 · 책 끝). 보인 뒤 [Listening.consumeMessage]. */
     val message: String? = null,
-    /** 어절 쉼 줄이기의 지금 세기. */
-    val join: WordJoin = WordJoin.Off,
 )
 
 /**
@@ -91,7 +89,7 @@ class Listening(
     suspend fun start(spine: Int, offset: Int, rate: Float, voice: String?, join: WordJoin = WordJoin.Off, pageEnd: Int? = null) {
         val since = generation
         this.join = join
-        _state.value = _state.value.copy(active = true, preparing = true, rate = rate, message = null, join = join)
+        _state.value = _state.value.copy(active = true, preparing = true, rate = rate, message = null)
         if (!prepared) {
             prepared = speaker.prepare()
             if (!prepared) {
@@ -172,7 +170,6 @@ class Listening(
     /** 어절 쉼 줄이기의 세기. 빠르기처럼 지금 문장부터 바뀌어 들린다. */
     fun setJoin(level: WordJoin) {
         join = level
-        _state.value = _state.value.copy(join = level)
         restartSentence()
     }
 

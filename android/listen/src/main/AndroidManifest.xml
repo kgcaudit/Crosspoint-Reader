@@ -9,6 +9,14 @@
     <!-- 문장 사이에 기기가 잠들어 읽기가 끊기지 않게, 읽는 동안에만 CPU 를 깨워 둔다. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!-- 안드로이드 11 부터 앱은 밝히지 않은 다른 앱을 보지 못한다. 음성 엔진(TTS)을 밝히지 않으면 엔진 목록이 비어 "한국어
+         목소리를 찾지 못했습니다" 가 뜨고, 기본 엔진에 잇지 못하는 기기도 있다(안드로이드 TextToSpeech 문서의 요구). -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
+
     <application>
         <service
             android:name=".ListenService"

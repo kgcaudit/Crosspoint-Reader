@@ -66,6 +66,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.input.pointer.pointerInput
@@ -195,6 +199,14 @@ fun ReaderScreen(
     fun say(message: String) {
         toast = message
         toastCount++
+    }
+    // 쪽이 보이는 동안 난 오류(넘기기 · 찾아가기 중 캐시 읽기 실패 등)는 알림으로. 쪽이 없을 때만 판을 띄우던 때는 옛 쪽이 그대로
+    // 남아 아무 말 없이 넘어가지 않았다.
+    LaunchedEffect(state.error) {
+        if (state.error != null && state.page != null) {
+            say(PAGE_FAILED)
+            reader.clearError()
+        }
     }
     // 형광펜을 숨긴 채 칠하면 아무 일도 없어 보인다 — 저장은 됐다고 알린다.
     fun hiddenHint() {
@@ -438,6 +450,17 @@ fun ReaderScreen(
         Box(
             Modifier
                 .fillMaxSize()
+                // 화면 읽기(TalkBack): 지면은 손짓만 받아, 켜 두면 쪽을 넘기거나 메뉴 · 목차 · 책갈피에 갈 길이 없었다(볼륨키
+                // 넘김은 처음에 꺼져 있다). 지면에 이름과 동작을 단다.
+                .semantics {
+                    contentDescription = READING_SURFACE
+                    customActions = listOf(
+                        CustomAccessibilityAction(ACTION_NEXT_PAGE) { turns.request(); scope.go { reader.next() }; true },
+                        CustomAccessibilityAction(ACTION_PREVIOUS_PAGE) { turns.request(); scope.go { reader.previous() }; true },
+                        CustomAccessibilityAction(ACTION_MENU) { panel = Panel.Bar; true },
+                        CustomAccessibilityAction(ACTION_BOOKMARK) { toggleBookmark(); true },
+                    )
+                }
                 .pointerInput(reader, prefs.screen.touch) {
                     val corner = BOOKMARK_CORNER.toPx()
                     val touch = 48.dp.toPx()
@@ -1081,3 +1104,13 @@ private fun ParagraphSettings(prefs: ReaderPrefs, onChange: (ReaderPrefs) -> Uni
 }
 
 private const val TAG = "OloReader"
+
+/** 쪽이 보이는 동안 넘기기 · 찾아가기가 실패했을 때의 알림. */
+internal const val PAGE_FAILED = "이 쪽으로 가지 못했습니다. 다시 해 보거나 목차로 옮겨 보세요."
+
+/** 화면 읽기에 들리는 지면의 이름과 동작(EPUB · TXT · PDF 가 같은 말). */
+const val READING_SURFACE = "책 지면"
+const val ACTION_NEXT_PAGE = "다음 쪽"
+const val ACTION_PREVIOUS_PAGE = "앞 쪽"
+const val ACTION_MENU = "읽기 메뉴"
+const val ACTION_BOOKMARK = "책갈피 꽂기 · 빼기"

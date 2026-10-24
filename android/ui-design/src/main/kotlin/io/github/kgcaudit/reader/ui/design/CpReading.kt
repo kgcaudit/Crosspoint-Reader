@@ -42,6 +42,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -109,7 +111,9 @@ fun CpToast(message: String?, onDone: () -> Unit, modifier: Modifier = Modifier,
     // 무엇을 하라는지 알 수 없었다. 가장자리에서 띄워 두 줄이 되어도 화면 끝에 붙지 않게 한다.
     Box(
         modifier.padding(start = 24.dp, end = 24.dp, bottom = 64.dp).clip(RoundedCornerShape(20.dp))
-            .background(CpPill.translucent).padding(horizontal = 18.dp, vertical = 10.dp),
+            .background(CpPill.translucent).padding(horizontal = 18.dp, vertical = 10.dp)
+            // 화면 읽기(TalkBack)가 읽어 주게 — "책갈피를 꽂았습니다" 같은 알림이 그 동작의 유일한 대답이다.
+            .semantics { liveRegion = LiveRegionMode.Polite },
     ) { CpText(message, CpTheme.type.label, Color.White, maxLines = 4, align = TextAlign.Center) }
 }
 
@@ -320,7 +324,23 @@ fun CpBrightnessRow(value: Float?, onChange: (Float?) -> Unit, modifier: Modifie
         verticalAlignment = Alignment.CenterVertically,
     ) {
         CpText("밝기", CpTheme.type.body, c.text, Modifier.width(72.dp))
-        CpSlider(value ?: remember { systemBrightness(context) }, onChange = { onChange(it) }, onCommit = { onChange(it) }, Modifier.weight(1f), description = "밝기")
+        // 미는 동안은 창 밝기만 바꾸고(미리보기), 손을 뗄 때 한 번 저장한다 — 왼쪽 끝 밀기([rememberBrightnessDrag])와 같다.
+        // 프레임마다 저장하면 설정 쓰기가 쌓이고 리더 전체가 다시 그려져 막대가 버벅였다.
+        var preview by remember { mutableStateOf<Float?>(null) }
+        val window = remember(context) { context.findActivity()?.window }
+        CpSlider(
+            preview ?: value ?: remember { systemBrightness(context) },
+            onChange = { v ->
+                preview = v
+                window?.let { w -> w.attributes = w.attributes.apply { screenBrightness = v.coerceIn(MIN_BRIGHTNESS, 1f) } }
+            },
+            onCommit = { v ->
+                preview = null
+                onChange(v)
+            },
+            Modifier.weight(1f),
+            description = "밝기",
+        )
         CpTextButton(
             "휴대폰",
             { onChange(null) },

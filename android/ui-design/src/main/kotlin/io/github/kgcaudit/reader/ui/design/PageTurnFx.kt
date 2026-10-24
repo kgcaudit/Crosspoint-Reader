@@ -722,6 +722,12 @@ private class SystemTurnFeedback private constructor(context: Context) : TurnFee
     /** 우리 소리가 미디어 통로로 난 때 — 그 사이 "다른 앱 소리" 를 물으면 우리 소리가 걸려 빨리 넘길 때 소리가 끊긴다. */
     private var mediaPlayedAt = 0L
 
+    init {
+        // 쓸려 가는 소리 파일을 미리 만든다. 처음 넘길 때 만들면 주 스레드에서 소리를 읽고 · 늘리고 · 쓰느라 그 넘김 그림의 첫
+        // 몇 장면이 빠졌다. 파일은 두 통로가 함께 쓴다.
+        Thread { runCatching { ui.warm() } }.apply { isDaemon = true; name = "turn-sounds" }.start()
+    }
+
     private inner class Channel(usage: Int) {
         private val pool: SoundPool = SoundPool.Builder()
             .setMaxStreams(2)
@@ -748,13 +754,23 @@ private class SystemTurnFeedback private constructor(context: Context) : TurnFee
             }
         }
 
-        private fun idOf(sound: TurnSound, side: TurnSide?): Int? {
-            val res = when (sound) {
-                TurnSound.Off -> return null
-                TurnSound.Rustle -> R.raw.turn_rustle
-                TurnSound.Swish -> R.raw.turn_swish
-                TurnSound.Tap -> R.raw.turn_tap
+        private fun resOf(sound: TurnSound): Int? = when (sound) {
+            TurnSound.Off -> null
+            TurnSound.Rustle -> R.raw.turn_rustle
+            TurnSound.Swish -> R.raw.turn_swish
+            TurnSound.Tap -> R.raw.turn_tap
+        }
+
+        /** 쓸려 가는 소리 파일을 모두 만들어 둔다(뒤 스레드에서). */
+        fun warm() {
+            for (sound in TurnSound.entries) {
+                val res = resOf(sound) ?: continue
+                TurnSide.entries.forEach { side -> swept(sound, res, side) }
             }
+        }
+
+        private fun idOf(sound: TurnSound, side: TurnSide?): Int? {
+            val res = resOf(sound) ?: return null
             ids[sound to side]?.let { return it }
             // 쓸려 가는 소리는 처음 쓸 때 원래 소리에서 한 번 만들어 캐시에 둔다 — 소리마다 두 벌을 앱에 넣으면 APK 가 커지고,
             // 원래 소리를 바꿀 때 함께 고쳐야 할 파일이 늘어난다. 만들지 못하면 가운데 소리로.
@@ -763,7 +779,10 @@ private class SystemTurnFeedback private constructor(context: Context) : TurnFee
             return id
         }
 
-        private fun swept(sound: TurnSound, res: Int, side: TurnSide): File? = runCatching {
+        // 미리 만드는 스레드와 처음 넘기는 손이 같은 파일을 함께 쓰지 않게 한 번에 하나.
+        private fun swept(sound: TurnSound, res: Int, side: TurnSide): File? = synchronized(SWEEP_LOCK) { sweptLocked(sound, res, side) }
+
+        private fun sweptLocked(sound: TurnSound, res: Int, side: TurnSide): File? = runCatching {
             val file = File(context.cacheDir, "turn-sounds/${sound.name}-${side.name}-v$SWEEP_VERSION.wav")
             if (!file.isFile) {
                 val (channels, rate, mono) = readPcm16(context.resources.openRawResource(res).use { it.readBytes() })
@@ -829,3 +848,6 @@ private class SystemTurnFeedback private constructor(context: Context) : TurnFee
             shared ?: synchronized(this) { shared ?: SystemTurnFeedback(context).also { shared = it } }
     }
 }
+
+/** 쓸려 가는 소리 파일 만들기를 한 번에 하나로. */
+private val SWEEP_LOCK = Any()
