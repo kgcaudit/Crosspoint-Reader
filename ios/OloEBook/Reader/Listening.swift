@@ -345,8 +345,10 @@ final class Listening: NSObject, ObservableObject {
         }
     }
 
+    /// 고른 목소리, 없으면 한국어 기본 목소리(안드로이드 0.59.2 와 같다). 전에는 iPhone 언어의 목소리로 두어, 언어가 한국어가
+    /// 아닌 iPhone 에서 한국어 책을 영어 목소리로 읽었다. 한국어 목소리가 하나도 없으면 nil(시스템 기본).
     private var voice: AVSpeechSynthesisVoice? {
-        voiceId.flatMap(AVSpeechSynthesisVoice.init(identifier:)) ?? AVSpeechSynthesisVoice(language: AVSpeechSynthesisVoice.currentLanguageCode())
+        voiceId.flatMap(AVSpeechSynthesisVoice.init(identifier:)) ?? AVSpeechSynthesisVoice(language: "ko-KR")
     }
 
     /// 1.0× 를 iOS 기본 빠르기(0.5)에 맞춘다. 느리게는 기본의 절반까지, 빠르게는 iOS 최고(1.0)까지 고르게 — iOS 의 빠르기 값은

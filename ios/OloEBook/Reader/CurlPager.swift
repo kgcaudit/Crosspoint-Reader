@@ -124,15 +124,6 @@ struct CurlPager: UIViewControllerRepresentable {
         init(_ parent: CurlPager) { self.parent = parent }
 
         func show(_ pager: UIPageViewController, _ vcs: [UIViewController], direction: UIPageViewController.NavigationDirection, animated: Bool) {
-            let run = { [weak self, weak pager] in
-                guard let self, let pager else { return }
-                self.moving = animated
-                pager.setViewControllers(vcs, direction: direction, animated: animated) { [weak self] _ in
-                    guard let self, animated else { return }
-                    self.moving = false
-                    self.drain()
-                }
-            }
             if moving {
                 // 밀린 것은 마지막 하나만, 움직임 없이 — 몇 쪽이 쌓였어도 지금 쪽 하나만 보이면 된다.
                 queued = { [weak self, weak pager] in
@@ -142,7 +133,14 @@ struct CurlPager: UIViewControllerRepresentable {
                 }
                 return
             }
-            run()
+            // 곧바로 부른다 — 약한 참조로 잡은 닫힘에 담아 부르던 때는 책을 열자마자 넘길 때 그 참조를 읽다 앱이 죽었다(SIGSEGV,
+            // objc_retain).
+            moving = animated
+            pager.setViewControllers(vcs, direction: direction, animated: animated) { [weak self] _ in
+                guard let self, animated else { return }
+                self.moving = false
+                self.drain()
+            }
         }
 
         private func drain() {

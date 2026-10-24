@@ -238,6 +238,9 @@ struct CpToast: View {
             .clipShape(RoundedRectangle(cornerRadius: 20))
             .padding(.horizontal, 24).padding(.bottom, 64)
             .accessibilityAddTraits(.updatesFrequently)
+            // VoiceOver 가 읽어 주게(안드로이드 live region, 0.59.2) — "책갈피를 꽂았습니다" 같은 알림이 그 동작의 유일한 대답이다.
+            // 초점이 지면에 있으면 알림은 화면에 떴다 사라질 뿐 들리지 않았다.
+            .task(id: message) { UIAccessibility.post(notification: .announcement, argument: message) }
     }
 }
 

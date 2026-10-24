@@ -416,6 +416,70 @@ class SyncTest {
     }
 
     @Test
+    fun `an ssh key fingerprint looks like ssh-keygen and one trusted in the old form still matches`() {
+        @Suppress("CAST_NEVER_SUCCEEDS")
+        val key = ("abc" as NSString).dataUsingEncoding(NSUTF8StringEncoding)!!
+        // `ssh-keygen -lf` 모양: SHA256: + base64(끝 = 없음) — NAS 의 SSH 화면과 눈으로 맞춰 본다(안드로이드 0.59.2).
+        assertEquals("SHA256:ungWv48Bz+pBQUDeXa4iI7ADYaOWF3qctBD/YfIAFa0", SyncHash.sshFingerprint(key))
+        assertTrue(SyncHash.sshMatches(key, "SHA256:ungWv48Bz+pBQUDeXa4iI7ADYaOWF3qctBD/YfIAFa0"))
+        // 0.59 에 콜론 16진으로 믿어 둔 키는 다시 묻지 않는다(대소문자 무관).
+        assertTrue(SyncHash.sshMatches(key, SyncHash.fingerprint(key).lowercase()))
+        // 다른 키 · 믿은 것 없음 · base64 대소문자 바꿈(다른 지문)은 받지 않는다.
+        assertFalse(SyncHash.sshMatches(key, "SHA256:ungWv48Bz+pBQUDeXa4iI7ADYaOWF3qctBD/YfIAFa1"))
+        assertFalse(SyncHash.sshMatches(key, null))
+        assertFalse(SyncHash.sshMatches(key, "sha256:UNGWV48BZ+PBQUDEXA4II7ADYAOWF3QCTBD/YFIAFA0"))
+    }
+
+    @Test
+    fun `a list-only server's minute times are not trusted so a file rewritten within the minute is read again`() {
+        val text = "-rw-r--r--   1 reader users   1234 Oct 23 12:00 $a.json\r\ndrwxr-xr-x 2 u g 4096 Oct 23 12:00 책\r\n"
+        assertEquals(listOf(SyncEntry("$a.json", null, 1234)), FtpReplies.listing(text, exact = false, nowYear = 2026))
+        // MLSD 는 초까지라 믿는다.
+        assertEquals(listOf(SyncEntry("$a.json", 1_792_756_800_000, 1234)),
+            FtpReplies.listing("type=file;size=1234;modify=20261023120000; $a.json\r\n", exact = true, nowYear = 2026))
+        // 시각을 모르면 같은 이름 · 크기라도 다시 읽는다.
+        val pad = Device("아이패드", a)
+        val same = listOf(SyncEntry("$b.json", null, 10))
+        assertEquals(1, pad.sync.listed(same, 1).size)
+        pad.sync.received(same.single(), null)
+        assertEquals(1, pad.sync.listed(same, 2).size)
+    }
+
+    @Test
+    fun `a server that needs tls session reuse is told apart and not retried`() {
+        assertEquals(SyncProblem.Incompatible, FtpReplies.problemOf(522))
+        assertFalse(SyncProblem.Incompatible.retryable)
+        assertTrue(SyncText.problem(SyncProblem.Incompatible).contains("sftp://"))
+    }
+
+    @Test
+    fun `a bookmark this device shared and then removed does not come back from a device that copied it`() = runTest {
+        val tab = Device("갤럭시 탭", b)
+        val pad = Device("아이패드", a)
+        pad.store.addBookmark(Bookmark(Bookmark.NO_ID, BookId(pad.book.id), Locator.Reflow(3, 0), "셋째 장", 1))
+        syncNow(pad)
+        syncNow(tab)
+        assertEquals(listOf(Locator.Reflow(3, 0)), tab.store.bookmarksOf(tab.book.id).map { it.locator })
+        // 아이패드가 제 책갈피를 뺐다 — 탭이 받아 제 파일에 실어 둔 것이 되살아나면 안 된다.
+        pad.store.removeBookmark(pad.store.bookmarksOf(pad.book.id).single().id)
+        syncNow(pad)
+        assertEquals(emptyList(), pad.store.bookmarksOf(pad.book.id))
+    }
+
+    @Test
+    fun `the same book in two folders is shared as one record that keeps both copies' marks`() = runTest {
+        val pad = Device("아이패드", a)
+        val copy = ShelfBook("아이패드:/받은 책/어린 왕자.epub", "어린 왕자.epub", 3000, "어린 왕자", "생텍쥐페리")
+        pad.store.save(ReadingProgress(BookId(pad.book.id), Locator.Reflow(5, 0), 50f, 9))
+        pad.store.addBookmark(Bookmark(Bookmark.NO_ID, BookId(copy.id), Locator.Reflow(7, 0), "일곱째 장", 2))
+        val text = pad.sync.upload(listOf(copy, pad.book), emptyList(), "아이패드", 10)!!
+        val book = SyncCodec.decode(text, a)!!.books.single()
+        // 앞 벌(받은 책)만 남기던 때는 다른 벌의 읽은 자리가 빠졌다.
+        assertEquals(Locator.Reflow(5, 0), book.progress?.let { Locator.decodeOrNull(it.locator) })
+        assertEquals(listOf("r:7:0"), book.bookmarks.map { it.locator })
+    }
+
+    @Test
     fun `problems that pass with time are retried and the others wait for the person`() {
         assertEquals(setOf(SyncProblem.Offline, SyncProblem.Unreachable, SyncProblem.Asleep, SyncProblem.Server, SyncProblem.Full), SyncProblem.entries.filter { it.retryable }.toSet())
         assertEquals(setOf(SyncProblem.Offline, SyncProblem.Unreachable, SyncProblem.Asleep), SyncProblem.entries.filter { it.unreached }.toSet())

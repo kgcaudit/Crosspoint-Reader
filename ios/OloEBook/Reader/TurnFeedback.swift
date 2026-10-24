@@ -48,13 +48,35 @@ final class TurnFeedback {
         }
     }
 
-    /// [side] 0 가운데 · 1 오른쪽에서 · -1 왼쪽에서. 쓸린 소리는 처음 쓸 때 만들어 둔다.
+    /// 고른 소리의 세 갈래(가운데 · 오른쪽에서 · 왼쪽에서)를 뒤에서 미리 만든다(안드로이드 0.59.2 `warm`). 처음 넘길 때 만들면 주
+    /// 스레드에서 소리를 읽고 · 늘리고 · 쓸어 그 넘김 그림의 첫 몇 장면이 빠졌다.
+    func warm(_ sound: Int) {
+        guard sound > 0, sound < Self.files.count, let name = Self.files[sound] else { return }
+        let missing = [0, 1, -1].filter { players["\(name):\($0)"] == nil }
+        guard !missing.isEmpty else { return }
+        Task.detached(priority: .utility) {
+            let made = missing.compactMap { side in Self.bytes(name, side: side).map { (side, $0) } }
+            await MainActor.run {
+                for (side, bytes) in made where self.players["\(name):\(side)"] == nil {
+                    self.players["\(name):\(side)"] = try? AVAudioPlayer(data: bytes)
+                    self.players["\(name):\(side)"]?.prepareToPlay()
+                }
+            }
+        }
+    }
+
+    /// 소리 파일의 바이트. [side] 가 0 이 아니면 그쪽에서 쓸려 가게 만든 것.
+    nonisolated private static func bytes(_ name: String, side: Int) -> Data? {
+        guard let url = Bundle.main.url(forResource: name, withExtension: "wav"), let data = try? Data(contentsOf: url) else { return nil }
+        return side == 0 ? data : (TurnFx.shared.sweptWav(wav: data, forward: side > 0).map { $0 as Data } ?? data)
+    }
+
+    /// [side] 0 가운데 · 1 오른쪽에서 · -1 왼쪽에서. 미리 만들지 못했으면([warm]) 여기서 만든다.
     private func play(_ sound: Int, side: Int) {
         guard sound > 0, sound < Self.files.count, let name = Self.files[sound] else { return }
         let key = "\(name):\(side)"
         if players[key] == nil {
-            guard let url = Bundle.main.url(forResource: name, withExtension: "wav"), let data = try? Data(contentsOf: url) else { return }
-            let bytes: Data = side == 0 ? data : (TurnFx.shared.sweptWav(wav: data, forward: side > 0).map { $0 as Data } ?? data)
+            guard let bytes = Self.bytes(name, side: side) else { return }
             players[key] = try? AVAudioPlayer(data: bytes)
             players[key]?.prepareToPlay()
         }

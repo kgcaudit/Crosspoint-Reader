@@ -171,7 +171,13 @@ object FtpAddress {
 
 /** 맞추지 못한 까닭 — 화면이 사람에게 할 일을 알려 줄 수 있는 갈래만(안드로이드 `SyncProblem`). */
 enum class SyncProblem {
-    Offline, Unreachable, Asleep, Auth, NoAccess, Full, Tls, NoTls, Untrusted, Server;
+    Offline, Unreachable, Asleep, Auth, NoAccess, Full, Tls, NoTls, Untrusted, Server,
+
+    /**
+     * 서버와 맞는 방식이 없다(안드로이드 0.59.2) — SSH 의 키 교환 · 암호 방식이 겹치지 않거나, FTPS 데이터 연결이 TLS 세션 재사용을
+     * 요구한다(522). 다시 해도 같아 다시 하지 않는다. 화면이 다른 방식(SFTP · 다른 보안 연결)을 권한다.
+     */
+    Incompatible;
 
     /** 사람이 고칠 것이 없고 시간이 지나면 풀리는 까닭 — 나중에 저절로 다시 해 볼 만한 것. */
     val retryable: Boolean get() = this in setOf(Offline, Unreachable, Asleep, Server, Full)
@@ -193,6 +199,7 @@ object SyncText {
         SyncProblem.NoTls -> "이 서버는 암호화(FTPS)를 받지 않습니다. 고급 설정의 보안 연결을 ‘자동’ 으로 두세요."
         SyncProblem.Untrusted -> "서버 인증서(키)가 믿은 것과 다릅니다. 누가 가운데서 가로챌 수 있어 맞추지 않았습니다. ‘바꾸기’ 에서 다시 연결 확인을 하세요."
         SyncProblem.Server -> "서버가 잠시 답하지 않습니다. 조금 뒤 다시 맞춥니다."
+        SyncProblem.Incompatible -> "서버와 맞는 연결 방식이 없습니다(오래된 SSH 키 방식이거나, FTPS 데이터 연결에 세션 재사용을 요구하는 서버). 주소를 sftp:// 로 바꾸거나 고급 설정의 보안 연결을 바꿔 보세요."
     }
 
     fun security(security: FtpSecurity): String = when (security) {
@@ -406,8 +413,19 @@ object FtpReplies {
         452, 552 -> SyncProblem.Full
         530 -> SyncProblem.Auth
         550, 553 -> SyncProblem.NoAccess
+        // 데이터 연결의 TLS 를 맺지 못함 — 대개 TLS 세션 재사용을 요구하는 서버(vsftpd `require_ssl_reuse`, FileZilla Server).
+        // 다시 해도 같다(안드로이드 0.59.2).
+        522 -> SyncProblem.Incompatible
         else -> fallback
     }
+
+    /**
+     * 목록 글 → 파일들. LIST(MLSD 가 없는 서버)의 시각은 분까지라 버린다(안드로이드 0.59.2): 같은 분 안에 다시 쓴 파일은 크기도
+     * 같기 쉬워(숫자만 바뀜) "안 바뀜" 으로 보고 옛 자리를 내놓았다. 시각이 없으면 늘 다시 읽는다(파일은 몇 KB).
+     */
+    fun listing(text: String, exact: Boolean, nowYear: Int): List<SyncEntry> = text.lineSequence().mapNotNull { line ->
+        if (exact) mlsd(line) else list(line, nowYear)?.copy(modified = null)
+    }.toList()
 
     /** 저장 폴더를 한 칸씩(빈 칸 · "." 은 건너뜀). 앞이 "/" 면 맨 위에서 시작한다. */
     fun folderParts(path: String): List<String> = path.trim().split('/').map { it.trim() }.filter { it.isNotEmpty() && it != "." }
@@ -445,6 +463,18 @@ object SyncHash {
      * 인증서는 DER 바이트, SSH 서버 키는 키 덩어리(공개 키 줄의 base64 를 푼 것).
      */
     fun fingerprint(data: NSData): String = hex(sha256(data), ":")
+
+    /**
+     * SSH 서버 키 지문을 "SHA256:…"(base64, 끝 = 없음)로 — `ssh-keygen -lf` · OpenSSH · NAS 의 SSH 화면이 보이는 모양(안드로이드
+     * 0.59.2). 콜론 16진은 NAS 화면과 맞춰 볼 수 없어, 사람이 보지 않고 "믿기" 를 누르게 됐다.
+     */
+    @OptIn(kotlin.io.encoding.ExperimentalEncodingApi::class)
+    fun sshFingerprint(data: NSData): String =
+        "SHA256:" + kotlin.io.encoding.Base64.Default.encode(sha256(data).map { it.toByte() }.toByteArray()).trimEnd('=')
+
+    /** 믿어 둔 SSH 지문과 같은가. 0.59 의 콜론 16진으로 믿어 둔 것도 받는다(다시 묻지 않게). */
+    fun sshMatches(data: NSData, pinned: String?): Boolean =
+        pinned != null && (pinned == sshFingerprint(data) || pinned.equals(fingerprint(data), ignoreCase = true))
 
     fun sha1Hex(text: String): String {
         @Suppress("CAST_NEVER_SUCCEEDS")
@@ -621,12 +651,14 @@ class IosReadingSync(private val store: ReadingStore, private val stateDir: Stri
     fun upload(shelf: List<ShelfBook>, comics: List<ShelfComic>, deviceName: String, now: Long): String? {
         val books = shelf.mapNotNull { store.recordOf(it.id, it.name, it.size, it.title, it.author) }
             .filter { it.progress != null || it.finishedAt != null || it.bookmarks.isNotEmpty() }
+            // 같은 파일이 두 폴더에 있으면 한 벌로 합친다(백업과 같은 규칙, 안드로이드 0.59.2) — 다른 기기에서는 이름 · 크기로 맞추니
+            // 둘은 구별되지 않는다. 앞 것만 남기던 때는 다른 벌에만 있던 읽은 자리 · 책갈피가 다른 기기로 가지 않았다.
+            .groupBy { nfc(it.name) to it.size }.values.map { same -> same.reduce { a, b -> a.mergedWith(b) } }
             .map { BackupBook(it.name, it.size, it.title, it.author, it.progress, it.openedAt, it.finishedAt, it.bookmarks.sortedBy { m -> m.locator }, emptyList(), emptyList()) }
-            .distinctBy { nfc(it.name) to it.size }
             .sortedWith(compareBy({ it.name }, { it.size ?: -1 }))
         val units = comics.mapNotNull { store.recordOfComic(it.id, it.name, it.size) }
             .filter { it.page != null || it.bookmarks.isNotEmpty() }
-            .distinctBy { nfc(it.name) to it.size }
+            .groupBy { nfc(it.name) to it.size }.values.map { same -> same.reduce { a, b -> a.mergedWith(b) } }
             .sortedWith(compareBy({ it.name }, { it.size ?: -1 }))
         val fingerprint = SyncCodec.encode(SyncFile(deviceId, deviceName, 0L, books, units))
         if (written == fingerprint) return null
@@ -637,6 +669,9 @@ class IosReadingSync(private val store: ReadingStore, private val stateDir: Stri
             return null
         }
         pending = fingerprint
+        // 내가 내놓는 책갈피 · 다 읽은 때를 "본 것" 으로 적는다(안드로이드 0.59.2). 안 적으면, 다른 기기가 받아 제 파일에 실은 것을
+        // 내가 그 기기 파일을 읽기 전에 지웠을 때 다시 들어왔다("뺀 책갈피는 돌아오지 않는다" 의 구멍).
+        remember(published(books, units) - seen())
         return SyncCodec.encode(SyncFile(deviceId, deviceName, now, books, units))
     }
 
@@ -722,6 +757,22 @@ class IosReadingSync(private val store: ReadingStore, private val stateDir: Stri
         nfc(name) == nfc(otherName) && (size == null || otherSize == null || size == otherSize)
 
     private fun itemKey(name: String, size: Long?) = "$name\u0000${size ?: ""}"
+
+    /** [mergeNow] 가 "본 것" 으로 보는 열쇠 — 이 기기가 내놓는 책갈피 · 다 읽은 때. */
+    private fun published(books: List<BackupBook>, comics: List<BackupComic>): Set<String> {
+        val keys = HashSet<String>()
+        for (b in books) {
+            val item = itemKey(b.name, b.size)
+            b.bookmarks.forEach { keys += SyncHash.sha1Hex(SyncRules.bookmarkKey(item, it.locator)) }
+            b.finishedAt?.let { keys += SyncHash.sha1Hex("f\u0000$item\u0000$it") }
+        }
+        for (c in comics) {
+            val item = itemKey(c.name, c.size)
+            c.bookmarks.forEach { keys += SyncHash.sha1Hex(SyncRules.bookmarkKey(item, it.page.toString())) }
+            c.finishedAt?.let { keys += SyncHash.sha1Hex("f\u0000$item\u0000$it") }
+        }
+        return keys
+    }
 
     private var seenCache: MutableSet<String>? = null
 

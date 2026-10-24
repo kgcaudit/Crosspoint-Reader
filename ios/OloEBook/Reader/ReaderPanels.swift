@@ -280,7 +280,7 @@ private struct ViewPanelRows: View {
         HStack(spacing: 0) {
             Text("밝기").font(CpFont.body).foregroundStyle(CpColor.text).frame(width: 72, alignment: .leading)
             CpSlider(value: brightness.value ?? brightness.phone, label: "밝기",
-                     onChange: { brightness.set($0) }, onCommit: { brightness.set($0) })
+                     onChange: { brightness.preview($0) }, onCommit: { brightness.set($0) })
             Button { brightness.followPhone() } label: {
                 Text("휴대폰").font(CpFont.label)
                     .foregroundStyle(brightness.value == nil ? CpColor.accentText : CpColor.textMuted)

@@ -30,21 +30,22 @@ final class SftpConnection: SyncConnection {
         init(pinned: String?) { self.pinned = pinned }
 
         func validateHostKey(hostKey: NIOSSHPublicKey, validationCompletePromise: EventLoopPromise<Void>) {
-            let fingerprint = Self.fingerprint(hostKey)
-            if let pinned, let fingerprint, fingerprint.caseInsensitiveCompare(pinned) == .orderedSame {
+            let blob = Self.blob(hostKey)
+            if let blob, SyncHash.shared.sshMatches(data: blob, pinned: pinned) {
                 validationCompletePromise.succeed(())
                 return
             }
-            seen = fingerprint
+            // ssh-keygen 모양("SHA256:…")으로 보인다 — NAS 의 SSH 화면과 맞춰 볼 수 있게(안드로이드 0.59.2).
+            seen = blob.map { SyncHash.shared.sshFingerprint(data: $0) }
             validationCompletePromise.fail(UnknownHostKey())
         }
 
-        /// 지문은 키 덩어리(공개 키 줄 "ssh-ed25519 AAAA…" 의 base64 를 푼 것)의 SHA-256 — 안드로이드 JSch 가 넘기는 바이트와 같다.
-        static func fingerprint(_ key: NIOSSHPublicKey) -> String? {
+        /// 키 덩어리(공개 키 줄 "ssh-ed25519 AAAA…" 의 base64 를 푼 것) — 지문은 이것의 SHA-256, 안드로이드 JSch 가 넘기는 바이트와 같다.
+        static func blob(_ key: NIOSSHPublicKey) -> Data? {
             let line = String(openSSHPublicKey: key)
             let parts = line.split(separator: " ")
-            guard parts.count >= 2, let blob = Data(base64Encoded: String(parts[1])) else { return nil }
-            return SyncHash.shared.fingerprint(data: blob)
+            guard parts.count >= 2 else { return nil }
+            return Data(base64Encoded: String(parts[1]))
         }
     }
 
@@ -107,6 +108,8 @@ final class SftpConnection: SyncConnection {
             return SyncFailure(problem: .offline, detail: "\(c)")
         }
         if let io = error as? IOError { return SyncFailure.of(NSError(domain: NSPOSIXErrorDomain, code: Int(io.errnoCode))) }
+        // 서로 맞는 키 교환 · 암호 방식이 없다(옛 NAS 의 ssh-rsa 만 등). 다시 해도 같다(안드로이드 0.59.2).
+        if let s = error as? NIOSSHError, s.type == .keyExchangeNegotiationFailure { return SyncFailure(problem: .incompatible, detail: "no common ssh algorithm") }
         // 모든 주소에 잇지 못함(NIOPosix 의 NIOConnectionError — 그 모듈을 따로 들이지 않으려 글로 본다): 이름을 찾지 못했으면 주소가
         // 틀렸고, 거절이면 서버가 꺼져 있다.
         let text = "\(error)"
@@ -115,7 +118,15 @@ final class SftpConnection: SyncConnection {
             if text.contains("connectTimeout") { return SyncFailure(problem: .asleep, detail: "timed out") }
             return SyncFailure(problem: .unreachable, detail: text)
         }
-        return SyncFailure(problem: .offline, detail: "ssh failed: \(error)")
+        // 모르는 SSH 오류는 "인터넷 없음" 이 아니다 — 그렇게 알리면 사람이 엉뚱한 것(와이파이)을 고친다.
+        return SyncFailure(problem: .server, detail: "ssh failed: \(error)")
+    }
+
+    /// SFTP 오류의 상태 번호(없으면 nil).
+    private static func statusCode(_ error: Error) -> UInt32? {
+        if let s = error as? SFTPMessage.Status { return s.errorCode.rawValue }
+        if let e = error as? SFTPError, case let .errorStatus(s) = e { return s.errorCode.rawValue }
+        return nil
     }
 
     private static func status(_ s: SFTPMessage.Status) -> SyncFailure {
@@ -191,14 +202,15 @@ final class SftpConnection: SyncConnection {
             do {
                 try await sftp.rename(at: temp, to: target)
             } catch {
-                // SFTP 3판의 이름 바꾸기는 있는 파일을 덮지 않는다(대부분의 서버). 옛것을 지우고 다시.
-                try? await sftp.remove(at: target)
-                do {
-                    try await sftp.rename(at: temp, to: target)
-                } catch {
-                    try? await sftp.remove(at: temp)
-                    throw error
-                }
+                // SFTP 3판의 이름 바꾸기는 있는 파일을 덮지 않는다(대부분의 서버) — 3판 서버는 일반 실패(4), 그 뒤 판을 아는 서버는
+                // "이미 있음"(11)으로 답한다. 그때만(있는 파일이 막은 것) 옛것을 지우고 다시. 권한 등 다른 까닭이면 지우지 않는다 —
+                // 지우고 나서도 못 바꾸면 이 기기 파일이 서버에서 사라졌다(안드로이드 0.59.2).
+                let code = Self.statusCode(error)
+                let exists = (try? await sftp.getAttributes(at: target)) != nil
+                guard code == 4 || code == 11, exists else { throw error }
+                try await sftp.remove(at: target)
+                // 다시도 안 되면 임시 파일은 남긴다(다른 기기는 점으로 시작하는 파일을 읽지 않고, 다음 쓰기가 덮는다).
+                try await sftp.rename(at: temp, to: target)
             }
         }
     }
