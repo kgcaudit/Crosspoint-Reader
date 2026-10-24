@@ -145,6 +145,26 @@ class ComicSplitPagesTest {
     }
 
     @Test
+    fun `running out of memory on a webtoon strip does not mark the picture broken for good`() {
+        // 웹툰 띠도 쪽과 같은 규칙. 0.59 까지는 한 번 모자란 그림을 깨진 것으로 적어, 화를 닫을 때까지 "이 그림을 그리지 못했습니다" 였다.
+        var fail = 0
+        val tall = spread(200, 1200)
+        val book = ComicBook(unit, ComicPages(listOf("001.png"), { tall.inputStream() }, null), regions = false, beforeStrip = { if (fail-- > 0) throw OutOfMemoryError("test") })
+        // 한 번 모자라면 반 크기로 다시 — 띠는 나온다.
+        fail = 1
+        assertNotNull(runBlocking { book.strip(0, 0..399, 200) }, "한 번 모자랐다고 띠를 풀지 않았다")
+        // 두 번 다 모자라면 이번만 빈손 — 깨진 그림이 아니다. 메모리가 돌아오면 풀린다.
+        fail = 2
+        assertNull(runBlocking { book.strip(0, 400..799, 200) })
+        assertFalse(book.isBroken(0), "메모리가 잠깐 모자랐던 그림을 깨진 것으로 적었다")
+        assertNotNull(runBlocking { book.strip(0, 400..799, 200) }, "메모리가 돌아왔는데 다시 풀지 않았다")
+        // 정말 그림이 아닌 것은 여전히 깨진 그림이다.
+        val junk = ComicBook(unit, ComicPages(listOf("001.png"), { "그림 아님".toByteArray().inputStream() }, null), regions = false)
+        assertNull(runBlocking { junk.strip(0, 0..99, 200) })
+        assertTrue(junk.isBroken(0))
+    }
+
+    @Test
     fun `with uneven outer margins the halves are cut at the fold, the same size, and without the other page`() {
         // 왼쪽 바깥 여백 10%, 오른쪽 2% 인 펼침면. 접힌 자리는 원래 그림의 가운데(300). 0.52 까지는 잘린 그림의 가운데를
         // 갈라, 왼쪽 반에 오른쪽 쪽(초록)의 띠가 섞였다.

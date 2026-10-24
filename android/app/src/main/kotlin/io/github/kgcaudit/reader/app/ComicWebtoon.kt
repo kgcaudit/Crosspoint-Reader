@@ -762,7 +762,15 @@ private fun StripView(book: ComicBook, strip: Strip, width: Int, color: androidx
     val ready = if (rows != null && bitmapWidth != width) book.cachedStrip(strip.index, rows, width) else null
     LaunchedEffect(strip.key, width) {
         if (rows != null && bitmapWidth != width && !broken) {
-            val made = book.strip(strip.index, rows, width)
+            var made = book.strip(strip.index, rows, width)
+            // 깨진 그림이 아니라 메모리가 잠깐 모자랐던 것이면 조금 뒤 다시 한다(쪽 넘김 만화와 같은 간격). 다시 하지 않으면 화면을
+            // 떠났다 돌아와야 그려졌다.
+            var tries = 0
+            while (made == null && !book.isBroken(strip.index) && tries < STARVED_RETRIES) {
+                kotlinx.coroutines.delay(STARVED_RETRY_MS)
+                made = book.strip(strip.index, rows, width)
+                tries++
+            }
             if (made != null) {
                 bitmap = made
                 bitmapWidth = width

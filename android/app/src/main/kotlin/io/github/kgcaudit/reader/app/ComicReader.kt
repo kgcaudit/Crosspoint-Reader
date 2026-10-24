@@ -1359,4 +1359,7 @@ internal fun ownCovers(choices: io.github.kgcaudit.reader.data.library.CoverChoi
 }
 
 /** 메모리가 모자라 못 푼 쪽을 다시 풀기까지 기다리는 시간. */
-private const val STARVED_RETRY_MS = 1_200L
+internal const val STARVED_RETRY_MS = 1_200L
+
+/** 웹툰 띠가 메모리 부족으로 비었을 때 다시 해 보는 수. 그 뒤에도 비면 "그리지 못했습니다". */
+internal const val STARVED_RETRIES = 3

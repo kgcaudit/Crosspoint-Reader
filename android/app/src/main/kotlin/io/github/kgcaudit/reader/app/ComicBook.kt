@@ -196,6 +196,8 @@ class ComicBook(
     private val stripDelayMs: () -> Long = { 0L },
     /** 쪽을 내주기 전에 기다리는 시간(ms). 시험만 쓴다(`AppContainer.comicPageDelayMs`). */
     private val pageDelayMs: () -> Long = { 0L },
+    /** 띠를 풀기 직전에 부른다. 시험이 메모리가 모자란 척(OutOfMemoryError)하는 자리. */
+    private val beforeStrip: () -> Unit = {},
 ) : AutoCloseable, ComicPageSource {
     override val pageCount: Int get() = pages.count
 
@@ -413,8 +415,27 @@ class ComicBook(
         lock.withLock {
             cachedStrip(index, rows, width)?.let { return@withLock it }
             val bytes = sourceOf(index) ?: run { broken += index; return@withLock null }
-            val bitmap = runCatching { decodeStrip(bytes, rows, width) }.getOrNull()
-            if (bitmap == null) broken += index else bitmaps.put(stripKey(index, rows, width), bitmap)
+            // 쪽([page])과 같이: 메모리가 모자라면 저장소를 비우고 반 크기로 한 번 더, 그래도 모자라면 이번만 빈손 — 깨진 그림으로
+            // 적지 않는다. 0.59 까지는 한 번 모자란 그림을 깨진 것으로 적어, 화를 닫을 때까지 "이 그림을 그리지 못했습니다" 로 남았다
+            // (긴 웹툰 그림 · 빠듯한 힙에서).
+            var starved = false
+            val bitmap = try {
+                beforeStrip()
+                decodeStrip(bytes, rows, width, 1)
+            } catch (e: OutOfMemoryError) {
+                bitmaps.evictAll()
+                try {
+                    beforeStrip()
+                    decodeStrip(bytes, rows, width, 2)
+                } catch (e2: OutOfMemoryError) {
+                    android.util.Log.w("OloComic", "strip of picture $index of ${unit.name} does not fit in memory now", e2)
+                    starved = true
+                    null
+                }
+            } catch (e: RuntimeException) {
+                null
+            }
+            if (bitmap != null) bitmaps.put(stripKey(index, rows, width), bitmap) else if (!starved) broken += index
             bitmap
         }
     }
@@ -434,13 +455,13 @@ class ComicBook(
         return bytes
     }
 
-    private fun decodeStrip(bytes: ByteArray, rows: IntRange, width: Int): Bitmap? {
+    private fun decodeStrip(bytes: ByteArray, rows: IntRange, width: Int, shrink: Int): Bitmap? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
         val srcW = bounds.outWidth
         val srcH = bounds.outHeight
         if (srcW <= 0 || srcH <= 0) return null
-        val sample = sampleKeeping(srcW, srcH, width, 0)
+        val sample = sampleKeeping(srcW, srcH, width, 0) * shrink
         val top = rows.first.coerceIn(0, srcH - 1)
         val bottom = (rows.last + 1).coerceIn(top + 1, srcH)
         return decodeRect(bytes, srcW, srcH, android.graphics.Rect(0, top, srcW, bottom), sample, regions, MAX_WHOLE_HEIGHT)
