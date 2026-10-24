@@ -131,6 +131,10 @@ final class Library: ObservableObject {
         infos = seen
         Library.saveInfos(seen)
         adoptMoved(read: readBooks.filter(readComics.contains))
+        // 서재에 없는 책의 쪽 캐시 · 쓰지 않는 책 글꼴을 지운다(2026-10-24 결정 2A). 화면을 붙잡지 않게 뒤에서.
+        let keep = found.map(\.id) + units.map(\.id)
+        let cacheDir = pageCache
+        Task.detached(priority: .utility) { _ = PageCaches.shared.prune(cacheDir: cacheDir, keep: keep, now: Int64(Date().timeIntervalSince1970 * 1000)) }
         // 백업에서 기다리던 책 · 만화가 이제 보이면 붙인다(책 폴더를 추가한 뒤 등).
         _ = backup.resumePending(shelf: shelfBooks, comics: shelfComics)
         scannedOnce = true
@@ -138,13 +142,16 @@ final class Library: ObservableObject {
         scanning = false
     }
 
-    /// 옮긴 파일의 기록 잇기(안드로이드 0.50.0, 1A 2A 3A): 사라진 파일의 기록을 같은 이름 · 크기로 다시 나타난 파일로 옮긴다. [read] 는
-    /// 이번에 책 · 만화 훑기가 모두 실제로 읽은 폴더의 id 머리 — 접근이 끊긴 폴더의 파일을 사라진 것으로 치면, 같은 파일이 다른 폴더에
-    /// 하나 있을 때 기록이 그리로 넘어가 버린다. 알림은 띄우지 않는다(안드로이드와 같다).
+    /// 옮긴 파일의 기록 잇기(안드로이드 0.50.0, 1A 2A 3A · 2026-10-24 1A): 사라진 파일의 기록을 같은 이름 · 크기로 다시 나타난 파일로
+    /// 옮긴다. [read] 는 이번에 책 · 만화 훑기가 모두 실제로 읽은 폴더의 id 머리 — 연결은 그대로인데 접근이 끊긴 폴더의 파일을 사라진
+    /// 것으로 치면, 같은 파일이 다른 폴더에 하나 있을 때 기록이 그리로 넘어가 버린다. 서재에서 뺀 폴더의 파일은 사라진 것으로 친다.
+    /// 알림은 띄우지 않는다(안드로이드와 같다).
     private func adoptMoved(read: [String]) {
         let visible = books.map { KnownFile(id: $0.id, kind: KnownFile.companion.BOOK, name: $0.displayName, size: KotlinLong(value: $0.sizeBytes), pages: nil) }
             + comicUnits.map { KnownFile(id: $0.id, kind: $0.kind.name, name: $0.name, size: $0.sizeBytes, pages: $0.pageCount) }
-        for pair in store.adoptMoved(visible: visible, scanned: read) {
+        // 서재에서 뺀 연결 폴더의 책도 옮긴다(2026-10-24 결정 1A) — 지금 연결된 폴더를 알려 준다.
+        let linked = folders.map { "link:\($0.id):" }
+        for pair in store.adoptMoved(visible: visible, scanned: read, linked: linked) {
             // 고른 표지도 따라간다 — 책은 책 id, 만화는 빼낸 작품(`#own:` 권 id)만 권 id 를 열쇠로 쓴다.
             if pair.comic {
                 CoverStore.shared.move(IosCovers.shared.workId(workKey: "#own:" + pair.from), to: IosCovers.shared.workId(workKey: "#own:" + pair.to))

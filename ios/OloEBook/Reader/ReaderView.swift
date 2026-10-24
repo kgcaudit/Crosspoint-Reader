@@ -1374,14 +1374,19 @@ struct ReaderView: View {
                             // 한 쪽 ↔ 두 쪽은 책등 자리가 달라 말림을 새로 만든다(UIPageViewController 는 책등을 만들 때 정한다).
                             .id(twoPages(full))
                     } else {
-                        Image(uiImage: frame.image).resizable()
-                            .id(key)
-                            .transition(pageTransition)
-                            .zIndex(Double(model.turnCount) * (model.direction > 0 ? 1 : -1))
-                            // 넘길 때마다 zIndex 가 커져 첫 넘김 뒤 그림이 넘김 자리(TurnZones) 위로 올라온다 — 그림이 누름을 받으면
-                            // "말림" 밖의 효과(없음 · 서서히 · 밀기 · 덮기)에서 두 번째 누름부터 아무 일도 없었다.
-                            .allowsHitTesting(false)
-                            .accessibilityLabel("\(model.title), \(frame.page + 1)쪽")
+                        // 쪽 그림은 자기 상자 안에서만 겹친다. 넘김마다 커지는 순서 값(새 쪽을 옛 쪽 위에 — 덮기)이 꼬리말 · 리본 · 메뉴와 같은
+                        // 층에 있으면, 앞으로 넘긴 뒤에는 쪽이 그것들을 덮어 꼬리말이 사라지고 메뉴가 쪽 아래에 열렸고, 뒤로 넘기면 음수가 되어
+                        // 쪽이 바탕 아래로 내려가 빈 쪽만 보였다(실기기에서 찾음 — "서서히" 등 말림이 아닌 넘김).
+                        ZStack {
+                            Image(uiImage: frame.image).resizable()
+                                .id(key)
+                                .transition(pageTransition)
+                                .zIndex(Double(model.turnCount) * (model.direction > 0 ? 1 : -1))
+                        }
+                        // 넘길 때마다 zIndex 가 커져 첫 넘김 뒤 그림이 넘김 자리(TurnZones) 위로 올라온다 — 그림이 누름을 받으면
+                        // "말림" 밖의 효과(없음 · 서서히 · 밀기 · 덮기)에서 두 번째 누름부터 아무 일도 없었다.
+                        .allowsHitTesting(false)
+                        .accessibilityLabel("\(model.title), \(frame.page + 1)쪽")
                     }
                     // 윗여백 안에서 끝나 글자를 가리지 않는다. 노치 · 다이내믹 아일랜드가 있으면 그 아래로.
                     if frame.bookmarked {

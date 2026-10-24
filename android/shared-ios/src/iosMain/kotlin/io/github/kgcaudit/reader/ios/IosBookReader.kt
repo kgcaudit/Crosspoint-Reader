@@ -248,7 +248,7 @@ class IosBookReader private constructor(
         val table = fontTable()
         if (bookFaces == null && !table.isEmpty) {
             bookFaces = try {
-                BookFaces.prepare(document, table, "$cacheDir/bookfonts/${fnv1aHex(document.meta.id.value + "|" + edition)}")
+                BookFaces.prepare(document, table, "$cacheDir/bookfonts", fnv1aHex(document.meta.id.value), edition)
             } catch (e: kotlin.coroutines.cancellation.CancellationException) {
                 throw e
             } catch (e: Exception) {

@@ -120,13 +120,40 @@ class BookFontsTest {
         reader.close()
     }
 
+    @Test
+    fun `two books with the same font share one extracted file`() = runTest {
+        // 같은 글꼴을 품은 책마다 꺼내 두면 한 권에 수십 MB 씩 쌓였다(실기기 136MB).
+        val first = prepare(epub(regular = true, bold = true))
+        val second = prepare(epub(regular = true, bold = true))
+        assertEquals(first.previewPath, second.previewPath)
+        val files = NSFileManager.defaultManager.contentsOfDirectoryAtPath("$root/bookfonts/files", null).orEmpty()
+        assertEquals(2, files.size, "regular and bold once each: $files")
+        first.release()
+        second.release()
+    }
+
+    @Test
+    fun `a listed font file that went missing is taken out again`() = runTest {
+        // 일부러 망가뜨린 입력: iOS 가 캐시를 비워 목록(idx)만 남았다.
+        val path = "$root/again.epub"
+        epub(regular = true, bold = true).writeTo(path)
+        val document = EpubDocument.open(BookId("t"), "t.epub", FileSeekableSource(path))
+        val table = BookFontTable.load(document)
+        BookFaces.prepare(document, table, "$root/bookfonts", "same").release()
+        NSFileManager.defaultManager.removeItemAtPath("$root/bookfonts/files", null)
+        val again = BookFaces.prepare(document, table, "$root/bookfonts", "same")
+        assertFalse(again.isEmpty)
+        assertTrue(NSFileManager.defaultManager.fileExistsAtPath(again.previewPath!!))
+        again.release()
+    }
+
     private suspend fun prepare(bytes: ByteArray): BookFaces {
         val path = "$root/${NSUUID().UUIDString}.epub"
         bytes.writeTo(path)
         val document = EpubDocument.open(BookId("t"), "t.epub", FileSeekableSource(path))
         val table = BookFontTable.load(document)
         assertFalse(table.isEmpty)
-        return BookFaces.prepare(document, table, "$root/extract-${NSUUID().UUIDString}")
+        return BookFaces.prepare(document, table, "$root/bookfonts", NSUUID().UUIDString)
     }
 
     /**

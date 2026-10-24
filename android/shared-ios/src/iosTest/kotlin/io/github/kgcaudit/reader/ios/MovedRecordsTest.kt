@@ -115,13 +115,39 @@ class MovedRecordsTest {
     }
 
     @Test
-    fun `a book in a folder that was not read this time stays where it was`() = runTest {
-        // 구상안 2A: 서재에서 뺀 폴더 · 접근이 끊긴 폴더의 책은 사라진 것으로 치지 않는다 — 다시 추가하면 그 자리에서 이어져야 한다.
+    fun `a book in a linked folder that could not be read this time stays where it was`() = runTest {
+        // 연결은 그대로인데 접근만 끊긴 폴더의 책은 사라진 것으로 치지 않는다 — 다시 열리면 그 자리에서 이어져야 한다.
         val store = ReadingStore(path)
         val inFolder = "link:B:어린 왕자.epub"
         read(store, inFolder)
-        store.adoptMoved(listOf(book(inFolder)), listOf("app:", "link:B:"))
-        assertTrue(store.adoptMoved(listOf(book(new)), scanned).isEmpty())
+        store.adoptMoved(listOf(book(inFolder)), listOf("app:", "link:B:"), linked = listOf("link:A:", "link:B:"))
+        assertTrue(store.adoptMoved(listOf(book(new)), scanned, linked = listOf("link:A:", "link:B:")).isEmpty())
+        assertEquals(Locator.Reflow(3, 120), store.get(BookId(inFolder))?.locator)
+    }
+
+    @Test
+    fun `a book from a folder removed from the library carries its records to where it was moved`() = runTest {
+        // 2026-10-24 사용자 결정 1A(안드로이드와 같다): 폴더 연결이 끊긴 뒤 그 책들을 앱 폴더로 옮겼다 — 다 읽은 책이 0% 로 다시 시작했다.
+        val store = ReadingStore(path)
+        val inFolder = "link:B:어린 왕자.epub"
+        val inApp = "app:받은 파일/어린 왕자.epub"
+        read(store, inFolder)
+        store.adoptMoved(listOf(book(inFolder)), listOf("app:", "link:B:"), linked = listOf("link:B:"))
+        // B 를 서재에서 뺐고(연결 목록에 없음) 같은 파일이 앱 폴더에 보인다.
+        val moved = store.adoptMoved(listOf(book(inApp)), listOf("app:"), linked = emptyList())
+        assertEquals(listOf(MovedPair(inFolder, inApp, comic = false)), moved)
+        assertEquals(Locator.Reflow(3, 120), store.get(BookId(inApp))?.locator)
+        assertNull(store.get(BookId(inFolder)))
+    }
+
+    @Test
+    fun `a removed folder's book is not guessed onto one of two copies`() = runTest {
+        // 일부러 망가뜨린 입력: 뺀 폴더의 책과 같은 이름 · 크기가 두 곳에 있으면 어느 쪽인지 고르지 않는다.
+        val store = ReadingStore(path)
+        val inFolder = "link:B:어린 왕자.epub"
+        read(store, inFolder)
+        store.adoptMoved(listOf(book(inFolder)), listOf("app:", "link:B:"), linked = listOf("link:B:"))
+        assertTrue(store.adoptMoved(listOf(book("app:가/어린 왕자.epub"), book("app:나/어린 왕자.epub")), listOf("app:")).isEmpty())
         assertEquals(Locator.Reflow(3, 120), store.get(BookId(inFolder))?.locator)
     }
 

@@ -79,21 +79,44 @@ class BookFaces private constructor(private val families: List<Family?>) {
         val EMPTY = BookFaces(emptyList())
 
         /**
-         * [table] 의 글꼴 파일을 [dir] 에 꺼내 읽는다. 없는 파일 · 웹 글꼴 · 깨진 파일은 빼고 간다(그 가족은 본문 글꼴로
-         * 그려진다). 이미 꺼내 둔 파일은 다시 꺼내지 않는다.
+         * [table] 의 글꼴 파일을 꺼내 읽는다. 없는 파일 · 웹 글꼴 · 깨진 파일은 빼고 간다(그 가족은 본문 글꼴로 그려진다).
+         *
+         * 꺼낸 글꼴은 [root]/files/<내용 해시>.font 에 **한 벌만** 둔다 — 같은 글꼴을 품은 책(시리즈 · 같은 출판사)이 저마다 꺼내 두면
+         * 한 권에 수십 MB 씩 쌓였다(실기기에서 삼체 세 권 · 옮기기 전 사본으로 같은 글꼴 다섯 개가 여섯 벌, 136MB). 책마다는
+         * [root]/books/<[book]>.idx 에 "책 안 경로 → 내용 해시" 만 적어, 다음에 열 때 다시 꺼내지 않는다. 판([edition])이 바뀌면
+         * 목록을 버리고 다시 꺼낸다(파일을 바꿔 넣은 책).
          */
-        suspend fun prepare(document: ReflowDocument, table: BookFontTable, dir: String): BookFaces {
+        suspend fun prepare(document: ReflowDocument, table: BookFontTable, root: String, book: String, edition: String? = null): BookFaces {
             if (table.isEmpty) return EMPTY
             val fm = NSFileManager.defaultManager
-            fm.createDirectoryAtPath(dir, true, null, null)
+            val files = "$root/files"
+            val books = "$root/books"
+            fm.createDirectoryAtPath(files, true, null, null)
+            fm.createDirectoryAtPath(books, true, null, null)
+            val indexPath = "$books/$book.idx"
+            val stamp = "edition\t${edition ?: ""}"
+            val lines = TextFiles.read(indexPath)?.lines().orEmpty()
+            val index = LinkedHashMap<String, String>()
+            if (lines.firstOrNull() == stamp) {
+                for (line in lines.drop(1)) {
+                    val tab = line.indexOf('\t')
+                    if (tab > 0) index[line.substring(0, tab)] = line.substring(tab + 1)
+                }
+            }
+            val before = HashMap(index)
             val families = table.families.map { family ->
                 val faces = family.files.mapNotNull { file ->
-                    val target = "$dir/${fnv1aHex(file.path)}.font"
-                    if (!fm.fileExistsAtPath(target) && !extract(document, file.path, target)) return@mapNotNull null
+                    var hash = index[file.path]
+                    if (hash == null || !fm.fileExistsAtPath("$files/$hash.font")) {
+                        hash = extract(document, file.path, files) ?: run { index.remove(file.path); return@mapNotNull null }
+                        index[file.path] = hash
+                    }
+                    val target = "$files/$hash.font"
                     val descriptor = UserFonts.descriptor(target)
                     if (descriptor == null) {
                         // 읽지 못하는 파일을 남겨 두면 다음에도 꺼냈다고 믿고 또 실패한다.
                         fm.removeItemAtPath(target, null)
+                        index.remove(file.path)
                         return@mapNotNull null
                     }
                     val (weight, italic) = os2(descriptor)
@@ -101,25 +124,46 @@ class BookFaces private constructor(private val families: List<Family?>) {
                 }
                 faces.takeIf { it.isNotEmpty() }?.let(::Family)
             }
+            if (index != before || lines.firstOrNull() != stamp) {
+                TextFiles.write(indexPath, (listOf(stamp) + index.map { (k, v) -> "$k\t$v" }).joinToString("\n"))
+            }
             return BookFaces(families)
         }
 
-        private suspend fun extract(document: ReflowDocument, path: String, target: String): Boolean {
-            val temp = "$target.part"
+        /** 글꼴 하나를 꺼내 [dir]/<내용 해시>.font 로 둔다(이미 있으면 그대로). 내용 해시, 꺼내지 못하면 null. */
+        private suspend fun extract(document: ReflowDocument, path: String, dir: String): String? {
             val fm = NSFileManager.defaultManager
+            var temp: String? = null
             return try {
-                val bytes = document.openFont(path)?.use { it.readAllBytes() } ?: return false
-                if (bytes.isEmpty()) return false
+                val bytes = document.openFont(path)?.use { it.readAllBytes() } ?: return null
+                if (bytes.isEmpty()) return null
+                val hash = contentHash(bytes)
+                val target = "$dir/$hash.font"
+                if (fm.fileExistsAtPath(target)) return hash
+                temp = "$target.${platform.Foundation.NSUUID().UUIDString}.part"
                 val data = bytes.usePinned { NSData.create(bytes = it.addressOf(0), length = bytes.size.toULong()) }
-                data.writeToFile(temp, true) && fm.moveItemAtPath(temp, target, null)
+                if (!data.writeToFile(temp, true)) return null
+                // 다른 책이 같은 글꼴을 막 꺼내 두었으면 그것을 쓴다.
+                if (!fm.moveItemAtPath(temp, target, null) && !fm.fileExistsAtPath(target)) return null
+                hash
             } catch (e: CancellationException) {
                 // 취소는 실패가 아니다. 삼키면 취소된 준비가 남은 글꼴(각 수 MB)을 끝까지 꺼낸다.
                 throw e
             } catch (e: Exception) {
-                false
+                null
             } finally {
-                fm.removeItemAtPath(temp, null)
+                temp?.let { fm.removeItemAtPath(it, null) }
             }
+        }
+
+        /** 글꼴 내용의 이름: 64비트 FNV-1a + 길이. 같은 글꼴은 책이 달라도 같은 이름이 된다. */
+        internal fun contentHash(bytes: ByteArray): String {
+            var hash = 0xcbf29ce484222325uL
+            for (b in bytes) {
+                hash = hash xor (b.toULong() and 0xFFuL)
+                hash *= 0x100000001b3uL
+            }
+            return hash.toString(16).padStart(16, '0') + "-" + bytes.size.toString(16)
         }
 
         /**

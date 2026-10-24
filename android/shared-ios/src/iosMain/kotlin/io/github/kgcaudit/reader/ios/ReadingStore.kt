@@ -528,20 +528,22 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
 
     /**
      * 사라진 파일의 기록을 옮겨 간 파일로 잇는다. [visible] 은 이번에 훑은 모든 파일, [scanned] 는 이번에 실제로 읽은 폴더의 id 머리
-     * ("app:", "link:폴더:"). 묻지 않고 옮기므로 백업 가져오기보다 엄격하다(안드로이드와 같다):
-     * - 사라진 쪽: 읽은 폴더 안에 있었고 지금 보이지 않으며 기록이 있는 파일. 접근이 끊긴 폴더 · 서재에서 뺀 폴더의 파일은 사라진 것으로
-     *   치지 않는다(구상안 2A) — 다시 추가하면 그 자리에서 그대로 이어져야 한다.
+     * ("app:", "link:폴더:"), [linked] 는 지금 서재에 연결된 폴더의 id 머리. 묻지 않고 옮기므로 백업 가져오기보다 엄격하다:
+     * - 사라진 쪽: 지금 보이지 않으며 기록이 있는 파일 가운데, 읽은 폴더 안에 있었거나 서재에서 뺀 폴더에 있었던 것(2026-10-24 사용자
+     *   결정 1A, 안드로이드와 같다 — 폴더 연결이 끊긴 뒤 책을 앱 폴더로 옮기면 다 읽은 책이 0% 로 다시 시작했다). 연결은 그대로인데
+     *   접근만 끊긴 폴더의 파일은 치지 않는다 — 다시 열리면 그 자리에서 그대로 이어져야 한다.
      * - 짝: 같은 열쇠의 사라진 파일도, 보이는 파일도 하나일 때만. 둘 중 무엇인지 고르지 않는다 — 잘못 붙인 기록은 되돌릴 수 없다.
      * - 옛 자리에 아직 보이면 복사본이라 각자 기록을 둔다(사라진 쪽이 아니다).
      * 합치기는 백업 가져오기와 같고 시간만 더한다. 옛 id 의 기록 · 작품 설정 열쇠를 새 id 로 옮긴다.
      */
-    fun adoptMoved(visible: List<KnownFile>, scanned: List<String>): List<MovedPair> = locked {
+    fun adoptMoved(visible: List<KnownFile>, scanned: List<String>, linked: List<String> = emptyList()): List<MovedPair> = locked {
         val now = visible.associateBy { it.id }
         val before = LinkedHashMap(known)
         for (f in visible) if (hasRecords(f.id)) known[f.id] = f
         // 기록도 파일도 없어진 것은 잊는다 — 남겨 두면 언젠가 같은 이름 · 크기의 다른 파일에 빈 기록을 붙이려 든다.
         known.keys.filter { it !in now && !hasRecords(it) }.forEach { known.remove(it) }
-        val gone = known.values.filter { it.id !in now && scanned.any { p -> it.id.startsWith(p) } }
+        fun removedFolder(id: String) = id.startsWith("link:") && linked.none { p -> id.startsWith(p) }
+        val gone = known.values.filter { it.id !in now && (scanned.any { p -> it.id.startsWith(p) } || removedFolder(it.id)) }
         val goneCount = gone.mapNotNull(::matchKey).groupingBy { it }.eachCount()
         val byKey = visible.groupBy(::matchKey)
         val pairs = ArrayList<MovedPair>()
