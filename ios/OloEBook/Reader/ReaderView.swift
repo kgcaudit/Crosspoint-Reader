@@ -635,6 +635,8 @@ final class ReaderModel: ObservableObject {
             return book.map { WebtoonEpisode(entry: entry, unitId: id, label: label, book: $0) }
         }.value
         guard let episode else { return }
+        // 쪽 넘김에서 바꿨으면 그 쪽의 시간을 여기서 끊는다 — 그대로 두면 웹툰으로 읽는 동안이 그 쪽의 시간(5분까지)으로 한 번 더 들어간다.
+        clock?.pause()
         webtoon = WebtoonModel(first: episode, work: comicWork, store: library.store, library: library)
     }
 
@@ -651,6 +653,7 @@ final class ReaderModel: ObservableObject {
             toon.close()
             webtoon = nil
             panel = .none
+            clock?.resume()
             await comic.resume()
             if let spec = lastComicSpec { await layOutComic(spec) }
         }
@@ -1597,8 +1600,9 @@ struct ReaderView: View {
             // 다른 앱으로 나가면 휴대폰 밝기로 되돌리고, 돌아오면 이 책의 밝기를 다시 건다.
             if phase == .active { brightness.reapply() } else { brightness.restore() }
             // 읽은 시간: 앱이 뒤로 간 동안은 세지 않는다.
-            if phase == .background { model.clock?.pause() }
-            if phase == .active { model.clock?.resume() }
+            if phase == .background { model.clock?.pause(); model.webtoon?.pauseClock() }
+            // 웹툰으로 보는 동안 쪽 시계는 멈춘 채 둔다 — 깨우면 웹툰 아래 숨은 쪽이 시간을 센다.
+            if phase == .active { if let toon = model.webtoon { toon.resumeClock() } else { model.clock?.resume() } }
             // 화면을 끈 채 듣는 동안 쪽이 넘어갔다 — 돌아와서 보던 쪽이 바뀐 까닭을 모르면 놀란다.
             if phase == .background { leftAt = model.frame?.key }
             if phase == .active, let left = leftAt {

@@ -372,8 +372,8 @@ struct ReadingStatsScreen: View {
                     .font(CpFont.subtitle).foregroundStyle(CpColor.textMuted).fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, CpMetrics.gutter).padding(.top, 14)
             }
-            // 웹툰은 아직 세지 않는다(안드로이드의 "손을 멈춘 뒤 1분까지" 규칙이 iOS 웹툰 화면에 없다) — 문구도 그 줄을 뺀다.
-            CpCaption(text: "책장을 넘기며 읽은 시간만 셉니다. 한 쪽에 5분 넘게 머물면 5분까지만 셉니다. 듣기 · 자동 넘김은 따로 셉니다.")
+            // 안드로이드와 같은 문구 — 웹툰은 화면이 움직인 사이를 1분까지 센다(WebtoonClock).
+            CpCaption(text: "책장을 넘기며 읽은 시간만 셉니다. 한 쪽에 5분 넘게 머물면 5분까지만, 웹툰은 손을 멈춘 뒤 1분까지만 셉니다. 듣기 · 자동 넘김은 따로 셉니다.")
                 .padding(.top, 14)
         }
     }

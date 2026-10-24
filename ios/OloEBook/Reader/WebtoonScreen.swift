@@ -66,6 +66,8 @@ final class WebtoonModel: ObservableObject {
     var noMoreEpisodes: Bool { nextEntry.map { failedNext == $0.unit.id } ?? true }
     private var finishedSaved = Set<String>()
     private var saveTask: Task<Void, Never>?
+    /// 읽은 시간(안드로이드 `ScrollClock`): 화면이 움직인 사이를 1분까지, 보던 화에. 규칙 · 시험은 Kotlin `WebtoonClock`.
+    private let clock = WebtoonClock()
 
     enum Panel { case none, bar, view, settings, touchZones, episodes, bookmarks }
 
@@ -151,7 +153,38 @@ final class WebtoonModel: ObservableObject {
         top = y
         loadNextIfNear()
         scheduleSave()
+        if let e = currentEpisode { record(clock.moved(unitId: e.unitId, now: Self.nowMs())) }
     }
+
+    // MARK: 읽은 시간
+
+    /// 앱이 뒤로 감 · 쪽 넘김으로 바꿈 · 닫음: 마지막 움직임부터 지금까지(최대 1분)를 적고 멈춘다.
+    func pauseClock() {
+        record(clock.pause(now: Self.nowMs()))
+        flushTime()
+    }
+
+    /// 다시 앞에 왔다 — 뒤에 있던 시간은 다음 움직임에 붙지 않는다.
+    func resumeClock() { clock.resume(now: Self.nowMs()) }
+
+    /// 아직 적지 않은 시간(화 → ms). 움직임은 화면 그림마다(자동 스크롤이면 1초에 60번) 오는데 한 번 적을 때마다 기록 파일 전체를
+    /// 다시 쓴다 — 모아 두었다가 30초가 차거나 손을 멈춤 · 멈춤 · 닫을 때 적는다.
+    private var pendingTime: [String: Int64] = [:]
+
+    private func record(_ t: WebtoonTime?) {
+        guard let t else { return }
+        pendingTime[t.unitId, default: 0] += t.millis
+        if pendingTime.values.reduce(0, +) >= 30_000 { flushTime() }
+    }
+
+    private func flushTime() {
+        let day = epochDay(Date())
+        // 쪽 넘김 만화와 같은 줄(권 id · 그날 · 읽기)에 더한다 — 독서 기록이 한 권의 시간으로 합친다(안드로이드 `TimeItem.COMIC`).
+        for (unit, ms) in pendingTime { store.addTime(bookId: unit, day: day, mode: ReadingMode.read.rawValue, millis: ms) }
+        pendingTime = [:]
+    }
+
+    private static func nowMs() -> Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
 
     /// 손을 멈춘 뒤에 적는다 — 끄는 동안 매번 쓰면 파일 쓰기가 쌓인다(안드로이드 SAVE_DELAY_MS).
     private func scheduleSave() {
@@ -164,6 +197,7 @@ final class WebtoonModel: ObservableObject {
     }
 
     private func savePlace() {
+        flushTime()
         guard let chain else { return }
         let (k, i, f) = here()
         guard episodes.indices.contains(k) else { return }
@@ -261,6 +295,7 @@ final class WebtoonModel: ObservableObject {
 
     func close() {
         saveNow()
+        pauseClock()
         for e in episodes { e.book.close() }
     }
 

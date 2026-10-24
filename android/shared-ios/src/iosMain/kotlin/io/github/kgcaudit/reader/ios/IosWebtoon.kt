@@ -95,3 +95,50 @@ object IosWebtoon {
     /** 저장된 빠르기 번호 → 쓸 번호(모르면 보통). */
     fun speed(saved: Int): Int = saved.takeIf { it in secondsPerScreen.indices } ?: 2
 }
+
+/** [WebtoonClock] 이 센 시간 한 토막: [unitId] 화를 [millis] 동안 보았다. */
+class WebtoonTime(val unitId: String, val millis: Long)
+
+/**
+ * 웹툰(이어 내려 읽기)의 독서 기록 시계(안드로이드 `ScrollClock`, 0.51.0 과 같은 규칙). 웹툰에는 넘기는 쪽이 없어 쪽 시계를 쓸 수
+ * 없다 — 대신 **화면이 움직인 사이**를 센다: 움직임과 다음 움직임 사이를 [WINDOW_MS](1분)까지. 1분 넘게 손을 대지 않았으면 마지막
+ * 1분만 읽은 것으로 본다(긴 그림 한 칸을 들여다보는 데 1분이면 넉넉하고, 펴 둔 채 자리를 뜬 시간은 들어가지 않는다). 이것이 없어
+ * iOS 웹툰은 읽은 시간이 0 으로 남았다.
+ *
+ * 시간은 앞 움직임 때 화면에 있던 화에 붙는다 — 그 화를 보고 있었다. 시각([now], ms)은 부르는 쪽이 준다(시험이 손으로 돌린다).
+ */
+class WebtoonClock {
+    private var unitId: String? = null
+    private var last = 0L
+    private var paused = false
+
+    /** 화면이 움직였다. 앞 움직임부터 지금까지(최대 1분)를 앞 화에. 멈춘 동안 · 시계가 뒤로 갔으면 없다. */
+    fun moved(unitId: String, now: Long): WebtoonTime? {
+        val before = this.unitId
+        val gap = now - last
+        this.unitId = unitId
+        last = now
+        if (paused || before == null || gap <= 0) return null
+        return WebtoonTime(before, gap.coerceAtMost(WINDOW_MS))
+    }
+
+    /** 앱이 뒤로 감 · 닫음 · 쪽 넘김으로 바꿈: 마지막 움직임부터 지금까지(최대 1분). 두 번 불러도 한 번만 센다. */
+    fun pause(now: Long): WebtoonTime? {
+        if (paused) return null
+        paused = true
+        val before = unitId ?: return null
+        val gap = now - last
+        return if (gap > 0) WebtoonTime(before, gap.coerceAtMost(WINDOW_MS)) else null
+    }
+
+    /** 다시 앞에 왔다. 다음 움직임까지의 시간은 돌아온 때부터 센다 — 뒤에 있던 시간이 다음 움직임에 붙지 않게. */
+    fun resume(now: Long) {
+        if (!paused) return
+        paused = false
+        last = now
+    }
+
+    companion object {
+        const val WINDOW_MS: Long = 60_000L
+    }
+}
