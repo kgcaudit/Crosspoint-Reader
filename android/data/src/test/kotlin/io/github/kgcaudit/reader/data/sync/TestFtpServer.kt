@@ -49,6 +49,10 @@ class TestFtpServer(val root: File, private val tls: FtpSecurity = FtpSecurity.N
         server = null
     }
 
+    /** 지금 열려 있는 연결 수 — 맞추기가 끝나거나 취소된 뒤 0 이어야 한다(닫히지 않은 연결은 NAS 의 연결 수를 묶는다). */
+    val connections: Int
+        get() = (server as? org.apache.ftpserver.impl.DefaultFtpServer)?.serverContext?.ftpStatistics?.currentConnectionNumber ?: 0
+
     fun config(path: String = "/OLO", user: String = USER, password: String = PASSWORD) =
         FtpConfig(host = "127.0.0.1", port = port, security = tls, user = user, password = password, path = path)
 
@@ -145,6 +149,13 @@ class TestSftpServer(val root: File) {
         server?.stop(true)
         server = null
     }
+
+    /** 서버 키 지문 — `ssh-keygen -lf` 와 같은 모양("SHA256:…"). 앱이 사람에게 보이는 것과 같아야 한다. */
+    val hostKeyFingerprint: String
+        get() = org.apache.sshd.common.config.keys.KeyUtils.getFingerPrint(
+            org.apache.sshd.common.digest.BuiltinDigests.sha256,
+            server!!.keyPairProvider.loadKeys(null).first().public,
+        )
 
     fun config(path: String = "/OLO", password: String = TestFtpServer.PASSWORD, trusted: String? = null) = FtpConfig(
         host = "127.0.0.1", port = port, protocol = FtpProtocol.Sftp, user = TestFtpServer.USER, password = password, path = path, trusted = trusted,

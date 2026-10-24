@@ -10,6 +10,8 @@ import io.github.kgcaudit.reader.data.backup.ComicRecord
 import io.github.kgcaudit.reader.data.library.halfValue
 import io.github.kgcaudit.reader.document.comic.SpreadSplit
 import io.github.kgcaudit.reader.data.backup.ProgressRecord
+import io.github.kgcaudit.reader.data.backup.mergedByBook
+import io.github.kgcaudit.reader.data.backup.mergedByComic
 import io.github.kgcaudit.reader.data.db.BookEntity
 import io.github.kgcaudit.reader.data.db.BookmarkEntity
 import io.github.kgcaudit.reader.data.db.ComicBookmarkEntity
@@ -158,15 +160,35 @@ class ReadingSync(
                 }
                 own = store.write(SyncCodec.fileName(deviceId), own, SyncCodec.encode(SyncFile(deviceId, deviceName, clock(), books, comics)))
                 written = fingerprint
+                // 내가 내놓은 책갈피 · 다 읽은 때를 "본 것" 으로 적는다. 안 적으면, 다른 기기가 받아 제 파일에 실은 것을 내가 그
+                // 기기 파일을 읽기 전에 지웠을 때 다시 들어왔다("뺀 책갈피는 돌아오지 않는다" 의 구멍).
+                remember(published(books, comics) - seen())
                 markSynced()
                 1
             }
         }
     }
 
+    /** [merge] 가 "본 것" 으로 보는 열쇠 — 이 기기가 내놓은 책갈피 · 다 읽은 때. */
+    private fun published(books: List<BookRecord>, comics: List<ComicRecord>): Set<String> {
+        val keys = HashSet<String>()
+        for (b in books) {
+            val item = itemKey(b.displayName, b.sizeBytes)
+            b.bookmarks.forEach { keys += hash(SyncRules.bookmarkKey(item, it.locator)) }
+            b.finishedAtEpochMs?.let { keys += hash("f\u0000$item\u0000$it") }
+        }
+        for (c in comics) {
+            val item = itemKey(c.name, c.sizeBytes)
+            c.bookmarks.forEach { keys += hash(SyncRules.bookmarkKey(item, it.page.toString())) }
+            c.finishedAtEpochMs?.let { keys += hash("f\u0000$item\u0000$it") }
+        }
+        return keys
+    }
+
     /**
-     * 이 기기의 책 · 만화 가운데 남길 기록이 있는 것. 같은 기록이면 같은 글이 되게 이름순으로. 같은 파일이 두 폴더에 있으면 한 번만 —
-     * 다른 기기에서는 이름 · 크기로 맞추니 둘은 구별되지 않는다.
+     * 이 기기의 책 · 만화 가운데 남길 기록이 있는 것. 같은 기록이면 같은 글이 되게 이름순으로. 같은 파일이 두 폴더에 있으면 한 벌로
+     * 합친다(백업과 같은 규칙) — 다른 기기에서는 이름 · 크기로 맞추니 둘은 구별되지 않는다. 앞 것만 남기던 때는 한 벌에만 있던
+     * 읽은 자리가 다른 기기로 가지 않았다.
      */
     private suspend fun collect(): Pair<List<BookRecord>, List<ComicRecord>> {
         val books = db.books().all().filter { !it.missing }
@@ -188,7 +210,7 @@ class ReadingSync(
                 finishedAtEpochMs = finished,
                 bookmarks = m.map { BookmarkRecord(it.locator, it.snippet, it.createdAtEpochMs) }.sortedBy { it.locator },
             )
-        }.distinctBy { it.displayName to it.sizeBytes }.sortedWith(compareBy({ it.displayName }, { it.sizeBytes ?: -1 }))
+        }.mergedByBook().sortedWith(compareBy({ it.displayName }, { it.sizeBytes ?: -1 }))
         val comicDao = db.comics()
         val units = comicDao.present()
         val comicProgress = comicDao.allProgress().associateBy { it.unitId }
@@ -208,7 +230,7 @@ class ReadingSync(
                 finishedAtEpochMs = p?.finishedAtEpochMs,
                 bookmarks = m.map { ComicBookmarkRecord(it.page, it.createdAtEpochMs) }.sortedBy { it.page },
             )
-        }.distinctBy { it.name to it.sizeBytes }.sortedWith(compareBy({ it.name }, { it.sizeBytes ?: -1 }))
+        }.mergedByComic().sortedWith(compareBy({ it.name }, { it.sizeBytes ?: -1 }))
         return bookRecords to comicRecords
     }
 
@@ -251,9 +273,12 @@ class ReadingSync(
             now[id] = Cached(entry, file)
             if (file != null) fresh += file
         }
+        // 합친 뒤에 "읽었음" 으로 적는다. 먼저 적으면 합치기가 실패했을 때(저장 공간 가득) 그 기기가 다시 쓸 때까지 그 파일의
+        // 책갈피 · 다 읽은 때를 다시 들이지 않았다.
+        val merged = fresh.sumOf { merge(it) }
         others = now
         markSynced()
-        return fresh.sumOf { merge(it) }
+        return merged
     }
 
     /**

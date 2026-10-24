@@ -206,6 +206,41 @@ class ReadingSyncTest {
     }
 
     @Test
+    fun `a bookmark removed here before reading the other device's copy of it does not come back`() = runTest {
+        val (a, b) = twoDevices()
+        val id = a.book("데미안.epub")
+        a.data.bookmarks.add(Bookmark(Bookmark.NO_ID, id, at(2, 40), "싱클레어", 1_500))
+        a.sync.writeOwn()
+        // b 가 받아 제 파일에도 싣는다.
+        b.sync.refreshAll()
+        b.sync.writeOwn()
+        // a 는 b 의 파일을 읽기 전에 그 책갈피를 뺀다 — 제가 내놓은 것이니 b 에서 돌아와도 들이지 않는다.
+        a.data.bookmarks.remove(a.data.bookmarks.forBook(id).single().id)
+        a.later()
+        a.sync.refreshAll()
+        assertTrue(a.data.bookmarks.forBook(id).isEmpty(), "뺀 책갈피가 다른 기기를 다녀와 되살아났다")
+    }
+
+    @Test
+    fun `a book kept in two folders sends the place and the bookmarks of both copies`() = runTest {
+        put("소설/데미안.epub")
+        put("받은 책/데미안.epub")
+        val a = Device("갤럭시 S24")
+        a.data.folders.register(tree)
+        a.data.rescan(tree)
+        a.sync.enabled = true
+        val (one, two) = a.data.library.books().first().filter { it.displayName == "데미안.epub" }.map { it.id }
+        // 한 벌에는 책갈피만, 다른 벌에는 읽은 자리만.
+        a.data.bookmarks.add(Bookmark(Bookmark.NO_ID, one, at(2, 40), "싱클레어", 1_500))
+        a.data.progress.save(ReadingProgress(two, at(7, 300), 61f, 2_000))
+        a.sync.writeOwn()
+        val sent = assertNotNull(SyncCodec.decode(assertNotNull(remoteText("${a.sync.deviceId}.json")), a.sync.deviceId)).books.single()
+        // 앞 벌만 남기던 때는 읽은 자리가 다른 기기로 가지 않았다.
+        assertEquals(Locator.encode(at(7, 300)), sent.progress?.locator)
+        assertEquals(listOf(Locator.encode(at(2, 40))), sent.bookmarks.map { it.locator })
+    }
+
+    @Test
     fun `the earliest finished date wins and a book never opened here gets it`() = runTest {
         val (a, b) = twoDevices()
         val id = a.book("데미안.epub")
