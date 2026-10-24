@@ -103,6 +103,15 @@ final class Library: ObservableObject {
            let saved = try? JSONDecoder().decode([LinkedFolder].self, from: data) {
             folders = saved
         }
+        Library.keepAppFolderVisible()
+    }
+
+    /// 앱 폴더에 "받은 파일" 폴더를 늘 둔다. 파일 앱은 앱 폴더가 비어 있으면 "나의 iPhone" 에 그 앱을 보이지 않아, 서재의 "이 iPhone 의
+    /// OLO eBook 폴더" 를 눌러도 책을 넣을 곳이 없었다(실기기에서 찾음 — 파일 앱은 이름이 같은 다른 폴더를 열었다). 점으로 시작하는
+    /// 숨은 파일은 개수에 들지 않아(기기에서 시험) 보이는 폴더로 둔다 — 다른 앱에서 받은 책이 원래 들어가는 곳이라 비어 있어도
+    /// 어색하지 않고, 책 파일이 아니라 서재에는 나타나지 않는다. 사람이 지워도 다음에 켤 때 다시 만든다.
+    private static func keepAppFolderVisible() {
+        try? FileManager.default.createDirectory(at: incomingFolder, withIntermediateDirectories: true)
     }
 
     private func save(_ value: String, _ key: String) { UserDefaults.standard.set(value, forKey: key) }
