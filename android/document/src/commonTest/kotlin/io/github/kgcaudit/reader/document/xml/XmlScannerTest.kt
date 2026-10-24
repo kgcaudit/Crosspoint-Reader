@@ -290,6 +290,21 @@ class XmlScannerTest {
         // 따옴표 없는 값도 태그 끝에서 멈춘다.
         assertEquals("a&b", starts("<img src=a&b>").single().attribute("src"))
     }
+
+    @Test
+    fun `latin-1 entities and zero width joiners are decoded`() {
+        // XHTML DTD 를 쓴 책: 빠졌던 때는 "Pok&eacute;mon" 이 그대로 보였다.
+        assertEquals("Pokémon · Brücke · niño · ß · Œuvre", textOf("<p>Pok&eacute;mon · Br&uuml;cke · ni&ntilde;o · &szlig; · &OElig;uvre</p>"))
+        assertEquals("a\u200Db\u200Cc", textOf("<p>a&zwj;b&zwnj;c</p>"))
+        // 모르는 것은 여전히 그대로 둔다.
+        assertEquals("&nosuch;", textOf("<p>&nosuch;</p>"))
+    }
+
+    @Test
+    fun `a less-than and slash without a tag name stay as text`() {
+        // "a </3" · "</ p>" 의 "</" 를 버려 두 글자가 조용히 사라졌다.
+        assertEquals("a </3 b", textOf("<p>a </3 b</p>"))
+    }
 }
 
 /** 공통 시험이라 JVM 의 String.reader() 를 쓰지 않는다 — iOS 에서 시험이 컴파일되지 않았다(iOS 세션 요청, 2026-10-21). */

@@ -52,7 +52,7 @@ object EncodingDetector {
             return DetectedEncoding(if (koreanScore > 0) TextEncoding.EUC_KR else TextEncoding.UTF_8)
         }
 
-        val utf8Score = koreanScore(Text.utf8(body))
+        val utf8Score = koreanScore(Text.utf8(body), latinWords = true)
         return DetectedEncoding(if (koreanScore > utf8Score) TextEncoding.EUC_KR else TextEncoding.UTF_8)
     }
 
@@ -170,9 +170,19 @@ object EncodingDetector {
      *
      * 양수면 한글·한자 위주, 음수면 라틴 잡동사니거나 디코딩이 깨진 것이다.
      */
-    internal fun koreanScore(text: String): Int {
+    internal fun koreanScore(text: String, latinWords: Boolean = false): Int {
         var score = 0
-        for (ch in text) {
+        for ((i, ch) in text.withIndex()) {
+            // UTF-8 으로 읽은 쪽에서, 라틴 글자 사이에 박힌 악센트 글자("café" · "Brücke" · "niño")는 유럽 말의 보통 글자다.
+            // 깎으면 같은 바이트를 CP949 로 읽은 쪽이 한글로 가점을 받아(C3 xx 는 CP949 한글) 프랑스어 · 독일어 UTF-8 TXT 가
+            // "caf챕" 으로 깨졌다. 잘못 읽은 한국어는 ASCII 글자 사이에 오지 않는다(한글은 한글끼리 붙는다).
+            // 스페인어의 거꾸로 선 부호(¿ ¡)도 낱말 앞에 붙는다.
+            if (latinWords && (ch.code in 0x00C0..0x017F || ch.code == 0xA1 || ch.code == 0xBF) && ch.code != 0xD7 && ch.code != 0xF7 &&
+                (text.getOrNull(i - 1)?.isAsciiLetter() == true || text.getOrNull(i + 1)?.isAsciiLetter() == true)
+            ) {
+                score += 2
+                continue
+            }
             score += when (ch.code) {
                 in 0xAC00..0xD7A3 -> 2 // 한글 음절
                 in 0x1100..0x11FF, in 0x3130..0x318F -> 2 // 한글 자모
@@ -187,6 +197,8 @@ object EncodingDetector {
         }
         return score
     }
+
+    private fun Char.isAsciiLetter(): Boolean = this in 'a'..'z' || this in 'A'..'Z'
 
     private fun ByteArray.startsWith(prefix: ByteArray): Boolean =
         size >= prefix.size && prefix.indices.all { this[it] == prefix[it] }

@@ -54,10 +54,23 @@ class ZipReader private constructor(
     val entries: Map<String, ZipEntry>,
 ) : Closeable {
 
-    /** 지연 계산되는 데이터 시작 오프셋. 지역 헤더를 한 번 읽어야 알 수 있다. */
-    private val dataOffsets = HashMap<String, Long>()
+    /**
+     * 지연 계산되는 데이터 시작 오프셋. 지역 헤더를 한 번 읽어야 알 수 있다. 그림은 입출력 스레드에서, 장은 조판 스레드에서 함께
+     * 열어 HashMap 의 getOrPut 이 겹쳤다 — 통째로 바꾸는 읽기 전용 지도로 둔다(겹치면 한쪽이 한 번 더 읽을 뿐, 지도는 깨지지 않는다).
+     */
+    @kotlin.concurrent.Volatile
+    private var dataOffsets: Map<String, Long> = emptyMap()
 
-    operator fun contains(name: String): Boolean = name in entries
+    /**
+     * 이름을 다듬어 찾는 길. 옛 윈도 압축기는 `OEBPS\ch1.xhtml` · `/OEBPS/ch1.xhtml` · `./OEBPS/…` 처럼 적는데, 목록의 href 는
+     * 다듬어 찾아 모든 장이 빠졌다(장이 없는 책으로 열림). 목록([entries])은 그대로 두어 순서 · 만화 쪽 수가 바뀌지 않는다.
+     */
+    private val aliases: Map<String, ZipEntry> =
+        entries.values.associateBy { normalizeName(it.name) }.filterKeys { it !in entries }
+
+    private fun entryFor(name: String): ZipEntry? = entries[name] ?: aliases[name] ?: aliases[normalizeName(name)]
+
+    operator fun contains(name: String): Boolean = entryFor(name) != null
 
     /**
      * 엔트리 내용을 압축 해제된 스트림으로 연다. 없으면 null. 호출부가 닫는다.
@@ -66,7 +79,7 @@ class ZipReader private constructor(
      */
     @Throws(IOException::class)
     fun openStream(name: String): InputStream? {
-        val entry = entries[name] ?: return null
+        val entry = entryFor(name) ?: return null
         if (entry.encrypted) throw IOException("encrypted zip entry is not supported: $name")
 
         val raw = RangeInputStream(source, dataOffsetOf(entry), entry.compressedSize)
@@ -75,7 +88,9 @@ class ZipReader private constructor(
             ZipEntry.METHOD_DEFLATE -> {
                 // 닫을 때 Inflater.end() 까지 부른다(ownsInflater). 부르지 않으면 네이티브 zlib 메모리가 GC 까지 남고,
                 // 안드로이드는 챕터·그림을 열 때마다 누수 경고를 낸다.
-                InflaterInput(raw, Inflater(true), INFLATE_BUFFER, ownsInflater = true)
+                // 풀린 양을 적힌 크기(+ 여유)까지로 막는다 — 10MB 가 몇 GB 로 풀리는 항목(압축 폭탄) 하나가 그 장만이 아니라
+                // 앱 전체의 메모리를 넘겨 앱이 닫혔다.
+                LimitedInput(InflaterInput(raw, Inflater(true), INFLATE_BUFFER, ownsInflater = true), inflatedLimit(entry.size), name)
             }
             else -> throw IOException("unsupported compression method ${entry.method} for $name")
         }
@@ -87,16 +102,17 @@ class ZipReader private constructor(
      */
     @Throws(IOException::class)
     fun storedSource(name: String): SeekableSource? {
-        val entry = entries[name] ?: return null
+        val entry = entryFor(name) ?: return null
         if (entry.encrypted || entry.method != ZipEntry.METHOD_STORED || entry.compressedSize != entry.size) return null
         val start = dataOffsetOf(entry)
-        return if (start + entry.size <= source.size) source.slice(start, entry.size) else null
+        // 빼서 견준다 — 더하면 ZIP64 의 아주 큰 크기에서 넘쳐 음수가 되어 통과하고, slice 가 IOException 이 아닌 예외를 던졌다.
+        return if (entry.size <= source.size - start) source.slice(start, entry.size) else null
     }
 
     /** 엔트리 전체를 바이트로 읽는다. 없으면 null. 작은 파일(OPF·NCX·CSS)에 쓴다. */
     @Throws(IOException::class)
     fun readBytes(name: String): ByteArray? {
-        val entry = entries[name] ?: return null
+        val entry = entryFor(name) ?: return null
         return openStream(name)?.use { stream ->
             if (entry.size in 1..MAX_EAGER_READ) {
                 // 크기를 아는 경우 한 번에 담는다(재할당 없음).
@@ -117,19 +133,40 @@ class ZipReader private constructor(
      * 이걸 중앙 디렉터리 값으로 계산하면 일부 책에서만 데이터가 밀려 깨진다.
      */
     @Throws(IOException::class)
-    private fun dataOffsetOf(entry: ZipEntry): Long = dataOffsets.getOrPut(entry.name) {
+    private fun dataOffsetOf(entry: ZipEntry): Long {
+        dataOffsets[entry.name]?.let { return it }
         val header = source.readFully(entry.localHeaderOffset, LOCAL_HEADER_SIZE)
         if (header.u32(0) != LOCAL_HEADER_SIGNATURE) {
             throw IOException("bad local header for ${entry.name} at ${entry.localHeaderOffset}")
         }
         val nameLength = header.u16(26)
         val extraLength = header.u16(28)
-        entry.localHeaderOffset + LOCAL_HEADER_SIZE + nameLength + extraLength
+        val offset = entry.localHeaderOffset + LOCAL_HEADER_SIZE + nameLength + extraLength
+        dataOffsets = dataOffsets + (entry.name to offset)
+        return offset
     }
 
     override fun close() = source.close()
 
     companion object {
+        /** 풀린 양의 한도: 적힌 크기에 여유(1MB, 크기를 틀리게 적는 도구가 있다)를 더한 것, 그리고 어떤 경우에도 512MB. */
+        internal fun inflatedLimit(declared: Long): Long =
+            if (declared > 0) minOf(declared + INFLATE_SLACK, MAX_INFLATED) else MAX_INFLATED
+
+        /** `OEBPS\ch1.xhtml` → `OEBPS/ch1.xhtml`, 앞 `/` · `./` 를 뗀다. */
+        internal fun normalizeName(name: String): String {
+            var n = name.replace('\\', '/')
+            while (true) {
+                n = when {
+                    n.startsWith("./") -> n.substring(2)
+                    n.startsWith("/") -> n.substring(1)
+                    else -> return n
+                }
+            }
+        }
+
+        private const val INFLATE_SLACK = 1L * 1024 * 1024
+        private const val MAX_INFLATED = 512L * 1024 * 1024
         private const val INFLATE_BUFFER = 16 * 1024
         private const val MAX_EAGER_READ = 32L * 1024 * 1024
 
@@ -363,6 +400,31 @@ class ZipReader private constructor(
  * [Inflater] 에 먹일 압축 바이트를 구간 단위로 공급하는 용도다. 구간 밖으로는 절대
  * 넘어가지 않으므로, 한 엔트리를 읽다가 다음 엔트리 데이터까지 흘러 들어가지 않는다.
  */
+/** [limit] 바이트를 넘게 내주려 하면 IOException — 압축 폭탄이 메모리를 다 먹기 전에 그 항목만 실패하게. */
+internal class LimitedInput(private val inner: InputStream, private val limit: Long, private val name: String) : InputStream() {
+    private var count = 0L
+
+    override fun read(): Int {
+        val v = inner.read()
+        if (v >= 0) grow(1)
+        return v
+    }
+
+    override fun read(b: ByteArray, off: Int, len: Int): Int {
+        val n = inner.read(b, off, len)
+        if (n > 0) grow(n.toLong())
+        return n
+    }
+
+    private fun grow(n: Long) {
+        count += n
+        if (count > limit) throw IOException("zip entry $name inflates beyond $limit bytes")
+    }
+
+    override fun available(): Int = inner.available()
+    override fun close() = inner.close()
+}
+
 internal class RangeInputStream(
     private val source: SeekableSource,
     private val start: Long,

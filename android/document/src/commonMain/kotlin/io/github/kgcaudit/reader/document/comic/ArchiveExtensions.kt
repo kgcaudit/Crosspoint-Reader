@@ -1,6 +1,5 @@
 package io.github.kgcaudit.reader.document.comic
 
-import io.github.kgcaudit.reader.document.extensionOf
 
 /**
  * 만화로 볼 수 있는 압축의 확장자 — 서재 훑기 · 살피기 · 압축 속 권 펼치기가 모두 이 목록을 본다. 곳마다 따로 적던 때는
@@ -21,7 +20,4 @@ object ArchiveExtensions {
     val PLAIN: Set<String> = setOf("zip", "rar", "7z")
 
     val ALL: Set<String> = COMIC + PLAIN
-
-    /** 만화일 수 있는 압축 이름인가. 점 없는 "zip" · 점으로 시작하는 ".zip" 은 아니다. */
-    fun isArchiveName(name: String): Boolean = extensionOf(name) in ALL
 }

@@ -307,20 +307,25 @@ class EpubDocumentTest {
                 <?xml version="1.0" encoding="euc-kr"?>
                 <package version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/"><metadata><dc:title>어린 왕자</dc:title></metadata>
                   <manifest><item id="c1" href="a.xhtml" media-type="application/xhtml+xml"/>
-                    <item id="c2" href="b.xhtml" media-type="application/xhtml+xml"/><item id="c3" href="c.xhtml" media-type="application/xhtml+xml"/></manifest>
-                  <spine><itemref idref="c1"/><itemref idref="c2"/><itemref idref="c3"/></spine></package>
+                    <item id="c2" href="b.xhtml" media-type="application/xhtml+xml"/><item id="c3" href="c.xhtml" media-type="application/xhtml+xml"/>
+                    <item id="c4" href="d.xhtml" media-type="application/xhtml+xml"/></manifest>
+                  <spine><itemref idref="c1"/><itemref idref="c2"/><itemref idref="c3"/><itemref idref="c4"/></spine></package>
             """.trimIndent().toByteArray(euckr),
             "OEBPS/a.xhtml" to "<?xml version='1.0' encoding='EUC-KR' ?><html><body><p>사막에서 만난 여우</p></body></html>".toByteArray(euckr),
             // 선언은 euc-kr 인데 실제로는 UTF-8 로 다시 저장된 장 — 바이트가 말하는 쪽을 믿어야 지금까지처럼 읽힌다.
             "OEBPS/b.xhtml" to "<?xml version=\"1.0\" encoding=\"euc-kr\"?><html><body><p>장미</p></body></html>".toByteArray(),
             // 모르는 인코딩 이름은 UTF-8 로.
             "OEBPS/c.xhtml" to "<?xml version=\"1.0\" encoding=\"x-no-such-charset\"?><p>바오밥</p>".toByteArray(),
+            // 같은 경우인데 앞에 4KB 넘는 ASCII(긴 <style>)가 있다 — 4KB 만 보던 때는 한글 바이트를 못 보고 선언대로 CP949 로 읽었다.
+            "OEBPS/d.xhtml" to ("<?xml version=\"1.0\" encoding=\"euc-kr\"?><html><head><style>" + "p { margin: 0 }\n".repeat(400) +
+                "</style></head><body><p>여우의 비밀</p></body></html>").toByteArray(),
         )
         open(bytes).use { doc ->
             assertEquals("어린 왕자", doc.meta.title)
             assertTrue(doc.openChapter(0).use { it.readText() }.contains("사막에서 만난 여우"))
             assertTrue(doc.openChapter(1).use { it.readText() }.contains("장미"))
             assertTrue(doc.openChapter(2).use { it.readText() }.contains("바오밥"))
+            assertTrue(doc.openChapter(3).use { it.readText() }.contains("여우의 비밀"), "앞이 긴 장을 선언대로 CP949 로 읽었다")
         }
     }
 
