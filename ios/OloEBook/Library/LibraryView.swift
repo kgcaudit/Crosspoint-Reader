@@ -270,6 +270,21 @@ private struct LibraryShelves: View {
         var divider = false
     }
 
+    /// 책장의 한 줄: 위 판의 이름(묶음의 첫 줄만)과 그 줄의 책들.
+    private struct ShelfLine: Identifiable {
+        let id: String
+        let label: String?
+        let items: [ShelfItem]
+    }
+
+    private func shelfLines(_ columns: Int) -> [ShelfLine] {
+        sections.flatMap { section in
+            section.items.chunked(columns).enumerated().map { i, row in
+                ShelfLine(id: "\(section.id)#\(i)", label: i == 0 ? section.title : nil, items: row)
+            }
+        }
+    }
+
     private var sections: [Section] {
         [Section(id: "reading", title: "읽는 책 · \(library.reading.count)권", items: library.reading),
          Section(id: "finished", title: "읽은 책 · \(library.finished.count)권", items: library.finished),
@@ -288,14 +303,13 @@ private struct LibraryShelves: View {
                         // 화면에 가까운 줄만 만든다 — VStack 이면 화면 밖 칸까지 한꺼번에 표지를 읽어, 책이 수백 권이면 메모리가 넘쳤다.
                         LazyVStack(spacing: 0) {
                             ShelfCrown()
-                            ForEach(sections) { section in
-                                let rows = section.items.chunked(columns)
-                                ForEach(rows.indices, id: \.self) { i in
-                                    ShelfBoard(label: i == 0 ? section.title : nil)
-                                    WoodRow(items: rows[i], width: width) { item in
-                                        BookCover(book: item.book, library: library, shadow: true)
-                                            .bookButton(item, menu: { menu(item) }) { open(item.book) }
-                                    }
+                            // 모든 묶음의 줄을 한 목록으로, 줄마다 "묶음#번호" 이름 — 묶음마다 줄 번호(0, 1 …)로 이름을 붙이면 게으른
+                            // 줄이 다른 묶음의 같은 번호 줄을 같은 것으로 보아, 줄이 빠지고 판 없이 빈 칸이 생겼다(실기기에서 찾음).
+                            ForEach(shelfLines(columns)) { line in
+                                ShelfBoard(label: line.label)
+                                WoodRow(items: line.items, width: width) { item in
+                                    BookCover(book: item.book, library: library, shadow: true)
+                                        .bookButton(item, menu: { menu(item) }) { open(item.book) }
                                 }
                             }
                             EmptyShelves(cellWidth: width, minHeight: g.size.height)
