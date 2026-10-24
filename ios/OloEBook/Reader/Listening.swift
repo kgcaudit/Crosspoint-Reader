@@ -403,9 +403,14 @@ final class Listening: NSObject, ObservableObject {
         case .began where playing:
             pause()
             pausedByInterruption = true
-        case .ended where pausedByInterruption && resume:
-            try? AVAudioSession.sharedInstance().setActive(true)
-            play()
+        case .ended:
+            // 끊김이 끝나면 늘 내린다 — "이어 재생" 없이 끝난 뒤에 남아 있으면, 다음 끊김이 끝날 때 사람이 멈춘 듣기까지 저절로 다시 돌았다.
+            let wasPlaying = pausedByInterruption
+            pausedByInterruption = false
+            if wasPlaying && resume {
+                try? AVAudioSession.sharedInstance().setActive(true)
+                play()
+            }
         default:
             break
         }

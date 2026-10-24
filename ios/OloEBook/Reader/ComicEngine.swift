@@ -287,7 +287,7 @@ actor ComicEngine: BookEngine, ZoomSource {
     private func image(_ p: Int) -> UIImage? {
         if let img = images[p] { return img }
         guard let spec else { broken.insert(p); return nil }
-        let px = max(spec.size.width, spec.size.height) * UIScreen.main.scale
+        let px = max(spec.size.width, spec.size.height) * ScreenInfo.scale
         guard let img = source.image(p, maxPixel: px) else { broken.insert(p); return nil }
         broken.remove(p)
         if images.count > 8 {
@@ -308,13 +308,15 @@ actor ComicEngine: BookEngine, ZoomSource {
     }
 
     /// 판의 조각마다 다듬은 그림: 반이면 그 반, 여백 상자대로 자르고, 색 보정을 건다.
-    private func pieces(_ unit: [SpreadSplit.Part], source: (Int) -> UIImage?) -> [UIImage?] {
+    /// [color] 가 false 면 자르기만(크기만 필요할 때 — 색 보정은 CoreImage 를 한 번 더 돌린다).
+    private func pieces(_ unit: [SpreadSplit.Part], color: Bool = true, source: (Int) -> UIImage?) -> [UIImage?] {
         let raw = unit.map { source(Int($0.page)) }
         let found = zip(unit, raw).map { frame(Int($0.0.page), from: $0.1) }
         let boxes = IosComicLayout.shared.partFrames(parts: unit, frames: found)
         return zip(zip(unit, raw), boxes).map { pair, box in
             guard let img = pair.1 else { return nil }
-            return ComicImages.colored(ComicImages.cut(img, half: pair.0.half, frame: box), mode: spec?.color ?? 0)
+            let cut = ComicImages.cut(img, half: pair.0.half, frame: box)
+            return color ? ComicImages.colored(cut, mode: spec?.color ?? 0) : cut
         }
     }
 
@@ -327,7 +329,7 @@ actor ComicEngine: BookEngine, ZoomSource {
         let format = UIGraphicsImageRendererFormat.preferred()
         format.opaque = true
         let area = spec.area
-        let phone = UIDevice.current.userInterfaceIdiom == .phone
+        let phone = ScreenInfo.phone
         return UIGraphicsImageRenderer(size: spec.size, format: format).image { ctx in
             let cg = ctx.cgContext
             cg.setFillColor(UIColor(comicPaper.paperColor).cgColor)
@@ -463,14 +465,17 @@ actor ComicEngine: BookEngine, ZoomSource {
 
     /// 쪽 목록의 작은 그림. [half] 면 그 반만.
     func thumbnail(_ p: Int, height: CGFloat, half: SpreadSplit.Half = .whole) -> UIImage? {
-        guard let img = source.image(p, maxPixel: height * 2 * UIScreen.main.scale) else { return nil }
+        guard let img = source.image(p, maxPixel: height * 2 * ScreenInfo.scale) else { return nil }
         return half == .whole ? img : ComicImages.cut(img, half: half, frame: MarginTrim.Frame.companion.WHOLE)
     }
 
     /// 확대: 지금 판(한 조각만)을 화면 해상도 3배까지 — 보이는 그대로(반 · 여백 · 색) 크게.
     func zoomed(_ p: Int, size: CGSize, zoom: CGFloat) -> UIImage? {
         guard units.indices.contains(index), let unit = Optional(units[index]), unit.count == 1 else { return nil }
-        let px = max(size.width, size.height) * zoom * UIScreen.main.scale * (unit[0].half == .whole ? 1 : 2)
+        // 긴 변 상한: 쪽 하나 5000px(약 1700만 화소), 펼침면의 반은 통째로 푼 뒤 자르므로 7000px. 상한이 없으면 iPad 에서 반쪽을
+        // 확대할 때 긴 변 1만 5천 px — 그림 한 장 수백 MB 에 색 보정 사본까지 생겨 메모리 초과로 앱이 꺼질 수 있었다.
+        let half = unit[0].half != .whole
+        let px = min(max(size.width, size.height) * zoom * ScreenInfo.scale * (half ? 2 : 1), half ? 7000 : 5000)
         return pieces(unit) { q in source.image(q, maxPixel: px) }.first ?? nil
     }
 
@@ -493,13 +498,14 @@ actor ComicEngine: BookEngine, ZoomSource {
 
     /// 지금 쪽이 화면에 놓인 자리(확대가 거기서 시작한다).
     func pageRect() -> CGRect? {
-        guard let spec, units.indices.contains(index), let img = pieces(units[index], source: { image($0) }).first ?? nil else { return nil }
+        guard let spec, units.indices.contains(index), let img = pieces(units[index], color: false, source: { image($0) }).first ?? nil else { return nil }
         let r = PdfPages.fit(img.size, in: spec.area)
-        let phone = UIDevice.current.userInterfaceIdiom == .phone
+        let phone = ScreenInfo.phone
         return CGRect(x: r.minX, y: phone ? spec.area.minY : spec.area.maxY - r.height, width: r.width, height: r.height)
     }
 
-    nonisolated func close() {
+    /// actor 안에서 닫는다 — 미리 그리기가 압축에서 그림을 꺼내는 도중에 닫혀 같은 파일을 두 스레드가 만지지 않게(진행 중인 일 뒤에 온다).
+    func close() {
         source.close()
     }
 }

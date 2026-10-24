@@ -19,8 +19,11 @@ final class TurnFeedback {
     private let haptic = UIImpactFeedbackGenerator(style: .light)
 
     private init() {
-        // 무음 스위치를 따르고, 다른 앱 소리를 끊지 않는다.
-        try? AVAudioSession.sharedInstance().setCategory(.ambient, options: [.mixWithOthers])
+        // 무음 스위치를 따르고, 다른 앱 소리를 끊지 않는다. 듣기가 이미 소리를 쥐고 있으면(.playback) 건드리지 않는다 — 듣는 중 처음
+        // 손으로 넘길 때 여기서 .ambient 로 바꿔, 무음 스위치가 켜진 기기에서 낭독이 무음이 되고 화면을 잠그면 낭독이 멈췄다.
+        // 듣기를 끝내면 Listening 이 .ambient 로 돌려 둔다.
+        let session = AVAudioSession.sharedInstance()
+        if session.category != .playback { try? session.setCategory(.ambient, options: [.mixWithOthers]) }
     }
 
     /// 사람이 넘겼다. [forward] 는 다음 쪽인가 — 소리가 시작하는 쪽(넘어가는 종이 쪽)을 정한다.

@@ -74,7 +74,7 @@ struct ReaderPanels: View {
                 }
             case .voices:
                 SidePanel(wide: wide, insets: insets, dismiss: model.back) {
-                    VoiceScreen(prefs: prefs, pick: { id in
+                    VoiceScreen(prefs: prefs, listening: model.listening, pick: { id in
                         prefs.listenVoice = id
                         model.listening.setVoice(id)
                     }, back: model.back)
@@ -427,11 +427,14 @@ struct ViewSettingsScreen: View {
                     .padding(.leading, CpMetrics.levelIndent)
                     CpCaption(text: "무음 스위치 · 다른 소리가 나는 중에는 내지 않습니다.\n이어폰 · 가로 · 넓은 화면에서는 넘어가는 쪽에서 들립니다.")
                         .padding(.leading, CpMetrics.levelIndent)
-                    CpChoice(label: "넘김 진동", options: ["켬", "끔"], selected: prefs.turnHaptic ? 0 : 1) {
-                        prefs.turnHaptic = $0 == 0
-                        if $0 == 0 { UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.6) }
+                    // 진동 장치가 있는 휴대폰만 — iPad 에서는 눌러도 아무 일이 없는 줄이었다.
+                    if UIDevice.current.userInterfaceIdiom == .phone {
+                        CpChoice(label: "넘김 진동", options: ["켬", "끔"], selected: prefs.turnHaptic ? 0 : 1) {
+                            prefs.turnHaptic = $0 == 0
+                            if $0 == 0 { UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.6) }
+                        }
+                        .padding(.leading, CpMetrics.levelIndent)
                     }
-                    .padding(.leading, CpMetrics.levelIndent)
                     CpChoice(label: "자동 넘김", options: ["끔", "15초", "30초", "60초"], selected: prefs.autoTurn) { prefs.autoTurn = $0 }
                         .padding(.leading, CpMetrics.levelIndent)
                     CpCaption(text: "자동 넘김은 가운데를 누르면 멈춥니다. 듣기와 함께 켜면 듣기가 넘김을 맡습니다.")
@@ -544,9 +547,7 @@ private struct FontsScreen: View {
 
     /// "출판사 글꼴" 이름을 책 글꼴로. 아직 꺼내기 전이면 본문 글꼴(안드로이드도 같다).
     private var publisherPreview: Font {
-        guard let path = model.bookFontPreview,
-              let descriptors = CTFontManagerCreateFontDescriptorsFromURL(URL(fileURLWithPath: path) as CFURL) as? [CTFontDescriptor],
-              let first = descriptors.first else { return CpFont.body }
+        guard let path = model.bookFontPreview, let first = FontLibrary.descriptor(URL(fileURLWithPath: path)) else { return CpFont.body }
         return Font(CTFontCreateWithFontDescriptor(first, 16, nil))
     }
     @State private var removing: UserFontItem?
@@ -609,16 +610,18 @@ private struct FontsScreen: View {
         // 글꼴 파일만 고르게 한다(구상안 7). 그래도 확장자만 글꼴인 파일은 넣을 때 까닭과 함께 거절한다.
         .fileImporter(isPresented: $picking, allowedContentTypes: [.font]) { result in
             guard case let .success(url) = result else { return }
-            switch library.importFont(from: url) {
-            case let .added(font):
-                // 넣은 글꼴로 바로 바꾼다. 넣고 나서 다시 찾아 누르게 하면 한 번 더 헤맨다.
-                prefs.font = font.file
-                prefs.publisherFonts = false
-                if !font.hasHangul {
-                    notice = ("한글이 없는 글꼴입니다", "영문 · 숫자는 이 글꼴로, 한글은 휴대폰 글꼴로 보입니다.")
+            Task {
+                switch await library.importFont(from: url) {
+                case let .added(font):
+                    // 넣은 글꼴로 바로 바꾼다. 넣고 나서 다시 찾아 누르게 하면 한 번 더 헤맨다.
+                    prefs.font = font.file
+                    prefs.publisherFonts = false
+                    if !font.hasHangul {
+                        notice = ("한글이 없는 글꼴입니다", "영문 · 숫자는 이 글꼴로, 한글은 휴대폰 글꼴로 보입니다.")
+                    }
+                case let .rejected(reason):
+                    notice = ("글꼴을 넣지 못했습니다", FontLibrary.describe(reason))
                 }
-            case let .rejected(reason):
-                notice = ("글꼴을 넣지 못했습니다", FontLibrary.describe(reason))
             }
         }
     }

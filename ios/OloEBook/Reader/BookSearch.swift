@@ -146,8 +146,9 @@ struct SearchScreen: View {
             CpDivider().padding(.top, 8)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(search.results) { item in
-                        if item.id == 0 || search.results[item.id - 1].section != item.section {
+                    // 앞 줄은 목록 순서로 — 결과 번호(id)가 순서와 같다고 믿으면 번호가 비거나 겹칠 때 배열 밖을 읽었다.
+                    ForEach(Array(search.results.enumerated()), id: \.element.id) { n, item in
+                        if n == 0 || search.results[n - 1].section != item.section {
                             CpSectionLabel(text: item.section)
                                 .padding(.horizontal, CpMetrics.gutter).padding(.top, 18).padding(.bottom, 6)
                         }

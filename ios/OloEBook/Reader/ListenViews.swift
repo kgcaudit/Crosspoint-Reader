@@ -133,6 +133,7 @@ enum VoiceList {
 /// 목소리 고르기(구상안 25A): 기본 · 음질별 묶음(같은 급이라 묶음 안은 한 단 들인다). "들어 보기" 는 고르지 않고 들려만 준다.
 struct VoiceScreen: View {
     @ObservedObject var prefs: ReaderPrefs
+    let listening: Listening
     let pick: (String?) -> Void
     let back: () -> Void
 
@@ -141,6 +142,16 @@ struct VoiceScreen: View {
     @State private var sampler = AVSpeechSynthesizer()
 
     var body: some View {
+        voices.onDisappear {
+            sampler.stopSpeaking(at: .immediate)
+            guard !listening.active else { return }
+            let session = AVAudioSession.sharedInstance()
+            try? session.setActive(false, options: .notifyOthersOnDeactivation)
+            try? session.setCategory(.ambient, options: [.mixWithOthers])
+        }
+    }
+
+    private var voices: some View {
         VStack(alignment: .leading, spacing: 0) {
             CpHeader(title: "목소리", subtitle: "iPhone 에 깔린 한국어 목소리",
                      leading: AnyView(CpIconButton(icon: .back, label: "뒤로", action: back))) {}
@@ -195,6 +206,13 @@ struct VoiceScreen: View {
             if let sample {
                 Button {
                     sampler.stopSpeaking(at: .immediate)
+                    // 듣는 중이면 멈추고 들려준다(낭독 위에 겹쳐 들렸다). 듣기 밖이면 잠깐 소리를 쥔다 — 평소의 .ambient 는 무음 스위치를 따라
+                    // 무음 모드에서 "들어 보기" 가 들리지 않았다. 화면을 닫을 때 돌려 둔다.
+                    if listening.playing { listening.pause() }
+                    if !listening.active {
+                        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio, options: [.mixWithOthers])
+                        try? AVAudioSession.sharedInstance().setActive(true)
+                    }
                     let u = AVSpeechUtterance(string: "안녕하세요. 이 목소리로 책을 읽어 드립니다.")
                     u.voice = sample
                     u.rate = Listening.speechRate(prefs.listenRate)

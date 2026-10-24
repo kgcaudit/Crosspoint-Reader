@@ -98,7 +98,7 @@ struct NotesExportScreen: View {
         items = entries.map { e in
             switch e {
             case .bookmark(let b): ExportItem(section: b.section, text: b.snippet, pen: nil, place: b.whereLabel, memo: nil)
-            case .highlight(let h): ExportItem(section: h.section, text: h.snippet, pen: Pen.names[h.pen],
+            case .highlight(let h): ExportItem(section: h.section, text: h.snippet, pen: Pen.names[min(max(h.pen, 0), Pen.names.count - 1)],
                                                place: noteWhere(h.percent, h.created, span: h.pageSpan), memo: h.note)
             }
         }

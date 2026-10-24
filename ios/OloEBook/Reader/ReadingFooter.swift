@@ -54,11 +54,20 @@ enum FooterText {
 
     /// 휴대폰의 24시간 설정을 따른다. 한국어로 고정(오전/오후) — 앱이 한국어 화면이다.
     static func clock(_ date: Date) -> String {
+        // 꼴은 한 번 만들어 둔다(1분마다 다시 그릴 때마다 새로 만들었다). 24시간 설정은 그때마다 본다 — 읽는 중에 바꿀 수 있다.
+        let h24 = DateFormatter.dateFormat(fromTemplate: "j", options: 0, locale: .current)?.contains("a") == false
+        let f = h24 ? clock24 : clock12
+        return f.string(from: date)
+    }
+
+    private static let clock24 = clockFormatter("HH:mm")
+    private static let clock12 = clockFormatter("a h:mm")
+
+    private static func clockFormatter(_ format: String) -> DateFormatter {
         let f = DateFormatter()
         f.locale = Locale(identifier: "ko_KR")
-        let h24 = DateFormatter.dateFormat(fromTemplate: "j", options: 0, locale: .current)?.contains("a") == false
-        f.dateFormat = h24 ? "HH:mm" : "a h:mm"
-        return f.string(from: date)
+        f.dateFormat = format
+        return f
     }
 
     static func chapterLeft(_ pages: Int) -> String { pages == 0 ? "이 장 마지막 쪽" : "이 장 \(pages)쪽 남음" }
@@ -115,7 +124,7 @@ struct ReadingFooter: View {
     let ink: Color
 
     var body: some View {
-        // 시계 · 배터리가 있을 때만 1분마다 다시 그린다.
+        // 1분마다 다시 그린다(시계 · 배터리 · 남은 시간). 줄 하나라 가볍다 — 시계가 없을 때 멈추게 하면 분이 바뀌는 때에 맞추지 못한다.
         TimelineView(.everyMinute) { context in
             VStack(spacing: 6) {
                 GeometryReader { g in

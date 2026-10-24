@@ -52,17 +52,17 @@ final class FontLibrary: ObservableObject {
 
     /// 고른 파일을 글꼴 폴더로 들여온다. 먼저 폴더 안으로 복사하고 검사한다 — 다른 앱의 파일은 보안 범위가 끝나면 다시 읽을 수
     /// 없다. 같은 글꼴(이름 · 크기가 같은)을 다시 넣으면 새로 두지 않고 있던 것을 돌려준다.
-    func importFont(from url: URL) -> ImportResult {
-        let access = url.startAccessingSecurityScopedResource()
-        defer { if access { url.stopAccessingSecurityScopedResource() } }
+    func importFont(from url: URL) async -> ImportResult {
         let ext = url.pathExtension.lowercased().isEmpty ? "font" : url.pathExtension.lowercased()
         let temp = directory.appendingPathComponent(".\(UUID().uuidString).\(ext)")
-        do {
-            try FileManager.default.copyItem(at: url, to: temp)
-        } catch {
-            return .rejected(.unreadable)
-        }
-        let check = UserFonts.shared.check(path: temp.path)
+        // 복사 · 검사는 주 스레드 밖에서 — 64MB 까지 받는 글꼴을 주 스레드에서 복사하면 그동안 화면이 멈췄다.
+        let check: UserFonts.Check? = await Task.detached(priority: .userInitiated) {
+            let access = url.startAccessingSecurityScopedResource()
+            defer { if access { url.stopAccessingSecurityScopedResource() } }
+            guard (try? FileManager.default.copyItem(at: url, to: temp)) != nil else { return nil }
+            return UserFonts.shared.check(path: temp.path)
+        }.value
+        guard let check else { return .rejected(.unreadable) }
         guard check.result == UserFonts.Result.ok else {
             try? FileManager.default.removeItem(at: temp)
             return .rejected(check.result)
@@ -91,10 +91,18 @@ final class FontLibrary: ObservableObject {
 
     /// 목록에서 이름을 그 글꼴로 그릴 SwiftUI 글꼴. 읽지 못하면 본문 글꼴.
     func preview(_ font: UserFontItem, size: CGFloat = 16) -> Font {
-        let url = directory.appendingPathComponent(font.file) as CFURL
-        guard let descriptors = CTFontManagerCreateFontDescriptorsFromURL(url) as? [CTFontDescriptor],
-              let first = descriptors.first else { return CpFont.body }
+        guard let first = Self.descriptor(directory.appendingPathComponent(font.file)) else { return CpFont.body }
         return Font(CTFontCreateWithFontDescriptor(first, size, nil))
+    }
+
+    private static var descriptors: [URL: CTFontDescriptor] = [:]
+
+    /// 글꼴 파일의 첫 꼴(파일마다 한 번만 읽는다 — 판을 그릴 때마다 글꼴 파일을 다시 읽고 풀었다).
+    static func descriptor(_ url: URL) -> CTFontDescriptor? {
+        if let d = descriptors[url] { return d }
+        guard let list = CTFontManagerCreateFontDescriptorsFromURL(url as CFURL) as? [CTFontDescriptor], let first = list.first else { return nil }
+        descriptors[url] = first
+        return first
     }
 
     private func fileSize(_ url: URL) -> Int64? {

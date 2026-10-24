@@ -40,16 +40,20 @@ struct CurlPager: UIViewControllerRepresentable {
         pager.setViewControllers(pages(image, step: 0), direction: .forward, animated: false)
         context.coordinator.shownKey = key
         for g in pager.gestureRecognizers where g is UITapGestureRecognizer { g.isEnabled = false }
-        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped(_:)))
-        let long = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.pressed(_:)))
+        let c = context.coordinator
+        let tap = UITapGestureRecognizer(target: c, action: #selector(Coordinator.tapped(_:)))
+        let long = UILongPressGestureRecognizer(target: c, action: #selector(Coordinator.pressed(_:)))
         long.minimumPressDuration = 0.45
-        if zoom != nil {
-            let double = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.doubleTapped(_:)))
-            double.numberOfTapsRequired = 2
-            tap.require(toFail: double)
-            pager.view.addGestureRecognizer(double)
-            pager.view.addGestureRecognizer(UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.pinched(_:))))
-        }
+        // 확대 제스처는 늘 붙이고, 확대를 받을 때만 듣게 한다(대리자). 만들 때만 붙이면 표지 고르기가 끝나거나 두 쪽에서 한 쪽으로 바뀌어
+        // 확대가 생겨도 말림 화면에서는 두 번 누르기 · 두 손가락 확대가 듣지 않았다.
+        let double = UITapGestureRecognizer(target: c, action: #selector(Coordinator.doubleTapped(_:)))
+        double.numberOfTapsRequired = 2
+        let pinch = UIPinchGestureRecognizer(target: c, action: #selector(Coordinator.pinched(_:)))
+        for g in [tap, double, pinch] as [UIGestureRecognizer] { g.delegate = c }
+        c.double = double
+        c.pinch = pinch
+        pager.view.addGestureRecognizer(double)
+        pager.view.addGestureRecognizer(pinch)
         pager.view.addGestureRecognizer(tap)
         pager.view.addGestureRecognizer(long)
         return pager
@@ -70,14 +74,15 @@ struct CurlPager: UIViewControllerRepresentable {
         }
         c.shownKey = key
         c.shownImage = image
+        let fresh = pages(image, step: 0)
         if c.userFlipped {
             // 손가락으로 이미 말았다 — 같은 쪽을 다시 말면 두 번 넘어가 보인다.
             c.userFlipped = false
-            pager.setViewControllers(pages(image, step: 0), direction: .forward, animated: false)
+            c.show(pager, fresh, direction: .forward, animated: false)
         } else if animate != 0 && !UIAccessibility.isReduceMotionEnabled {
-            pager.setViewControllers(pages(image, step: 0), direction: animate > 0 ? .forward : .reverse, animated: true)
+            c.show(pager, fresh, direction: animate > 0 ? .forward : .reverse, animated: true)
         } else {
-            pager.setViewControllers(pages(image, step: 0), direction: .forward, animated: false)
+            c.show(pager, fresh, direction: .forward, animated: false)
         }
     }
 
@@ -102,14 +107,59 @@ struct CurlPager: UIViewControllerRepresentable {
         }
     }
 
-    final class Coordinator: NSObject, UIPageViewControllerDataSource, UIPageViewControllerDelegate {
+    final class Coordinator: NSObject, UIPageViewControllerDataSource, UIPageViewControllerDelegate, UIGestureRecognizerDelegate {
         var parent: CurlPager
         var shownKey = ""
         weak var shownImage: UIImage?
         var userFlipped = false
         private var pendingStep = 0
+        weak var double: UITapGestureRecognizer?
+        weak var pinch: UIPinchGestureRecognizer?
+
+        /// 말리는 중(넘김 움직임 · 손가락으로 끄는 중). 그사이 온 새 쪽은 끝난 뒤에 끼운다 — 말리는 도중 `setViewControllers` 를 겹쳐
+        /// 부르면 `UIPageViewController` 가 NSInternalInconsistencyException 으로 앱을 끝낸다(빠르게 연달아 누를 때).
+        private var moving = false
+        private var queued: (() -> Void)?
 
         init(_ parent: CurlPager) { self.parent = parent }
+
+        func show(_ pager: UIPageViewController, _ vcs: [UIViewController], direction: UIPageViewController.NavigationDirection, animated: Bool) {
+            let run = { [weak self, weak pager] in
+                guard let self, let pager else { return }
+                self.moving = animated
+                pager.setViewControllers(vcs, direction: direction, animated: animated) { [weak self] _ in
+                    guard let self, animated else { return }
+                    self.moving = false
+                    self.drain()
+                }
+            }
+            if moving {
+                // 밀린 것은 마지막 하나만, 움직임 없이 — 몇 쪽이 쌓였어도 지금 쪽 하나만 보이면 된다.
+                queued = { [weak self, weak pager] in
+                    guard let self, let pager else { return }
+                    pager.setViewControllers(vcs, direction: direction, animated: false)
+                    self.drain()
+                }
+                return
+            }
+            run()
+        }
+
+        private func drain() {
+            guard !moving, let next = queued else { return }
+            queued = nil
+            next()
+        }
+
+        // 확대를 받을 때만 두 번 누르기 · 두 손가락을 듣고, 그때만 한 번 누름이 두 번째를 기다린다.
+        func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+            if g === double || g === pinch { return parent.zoom != nil }
+            return true
+        }
+
+        func gestureRecognizer(_ g: UIGestureRecognizer, shouldRequireFailureOf other: UIGestureRecognizer) -> Bool {
+            g is UITapGestureRecognizer && g !== double && other === double && parent.zoom != nil
+        }
 
         // 두 쪽이면 지금 오른쪽 → 다음 펼침의 왼쪽(말린 쪽의 뒷면) → 그 오른쪽, 거꾸로는 지금 왼쪽 → 앞 펼침의 오른쪽 → 그 왼쪽.
         func pageViewController(_ pvc: UIPageViewController, viewControllerBefore vc: UIViewController) -> UIViewController? {
@@ -130,10 +180,13 @@ struct CurlPager: UIViewControllerRepresentable {
 
         func pageViewController(_ pvc: UIPageViewController, willTransitionTo pending: [UIViewController]) {
             pendingStep = (pending.first as? PageImageController)?.step ?? 0
+            moving = true
         }
 
         func pageViewController(_ pvc: UIPageViewController, didFinishAnimating finished: Bool,
                                 previousViewControllers: [UIViewController], transitionCompleted completed: Bool) {
+            moving = false
+            defer { drain() }
             // 덜 끌고 떼면 되돌아간다 — 그때는 아무 일도 없다.
             guard completed, pendingStep != 0 else { return }
             userFlipped = true

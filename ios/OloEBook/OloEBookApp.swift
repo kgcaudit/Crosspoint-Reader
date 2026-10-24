@@ -23,6 +23,7 @@ struct OloEBookApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        ScreenInfo.capture()
         // 글꼴 폴더를 측정기에 알린다 — 첫 조판보다 먼저여야 고른 글꼴로 첫 쪽이 짜인다.
         _ = FontLibrary.shared
         // 서재부터 고른 방향으로 연다(설정은 읽기 화면에 있지만 앱 전체에 걸린다 — 안드로이드와 같다).

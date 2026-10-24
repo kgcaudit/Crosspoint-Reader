@@ -136,11 +136,17 @@ struct BookmarkItem: Identifiable, Hashable {
     /// PDF 책갈피의 쪽(0 부터). 책은 nil.
     var page: Int?
 
-    /// "3% · 2026.10.21."(안드로이드 `noteWhere`). PDF 는 "4쪽 · 2026.10.21." — 쪽이 진도보다 바로 읽힌다.
-    var whereLabel: String {
+    /// 날짜 꼴 하나를 다시 쓴다 — 목록 줄마다 새로 만들면 책갈피가 많은 책에서 판이 늦게 열렸다.
+    private static let day: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "ko_KR")
         f.dateFormat = "yyyy.MM.dd."
+        return f
+    }()
+
+    /// "3% · 2026.10.21."(안드로이드 `noteWhere`). PDF 는 "4쪽 · 2026.10.21." — 쪽이 진도보다 바로 읽힌다.
+    var whereLabel: String {
+        let f = Self.day
         return page != nil ? "\(snippet) · \(f.string(from: created))" : "\(Int(percent.rounded()))% · \(f.string(from: created))"
     }
 }
@@ -556,7 +562,10 @@ final class ReaderModel: ObservableObject {
         Task {
             guard let z = engine as? any ZoomSource, let page = frame?.page else { return }
             let size = pdfZoomBase?.size ?? .zero
-            pdfZoomImage = await z.zoomed(page, size: size, zoom: 3)
+            let img = await z.zoomed(page, size: size, zoom: 3)
+            // 그사이 확대를 풀었거나 쪽을 넘겼으면 버린다 — 옛 쪽의 큰 그림(수십 MB)이 남아 다음 확대 때 잠깐 다른 쪽이 보였다.
+            guard pdfZoom != nil, frame?.page == page else { return }
+            pdfZoomImage = img
         }
     }
 
@@ -669,8 +678,10 @@ final class ReaderModel: ObservableObject {
         darkPaper = true
         pdfArea = spec.area
         pdfSpread = spec.twoPages
+        let before = frame?.key
         frame = await comic.layOut(spec)
-        pdfPageRect = await comic.pageRect()
+        // 쪽이 바뀌었으면 frame 의 didSet 이 이미 센다 — 같은 쪽을 다시 냈을 때(화면 크기)만.
+        if frame?.key == before { pdfPageRect = await comic.pageRect() }
     }
 
     /// PDF 인가(구상안 32A). 보기 판 · 위 막대 · 설정 줄이 갈린다.
@@ -690,9 +701,10 @@ final class ReaderModel: ObservableObject {
         // 쪽 맞춤을 바꾸면 그 쪽의 머리에서 — 폭 맞춤의 쪽 안 자리를 쪽 전체로 가져가면 뜻이 없다.
         if fitChanged { fromScroll = false }
         do {
+            let before = frame?.key
             let f = try await pdf.layOut(spec)
             frame = f
-            pdfPageRect = await pdf.pageRect()
+            if f.key == before { pdfPageRect = await pdf.pageRect() }
             if spec.fit == .continuous && pdfAspects.isEmpty { pdfAspects = await pdf.aspects() }
             // 같은 쪽을 다시 냈다(화면 크기 · 쪽 맞춤) — 자리를 다시 맞춘다.
             if spec.fit == .width { pdfOffset = min(CGFloat(f.pdfY) / 1000 * pdfStripHeight, pdfMaxOffset) }
@@ -721,10 +733,11 @@ final class ReaderModel: ObservableObject {
         // PDF 이어서: 누름 · 자동 넘김은 화면 90% 굴리기. 폭 맞춤: 쪽 안에서 한 화면씩 내리다 쪽 끝에서 넘긴다(앞 쪽은 끝부터).
         if isPdf && pdfFit == .continuous {
             continuousStep = (step, continuousStep.token + 1)
+            autoTick += 1
             return true
         }
         if isPdf && pdfFit == .width && !pagewise {
-            if scrollWithinPage(step) { return true }
+            if scrollWithinPage(step) { autoTick += 1; return true }
             enterBottom = step < 0
         }
         let next = try? await (step > 0 ? engine.next() : engine.previous())
@@ -748,6 +761,7 @@ final class ReaderModel: ObservableObject {
             withAnimation(.easeOut(duration: turnEffect == 1 ? 0.25 : 0.22)) { frame = next }
         }
         if !quiet { feedback(step) }
+        autoTick += 1
         return true
     }
 
@@ -770,6 +784,9 @@ final class ReaderModel: ObservableObject {
     var landscape = false
     /// 넘긴 차례(덮기에서 새 쪽 · 옛 쪽의 겹침 차례를 정한다).
     @Published private(set) var turnCount = 0
+    /// 넘김 · 화면 굴리기마다 는다. 자동 넘김의 시계가 이것으로 다시 센다 — 쪽 열쇠만 보면 PDF 폭 맞춤에서 쪽 안을 한 화면 내려도 열쇠가
+    /// 같아 한 번만 돌고 섰다.
+    @Published private(set) var autoTick = 0
     /// 사람이 넘겨 보이게 된 쪽의 열쇠 — 말림은 이 쪽으로 바뀔 때만 만다.
     @Published private(set) var flipFor = ""
     /// 말림이 손가락을 따라가게 미리 그린 앞 · 뒤 쪽.
@@ -811,8 +828,10 @@ final class ReaderModel: ObservableObject {
         sampleStart = (Date(), frame.isPdf ? (frame.hasRight ? 2 : 1) : frame.pageEnd - frame.pageStart)
     }
 
-    func prefetch() async {
-        guard let engine, turnEffect == 4 else { prevImage = nil; nextImage = nil; return }
+    /// 말림이 쓰일 때만 앞 · 뒤 쪽을 미리 그린다. 동작 줄이기 · PDF 폭 맞춤 · 이어서에서는 말림이 없는데도 쪽마다 두 장(폭 맞춤이면 긴 띠
+    /// 두 장, 수십 MB)을 그렸다.
+    func prefetch(curl: Bool) async {
+        guard let engine, curl else { prevImage = nil; nextImage = nil; return }
         nextImage = await engine.peek(1)
         prevImage = await engine.peek(-1)
     }
@@ -1245,6 +1264,7 @@ struct ReaderView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// 앱이 뒤로 갈 때 보던 쪽(듣는 동안 쪽이 넘어갔는지 견준다).
     @State private var leftAt: String?
+    @State private var closing = false
     #if DEBUG
     @State private var debugApplied = false
     #endif
@@ -1529,7 +1549,7 @@ struct ReaderView: View {
             }
             .task(id: KeepAwakeKey(mode: prefs.keepScreenOn, activity: model.lastActivity, auto: autoRunning)) { await keepAwake() }
             // 자동 넘김: 쪽이 바뀌면 처음부터 센다(열쇠에 쪽이 들어 있다). 메뉴 · 듣기 · 고르기 · 메모 · 앱이 뒤로 가면 쉰다.
-            .task(id: AutoKey(seconds: ReaderPrefs.autoTurnSeconds[prefs.autoTurn], running: autoRunning, page: model.frame?.key ?? "")) {
+            .task(id: AutoKey(seconds: ReaderPrefs.autoTurnSeconds[prefs.autoTurn], running: autoRunning, page: model.frame?.key ?? "", tick: model.autoTick)) {
                 let seconds = ReaderPrefs.autoTurnSeconds[prefs.autoTurn]
                 guard autoRunning, seconds > 0 else { return }
                 for left in stride(from: seconds, to: 0, by: -1) {
@@ -1558,7 +1578,7 @@ struct ReaderView: View {
             }
             // 말림이면 쪽이 바뀔 때마다 앞 · 뒤 쪽을 미리 그린다.
             .task(id: "\(model.frame?.spine ?? -1):\(model.frame?.page ?? -1):\(curl):\(model.frame?.image.hash ?? 0)") {
-                await model.prefetch()
+                await model.prefetch(curl: curl)
             }
         }
         .sheet(item: $model.lookUp) { DictionaryView(term: $0.text).ignoresSafeArea() }
@@ -1599,6 +1619,9 @@ struct ReaderView: View {
     }
 
     private func close() {
+        // 한 번만 — "서재로" 를 두 번 누르면 엔진 닫기 · 서재로 돌아가기가 두 번 돌았다.
+        guard !closing else { return }
+        closing = true
         Task {
             brightness.forget()
             if model.listening.active { await model.stopListening() }
@@ -1712,6 +1735,7 @@ struct ReaderView: View {
         let seconds: Int
         let running: Bool
         let page: String
+        let tick: Int
     }
 
     /// 알약을 보이는가: 켜 두었고, 이번에 끄지 않았고, 지면만 보이고 있다. 듣기가 켜져 있으면 듣기가 넘김을 맡는다.

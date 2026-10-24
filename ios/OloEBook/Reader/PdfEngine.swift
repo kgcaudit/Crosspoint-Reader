@@ -247,7 +247,7 @@ actor PdfEngine: BookEngine, ZoomSource {
         guard let spec, let page = doc.page(at: p) else { return nil }
         let s = PdfPages.size(of: page)
         var size = CGSize(width: width, height: width * s.height / s.width)
-        let scale = UIScreen.main.scale
+        let scale = ScreenInfo.scale
         let pixels = size.width * size.height * scale * scale
         if pixels > 16_000_000 {
             let k = (16_000_000 / pixels).squareRoot()
@@ -263,6 +263,8 @@ actor PdfEngine: BookEngine, ZoomSource {
 
     /// 이어서 보기의 쪽 띠: 칠을 먼저 읽어 두고 그린다.
     func continuousStrip(_ p: Int, width: CGFloat) async -> UIImage? {
+        // 이 쪽이 화면에서 이미 빠졌다(그리기를 거뒀다) — 엔진 차례를 기다리는 동안 취소됐으면 그리지 않는다.
+        if Task.isCancelled { return nil }
         await loadTints([p])
         return strip(p, width: width)
     }
@@ -280,7 +282,7 @@ actor PdfEngine: BookEngine, ZoomSource {
     /// 수백 MB). 움직이는 동안은 이 그림을 늘려 보인다.
     func zoomed(_ p: Int, size: CGSize, zoom: CGFloat) -> UIImage? {
         guard let spec, let page = doc.page(at: p) else { return nil }
-        let scale = UIScreen.main.scale
+        let scale = ScreenInfo.scale
         var k = zoom
         let pixels = size.width * size.height * k * k * scale * scale
         if pixels > 16_000_000 { k *= (16_000_000 / pixels).squareRoot() }

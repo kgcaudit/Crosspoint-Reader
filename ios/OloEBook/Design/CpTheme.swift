@@ -106,3 +106,16 @@ enum CpMetrics {
     static let childIndent: CGFloat = 38
     static let levelIndent: CGFloat = 16
 }
+
+/// 화면 배율 · 휴대폰인가. 앱을 켤 때 주 스레드에서 한 번 읽어 둔다 — 엔진(actor)이 그림을 그리며 `UIScreen.main` ·
+/// `UIDevice.current` 를 주 스레드 밖에서 읽었다(주 스레드 전용 · 앞으로 막힐 API).
+enum ScreenInfo {
+    nonisolated(unsafe) private(set) static var scale: CGFloat = 3
+    nonisolated(unsafe) private(set) static var phone = true
+
+    @MainActor
+    static func capture() {
+        scale = UIScreen.main.scale
+        phone = UIDevice.current.userInterfaceIdiom == .phone
+    }
+}

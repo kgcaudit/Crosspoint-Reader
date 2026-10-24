@@ -145,7 +145,10 @@ struct PdfContinuousView: UIViewRepresentable {
         private var tops: [CGFloat] = []
         private var heights: [CGFloat] = []
         private var views: [Int: UIImageView] = [:]
+        /// 쪽마다 그리는 일. 화면에서 빠지면 거둔다 — 1000쪽을 세게 튕기면 지나간 쪽들의 그리기가 엔진 앞에 줄줄이 쌓여 지금 쪽이 늦게 나왔다.
+        private var drawing: [Int: Task<Void, Never>] = [:]
         private var laidWidth: CGFloat = 0
+        private var laidHeight: CGFloat = 0
         /// 잇달아 누르면 거리를 쌓는다(굴리는 중에 또 누르면 거기서부터 90% 더).
         private var goal: CGFloat?
         private var settle: DispatchWorkItem?
@@ -154,9 +157,15 @@ struct PdfContinuousView: UIViewRepresentable {
 
         func layout(_ sv: UIScrollView) {
             let w = parent.area.width
-            guard w > 0, w != laidWidth || tops.count != parent.aspects.count else { return }
+            // 아직 크기가 없으면(새로 만든 첫 그림) 한 바퀴 뒤에 — 높이 0 으로 내용 크기를 세면 마지막 쪽의 아래 한 화면에 닿지 못했다.
+            if sv.bounds.height <= 0 {
+                DispatchQueue.main.async { [weak self, weak sv] in if let self, let sv, sv.bounds.height > 0 { self.layout(sv) } }
+                return
+            }
+            guard w > 0, w != laidWidth || tops.count != parent.aspects.count || sv.bounds.height != laidHeight else { return }
             let keep = place(sv)
             laidWidth = w
+            laidHeight = sv.bounds.height
             var y = parent.area.minY
             tops = []
             heights = []
@@ -168,6 +177,8 @@ struct PdfContinuousView: UIViewRepresentable {
             sv.contentSize = CGSize(width: sv.bounds.width, height: y - PdfContinuousView.spacing + (sv.bounds.height - parent.area.maxY))
             for v in views.values { v.removeFromSuperview() }
             views = [:]
+            for t in drawing.values { t.cancel() }
+            drawing = [:]
             if let keep { scrollTo(page: keep.0, y: keep.1, in: sv) }
             fill(sv)
         }
@@ -230,6 +241,7 @@ struct PdfContinuousView: UIViewRepresentable {
             for (i, v) in views where !near.contains(i) {
                 v.removeFromSuperview()
                 views[i] = nil
+                drawing.removeValue(forKey: i)?.cancel()
             }
             for i in near where views[i] == nil {
                 let v = UIImageView(frame: CGRect(x: parent.area.minX, y: tops[i], width: laidWidth, height: heights[i]))
@@ -237,8 +249,9 @@ struct PdfContinuousView: UIViewRepresentable {
                 sv.addSubview(v)
                 views[i] = v
                 let width = laidWidth
-                Task { @MainActor [weak v] in
+                drawing[i] = Task { @MainActor [weak v] in
                     let img = await self.parent.image(i, width)
+                    if Task.isCancelled { return }
                     v?.image = img
                     if img == nil { v?.addSubview(Self.broken(v?.bounds ?? .zero)) }
                 }

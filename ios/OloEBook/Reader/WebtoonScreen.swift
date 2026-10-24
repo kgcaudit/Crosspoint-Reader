@@ -53,6 +53,17 @@ final class WebtoonModel: ObservableObject {
     private var placed = false
     private var loadingNext = false
     private var failedNext: String?
+    /// 확대 배율(기둥 뷰가 알린다). 한 화면의 높이는 화면 높이 ÷ 배율 — 이것을 빼면 2배 확대에서 한 번 누를 때 두 화면 가까이 건너뛰어
+    /// 내용을 놓쳤고, 아직 아래 절반이 남았는데 끝 판이 떴다.
+    var zoom: CGFloat = 1
+    /// 마지막 다시 짜기가 다음 화를 덧붙인 것인가(폭이 바뀐 것이 아니라). 덧붙이기면 확대 · 놓인 칸을 그대로 두고 길이만 늘린다.
+    private(set) var appended = false
+
+    /// 화면 하나의 높이(기둥 좌표).
+    var screen: CGFloat { viewSize.height / max(zoom, 1) }
+
+    /// 더 붙일 화가 없다(마지막 화 · 다음 화를 열지 못함). 자동 스크롤이 끝에서 멈춘다.
+    var noMoreEpisodes: Bool { nextEntry.map { failedNext == $0.unit.id } ?? true }
     private var finishedSaved = Set<String>()
     private var saveTask: Task<Void, Never>?
 
@@ -82,7 +93,7 @@ final class WebtoonModel: ObservableObject {
         let anchor = placed ? here() : nil
         viewSize = view
         columnWidth = width
-        rebuild()
+        rebuild(appended: false)
         if let anchor, let chain {
             request(CGFloat(chain.offsetOf(k: Int32(anchor.k), index: Int32(anchor.i), fraction: anchor.f)))
         } else if let chain {
@@ -91,17 +102,18 @@ final class WebtoonModel: ObservableObject {
         }
     }
 
-    private func rebuild() {
+    private func rebuild(appended: Bool) {
+        self.appended = appended
         let sizes = episodes.map(\.rawSizes)
         chain = IosWebtoon.shared.chain(episodes: sizes, width: Float(columnWidth))
-        cells = IosWebtoon.shared.cells(episodes: sizes, width: Float(columnWidth), pixelScale: Float(UIScreen.main.scale))
+        cells = IosWebtoon.shared.cells(episodes: sizes, width: Float(columnWidth), pixelScale: Float(ScreenInfo.scale))
         layoutToken += 1
     }
 
     var total: CGFloat { CGFloat(chain?.total ?? 0) }
 
     private func request(_ y: CGFloat, animated: Bool = false) {
-        let y = min(max(y, 0), max(total - viewSize.height, 0))
+        let y = min(max(y, 0), max(total - screen, 0))
         scrollTo = (y, animated, scrollTo.token + 1)
         top = y
         // 화면이 움직였다는 알림은 이 자리와 같아 걸러지므로, 다음 화 열기는 여기서도 본다 — 진도 막대로 화 끝에 가면 다음 화가
@@ -156,7 +168,7 @@ final class WebtoonModel: ObservableObject {
         let (k, i, f) = here()
         guard episodes.indices.contains(k) else { return }
         let e = episodes[k]
-        let end = chain.reachedEnd(k: Int32(k), y: Float(top), viewHeight: Float(viewSize.height))
+        let end = chain.reachedEnd(k: Int32(k), y: Float(top), viewHeight: Float(screen))
         _ = store.saveComic(unitId: e.unitId, page: Int32(i), pageCount: Int32(e.sizes.count), atEnd: end, half: nil, offset: KotlinFloat(float: f))
         // 지나온 화는 다 읽은 것(안드로이드와 같다).
         for j in 0..<k where finishedSaved.insert(episodes[j].unitId).inserted {
@@ -179,10 +191,10 @@ final class WebtoonModel: ObservableObject {
             if let next = nextEntry, failedNext != next.unit.id { loadNextIfNear() } else { ended = true }
             return
         }
-        request(top + CGFloat(direction) * viewSize.height * CGFloat(IosWebtoon.shared.SCREEN_STEP), animated: true)
+        request(top + CGFloat(direction) * screen * CGFloat(IosWebtoon.shared.SCREEN_STEP), animated: true)
     }
 
-    var atBottom: Bool { top + viewSize.height >= total - 1 }
+    var atBottom: Bool { top + screen >= total - 1 }
 
     /// 진도 막대: 지금 화 안의 자리.
     func seek(_ f: Double) {
@@ -223,7 +235,7 @@ final class WebtoonModel: ObservableObject {
             }.value
             guard let self else { return }
             loadingNext = false
-            if let opened { episodes.append(opened); rebuild() } else { failedNext = next.unit.id }
+            if let opened { episodes.append(opened); rebuild(appended: true) } else { failedNext = next.unit.id }
         }
     }
 
@@ -277,12 +289,12 @@ final class WebtoonModel: ObservableObject {
     nonisolated func strip(_ cell: WebtoonCell, episode: WebtoonEpisode, width: CGFloat, color: Int, source: CGImageSource?) -> UIImage? {
         guard cell.known, let source,
               let size = episode.sizes.indices.contains(Int(cell.index)) ? episode.sizes[Int(cell.index)] : nil,
-              let full = CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
+              let full = Self.decode(source, columnPx: max(width * ScreenInfo.scale, 1)) else { return nil }
         // 머리의 크기와 실제 그림 크기가 다르면(깨진 머리) 비율로 맞춘다.
         let ratio = CGFloat(full.height) / CGFloat(max(size.height, 1))
         let rows = CGRect(x: 0, y: CGFloat(cell.rowFrom) * ratio, width: CGFloat(full.width), height: CGFloat(cell.rowTo - cell.rowFrom) * ratio).integral
         guard let piece = full.cropping(to: rows) else { return nil }
-        let px = max(width * UIScreen.main.scale, 1)
+        let px = max(width * ScreenInfo.scale, 1)
         let h = max((px * CGFloat(piece.height) / CGFloat(max(piece.width, 1))).rounded(), 1)
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
@@ -292,6 +304,22 @@ final class WebtoonModel: ObservableObject {
             UIImage(cgImage: piece).draw(in: CGRect(x: 0, y: 0, width: px, height: h))
         }
         return ComicImages.colored(img, mode: color)
+    }
+
+    /// 그림을 기둥 폭에 맞춰 줄여 푼다(원본이 더 넓을 때만). 원본 그대로 풀면 800×30000 한 장이 96MB — 띠마다 따로 푸니 램이 적은
+    /// iPhone 에서 한도를 넘을 수 있었다. 줄일 수 없으면(원본이 기둥보다 좁다) 그대로.
+    nonisolated private static func decode(_ source: CGImageSource, columnPx: CGFloat) -> CGImage? {
+        if let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+           let w = (props[kCGImagePropertyPixelWidth] as? NSNumber)?.doubleValue, let h = (props[kCGImagePropertyPixelHeight] as? NSNumber)?.doubleValue,
+           w > Double(columnPx) * 1.05, w > 0 {
+            let longest = max(w, h) * Double(columnPx) / w
+            let options: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: longest.rounded(.up),
+                kCGImageSourceCreateThumbnailWithTransform: false, kCGImageSourceShouldCacheImmediately: false,
+            ]
+            if let small = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) { return small }
+        }
+        return CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCache: false] as CFDictionary)
     }
 
     /// 그림 원본(압축 속 바이트)을 몇 장만 쥐고 있는다 — 한 그림의 띠 여러 개가 같은 원본을 쓴다.
@@ -417,8 +445,9 @@ struct WebtoonScreen: View {
             }
             .onChange(of: percent) { _, p in model.layOut(view: full, percent: p) }
             // 자동 스크롤 중에는 화면을 켜 둔다 — 꺼지면 스크롤도 멈춘 채 다음 칸을 못 본다(안드로이드 `ReadingWindow`).
-            .onChange(of: model.autoOn) { _, on in UIApplication.shared.isIdleTimerDisabled = on }
-            .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
+            // 끌 때 · 나갈 때는 "화면 켜짐 유지: 항상" 이면 켠 채로 둔다(그 설정을 무시하고 끄고 있었다).
+            .onChange(of: model.autoOn) { _, on in UIApplication.shared.isIdleTimerDisabled = on || prefs.keepScreenOn == .always }
+            .onDisappear { UIApplication.shared.isIdleTimerDisabled = prefs.keepScreenOn == .always }
         }
     }
 
@@ -709,6 +738,8 @@ private struct WebtoonCanvas: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(model: model) }
 
+    static func dismantleUIView(_ scroll: UIScrollView, coordinator: Coordinator) { coordinator.stop() }
+
     func makeUIView(context: Context) -> UIScrollView {
         let scroll = UIScrollView()
         scroll.backgroundColor = UIColor(comicPaper.paperColor)
@@ -771,12 +802,32 @@ private struct WebtoonCanvas: UIViewRepresentable {
 
         func relayout(token: Int) {
             guard token != appliedLayout, let scroll else { return }
+            let first = appliedLayout < 0
             appliedLayout = token
+            let size = CGSize(width: model.viewSize.width, height: max(model.total, model.viewSize.height))
+            if model.appended && !first {
+                // 다음 화가 붙었다: 앞 칸들의 자리는 그대로라 놓인 그림 · 확대를 두고 길이만 늘린다. 전처럼 다 지우고 확대를 풀면 확대해
+                // 읽던 화면이 화 끝 근처에서 깜빡이며 1배로 돌아갔다(2A — 손을 떼도 그 배율로 내려 읽는다).
+                let z = scroll.zoomScale
+                content.bounds = CGRect(origin: .zero, size: size)
+                content.center = CGPoint(x: size.width * z / 2, y: size.height * z / 2)
+                scroll.contentSize = CGSize(width: size.width * z, height: size.height * z)
+                return
+            }
             clear()
-            // 배치를 다시 짜면 확대를 푼다 — 확대한 채 틀을 바꾸면 UIScrollView 의 변환과 새 크기가 어긋난다.
+            // 폭이 바뀌어 다시 짜면 확대를 푼다 — 확대한 채 틀을 바꾸면 UIScrollView 의 변환과 새 크기가 어긋난다.
             scroll.zoomScale = 1
-            content.frame = CGRect(x: 0, y: 0, width: model.viewSize.width, height: max(model.total, model.viewSize.height))
-            scroll.contentSize = content.frame.size
+            model.zoom = 1
+            content.frame = CGRect(origin: .zero, size: size)
+            scroll.contentSize = size
+        }
+
+        /// 화면이 사라진다: 자동 스크롤 시계와 그리던 일을 거둔다. CADisplayLink 는 대상을 꽉 붙들어, 자동 스크롤을 켠 채 나가면 시계가
+        /// 영영 돌고 조정자 · 모델(그림 캐시)이 풀리지 않았다.
+        func stop() {
+            link?.invalidate()
+            link = nil
+            clear()
         }
 
         private func clear() {
@@ -824,7 +875,7 @@ private struct WebtoonCanvas: UIViewRepresentable {
                 let color = color
                 let m = model
                 loading[i] = Task { [weak image] in
-                    let img = await Task.detached(priority: .userInitiated) { m.strip(cell, episode: episode, width: width, color: color, source: source) }.value
+                    let img = await WebtoonDecoder.shared.run { m.strip(cell, episode: episode, width: width, color: color, source: source) }
                     guard !Task.isCancelled, let image else { return }
                     if let img { image.image = img; image.backgroundColor = .clear } else { self.broken(image) }
                 }
@@ -881,7 +932,10 @@ private struct WebtoonCanvas: UIViewRepresentable {
             refresh()
         }
 
-        func scrollViewDidZoom(_ scrollView: UIScrollView) { refresh() }
+        func scrollViewDidZoom(_ scrollView: UIScrollView) {
+            model.zoom = scrollView.zoomScale
+            refresh()
+        }
 
         @objc func pinched(_ g: UIPinchGestureRecognizer) {
             guard g.state != .possible else { return }
@@ -920,10 +974,21 @@ private struct WebtoonCanvas: UIViewRepresentable {
             // 끝(마지막 화의 끝)에 닿으면 끈다 — 알약이 남아 "자동 스크롤" 이라고 하는데 서 있으면 고장으로 보인다.
             // 다음 화를 여는 중이면 기다린다(붙으면 기둥이 길어진다).
             if scroll.contentOffset.y >= maxY - 1 {
-                if model.nextEntry == nil { onAutoEnd() }
+                // 다음 화를 열지 못했어도 끝이다 — 알약은 "자동 스크롤" 인데 화면은 멈춰 있었다.
+                if model.noMoreEpisodes { onAutoEnd() }
                 return
             }
             scroll.contentOffset.y = min(scroll.contentOffset.y + dy, maxY)
         }
+    }
+}
+
+/// 웹툰 띠 풀기를 한 번에 하나씩. 보이는 칸 수만큼 동시에 풀면 큰 그림 여러 장이 한꺼번에 메모리에 올라 램이 적은 기기에서 한도를 넘었다.
+actor WebtoonDecoder {
+    static let shared = WebtoonDecoder()
+
+    func run(_ work: () -> UIImage?) -> UIImage? {
+        if Task.isCancelled { return nil }
+        return work()
     }
 }
