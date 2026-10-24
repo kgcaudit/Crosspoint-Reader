@@ -319,6 +319,7 @@ private struct LibraryShelves: View {
                 }
                 // 뒷벽은 홈 표시줄 밑까지 — 안전 영역에서 끊으면 책장 아래에 바탕색 띠가 남는다.
                 .ignoresSafeArea(edges: .bottom)
+                .transition(.opacity)
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
@@ -348,8 +349,12 @@ private struct LibraryShelves: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .refreshable { await library.refresh() }
+                .transition(.opacity)
             }
         }
+        // 보기를 바꾸면 겹쳐 바뀐다 — 표지는 두 보기에서 같은 자리라(WoodRow), 표지는 그대로 있고 뒤로 원목 벽 · 판이 나타나고
+        // 사라진다. 그냥 갈아 끼우면 화면이 한 번 깜빡였다. '동작 줄이기' 면 바로.
+        .animation(UIAccessibility.isReduceMotionEnabled ? nil : .easeInOut(duration: 0.3), value: library.layout)
     }
 }
 

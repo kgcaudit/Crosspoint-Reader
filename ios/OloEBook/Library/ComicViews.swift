@@ -180,6 +180,7 @@ struct ComicShelves: View {
                     .refreshable { await library.refresh() }
                 }
                 .ignoresSafeArea(edges: .bottom)
+                .transition(.opacity)
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
@@ -208,8 +209,12 @@ struct ComicShelves: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .refreshable { await library.refresh() }
+                .transition(.opacity)
             }
         }
+        // 보기를 바꾸면 겹쳐 바뀐다 — 표지는 두 보기에서 같은 자리라(WoodRow), 표지는 그대로 있고 뒤로 원목 벽 · 판이 나타나고
+        // 사라진다. 그냥 갈아 끼우면 화면이 한 번 깜빡였다. '동작 줄이기' 면 바로.
+        .animation(UIAccessibility.isReduceMotionEnabled ? nil : .easeInOut(duration: 0.3), value: library.layout)
     }
 
     /// 표지로 쓸 권. 권이 하나도 없는 작품(합치기 · 빼기 뒤에 빈 것)은 nil — 강제로 꺼내면 앱이 죽었다.

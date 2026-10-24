@@ -33,7 +33,8 @@ struct Wood: Sendable {
 enum ShelfMetrics {
     static let crown: CGFloat = 12
     static let boardTop: CGFloat = 4
-    static let rowTop: CGFloat = 12
+    /// 판 아래 첫 줄까지. 판 아랫선(1) + 14 = 15 — 격자 보기의 이름 아래 6 + 줄 위 9 와 같아, 보기를 바꿔도 표지가 같은 높이에 선다.
+    static let rowTop: CGFloat = 14
     static let post: CGFloat = 12
     /// 빈 판 수를 셀 때의 판 높이(윗면 4 + 빛 1 + 이름 줄 20 + 아랫선 1).
     static let board: CGFloat = 26
@@ -202,10 +203,12 @@ struct WoodRow<Item: Identifiable, Cell: View>: View {
 
     var body: some View {
         ZStack(alignment: .top) {
+            // 채우개(Spacer)를 두지 않는다 — 표지 사이 간격이 마지막 표지와 채우개 사이에도 들어가 줄이 14pt 넓어졌고, 가운데 맞춤으로
+            // 양쪽에 7pt 씩 비어져 나가 표지가 격자 보기보다 7pt 왼쪽에 섰다(보기를 바꾸면 책이 움찔했다).
             HStack(alignment: .bottom, spacing: LibraryGrid.gap) {
                 ForEach(items) { cell($0).frame(width: width) }
-                Spacer(minLength: 0)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, CpMetrics.gutter)
             .padding(.top, ShelfMetrics.rowTop)
             UnderBoardShadow()
