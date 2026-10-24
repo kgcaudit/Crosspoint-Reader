@@ -70,3 +70,19 @@ interface PagedDocument : Document {
     /** 페이지의 가로/세로 비율. 렌더 전에 지면을 잡는 데 쓴다. */
     suspend fun pageAspectRatio(index: Int): Float
 }
+
+/**
+ * 한 장을 조판 단위(조각) 여럿으로 나눠 내는 문서 — 큰 TXT(0.60.0, iOS 요청).
+ *
+ * 한 장짜리 큰 TXT 는 첫 쪽을 보이기 전에 파일 전체를 쪽으로 나눠야 했다(672KB 에 iPhone 13 mini 27초). 조각으로 나누면
+ * 보이려는 조각 하나만 짜면 된다. [ReflowDocument.spine] 의 항목은 조각이지만 **저장하는 자리**(책갈피 · 진도 · 형광펜 ·
+ * 백업 · 동기화)는 나누기 전 한 장의 글자 자리(`r:0:N`)로 둔다 — 옛 기록 · 옛 판 앱 · 다른 기기와 그대로 맞는다.
+ * 두 자리를 오가는 것은 조판 코어의 `LocatorSpace` 다.
+ */
+interface PiecedDocument {
+    /** 조각마다 한 장 안에서 시작하는 글자 자리. 첫 값은 0, 오름차순. */
+    suspend fun pieceStarts(): IntArray
+
+    /** 한 장의 글자 수. */
+    suspend fun textLength(): Int
+}

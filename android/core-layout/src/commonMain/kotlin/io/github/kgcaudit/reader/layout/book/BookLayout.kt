@@ -25,6 +25,36 @@ data class ReadingPosition(
 }
 
 /**
+ * 화면 아래 "12 / 1,480" 의 두 수(1부터). 조각으로 나눈 TXT 는 앞 조각을 다 세기 전이면 [number] 가, 모든 조각을 세기 전이면
+ * [total] 이 null — 화면은 "…" 로 보인다(사용자 결정 2026-10-24).
+ */
+data class PageNumber(val number: Int?, val total: Int?)
+
+/**
+ * 화면이 말하는 "장". 조각으로 나눈 TXT 는 조각 모두가 한 장이다 — 조각을 장으로 보이면 머리에 "3 / 20장" 이 뜨고 "이 장
+ * 남은 시간" 이 조각마다 0 으로 돌아갔다.
+ *
+ * @param offset 이 조판 단위가 장 안에서 시작하는 글자 자리(나누지 않은 책은 0).
+ * @param length 장의 글자 수. @param charsAfter 뒤 장들의 글자 수(추정).
+ */
+data class ChapterSpan(val index: Int, val count: Int, val offset: Int, val length: Int, val charsAfter: Long)
+
+/**
+ * 한 장을 동시에 두 곳에서 조판하지 않게 막는다. 뒤에서 쪽 수를 세는 조판과 화면 조판이 같은 조각을 함께 짜면 캐시 파일 하나에
+ * 두 쓰기가 섞인다. 코어는 코루틴 자물쇠를 들이지 않으므로(공통 코드 의존을 늘리지 않게) 플랫폼이 채운다.
+ */
+interface ChapterGuard {
+    suspend fun <T> locked(spineIndex: Int, block: suspend () -> T): T
+
+    companion object {
+        /** 한 곳에서만 조판할 때. */
+        val NONE: ChapterGuard = object : ChapterGuard {
+            override suspend fun <T> locked(spineIndex: Int, block: suspend () -> T): T = block()
+        }
+    }
+}
+
+/**
  * 책 한 권을 페이지로 다루는 창구.
  *
  * 리더 화면은 이 클래스만 쓴다. 조판이 필요한지 캐시에 있는지, 챕터 경계를 넘는지를
@@ -41,6 +71,8 @@ class BookLayout(
     private val measurer: TextMeasurer,
     /** 책 글꼴표. 측정기가 같은 표로 글꼴을 골라야 한다 — 번호가 같은 가족을 가리켜야 폭이 맞는다. */
     fonts: BookFontTable = BookFontTable.EMPTY,
+    /** 같은 설정으로 다른 곳(뒤에서 쪽 수 세기)도 조판하면 함께 쓰는 자물쇠. */
+    private val guard: ChapterGuard = ChapterGuard.NONE,
 ) {
 
     /** 이 책의 식별자. 책갈피·진도가 같은 값을 쓰도록 여기서 한 번만 꺼낸다. */
@@ -58,6 +90,25 @@ class BookLayout(
 
     suspend fun spine(): List<SpineItem> = spineCache ?: document.spine().also { spineCache = it }
 
+    private var spaceCache: LocatorSpace? = null
+
+    /** 저장 자리 ↔ 조판 자리(조각으로 나눈 TXT). */
+    suspend fun space(): LocatorSpace = spaceCache ?: LocatorSpace.of(document).also { spaceCache = it }
+
+    /**
+     * 캐시 색인. 조각으로 나눈 책은 글자 수가 조각과 다르면 없는 것으로 본다 — 0.59 까지 TXT 는 0 번 캐시에 파일 전체를 담았다.
+     * 그대로 쓰면 첫 조각 자리에 책 전체의 쪽이 보이고 다음 조각으로 넘어가면 글이 되풀이됐다.
+     */
+    private suspend fun validIndex(spineIndex: Int) = cache(spineIndex).readIndex()?.takeIf { header ->
+        val s = space()
+        !s.isSplit || header.textLength == pieceLength(s, spineIndex)
+    }
+
+    private suspend fun pieceLength(s: LocatorSpace, spineIndex: Int): Int {
+        val next = if (spineIndex + 1 < spine().size) s.pieceStart(spineIndex + 1) else s.textLength
+        return next - s.pieceStart(spineIndex)
+    }
+
     // ── 페이지 ──────────────────────────────────────────────────────
 
     /**
@@ -71,9 +122,11 @@ class BookLayout(
         spineIndex: Int,
         firstPagesThreshold: Int = FIRST_PAGES,
         onFirstPages: (() -> Unit)? = null,
-    ): Int {
+    ): Int = guard.locked(spineIndex) { paginate(spineIndex, firstPagesThreshold, onFirstPages) }
+
+    private suspend fun paginate(spineIndex: Int, firstPagesThreshold: Int, onFirstPages: (() -> Unit)?): Int {
         val cache = cache(spineIndex)
-        cache.readIndex()?.let { header ->
+        validIndex(spineIndex)?.let { header ->
             if (header.complete || spineIndex in unreadable) return header.pageCount
         }
 
@@ -112,7 +165,7 @@ class BookLayout(
     }
 
     suspend fun pageCount(spineIndex: Int): Int =
-        cache(spineIndex).readIndex()?.takeIf { it.complete }?.pageCount
+        validIndex(spineIndex)?.takeIf { it.complete }?.pageCount
             ?: ensurePaginated(spineIndex)
 
     suspend fun page(spineIndex: Int, pageIndex: Int): Page? {
@@ -124,6 +177,40 @@ class BookLayout(
     suspend fun chapterText(spineIndex: Int): String? {
         ensurePaginated(spineIndex)
         return cache(spineIndex).readText()
+    }
+
+    /** 다 센 조각의 쪽 수. 센 값만 담는다 — 세는 중인 조각은 매번 색인을 다시 본다(뒤에서 세는 조판이 채운다). */
+    private val counted = HashMap<Int, Int>()
+
+    private suspend fun countedPages(spineIndex: Int): Int? =
+        counted[spineIndex] ?: validIndex(spineIndex)?.takeIf { it.complete }?.pageCount?.also { counted[spineIndex] = it }
+
+    /** [position] 의 쪽 번호 · 장의 쪽 수. 나누지 않은 책은 그대로, 조각으로 나눈 TXT 는 조각들을 이어 센 수. */
+    suspend fun pageNumber(position: ReadingPosition): PageNumber {
+        if (!space().isSplit) return PageNumber(position.pageIndex + 1, position.pageCount)
+        var before: Int? = 0
+        for (i in 0 until position.spineIndex) {
+            val c = countedPages(i)
+            if (c == null) { before = null; break }
+            before = before!! + c
+        }
+        var total: Int? = 0
+        for (i in spine().indices) {
+            val c = countedPages(i)
+            if (c == null) { total = null; break }
+            total = total!! + c
+        }
+        return PageNumber(before?.let { it + position.pageIndex + 1 }, total)
+    }
+
+    /** 아직 다 세지 않은 첫 조각. 없으면 null. 뒤에서 세는 조판이 하나씩 짠다. */
+    suspend fun nextUncounted(): Int? = spine().indices.firstOrNull { countedPages(it) == null && it !in unreadable }
+
+    /** [spineIndex] 가 든 장(화면이 말하는 장). */
+    suspend fun chapterSpan(spineIndex: Int): ChapterSpan {
+        val s = space()
+        if (s.isSplit) return ChapterSpan(0, 1, s.pieceStart(spineIndex), s.textLength, 0)
+        return ChapterSpan(spineIndex, spine().size, 0, chapterLength(spineIndex), charsAfterChapter(spineIndex))
     }
 
     // ── 위치 ────────────────────────────────────────────────────────
@@ -256,7 +343,7 @@ class BookLayout(
 
     /** 장의 글자 수(조판 전에도). 남은 시간을 셀 때 쓴다. */
     suspend fun chapterLength(spineIndex: Int): Int =
-        cache(spineIndex).readIndex()?.textLength ?: runCatching { chapter(spineIndex).text.length }.getOrDefault(0)
+        validIndex(spineIndex)?.textLength ?: runCatching { chapter(spineIndex).text.length }.getOrDefault(0)
 
     /**
      * 책에서 [spineIndex] 장 뒤에 남은 글자 수(추정). 뒤 장들은 파일 크기에 이 장의 "바이트당 글자" 를 곱한다 —
@@ -382,7 +469,7 @@ class BookLayout(
         }
 
         ensurePaginated(index)
-        val length = cache(index).readIndex()?.textLength ?: 0
+        val length = validIndex(index)?.textLength ?: 0
         val offset = (within * length).toInt().coerceIn(0, (length - 1).coerceAtLeast(0))
         return Locator.Reflow(index, offset)
     }
@@ -402,8 +489,8 @@ class BookLayout(
         return percent.coerceIn(0.0, 100.0).toFloat()
     }
 
-    private fun chapterFraction(spineIndex: Int, charOffset: Int): Double {
-        val length = cache(spineIndex).readIndex()?.textLength ?: return 0.0
+    private suspend fun chapterFraction(spineIndex: Int, charOffset: Int): Double {
+        val length = validIndex(spineIndex)?.textLength ?: return 0.0
         if (length <= 0) return 0.0
         return (charOffset.toDouble() / length).coerceIn(0.0, 1.0)
     }

@@ -17,6 +17,9 @@ import io.github.kgcaudit.reader.document.TocEntry
 import io.github.kgcaudit.reader.layout.LayoutSpec
 import io.github.kgcaudit.reader.layout.Page
 import io.github.kgcaudit.reader.layout.book.BookLayout
+import io.github.kgcaudit.reader.layout.book.ChapterGuard
+import io.github.kgcaudit.reader.layout.book.LayoutRepositories
+import io.github.kgcaudit.reader.layout.book.LocatorSpace
 import io.github.kgcaudit.reader.layout.book.ReadingPosition
 import io.github.kgcaudit.reader.layout.book.ReadingSession
 import io.github.kgcaudit.reader.layout.cache.PageStore
@@ -34,6 +37,11 @@ import io.github.kgcaudit.reader.layout.html.Link
 import io.github.kgcaudit.reader.ui.design.sampleKeeping
 import java.io.File
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -49,7 +57,15 @@ data class ReaderState(
     /** [page] 의 런이 가리키는 챕터 텍스트. */
     val text: String = "",
     val position: ReadingPosition? = null,
+    /** 화면이 말하는 장(머리의 "2 / 12장"). 조각으로 나눈 TXT 는 조각이 아니라 한 장이다([chapterSpan]). */
+    val chapterIndex: Int = 0,
     val chapterCount: Int = 0,
+    /**
+     * 화면 아래 "12 / 1,480" 의 두 수(1부터). 조각으로 나눈 큰 TXT 는 뒤에서 조각을 세는 동안 모르는 쪽이 null — "…" 로
+     * 보인다. 나누지 않은 책은 [position] 의 쪽 번호 · 장의 쪽 수와 같다.
+     */
+    val pageNumber: Int? = null,
+    val pageTotal: Int? = null,
     val percent: Float = 0f,
     val bookmarked: Boolean = false,
     /** 조판 중. 첫 페이지가 나오기 전까지만 켜진다. */
@@ -69,8 +85,12 @@ data class ReaderState(
     val highlight: SearchHit? = null,
     /** 링크로 건너왔다 — "읽던 곳으로" 단추를 띄운다(F4 · F5). */
     val canReturn: Boolean = false,
-    /** 이 장의 글자 수 · 뒤 장들의 글자 수(추정). 남은 시간을 센다(E5). */
+    /**
+     * 이 장의 글자 수 · 뒤 장들의 글자 수(추정). 남은 시간을 센다(E5). 장은 [chapterIndex] 의 장이라, 조각으로 나눈 TXT 는
+     * 책 전체이고 [chapterOffset] 은 지금 조각이 장 안에서 시작하는 글자 자리다(쪽의 글자 번호는 조각 안의 번호).
+     */
     val chapterLength: Int = 0,
+    val chapterOffset: Int = 0,
     val charsAfterChapter: Long = 0,
     /** 이 장의 형광펜(N2). 칠하기 · 누르기가 이 장 텍스트의 글자 구간으로 쓴다. */
     val annotations: List<Annotation> = emptyList(),
@@ -109,6 +129,19 @@ class BookReader(
     private val edition: String? = null,
 ) : ListenSource {
     private val _state = MutableStateFlow(ReaderState())
+
+    /**
+     * 저장 자리 ↔ 조판 자리. 조각으로 나눈 큰 TXT 는 저장소에 나누기 전 한 장의 글자 자리(`r:0:N`)를 두고, 리더 안은 조각
+     * 자리로만 돈다 — 바꾸는 곳을 저장소 문턱 하나로 모아, 책갈피 · 진도 · 형광펜 코드가 EPUB 과 같은 길을 탄다.
+     */
+    @Volatile
+    private var spaceCache: LocatorSpace? = null
+    private suspend fun space(): LocatorSpace = spaceCache ?: LocatorSpace.of(document).also { spaceCache = it }
+    private val repos = LayoutRepositories(bookmarkRepository, progressRepository, annotationRepository, ::space)
+
+    /** 조각으로 나눈 TXT 의 쪽 수를 뒤에서 센다. 화면 조판과 다른 스레드 · 다른 측정기 — 넘기기를 막지 않는다. */
+    private val background = CoroutineScope(SupervisorJob() + Dispatchers.Default.limitedParallelism(1))
+    private var counting: Job? = null
     val state: StateFlow<ReaderState> = _state.asStateFlow()
 
     private val mutex = Mutex()
@@ -232,8 +265,10 @@ class BookReader(
         }
         // 처음 꺼낸 책 글꼴의 지문을 키에 넣는다(위에서 막 준비했으면 아직 없다).
         newSpec = withBookFonts(newSpec)
-        val built = BookLayout(document, newSpec, store, measurer(newSpec), fonts = bookFonts)
-        val newSession = ReadingSession(built, bookmarkRepository, progressRepository)
+        counting?.cancel()
+        val locks = PieceLocks()
+        val built = BookLayout(document, newSpec, store, measurer(newSpec), fonts = bookFonts, guard = locks)
+        val newSession = ReadingSession(built, repos.bookmarks, repos.progress)
         layout = built
         session = newSession
         spec = newSpec
@@ -245,7 +280,46 @@ class BookReader(
         show(position)
         // 옛 설정의 캐시는 다시 쓰일 일이 드물다. 남겨 두면 글자 크기를 바꿀 때마다 쌓인다.
         built.pruneStaleCaches()
+        startCounting(newSpec, locks)
     }
+
+    /**
+     * 조각으로 나눈 큰 TXT 의 나머지 조각을 뒤에서 조판해 쪽 수를 센다(0.60.0). 화면은 보이는 조각만 짜고 바로 뜨므로, 이것이
+     * 끝나야 "12 / …" 가 "12 / 1,480" 이 된다. 화면 조판과 같은 조각을 함께 짜지 않게 [locks] 를 함께 쓴다.
+     */
+    private suspend fun startCounting(newSpec: LayoutSpec, locks: PieceLocks) {
+        counting?.cancel()
+        if (!space().isSplit) return
+        counting = background.launch {
+            // 측정기는 스레드 안전하지 않아 따로 만든다. 같은 설정이라 같은 캐시를 채운다 — 화면이 그 조각에 오면 짜지 않고 읽는다.
+            val counter = BookLayout(document, newSpec, store, measurer(newSpec), fonts = bookFonts, guard = locks)
+            while (true) {
+                val next = counter.nextUncounted() ?: break
+                try {
+                    counter.ensurePaginated(next)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // 설정을 바꿔 옛 캐시 폴더가 지워지는 중이면 쓰기가 실패한다 — 새 설정의 셈이 다시 시작된다.
+                    return@launch
+                }
+                refreshPageNumber()
+            }
+        }
+    }
+
+    private suspend fun refreshPageNumber() = run {
+        val l = layout ?: return@run
+        val position = _state.value.position ?: return@run
+        val number = l.pageNumber(position)
+        _state.value = _state.value.copy(pageNumber = number.number, pageTotal = number.total)
+    }
+
+    /**
+     * 저장된 자리(다른 기기 · 백업 · 동기화가 준 책 자리)를 리더 안의 자리로. 조각으로 나눈 TXT 만 다르다. 책을 처음 조판하기
+     * 전이면 그대로 둔다(그때는 동기화 띠도 뜨지 않는다 — 보이는 쪽이 없다).
+     */
+    fun layoutLocator(saved: Locator.Reflow): Locator.Reflow = spaceCache?.toLayout(saved) ?: saved
 
     /** 다음 쪽. 두쪽보기면 다음 펼침(두 쪽). */
     suspend fun next() = run {
@@ -354,7 +428,7 @@ class BookReader(
     suspend fun bookmarks(): List<Bookmark> = run { requireSession().bookmarks() }
 
     suspend fun removeBookmark(bookmark: Bookmark) = run {
-        bookmarkRepository.remove(bookmark.id)
+        repos.bookmarks.remove(bookmark.id)
         _state.value.position?.let { _state.value = _state.value.copy(bookmarked = requireSession().isBookmarked(it, lastShown(it))) }
     }
 
@@ -382,10 +456,10 @@ class BookReader(
         val same = loadNotes().firstOrNull { it.start == Locator.Reflow(spine, from) && it.end == Locator.Reflow(spine, to) }
         val saved = if (same != null) {
             val changed = same.copy(color = color).withNote(note ?: same.note)
-            annotationRepository.update(changed)
+            repos.annotations.update(changed)
             changed
         } else {
-            annotationRepository.add(
+            repos.annotations.add(
                 Annotation(
                     id = Annotation.NO_ID,
                     bookId = requireLayout().bookId,
@@ -403,23 +477,46 @@ class BookReader(
         saved
     }
 
-    /** 색 · 메모를 바꾼다. */
+    /** 색 · 메모를 바꾼다(보관소는 id 로 색 · 메모만 고친다 — 지면의 잘린 사본을 넘겨도 구간은 그대로다). */
     suspend fun update(annotation: Annotation) = run {
-        annotationRepository.update(annotation)
+        repos.annotations.update(annotation)
         notes = null
         refreshNotes()
     }
 
     suspend fun remove(annotation: Annotation) = run {
-        annotationRepository.remove(annotation.id)
+        repos.annotations.remove(annotation.id)
         notes = null
         refreshNotes()
     }
 
-    /** 칠한 곳으로 간다(독서노트에서 누름). */
+    /**
+     * 칠한 곳으로 간다(독서노트 · 지면에서 누름). 시작은 원본([original])의 것 — 지면에서 누른 칠은 조각 안만 남긴 사본이라,
+     * 그대로 가면 경계를 넘는 칠의 시작이 아니라 뒤 조각의 처음으로 갔다.
+     */
     suspend fun goTo(annotation: Annotation) = run {
         forgetReturn()
-        show(requireLayout().resolve(annotation.start))
+        show(requireLayout().resolve(original(annotation).start))
+    }
+
+    /** 같은 칠의 원본(조각 경계에서 자르기 전). 목록에 없으면(막 지워짐) 받은 그대로. */
+    private suspend fun original(annotation: Annotation): Annotation =
+        loadNotes().firstOrNull { it.id == annotation.id } ?: annotation
+
+    /**
+     * 이 장(조각)에 걸친 칠. 조각 경계를 넘는 칠(0.59 까지 한 장이던 큰 TXT 에 칠한 것)은 이 조각 안만 남긴 사본으로 낸다 —
+     * 지면의 칠하기 · 누르기는 이 조각의 글자 번호로 쓴다. 시작 조각만 보던 때는 경계 뒤 조각에서 칠의 나머지가 보이지 않았다.
+     */
+    private suspend fun notesFor(spine: Int): List<Annotation> {
+        val all = loadNotes().filter { it.start.spine <= spine && spine <= it.end.spine }
+        if (all.none { it.start.spine != it.end.spine }) return all
+        val length = requireLayout().chapterLength(spine)
+        return all.mapNotNull { a ->
+            if (a.start.spine == a.end.spine) return@mapNotNull a
+            val start = if (a.start.spine == spine) a.start else Locator.Reflow(spine, 0)
+            val end = if (a.end.spine == spine) a.end else Locator.Reflow(spine, length)
+            runCatching { a.copy(start = start, end = end) }.getOrNull()
+        }
     }
 
     /**
@@ -428,11 +525,17 @@ class BookReader(
      */
     suspend fun pagesOf(annotation: Annotation): IntRange? = run {
         val l = requireLayout()
+        val o = original(annotation)
         // 끝은 칠 바깥의 첫 글자라, 그대로 찾으면 쪽 끝에서 멈춘 칠이 다음 쪽에 걸친 것으로 보인다.
-        val last = Locator.Reflow(annotation.end.spine, (annotation.end.charOffset - 1).coerceAtLeast(0))
-        val a = l.resolve(annotation.start)
+        val last = Locator.Reflow(o.end.spine, (o.end.charOffset - 1).coerceAtLeast(0))
+        val a = l.resolve(o.start)
         val b = l.resolve(last)
-        if (a.spineIndex != b.spineIndex || a.pageIndex == b.pageIndex) null else (a.pageIndex + 1)..(b.pageIndex + 1)
+        if (a.spineIndex == b.spineIndex && a.pageIndex == b.pageIndex) return@run null
+        // 조각으로 나눈 TXT 는 조각을 넘어도 한 장이다 — 쪽 번호도 장 전체로 센 수(세는 중이면 알리지 않는다).
+        if (a.spineIndex != b.spineIndex && !space().isSplit) return@run null
+        val from = l.pageNumber(a).number ?: return@run null
+        val to = l.pageNumber(b).number ?: return@run null
+        from..to
     }
 
     /** 이 자리가 책의 몇 %(독서노트의 "3%"). */
@@ -443,7 +546,7 @@ class BookReader(
         // 읽어 온 것만 담아 둔다. 취소(글자 크기를 빨리 바꿔 조판이 다시 시작)나 일시적인 오류의 빈 목록을 담으면, 새로 칠하기
         // 전까지 이 책의 형광펜이 모두 사라져 보였다.
         return try {
-            annotationRepository.forBook(requireLayout().bookId).also { notes = it }
+            repos.annotations.forBook(requireLayout().bookId).also { notes = it }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -454,7 +557,7 @@ class BookReader(
     private suspend fun refreshNotes() {
         val spine = _state.value.position?.spineIndex ?: return
         _state.value = _state.value.copy(
-            annotations = loadNotes().filter { it.start.spine == spine },
+            annotations = notesFor(spine),
             notesVersion = _state.value.notesVersion + 1,
         )
     }
@@ -509,6 +612,7 @@ class BookReader(
 
     /** 문서를 닫는다. EPUB 은 파일 디스크립터를 들고 있다. */
     fun close() {
+        background.cancel()
         (document as? AutoCloseable)?.runCatching { close() }
     }
 
@@ -551,15 +655,18 @@ class BookReader(
 
         val s = requireSession()
         val links = l.links(position.spineIndex)
-        val length = l.chapterLength(position.spineIndex)
-        val after = l.charsAfterChapter(position.spineIndex)
+        val span = l.chapterSpan(position.spineIndex)
+        val number = l.pageNumber(position)
         val saved = s.saveProgress(position, lastShown = rightPosition ?: position)
         shownLocator = l.locatorAt(position.spineIndex, position.pageIndex)
         _state.value = ReaderState(
             page = page,
             text = text,
             position = position,
-            chapterCount = l.spine().size,
+            chapterIndex = span.index,
+            chapterCount = span.count,
+            pageNumber = number.number,
+            pageTotal = number.total,
             percent = saved.percent,
             bookmarked = s.isBookmarked(position, rightPosition ?: position),
             busy = false,
@@ -570,9 +677,10 @@ class BookReader(
             links = links,
             highlight = highlight?.takeIf { it.spine == position.spineIndex },
             canReturn = returnTo != null,
-            chapterLength = length,
-            charsAfterChapter = after,
-            annotations = loadNotes().filter { it.start.spine == position.spineIndex },
+            chapterLength = span.length,
+            chapterOffset = span.offset,
+            charsAfterChapter = span.charsAfter,
+            annotations = notesFor(position.spineIndex),
             notesVersion = _state.value.notesVersion,
             paragraphStarts = l.paragraphStarts(position.spineIndex),
         )
@@ -591,3 +699,14 @@ internal const val SNIPPET_MAX = 400
 
 /** 그림 캐시의 크기: 지면 크기 그림(약 1080×1800, 4바이트) 서너 장. */
 private const val IMAGE_CACHE_BYTES = 32 * 1024 * 1024
+
+/**
+ * 조각마다 하나의 자물쇠. 화면 조판과 뒤에서 쪽 수를 세는 조판이 같은 조각을 함께 짜면 캐시 파일 하나에 두 쓰기가 섞인다.
+ * 설정마다 새로 만든다(설정이 다르면 캐시 폴더가 다르다).
+ */
+private class PieceLocks : ChapterGuard {
+    private val locks = java.util.concurrent.ConcurrentHashMap<Int, Mutex>()
+
+    override suspend fun <T> locked(spineIndex: Int, block: suspend () -> T): T =
+        locks.getOrPut(spineIndex) { Mutex() }.withLock { block() }
+}
