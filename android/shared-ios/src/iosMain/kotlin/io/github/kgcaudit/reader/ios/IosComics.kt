@@ -13,6 +13,7 @@ import io.github.kgcaudit.reader.document.comic.ComicUnitKind
 import io.github.kgcaudit.reader.document.comic.Work
 import io.github.kgcaudit.reader.document.image.ImageHeader
 import io.github.kgcaudit.reader.document.image.ImageSize
+import io.github.kgcaudit.reader.document.io.InputStream
 import io.github.kgcaudit.reader.document.io.inputStream
 import io.github.kgcaudit.reader.document.io.NamedCharsets
 import io.github.kgcaudit.reader.document.tar.TarReader
@@ -71,25 +72,36 @@ object IosComics {
     /** 파일 머리로 종류를 가린다(이름이 zip 이어도 tar 일 수 있다). */
     internal fun open(path: String): Archive {
         val source = FileSeekableSource(path)
-        val head = ByteArray(512)
-        val read = source.readAt(0, head, 0, head.size)
-        return if (read >= 512 && TarReader.looksLikeTar(head)) TarArchive(TarReader.open(source)) else ZipArchive(ZipReader.open(source))
+        try {
+            val head = ByteArray(512)
+            val read = source.readAt(0, head, 0, head.size)
+            return if (read >= 512 && TarReader.looksLikeTar(head)) TarArchive(TarReader.open(source)) else ZipArchive(ZipReader.open(source))
+        } catch (e: Throwable) {
+            // 깨진 tar 는 여기서 던진다 — 닫지 않으면 서재를 훑을 때마다 깨진 파일 하나에 파일 핸들 하나가 샜다.
+            source.close()
+            throw e
+        }
     }
 
     internal interface Archive : AutoCloseable {
         val names: List<String>
         fun bytes(name: String): ByteArray?
+
+        /** 항목을 앞에서부터 읽는 흐름(그림 머리만 볼 때). */
+        fun stream(name: String): InputStream?
     }
 
     private class ZipArchive(val zip: ZipReader) : Archive {
         override val names: List<String> get() = zip.entries.keys.toList()
         override fun bytes(name: String): ByteArray? = zip.readBytes(name)
+        override fun stream(name: String): InputStream? = zip.openStream(name)
         override fun close() = zip.close()
     }
 
     private class TarArchive(val tar: TarReader) : Archive {
         override val names: List<String> get() = tar.entries.keys.toList()
         override fun bytes(name: String): ByteArray? = tar.openStream(name)?.use { it.readAllBytes() }
+        override fun stream(name: String): InputStream? = tar.openStream(name)
         override fun close() = tar.close()
     }
 }
@@ -116,9 +128,10 @@ class IosComicBook private constructor(
 
     /** 쪽마다 그림 크기(머리만 읽는다). 모르면 null — 두 쪽 짝짓기에서 세로 쪽으로 친다. */
     fun sizes(): List<ImageSize?> = pages.map { name ->
+        // 머리만 읽는다(흐름으로 열어 앞 몇 KB). 쪽 전체를 읽으면 수백 MB 짜리 만화를 열 때마다 통째로 풀어 몇 초씩 걸렸다.
         runCatching {
-            val bytes = if (archive != null) archive.bytes(name) else FileBytes.file("$folder/$name").openStream().use { it.readAllBytes() }
-            bytes?.let { ImageHeader.read(it.inputStream()) }
+            val stream = if (archive != null) archive.stream(name) else FileBytes.file("$folder/$name").openStream()
+            stream?.use { ImageHeader.read(it) }
         }.getOrNull()
     }
 

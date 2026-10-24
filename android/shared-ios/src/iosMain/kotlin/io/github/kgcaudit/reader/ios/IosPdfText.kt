@@ -137,7 +137,9 @@ object IosPdfText {
     /** 듣기로 읽을 글(줄 끝 낱말을 이은 글 — 층과 길이가 같다). */
     fun spoken(layer: PageText, start: Int, end: Int): String {
         val text = layer.speech().text
-        return text.substring(start.coerceIn(0, text.length), end.coerceIn(0, text.length)).trim()
+        // 끝이 시작보다 앞이면(층이 바뀐 뒤의 옛 문장 번호) 빈 글 — substring 이 던지면 Swift 에서는 앱이 죽는다.
+        val from = start.coerceIn(0, text.length)
+        return text.substring(from, end.coerceIn(from, text.length)).trim()
     }
 
     /** 사람이 읽을 글이 있는가(스캔본 안내). */

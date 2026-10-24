@@ -10,13 +10,12 @@ import kotlinx.cinterop.toKString
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSJSONSerialization
 import platform.Foundation.NSNumber
+import platform.Foundation.NSRecursiveLock
 import platform.Foundation.NSString
 import platform.Foundation.NSUTF8StringEncoding
 import platform.Foundation.create
 import platform.Foundation.dataUsingEncoding
 import platform.Foundation.precomposedStringWithCanonicalMapping
-import platform.Foundation.stringWithContentsOfFile
-import platform.Foundation.writeToFile
 
 /*
  * 읽기 기록 백업(구상안 31A). 안드로이드 `RecordsCodec` · `RecordsBackup` 과 같은 파일 · 같은 합치기 — 두 앱이 서로의 백업을
@@ -450,6 +449,21 @@ internal fun nfc(s: String): String {
  */
 class RecordsBackup(private val store: ReadingStore, private val pendingPath: String) {
 
+    /**
+     * 기다리는 기록 파일은 읽고 → 고쳐 → 쓴다. 가져오기와 서재 훑기(기다림 붙이기)가 다른 스레드에서 겹치면 한쪽이 쓴 것을 다른 쪽이
+     * 덮었다 — 한 번에 하나씩.
+     */
+    private val lock = NSRecursiveLock()
+
+    private inline fun <T> guarded(block: () -> T): T {
+        lock.lock()
+        try {
+            return block()
+        } finally {
+            lock.unlock()
+        }
+    }
+
     /** 백업 파일 글. 기록이 있는 책 · 만화 · 작품 설정 + 기다리는 기록. */
     fun export(shelf: List<ShelfBook>, comics: List<ShelfComic>, now: Long = currentTimeMillis()): String =
         RecordsCodec.encode(collect(shelf, comics, now))
@@ -463,7 +477,9 @@ class RecordsBackup(private val store: ReadingStore, private val pendingPath: St
         )
     }
 
-    private fun collect(shelf: List<ShelfBook>, comics: List<ShelfComic>, now: Long): BackupFile {
+    private fun collect(shelf: List<ShelfBook>, comics: List<ShelfComic>, now: Long): BackupFile = guarded { collectNow(shelf, comics, now) }
+
+    private fun collectNow(shelf: List<ShelfBook>, comics: List<ShelfComic>, now: Long): BackupFile {
         val pending = readPending()
         val books = (shelf.mapNotNull { store.recordOf(it.id, it.name, it.size, it.title, it.author) } + pending.books).mergedBooks()
         val units = (comics.mapNotNull { store.recordOfComic(it.id, it.name, it.size) } + pending.comics).mergedComics()
@@ -477,8 +493,10 @@ class RecordsBackup(private val store: ReadingStore, private val pendingPath: St
         val file = RecordsCodec.decode(text) ?: return null
         val books = file.books.mergedBooks()
         val units = file.comics.mergedComics()
-        val found = books.count { targets(it, shelf).isNotEmpty() }
-        val comicsFound = units.count { comicTargets(it, comics).isNotEmpty() }
+        val byName = bookIndex(shelf)
+        val comicByName = comicIndex(comics)
+        val found = books.count { targets(it, byName).isNotEmpty() }
+        val comicsFound = units.count { comicTargets(it, comicByName).isNotEmpty() }
         return ImportPreview(
             file.createdAt, books.size, units.size, file.works.mergedWorks().size, found + comicsFound,
             books.size - found + units.size - comicsFound, file.isEmpty, comicsFound,
@@ -489,7 +507,11 @@ class RecordsBackup(private val store: ReadingStore, private val pendingPath: St
      * 합친다. 이 휴대폰의 기록은 지우지 않는다. 같은 파일을 두 번 가져와도 결과는 한 번 가져온 것과 같다. 못 찾은 책 · 만화 · 작품
      * 설정은 기다리는 기록으로. 백업이 아니면 null.
      */
-    fun apply(text: String, shelf: List<ShelfBook>, comics: List<ShelfComic>): ImportResult? {
+    fun apply(text: String, shelf: List<ShelfBook>, comics: List<ShelfComic>): ImportResult? = guarded { store.batch { applyNow(text, shelf, comics) } }
+
+    private fun applyNow(text: String, shelfList: List<ShelfBook>, comicList: List<ShelfComic>): ImportResult? {
+        val shelf = bookIndex(shelfList)
+        val comics = comicIndex(comicList)
         val file = RecordsCodec.decode(text) ?: return null
         val books = file.books.mergedBooks()
         var found = 0
@@ -527,7 +549,11 @@ class RecordsBackup(private val store: ReadingStore, private val pendingPath: St
     }
 
     /** 서재를 훑은 뒤: 기다리던 책 · 만화 중 이제 보이는 것에 붙이고 기다림에서 뺀다. 붙인 권 수. */
-    fun resumePending(shelf: List<ShelfBook>, comics: List<ShelfComic>): Int {
+    fun resumePending(shelf: List<ShelfBook>, comics: List<ShelfComic>): Int = guarded { store.batch { resumeNow(shelf, comics) } }
+
+    private fun resumeNow(shelfList: List<ShelfBook>, comicList: List<ShelfComic>): Int {
+        val shelf = bookIndex(shelfList)
+        val comics = comicIndex(comicList)
         val pending = readPending()
         if (pending.isEmpty) return 0
         val left = ArrayList<BackupBook>()
@@ -556,9 +582,8 @@ class RecordsBackup(private val store: ReadingStore, private val pendingPath: St
      * 크기를 모르는 기록은 이름이 같은 책이 꼭 한 권일 때만. 이름이 같아도 크기가 다르면 다른 판이라 붙이지 않는다. 이름은 한글을
      * 모아 쓴 꼴로 견준다 — 맥을 거친 파일 이름은 풀어 쓴 꼴일 수 있다.
      */
-    private fun targets(b: BackupBook, shelf: List<ShelfBook>): List<ShelfBook> {
-        val name = nfc(b.name)
-        val sameName = shelf.filter { nfc(it.name) == name }
+    private fun targets(b: BackupBook, shelf: Map<String, List<ShelfBook>>): List<ShelfBook> {
+        val sameName = shelf[nfc(b.name)].orEmpty()
         return if (b.size != null) sameName.filter { it.size == b.size } else sameName.takeIf { it.size == 1 }.orEmpty()
     }
 
@@ -566,9 +591,8 @@ class RecordsBackup(private val store: ReadingStore, private val pendingPath: St
      * 이 만화 기록을 붙일 권(안드로이드 `comicTargetsOf`). 크기를 아는 기록은 이름 + 크기가 같은 권 모두, 없으면 이름이 같은 그림
      * 폴더가 꼭 하나일 때(압축을 풀어 폴더로 옮긴 경우). 크기를 모르는 기록(그림 폴더)은 이름이 같은 권이 꼭 하나일 때만.
      */
-    private fun comicTargets(c: BackupComic, comics: List<ShelfComic>): List<ShelfComic> {
-        val name = nfc(c.name)
-        val sameName = comics.filter { nfc(it.name) == name }
+    private fun comicTargets(c: BackupComic, comics: Map<String, List<ShelfComic>>): List<ShelfComic> {
+        val sameName = comics[nfc(c.name)].orEmpty()
         return if (c.size != null) {
             sameName.filter { it.size == c.size }.ifEmpty { sameName.filter { it.size == null }.takeIf { it.size == 1 }.orEmpty() }
         } else {
@@ -576,12 +600,19 @@ class RecordsBackup(private val store: ReadingStore, private val pendingPath: St
         }
     }
 
+    /**
+     * 서재 이름 색인(한글을 모아 쓴 꼴). 기록마다 서재 전체를 NFC 로 바꾸면 백업 1000권 × 서재 1000권 = 백만 번이었다.
+     */
+    private fun bookIndex(shelf: List<ShelfBook>) = shelf.groupBy { nfc(it.name) }
+
+    private fun comicIndex(comics: List<ShelfComic>) = comics.groupBy { nfc(it.name) }
+
     private fun List<BackupBook>.mergedBooks() = groupBy { it.key }.values.map { it.reduce(BackupBook::mergedWith) }
     private fun List<BackupComic>.mergedComics() = groupBy { it.key }.values.map { it.reduce(BackupComic::mergedWith) }
     private fun List<BackupWork>.mergedWorks() = groupBy { it.key }.values.map { it.reduce(BackupWork::filledFrom) }
 
     private fun readPending(): BackupFile {
-        val text = NSString.stringWithContentsOfFile(pendingPath, NSUTF8StringEncoding, null) ?: return BackupFile(0, emptyList(), emptyList(), emptyList())
+        val text = TextFiles.read(pendingPath) ?: return BackupFile(0, emptyList(), emptyList(), emptyList())
         // 망가진 기다림 파일은 빈 것으로 — 그 때문에 가져오기가 멈추면 안 된다.
         return RecordsCodec.decode(text) ?: BackupFile(0, emptyList(), emptyList(), emptyList())
     }
@@ -591,8 +622,7 @@ class RecordsBackup(private val store: ReadingStore, private val pendingPath: St
             NSFileManager.defaultManager.removeItemAtPath(pendingPath, null)
             return
         }
-        @Suppress("CAST_NEVER_SUCCEEDS")
-        (RecordsCodec.encode(file) as NSString).writeToFile(pendingPath, atomically = true, encoding = NSUTF8StringEncoding, error = null)
+        TextFiles.write(pendingPath, RecordsCodec.encode(file))
     }
 }
 
@@ -645,7 +675,7 @@ internal class JsonWriter {
 
     fun string(s: String) {
         out.append('"')
-        for (c in s) when {
+        for (c in s.wellFormed()) when {
             c == '"' -> out.append("\\\"")
             c == '\\' -> out.append("\\\\")
             c == '\n' -> out.append("\\n")

@@ -36,6 +36,8 @@ struct SyncScreen: View {
     @State private var advanced = false
     @State private var picking: Pick?
     @State private var checking = false
+    /// 연결 확인 차례. 취소 · 끔 · 다시 누름이면 늘려서, 늦게 온 옛 결과가 서버를 저장하고 켜지 않게 한다.
+    @State private var attempt = 0
     @State private var formError: String?
     @State private var trustAsk: TrustAsk?
     @State private var forgetting: SyncDevice?
@@ -102,6 +104,8 @@ struct SyncScreen: View {
             if sync.enabled { await sync.syncNow() }
         }
         .sheet(isPresented: $advanced) { advancedSheet }
+        // 화면을 닫으면 진행 중인 연결 확인의 결과도 버린다.
+        .onDisappear { attempt += 1 }
     }
 
     // ── 서버 묶음 ─────────────────────────────────────────────
@@ -302,6 +306,8 @@ struct SyncScreen: View {
     }
 
     private func cancelEdit() {
+        attempt += 1
+        checking = false
         form = nil
         formError = nil
         advanced = false
@@ -322,13 +328,20 @@ struct SyncScreen: View {
     }
 
     private func run(_ config: FtpConfig, password: String) {
+        attempt += 1
+        let mine = attempt
         checking = true
         formError = nil
         Task {
             let r = await sync.check(config, password: password)
+            // 그사이 취소 · 끔 · 화면 닫기였으면 버린다(느린 서버는 확인에 1분까지 걸린다).
+            guard mine == attempt, form != nil else { return }
             checking = false
             if r.problem == nil {
-                sync.connected(r.tried, password: password)
+                guard sync.connected(r.tried, password: password) else {
+                    formError = "비밀번호를 이 기기에 저장하지 못했습니다. 잠금을 풀고 다시 해 주세요."
+                    return
+                }
                 cancelEdit()
                 toast = "연결했습니다"
             } else if r.problem == .untrusted, let fp = r.fingerprint, fp != r.tried.trusted {

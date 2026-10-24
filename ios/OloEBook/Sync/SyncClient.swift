@@ -28,10 +28,11 @@ enum SyncServer {
     static let wakeTimeout: TimeInterval = 45
 
     /// 잇는다. 답이 없으면(잠듦) 한 번만 더 넉넉히 기다린다 — 첫 시도가 NAS 를 깨우고, 깨어나는 동안 두 번째가 기다린다.
-    static func open(_ config: FtpConfig, password: String) async throws -> SyncConnection {
+    /// [wake] 가 false 면(앱이 뒤로 갔을 때 · 뒤 작업 — iOS 가 주는 시간이 30초쯤) 두 번째 기다림을 건너뛴다. 넘기면 iOS 가 앱을 끝낸다.
+    static func open(_ config: FtpConfig, password: String, wake: Bool = true) async throws -> SyncConnection {
         do {
             return try await open(config, password: password, timeout: timeout)
-        } catch let f as SyncFailure where f.problem == .asleep {
+        } catch let f as SyncFailure where f.problem == .asleep && wake {
             return try await open(config, password: password, timeout: wakeTimeout)
         }
     }
@@ -96,6 +97,46 @@ enum TlsTrust {
         SecTrustSetPolicies(trust, SecPolicyCreateSSL(true, host as CFString))
         if SecTrustEvaluateWithError(trust, nil) { return }
         throw SyncFailure(problem: .untrusted, fingerprint: fingerprint, detail: "untrusted certificate")
+    }
+}
+
+/// 한 번만 참이 되는 깃발(여러 스레드에서). 시간 제한과 일의 끝 가운데 먼저 온 쪽만 결과를 낸다.
+final class Once: @unchecked Sendable {
+    private let lock = NSLock()
+    private var done = false
+
+    func take() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if done { return false }
+        done = true
+        return true
+    }
+}
+
+/// [seconds] 안에 끝나지 않으면 잠듦(`asleep`)으로 던진다. 기다리던 일은 놓아두되 [onTimeout] 으로 연결을 끊어 스스로 끝나게 한다 —
+/// 작업 묶음(TaskGroup)은 취소해도 안 끝나는 일을 끝까지 기다려, 와이파이가 끊긴 SFTP 앞에서 맞추기가 영영 멈췄다.
+/// [late] 는 시간이 다 된 뒤에 늦게 성공한 결과(잇기라면 그 연결)를 치운다.
+func withDeadline<T>(_ seconds: TimeInterval, onTimeout: @escaping () -> Void = {}, late: @escaping (T) -> Void = { _ in },
+                     _ work: @escaping () async throws -> T) async throws -> T {
+    try await withCheckedThrowingContinuation { (c: CheckedContinuation<T, Error>) in
+        let once = Once()
+        let job = Task {
+            do {
+                let value = try await work()
+                if once.take() { c.resume(returning: value) } else { late(value) }
+            } catch {
+                if once.take() { c.resume(throwing: error) }
+            }
+        }
+        Task {
+            try? await Task.sleep(for: .seconds(seconds))
+            if once.take() {
+                job.cancel()
+                onTimeout()
+                c.resume(throwing: SyncFailure(problem: .asleep, detail: "timed out after \(Int(seconds))s"))
+            }
+        }
     }
 }
 

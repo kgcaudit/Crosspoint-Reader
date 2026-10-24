@@ -69,6 +69,8 @@ final class Library: ObservableObject {
     @Published private(set) var finished: [ShelfItem] = []
     @Published private(set) var folders: [LinkedFolder] = []
     @Published private(set) var scanning = false
+    /// 처음 훑기가 끝났다. 그 전의 빈 서재로 이어 읽기 기록을 올리면 서버의 이 기기 기록이 비었다.
+    private(set) var scannedOnce = false
     @Published var sort: LibrarySort { didSet { save(sort.rawValue, "library.sort"); arrange() } }
     @Published var layout: LibraryLayout { didSet { save(layout.rawValue, "library.layout") } }
 
@@ -119,6 +121,7 @@ final class Library: ObservableObject {
         adoptMoved(read: readBooks.filter(readComics.contains))
         // 백업에서 기다리던 책 · 만화가 이제 보이면 붙인다(책 폴더를 추가한 뒤 등).
         _ = backup.resumePending(shelf: shelfBooks, comics: shelfComics)
+        scannedOnce = true
         reloadRecords()
         scanning = false
     }
@@ -195,8 +198,8 @@ final class Library: ObservableObject {
         arrangeComics()
         // 이어 읽기 위젯(구상안 47): 책을 닫음 · 새로고침 · 앱이 뒤로 감 — 기록이 바뀌는 때마다.
         WidgetFeed.update(self)
-        // 기기 간 이어 읽기(구상안 50): 같은 때 이 기기 기록을 올린다. 바뀐 것이 없으면 서버에 잇지도 않는다.
-        Task { await SyncCenter.shared.writeOwn() }
+        // 기기 간 이어 읽기(구상안 50): 조금 뒤 이 기기 기록을 올린다. 바뀐 것이 없으면 서버에 잇지도 않는다.
+        SyncCenter.shared.recordsChanged()
     }
 
     // MARK: 만화(구상안 35A · 36)

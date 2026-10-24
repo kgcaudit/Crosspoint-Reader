@@ -36,6 +36,8 @@ class FileSeekableSource(path: String) : SeekableSource {
 
     override fun readAt(offset: Long, dest: ByteArray, destOffset: Int, length: Int): Int {
         if (length == 0) return 0
+        // 배열 밖에 쓰지 않게 — pread 는 범위를 보지 않는다.
+        require(destOffset >= 0 && length >= 0 && destOffset + length <= dest.size) { "read range out of bounds" }
         if (offset >= size) return -1
         val handle = fd
         if (handle < 0) throw IOException("Stream closed")

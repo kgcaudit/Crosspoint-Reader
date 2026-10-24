@@ -235,6 +235,11 @@ class SyncTest {
         pad.store.save(ReadingProgress(BookId(pad.book.id), Locator.Reflow(1, 50), 6f, 2))
         syncNow(pad)
         assertTrue(server.getValue("$a.json").second > first.second)
+        // 서재가 비어 보이면(다 훑기 전 · 책 폴더 접근이 끊김) 서버의 이 기기 파일을 빈 것으로 덮지 않는다.
+        val kept = server.getValue("$a.json")
+        clock += 1000
+        assertNull(pad.sync.upload(emptyList(), emptyList(), pad.name, clock))
+        assertEquals(kept, server.getValue("$a.json"))
         // 껐다 켜면 다시 한 번 올린다(서버를 바꿨을 수 있다).
         server.clear()
         pad.sync.enabled = false

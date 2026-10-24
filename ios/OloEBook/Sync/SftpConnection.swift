@@ -53,18 +53,23 @@ final class SftpConnection: SyncConnection {
         let host = config.host.trimmingCharacters(in: .whitespaces)
         let client: SSHClient
         do {
-            client = try await SSHClient.connect(
-                host: host, port: Int(config.port),
-                authenticationMethod: .passwordBased(username: config.user, password: password),
-                hostKeyValidator: .custom(keys), reconnect: .never,
-                connectTimeout: .milliseconds(Int64(timeout * 1000))
-            )
+            // TCP 잇기에만 시간 제한이 있고, 그 뒤 SSH 인사 · 로그인에는 없다 — 전체를 한 번 더 묶는다. 늦게 이어진 연결은 닫는다.
+            client = try await withDeadline(timeout * 2, late: { (late: SSHClient) in Task { try? await late.close() } }) {
+                try await SSHClient.connect(
+                    host: host, port: Int(config.port),
+                    authenticationMethod: .passwordBased(username: config.user, password: password),
+                    hostKeyValidator: .custom(keys), reconnect: .never,
+                    connectTimeout: .milliseconds(Int64(timeout * 1000))
+                )
+            }
         } catch {
             throw failure(error, seen: keys.seen)
         }
         do {
-            let sftp = try await client.openSFTP()
-            let folder = try await enterFolder(sftp, config.path)
+            let (sftp, folder) = try await withDeadline(timeout, onTimeout: { Task { try? await client.close() } }) {
+                let sftp = try await client.openSFTP()
+                return (sftp, try await enterFolder(sftp, config.path))
+            }
             return SftpConnection(client: client, sftp: sftp, folder: folder)
         } catch {
             try? await client.close()
@@ -120,8 +125,17 @@ final class SftpConnection: SyncConnection {
         }
     }
 
-    private func guarded<T>(_ work: () async throws -> T) async throws -> T {
-        do { return try await work() } catch { throw Self.failure(error, seen: nil) }
+    /// 파일 일 하나의 시간 제한. 읽는 도중 와이파이가 끊기면 SFTP 요청은 답을 영영 기다린다 — 그동안 맞추기 줄이 막혀 책을 열 때의
+    /// 묻기까지 멈췄다. 시간이 다 되면 연결을 끊어 걸린 요청도 끝나게 한다.
+    private static let opTimeout: TimeInterval = 30
+
+    private func guarded<T>(_ work: @escaping () async throws -> T) async throws -> T {
+        let client = self.client
+        do {
+            return try await withDeadline(Self.opTimeout, onTimeout: { Task { try? await client.close() } }, work)
+        } catch {
+            throw Self.failure(error, seen: nil)
+        }
     }
 
     private static func isMissing(_ error: Error) -> Bool {
@@ -133,7 +147,8 @@ final class SftpConnection: SyncConnection {
     // ── SyncConnection ────────────────────────────────────────
 
     func list() async throws -> [SyncEntry] {
-        try await guarded {
+        let sftp = self.sftp, folder = self.folder
+        return try await guarded {
             try await sftp.listDirectory(atPath: folder).flatMap(\.components).compactMap { c in
                 // 보통 파일만(폴더 · 링크는 아니다). 권한 칸이 없는 서버는 크기가 있는 것을 파일로 본다.
                 let regular = c.attributes.permissions.map { $0 & 0o170000 == 0o100000 } ?? (c.attributes.size != nil)
@@ -145,40 +160,57 @@ final class SftpConnection: SyncConnection {
     }
 
     func read(_ name: String, maxBytes: Int) async throws -> String? {
-        do {
-            let buffer = try await sftp.withFile(filePath: path(name), flags: .read) { try await $0.readAll() }
-            if buffer.readableBytes > maxBytes { return nil }
-            return buffer.getString(at: buffer.readerIndex, length: buffer.readableBytes) ?? String(decoding: buffer.readableBytesView, as: UTF8.self)
-        } catch {
-            if Self.isMissing(error) { return nil }
-            throw Self.failure(error, seen: nil)
+        let sftp = self.sftp, file = path(name)
+        // 조각으로 읽다가 [maxBytes] 를 넘으면 그만 — 목록에 크기가 없는 서버에서 남의 큰 파일을 통째로 메모리에 올리지 않게. 없어진
+        // 파일(목록과 읽기 사이에 다른 기기가 바꾸는 중)과 너무 큰 파일은 nil.
+        let data: Data? = try await guarded {
+            do {
+                return try await sftp.withFile(filePath: file, flags: .read) { f in
+                    var all = Data()
+                    while all.count <= maxBytes {
+                        let chunk = try await f.read(from: UInt64(all.count), length: 32 * 1024)
+                        if chunk.readableBytes == 0 { break }
+                        all.append(contentsOf: chunk.readableBytesView)
+                    }
+                    return all.count > maxBytes ? nil : all
+                }
+            } catch {
+                if Self.isMissing(error) { return nil }
+                throw error
+            }
         }
+        return data.map { String(decoding: $0, as: UTF8.self) }
     }
 
     func write(_ name: String, _ data: Data) async throws {
-        let temp = path(IosReadingSync.companion.partName(name: name))
+        let sftp = self.sftp, temp = path(IosReadingSync.companion.partName(name: name)), target = path(name)
         try await guarded {
             try await sftp.withFile(filePath: temp, flags: [.write, .create, .truncate]) { try await $0.write(ByteBuffer(bytes: data)) }
         }
-        do {
-            try await sftp.rename(at: temp, to: path(name))
-        } catch {
-            // SFTP 3판의 이름 바꾸기는 있는 파일을 덮지 않는다(대부분의 서버). 옛것을 지우고 다시.
-            try? await sftp.remove(at: path(name))
+        try await guarded {
             do {
-                try await sftp.rename(at: temp, to: path(name))
+                try await sftp.rename(at: temp, to: target)
             } catch {
-                try? await sftp.remove(at: temp)
-                throw Self.failure(error, seen: nil)
+                // SFTP 3판의 이름 바꾸기는 있는 파일을 덮지 않는다(대부분의 서버). 옛것을 지우고 다시.
+                try? await sftp.remove(at: target)
+                do {
+                    try await sftp.rename(at: temp, to: target)
+                } catch {
+                    try? await sftp.remove(at: temp)
+                    throw error
+                }
             }
         }
     }
 
     func delete(_ name: String) async throws {
-        do {
-            try await sftp.remove(at: path(name))
-        } catch {
-            if !Self.isMissing(error) { throw Self.failure(error, seen: nil) }
+        let sftp = self.sftp, file = path(name)
+        try await guarded {
+            do {
+                try await sftp.remove(at: file)
+            } catch {
+                if !Self.isMissing(error) { throw error }
+            }
         }
     }
 

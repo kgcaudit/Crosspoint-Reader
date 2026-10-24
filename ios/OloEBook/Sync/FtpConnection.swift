@@ -16,22 +16,27 @@ private final class Socket {
     private let timeout: TimeInterval
     private var buffer = Data()
 
-    init(host: String, port: Int, timeout: TimeInterval) {
+    init(host: String, port: Int, timeout: TimeInterval) throws {
         var i: Foundation.InputStream?
         var o: Foundation.OutputStream?
         Stream.getStreamsToHost(withName: host, port: port, inputStream: &i, outputStream: &o)
-        input = i!
-        output = o!
+        guard let i, let o else { throw SyncFailure(problem: .unreachable, detail: "no streams for \(host)") }
+        input = i
+        output = o
         self.timeout = timeout
     }
 
     /// 이미 이은 소켓(능동 모드에서 서버가 이어 온 것).
-    init(native fd: Int32, timeout: TimeInterval) {
+    init(native fd: Int32, timeout: TimeInterval) throws {
         var r: Unmanaged<CFReadStream>?
         var w: Unmanaged<CFWriteStream>?
         CFStreamCreatePairWithSocket(nil, fd, &r, &w)
-        input = r!.takeRetainedValue() as Foundation.InputStream
-        output = w!.takeRetainedValue() as Foundation.OutputStream
+        guard let r, let w else {
+            Darwin.close(fd)
+            throw SyncFailure(problem: .offline, detail: "no streams for data socket")
+        }
+        input = r.takeRetainedValue() as Foundation.InputStream
+        output = w.takeRetainedValue() as Foundation.OutputStream
         input.setProperty(kCFBooleanTrue, forKey: streamKey(kCFStreamPropertyShouldCloseNativeSocket))
         self.timeout = timeout
     }
@@ -50,10 +55,11 @@ private final class Socket {
     }
 
     func verify(host: String, pinned: String?) throws {
-        guard let trust = input.property(forKey: streamKey(kCFStreamPropertySSLPeerTrust)) else {
+        guard let value = input.property(forKey: streamKey(kCFStreamPropertySSLPeerTrust)),
+              CFGetTypeID(value as CFTypeRef) == SecTrustGetTypeID() else {
             throw SyncFailure(problem: .tls, detail: "no peer trust")
         }
-        try TlsTrust.verify(trust as! SecTrust, host: host, pinned: pinned)
+        try TlsTrust.verify(value as! SecTrust, host: host, pinned: pinned)
     }
 
     func open() throws {
@@ -115,7 +121,13 @@ private final class Socket {
                 return String(data: line, encoding: encoding) ?? String(decoding: line, as: UTF8.self)
             }
             let more = try readSome()
-            if more.isEmpty { return buffer.isEmpty ? nil : String(decoding: buffer, as: UTF8.self) }
+            if more.isEmpty {
+                // 끝: 남은 조각을 한 번만 돌려주고 비운다. 비우지 않으면 여러 줄 답 도중 끊긴 서버 앞에서 같은 줄을 끝없이 받았다.
+                guard !buffer.isEmpty else { return nil }
+                let rest = String(decoding: buffer, as: UTF8.self)
+                buffer = Data()
+                return rest
+            }
             buffer.append(more)
         }
     }
@@ -166,7 +178,7 @@ final class FtpConnection: SyncConnection {
 
     private static func openBlocking(_ config: FtpConfig, password: String, timeout: TimeInterval) throws -> FtpConnection {
         let host = config.host.trimmingCharacters(in: .whitespaces)
-        let socket = Socket(host: host, port: Int(config.port), timeout: timeout)
+        let socket = try Socket(host: host, port: Int(config.port), timeout: timeout)
         let c = FtpConnection(config, control: socket, timeout: timeout)
         do {
             if config.security == .implicit { socket.startTLS(host: host) }
@@ -276,7 +288,7 @@ final class FtpConnection: SyncConnection {
             }
         }
         guard let port else { throw SyncFailure(problem: .server, detail: "passive mode refused") }
-        let data = Socket(host: host, port: port, timeout: timeout)
+        let data = try Socket(host: host, port: port, timeout: timeout)
         if protectData { data.startTLS(host: host) }
         try data.open()
         defer { data.close() }
@@ -315,7 +327,7 @@ final class FtpConnection: SyncConnection {
         guard poll(&fds, 1, Int32(timeout * 1000)) > 0 else { throw SyncFailure(problem: .asleep, detail: "server did not connect back") }
         let fd = accept(listener, nil, nil)
         guard fd >= 0 else { throw SyncFailure(problem: .offline, detail: "accept") }
-        let data = Socket(native: fd, timeout: timeout)
+        let data = try Socket(native: fd, timeout: timeout)
         if protectData { data.startTLS(host: host) }
         try data.open()
         defer { data.close() }
@@ -354,9 +366,17 @@ final class FtpConnection: SyncConnection {
 
     func read(_ name: String, maxBytes: Int) async throws -> String? {
         try await offThread { [self] () throws -> String? in
+            var tooBig = false
             do {
-                let data = try transfer("RETR \(name)") { try $0.readAll(max: maxBytes) }
-                return data.count > maxBytes ? nil : String(decoding: data, as: UTF8.self)
+                let data = try transfer("RETR \(name)") { d -> Data in
+                    let all = try d.readAll(max: maxBytes)
+                    tooBig = all.count > maxBytes
+                    return all
+                }
+                return tooBig ? nil : String(decoding: data, as: UTF8.self)
+            } catch where tooBig {
+                // 이 앱의 파일이 아니라 중간에 끊었다 — 서버가 426 · 451 로 답해도 맞추기 전체를 실패로 두지 않는다.
+                return nil
             } catch let f as SyncFailure where f.problem == .noaccess {
                 // 550: 목록과 읽기 사이에 없어졌다(다른 기기가 바꾸는 중). 이번엔 건너뛴다.
                 return nil
@@ -391,9 +411,10 @@ final class FtpConnection: SyncConnection {
         }
     }
 
+    /// 끊는다. QUIT 의 답은 기다리지 않는다 — 실패한 연결에서 답을 기다리면 시간 제한(최대 45초)만큼 맞추기가 더 묶였다.
     func close() async {
         _ = try? await offThread { [self] in
-            _ = try? command("QUIT")
+            if let data = "QUIT\r\n".data(using: encoding) { try? control.write(data) }
             control.close()
         }
     }

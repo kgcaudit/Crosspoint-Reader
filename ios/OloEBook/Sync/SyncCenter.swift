@@ -71,13 +71,11 @@ final class SyncCenter: ObservableObject {
         #endif
     }
 
-    var deviceId: String { engine?.deviceId ?? "" }
-
     func setDeviceName(_ name: String) {
         engine?.customName = name
         deviceName = engine?.customName ?? DeviceModel.name
         // 이름이 바뀌었으니 다시 올린다(다른 기기의 "함께 읽는 기기" · 띠 이름).
-        Task { await writeOwn() }
+        recordsChanged()
     }
 
     // ── 서버 설정 ─────────────────────────────────────────────
@@ -107,12 +105,14 @@ final class SyncCenter: ObservableObject {
         )
     }
 
-    private func saveServer(_ c: FtpConfig, password: String) {
+    /// 저장한다. 비밀번호를 키체인에 두지 못하면 false — 켠 것처럼 보이는데 맞추기가 말없이 멈추지 않게, 부르는 쪽이 알린다.
+    private func saveServer(_ c: FtpConfig, password: String) -> Bool {
+        guard Keychain.set(password) else { return false }
         let s = SavedServer(host: c.host, port: Int(c.port), protocolName: c.protocol.name, security: c.security.name, user: c.user, path: c.path,
                             passive: c.passive, encoding: c.encoding.name, trusted: c.trusted)
         if let data = try? JSONEncoder().encode(s) { try? data.write(to: serverFile, options: .atomic) }
-        Keychain.password = password
         server = c
+        return true
     }
 
     /// 지금 설정의 비밀번호(설정 칸에 다시 채울 때).
@@ -147,9 +147,14 @@ final class SyncCenter: ObservableObject {
     }
 
     /// 확인된 서버를 저장하고 켠다. 다시 켜는 것으로 "이미 올린 내용" 기억이 지워져 새 서버에 이 기기 기록을 처음부터 올린다.
-    func connected(_ config: FtpConfig, password: String) {
-        saveServer(config, password: password)
+    /// 비밀번호를 저장하지 못했으면 false(켜지 않는다).
+    @discardableResult
+    func connected(_ config: FtpConfig, password: String) -> Bool {
+        guard saveServer(config, password: password) else { return false }
+        // 옛 서버로 못 올린 파일이 새 서버로 가지 않게.
+        try? FileManager.default.removeItem(at: Self.pendingFile)
         turnOn()
+        return true
     }
 
     /// 이미 확인한 서버가 있으면 묻지 않고 켠다(껐다 다시 켤 때).
@@ -162,6 +167,7 @@ final class SyncCenter: ObservableObject {
     }
 
     func turnOff() {
+        debounce?.cancel()
         engine?.enabled = false
         enabled = false
         problem = nil
@@ -187,12 +193,13 @@ final class SyncCenter: ObservableObject {
     private var now: Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
 
     /// 서버 일 한 덩이: 잇고 · [work] · 끊는다. 맞추지 못한 까닭은 [problem] 에, 닿지 못했으면 1분은 책을 열어도 다시 묻지 않는다.
-    private func session(_ work: (SyncConnection, IosReadingSync) async throws -> Void) async -> Bool {
+    /// [wake] 가 false 면 잠든 서버를 한 번 더 기다리지 않는다(뒤로 간 앱 — 시간이 30초쯤뿐이다).
+    private func session(wake: Bool = true, _ work: (SyncConnection, IosReadingSync) async throws -> Void) async -> Bool {
         guard enabled, let engine, let server, let password = Keychain.password else { return false }
         busy = true
         defer { busy = false }
         do {
-            let c = try await SyncServer.open(server, password: password)
+            let c = try await SyncServer.open(server, password: password, wake: wake)
             do {
                 try await work(c, engine)
                 await c.close()
@@ -231,39 +238,80 @@ final class SyncCenter: ObservableObject {
         try? FileManager.default.removeItem(at: Self.pendingFile)
     }
 
+    /// 올릴 글. 서재를 처음 다 훑기 전에는 없다 — 그때의 빈 서재로 이 기기 기록을 덮으면 다른 기기에서 이 기기의 자리가 사라진다.
+    private func ownText(_ library: Library, _ engine: IosReadingSync) -> String? {
+        guard library.scannedOnce else { return nil }
+        return engine.upload(shelf: library.shelfBooks, comics: library.shelfComics, deviceName: deviceName, now: now)
+    }
+
+    /// 못 올린 글을 남긴다(뒤 작업이 서재 없이 다시 올린다). 꺼진 뒤에는 남기지 않는다 — 나중에 다른 서버로 켜면 옛 글이 그리로 갔다.
+    private func savePending(_ text: String) {
+        guard enabled else { return }
+        try? text.write(to: Self.pendingFile, atomically: true, encoding: .utf8)
+    }
+
     /// 이 기기 기록을 올리고 다른 기기 것을 받는다 — 켤 때 · 화면을 열 때 · "지금 맞추기" · 앱을 열 때.
     func syncNow() async {
         await serial { [self] in
             guard let library, let engine else { return }
             let ok = await session { c, engine in
                 try await pull(c, engine)
-                if let text = engine.upload(shelf: library.shelfBooks, comics: library.shelfComics, deviceName: deviceName, now: now) {
-                    try await push(c, engine, text: text)
-                }
+                if let text = ownText(library, engine) { try await push(c, engine, text: text) }
             }
             afterSync(ok, engine: engine)
         }
     }
 
-    /// 앱이 뒤로 갈 때 · 책을 닫을 때: 이 기기 기록만 올린다. 바뀐 것이 없으면 서버에 잇지도 않는다.
-    func writeOwn() async {
+    /// 책을 닫을 때 · 앱이 뒤로 갈 때 · 다른 기기 것을 합친 뒤: 이 기기 기록만 올린다. 바뀐 것이 없으면 서버에 잇지도 않는다.
+    /// [background] 면 잠든 서버를 한 번 더 기다리지 않고, 잇기 **전에** 올릴 글을 남겨 둔다 — 그 사이 iOS 가 앱을 멈춰도 뒤 작업이 올린다.
+    func writeOwn(background: Bool = false) async {
         await serial { [self] in
             guard enabled, let library, let engine else { return }
             // 서버에 이 기기 파일이 있는지 모르면 받기부터 — 빈 파일을 만들지 않으려고.
             if engine.needsListing {
-                let ok = await session { c, engine in
+                if background, let text = ownText(library, engine) { savePending(text) }
+                let ok = await session(wake: !background) { c, engine in
                     try await pull(c, engine)
-                    if let text = engine.upload(shelf: library.shelfBooks, comics: library.shelfComics, deviceName: deviceName, now: now) {
-                        try await push(c, engine, text: text)
-                    }
+                    if let text = ownText(library, engine) { try await push(c, engine, text: text) }
                 }
                 afterSync(ok, engine: engine)
                 return
             }
-            guard let text = engine.upload(shelf: library.shelfBooks, comics: library.shelfComics, deviceName: deviceName, now: now) else { return }
-            let ok = await session { c, engine in try await push(c, engine, text: text) }
-            if !ok { try? text.write(to: Self.pendingFile, atomically: true, encoding: .utf8) }
+            guard let text = ownText(library, engine) else { return }
+            savePending(text)
+            let ok = await session(wake: !background) { c, engine in try await push(c, engine, text: text) }
             afterSync(ok, engine: engine)
+        }
+    }
+
+    private var debounce: Task<Void, Never>?
+
+    /// 기록이 바뀌었다(책을 닫음 · 갈래를 옮김 · 가져오기). 2초 기다렸다 한 번 올린다 — 잇달아 바뀌어도 서버에는 한 번만 잇는다.
+    func recordsChanged() {
+        guard enabled else { return }
+        debounce?.cancel()
+        debounce = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            if Task.isCancelled { return }
+            await self?.writeOwn()
+        }
+    }
+
+    /// 앱이 뒤로 갔다: 마지막 자리를 올린다. iOS 가 빌려주는 시간(30초쯤)이 끝나면 맞추기를 놓고 시간을 돌려준다 — 돌려주지 않으면 iOS 가
+    /// 앱을 강제로 끝낸다. 못 올린 글은 이미 남겨 두었다(뒤 작업이 다시 올린다).
+    func flushOnBackground() {
+        guard enabled else { return }
+        debounce?.cancel()
+        let done = Once()
+        var id = UIBackgroundTaskIdentifier.invalid
+        let work = Task { await writeOwn(background: true) }
+        id = UIApplication.shared.beginBackgroundTask(withName: "olo-sync") {
+            work.cancel()
+            if done.take() { UIApplication.shared.endBackgroundTask(id) }
+        }
+        Task {
+            await work.value
+            if done.take() { UIApplication.shared.endBackgroundTask(id) }
         }
     }
 
@@ -274,6 +322,7 @@ final class SyncCenter: ObservableObject {
         } else if let problem, problem.retryable, FileManager.default.fileExists(atPath: Self.pendingFile.path) {
             scheduleRetry()
         }
+        // 사람이 고쳐야 하는 까닭(비밀번호 · 권한 · 인증서)이면 다시 하기는 걸지 않는다 — 화면이 까닭을 보인다.
     }
 
     // ── 묻기(결정 8-2) ────────────────────────────────────────
@@ -331,15 +380,23 @@ final class SyncCenter: ObservableObject {
 
     nonisolated static let taskId = "io.github.kgcaudit.oloebook.sync"
 
-    /// 앱 시작에 한 번(시스템 규칙: 앱이 다 뜨기 전에). 깨어나면 못 올린 파일만 올린다.
+    /// 앱 시작에 한 번(시스템 규칙: 앱이 다 뜨기 전에). 깨어나면 못 올린 파일만 올린다. 시간이 다 되면 그 자리에서 끝을 알리고 다음을
+    /// 건다 — 늦게 알리면 iOS 가 앱을 끝내고, 다음부터 덜 깨워 준다. 끝은 한 번만 알린다.
     nonisolated static func registerBackground() {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: taskId, using: nil) { task in
+            let finished = Once()
             let work = Task { @MainActor in
                 let done = await SyncCenter.shared.retryPending()
+                guard finished.take() else { return }
                 if !done { SyncCenter.shared.scheduleRetry() }
                 task.setTaskCompleted(success: done)
             }
-            task.expirationHandler = { work.cancel() }
+            task.expirationHandler = {
+                work.cancel()
+                guard finished.take() else { return }
+                Task { @MainActor in SyncCenter.shared.scheduleRetry() }
+                task.setTaskCompleted(success: false)
+            }
         }
     }
 
@@ -351,27 +408,35 @@ final class SyncCenter: ObservableObject {
     }
 
     /// 못 올린 이 기기 파일을 올린다. 서재 없이 한다(앱이 꺼진 채 깨어났을 수 있다). 올렸거나 올릴 것이 없으면 true.
+    /// 맞추기 줄 안에서 차례가 왔을 때 파일을 읽는다 — 그 사이 앱이 더 새 기록을 올리고 파일을 지웠으면 옛 글로 되돌리지 않게.
     func retryPending() async -> Bool {
-        guard let text = try? String(contentsOf: Self.pendingFile, encoding: .utf8) else { return true }
-        // 기기 id · 켬만 상태 폴더에서 읽는다. 기록 저장소는 쓰지 않으므로 빈 임시 저장소를 준다 — 서재가 쓰는 저장소를 둘로 열면 한쪽이
-        // 다른 쪽의 기록을 덮는다.
-        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("sync-retry-\(UUID().uuidString).tsv").path
-        let state = IosReadingSync(store: ReadingStore(path: scratch), stateDir: Self.stateDir.path) { UUID().uuidString.lowercased() }
-        guard state.enabled, let server = server ?? loadServer(), let password = Keychain.password else { return true }
-        do {
-            let c = try await SyncServer.open(server, password: password)
+        await serial { [self] in
+            guard let text = try? String(contentsOf: Self.pendingFile, encoding: .utf8) else { return true }
+            // 기기 id · 켬만 상태 폴더에서 읽는다. 기록 저장소는 쓰지 않으므로 빈 임시 저장소를 준다 — 서재가 쓰는 저장소를 둘로 열면
+            // 한쪽이 다른 쪽의 기록을 덮는다. 다 쓰면 지운다.
+            let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("sync-retry-\(UUID().uuidString).tsv")
+            defer { try? FileManager.default.removeItem(at: scratch) }
+            let state = IosReadingSync(store: ReadingStore(path: scratch.path), stateDir: Self.stateDir.path) { UUID().uuidString.lowercased() }
+            guard state.enabled, let server = server ?? loadServer(), let password = Keychain.password else { return true }
             do {
-                try await c.write(SyncCodec.shared.fileName(deviceId: state.deviceId), Data(text.utf8))
-                await c.close()
+                let c = try await SyncServer.open(server, password: password, wake: false)
+                do {
+                    try await c.write(SyncCodec.shared.fileName(deviceId: state.deviceId), Data(text.utf8))
+                    await c.close()
+                } catch {
+                    await c.close()
+                    throw error
+                }
+                try? FileManager.default.removeItem(at: Self.pendingFile)
+                lastSynced = Date()
+                problem = nil
+                return true
             } catch {
-                await c.close()
-                throw error
+                let f = SyncFailure.of(error)
+                problem = f.problem
+                // 사람이 고쳐야 하는 까닭은 다시 해도 같다 — 멈추고 화면이 까닭을 보인다.
+                return !f.problem.retryable
             }
-            try? FileManager.default.removeItem(at: Self.pendingFile)
-            return true
-        } catch {
-            // 사람이 고쳐야 하는 까닭(비밀번호 · 권한 · 인증서)은 다시 해도 같다 — 멈추고 화면이 까닭을 보인다.
-            return !SyncFailure.of(error).problem.retryable
         }
     }
 }
@@ -382,23 +447,22 @@ enum Keychain {
     private static let service = "io.github.kgcaudit.oloebook.sync"
     private static let account = "ftp-password"
 
+    /// 저장한다. 실패하면 false(기기 잠금 상태 · 키체인 오류).
+    static func set(_ password: String) -> Bool {
+        let base: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]
+        SecItemDelete(base as CFDictionary)
+        var add = base
+        add[kSecValueData as String] = Data(password.utf8)
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
+    }
+
     static var password: String? {
-        get {
-            let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account,
-                                    kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]
-            var out: CFTypeRef?
-            guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let data = out as? Data else { return nil }
-            return String(data: data, encoding: .utf8)
-        }
-        set {
-            let base: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]
-            SecItemDelete(base as CFDictionary)
-            guard let newValue else { return }
-            var add = base
-            add[kSecValueData as String] = Data(newValue.utf8)
-            add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-            SecItemAdd(add as CFDictionary, nil)
-        }
+        let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account,
+                                kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]
+        var out: CFTypeRef?
+        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let data = out as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 }
 

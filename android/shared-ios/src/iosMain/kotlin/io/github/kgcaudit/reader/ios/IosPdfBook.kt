@@ -124,7 +124,7 @@ class IosPdfBook private constructor(
         if (same != null) {
             store.annotations.update(same.copy(color = pen).withNote(note ?: same.note))
         } else {
-            store.annotations.add(Annotation(Annotation.NO_ID, BookId(bookId), from, to, pen, null, snippet.take(200), currentTimeMillis()).withNote(note))
+            store.annotations.add(Annotation(Annotation.NO_ID, BookId(bookId), from, to, pen, null, snippet.takeWhole(200), currentTimeMillis()).withNote(note))
         }
     }
 

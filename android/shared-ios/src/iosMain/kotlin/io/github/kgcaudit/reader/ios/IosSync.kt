@@ -23,8 +23,6 @@ import platform.Foundation.NSUTF8StringEncoding
 import platform.Foundation.NSUUID
 import platform.Foundation.create
 import platform.Foundation.dataUsingEncoding
-import platform.Foundation.stringWithContentsOfFile
-import platform.Foundation.writeToFile
 
 /*
  * 기기 간 이어 읽기(구상안 50 · 1A 2A 3A, 안드로이드 0.58 · 0.59 · 0.59.1). 사람이 정한 FTP · FTPS · SFTP 서버의 한 폴더에 기기마다
@@ -556,7 +554,9 @@ class IosReadingSync(private val store: ReadingStore, private val stateDir: Stri
      * 새로 받은 파일의 책갈피 · 다 읽은 때를 이 기기의 같은 책 · 만화에 합친다(읽은 자리는 아니다 — 띠가 묻는다). 바꾼 것의 수.
      * 책은 이름 + 크기로 맞춘다 — 기기마다 책 폴더 · 주소가 다르다.
      */
-    fun mergeFresh(shelf: List<ShelfBook>, comics: List<ShelfComic>): Int {
+    fun mergeFresh(shelf: List<ShelfBook>, comics: List<ShelfComic>): Int = store.batch { mergeNow(shelf, comics) }
+
+    private fun mergeNow(shelf: List<ShelfBook>, comics: List<ShelfComic>): Int {
         val files = fresh
         fresh = emptyList()
         val seen = seen()
@@ -616,8 +616,7 @@ class IosReadingSync(private val store: ReadingStore, private val stateDir: Stri
     val needsListing: Boolean get() = ownOnServer == null
 
     /**
-     * 올릴 글. 바뀐 것이 없거나, 적을 것이 없고 서버에도 없으면 null — 책을 하나도 안 읽은 기기가 빈 파일로 "함께 읽는 기기" 에 끼지
-     * 않게. 같은 기록이면 같은 글이 되게 이름순. 같은 파일이 두 폴더에 있으면 한 번만(다른 기기에서는 구별되지 않는다).
+     * 올릴 글. 바뀐 것이 없거나 적을 것이 없으면 null. 같은 기록이면 같은 글이 되게 이름순. 같은 파일이 두 폴더에 있으면 한 번만(다른 기기에서는 구별되지 않는다).
      */
     fun upload(shelf: List<ShelfBook>, comics: List<ShelfComic>, deviceName: String, now: Long): String? {
         val books = shelf.mapNotNull { store.recordOf(it.id, it.name, it.size, it.title, it.author) }
@@ -631,7 +630,9 @@ class IosReadingSync(private val store: ReadingStore, private val stateDir: Stri
             .sortedWith(compareBy({ it.name }, { it.size ?: -1 }))
         val fingerprint = SyncCodec.encode(SyncFile(deviceId, deviceName, 0L, books, units))
         if (written == fingerprint) return null
-        if (ownOnServer == false && books.isEmpty() && units.isEmpty()) {
+        // 적을 것이 없으면 올리지 않는다. 서버에 없으면 빈 파일로 "함께 읽는 기기" 에 끼지 않게, 있으면 덮지 않게 — 서재를 다 훑기 전 ·
+        // 책 폴더 접근이 끊긴 때의 빈 서재로 이 기기 기록을 지우면, 다른 기기에서 이 기기의 자리 묻기가 사라진다.
+        if (books.isEmpty() && units.isEmpty()) {
             written = fingerprint
             return null
         }
@@ -735,11 +736,10 @@ class IosReadingSync(private val store: ReadingStore, private val stateDir: Stri
 
     private fun path(name: String) = "$stateDir/$name"
 
-    private fun read(name: String): String? = NSString.stringWithContentsOfFile(path(name), NSUTF8StringEncoding, null)
+    private fun read(name: String): String? = TextFiles.read(path(name))
 
-    @Suppress("CAST_NEVER_SUCCEEDS")
     private fun write(name: String, text: String) {
-        (text as NSString).writeToFile(path(name), atomically = true, encoding = NSUTF8StringEncoding, error = null)
+        TextFiles.write(path(name), text)
     }
 
     private fun remove(name: String) {

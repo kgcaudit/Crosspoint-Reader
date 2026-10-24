@@ -3,7 +3,7 @@ import Foundation
 import OloCore
 
 /// 연결 시험(안드로이드 `FtpConnectionTest` 의 짝). 이 맥에서 띄운 시험 서버(2121 FTP · 2122 명시적 FTPS · 2990 암묵적 FTPS ·
-/// 2222 SFTP · 2124 말없는 소켓, 사용자 reader / secret)에 실제로 잇고 쓰고 읽는다. 시뮬레이터는 맥의 127.0.0.1 에 그대로 닿는다.
+/// 2222 SFTP · 2124 말없는 소켓 · 2125 인사 도중 끊는 소켓, 사용자 reader / secret)에 실제로 잇고 쓰고 읽는다. 시뮬레이터는 맥의 127.0.0.1 에 그대로 닿는다.
 /// `-olo-sync-selftest <인증서 지문> <SSH 키 지문>` 으로 돌리고, 결과는 Caches/sync-selftest.txt 에 줄마다 "PASS · FAIL 이름" 으로 적는다.
 /// 출시 빌드에는 없다.
 enum SyncSelfTest {
@@ -84,6 +84,10 @@ enum SyncSelfTest {
         _ = await expectFailure("a server without tls says so", .notls, config(2121, .ftp, .explicit_))
         _ = await expectFailure("a wrong password is a refused login", .auth, config(2121), password: "wrong")
         _ = await expectFailure("a closed port is unreachable", .unreachable, config(2999))
+        // 여러 줄 인사("220-…")를 보내다 끝줄 없이 끊는 서버(2125): 같은 줄을 끝없이 읽지 않고 곧 실패한다.
+        let cut = Date()
+        _ = await expectFailure("a server that hangs up mid-greeting fails at once", .offline, config(2125))
+        record(Date().timeIntervalSince(cut) < 5, "it did not spin", "\(Int(Date().timeIntervalSince(cut)))s")
         // 잇기는 되는데 인사가 오지 않는 서버(디스크를 멈춘 NAS): "인터넷 없음" 이 아니라 잠듦으로, 한 번 더 넉넉히 기다린 뒤에(2124 는 말없는 소켓).
         let started = Date()
         _ = await expectFailure("a silent server is asleep and waited for once more", .asleep, config(2124))

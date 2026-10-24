@@ -230,7 +230,14 @@ class IosBookReader private constructor(
      * [spec] 으로 재고 그리는 측정기. 조판과 그리기가 **같은 꼴**을 쓰게 하는 유일한 길이다 — 따로 만들면 책 글꼴로 잰 줄을
      * 본문 글꼴로 그려 줄 끝이 어긋난다.
      */
-    private fun measurer(spec: LayoutSpec): CoreTextMeasurer = CoreTextMeasurer.forSpec(spec, bookFaces)
+    private fun measurer(spec: LayoutSpec): CoreTextMeasurer {
+        // 같은 설정 · 같은 책 글꼴이면 하나를 다시 쓴다. 부를 때마다 새로 만들면 쪽 하나 넘길 때 3~6번, 사용자 글꼴 파일을 다시 읽고
+        // 글꼴을 다시 만들었다.
+        measured?.let { (s, f, m) -> if (s == spec && f === bookFaces) return m }
+        return CoreTextMeasurer.forSpec(spec, bookFaces).also { measured = Triple(spec, bookFaces, it) }
+    }
+
+    private var measured: Triple<LayoutSpec, BookFaces?, CoreTextMeasurer>? = null
 
     /**
      * 책 글꼴로 짜라면 꺼내 두고 지문을 캐시 키에 넣는다. 꺼내 보니 쓸 글꼴이 없으면(WOFF 뿐 · 깨짐) 책 글꼴 없이 — 두면
@@ -493,7 +500,7 @@ class IosBookReader private constructor(
             store.annotations.add(
                 Annotation(
                     Annotation.NO_ID, l.bookId, Locator.Reflow(spine, from), Locator.Reflow(spine, to), pen, null,
-                    l.excerpt(spine, from, to).take(SNIPPET_MAX), currentTimeMillis(),
+                    l.excerpt(spine, from, to).takeWhole(SNIPPET_MAX), currentTimeMillis(),
                 ).withNote(note),
             )
         }

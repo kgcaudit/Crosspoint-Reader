@@ -25,8 +25,6 @@ import platform.Foundation.NSFileManager
 import platform.Foundation.NSRecursiveLock
 import platform.Foundation.NSString
 import platform.Foundation.NSUTF8StringEncoding
-import platform.Foundation.stringWithContentsOfFile
-import platform.Foundation.writeToFile
 
 /**
  * 옮긴 파일 짝짓기(안드로이드 0.50.0 `adoptMoved`)에 쓰는 파일의 됨됨이. [kind] 는 책이면 "BOOK", 만화 권이면 `ComicUnitKind` 이름 —
@@ -608,7 +606,8 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
     // ── 파일 ──────────────────────────────────────────────────────────────
 
     private fun load() {
-        val text = NSString.stringWithContentsOfFile(path, NSUTF8StringEncoding, null) ?: return
+        // 있는데 읽을 수 없는 파일은 TextFiles 가 옆에 남겨 둔다 — 빈 상태로 시작한 첫 저장이 기록을 통째로 덮지 않게.
+        val text = TextFiles.read(path) ?: return
         for (line in text.split('\n')) {
             val raw = line.split('\t').map(::unescape)
             // 책 id 는 한글을 모아 쓴 꼴(NFC)로. iOS 가 폴더를 훑어 주는 경로는 풀어 쓴 꼴(NFD)이라 옛 판은 그 꼴로 적었다 — Swift 는 두
@@ -664,6 +663,10 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
     }
 
     private fun persist() {
+        if (holding > 0) {
+            held = true
+            return
+        }
         val out = StringBuilder()
         fun row(vararg values: String) {
             out.append(values.joinToString("\t", transform = ::escape)).append('\n')
@@ -687,10 +690,28 @@ class ReadingStore(private val path: String) : BookmarkRepository, ProgressRepos
         for ((id, page, at) in comicMarks) row("K", id, page.toString(), at.toString())
         for ((k, v) in comicSettings) row("O", k.first, k.second, v)
         for (f in known.values) row("F", f.id, f.kind, f.name, f.size?.toString() ?: "-", f.pages?.toString() ?: "-")
-        val dir = path.substringBeforeLast('/')
-        NSFileManager.defaultManager.createDirectoryAtPath(dir, withIntermediateDirectories = true, attributes = null, error = null)
-        @Suppress("CAST_NEVER_SUCCEEDS")
-        (out.toString() as NSString).writeToFile(path, atomically = true, encoding = NSUTF8StringEncoding, error = null)
+        // 못 쓰면 메모리의 기록은 그대로다 — 다음 저장이 다시 쓴다.
+        TextFiles.write(path, out.toString())
+    }
+
+    private var holding = 0
+    private var held = false
+
+    /**
+     * 안의 고침들을 한 번에 적는다(백업 가져오기 · 기다리는 기록 붙이기 · 이어 읽기 합치기). 책마다 파일 전체를 다시 쓰면 수백 권에서
+     * 몇 초가 걸리고, 그동안 잠금을 쥐어 서재의 읽기까지 멈췄다.
+     */
+    internal fun <T> batch(block: () -> T): T = locked {
+        holding++
+        try {
+            block()
+        } finally {
+            holding--
+            if (holding == 0 && held) {
+                held = false
+                persist()
+            }
+        }
     }
 
     private companion object {

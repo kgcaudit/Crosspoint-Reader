@@ -101,12 +101,8 @@ struct OloEBookApp: App {
             .onChange(of: scenePhase) { _, phase in
                 if phase == .background {
                     library.reloadRecords()
-                    // 이어 읽기: 마지막 자리를 서버에 올린다. 뒤로 간 앱은 몇 초 안에 멈추므로 시간을 빌린다 — 못 올리면 뒤 작업이 다시 한다.
-                    let id = UIApplication.shared.beginBackgroundTask(withName: "olo-sync")
-                    Task {
-                        await SyncCenter.shared.writeOwn()
-                        UIApplication.shared.endBackgroundTask(id)
-                    }
+                    // 이어 읽기: 마지막 자리를 서버에 올린다(빌린 시간 안에서만 — 못 올리면 뒤 작업이 다시 한다).
+                    SyncCenter.shared.flushOnBackground()
                 }
             }
         }

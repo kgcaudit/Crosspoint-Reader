@@ -77,7 +77,7 @@ object NotesExport {
 
     /** 파일 이름에 쓸 수 없는 글자를 뺀다. 책 제목의 "/" 가 폴더로 읽혀 저장이 실패했다(안드로이드). */
     fun fileName(title: String, markdown: Boolean): String {
-        val safe = title.replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), " ").replace(Regex("\\s+"), " ").trim().take(80).ifEmpty { "책" }
+        val safe = title.replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), " ").replace(Regex("\\s+"), " ").trim().takeWhole(80).ifEmpty { "책" }
         return "$safe 독서노트.${if (markdown) "md" else "txt"}"
     }
 }
