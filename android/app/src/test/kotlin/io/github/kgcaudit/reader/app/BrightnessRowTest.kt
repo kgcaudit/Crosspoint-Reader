@@ -19,7 +19,18 @@ import kotlin.test.assertTrue
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class BrightnessRowTest {
-    @get:Rule
+    /** 부품만 띄우는 빈 화면은 시험용 매니페스트가 디버그에만 있다(PageTurnTest 와 같다). */
+    @get:Rule(order = 0)
+    val debugOnly = org.junit.rules.TestRule { base, _ ->
+        object : org.junit.runners.model.Statement() {
+            override fun evaluate() {
+                org.junit.Assume.assumeTrue(BuildConfig.DEBUG)
+                base.evaluate()
+            }
+        }
+    }
+
+    @get:Rule(order = 1)
     val compose = createAndroidComposeRule<ComponentActivity>()
 
     @Test

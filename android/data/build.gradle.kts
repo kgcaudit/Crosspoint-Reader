@@ -63,21 +63,25 @@ tasks.withType<Test>().configureEach {
 // 같은 JVM 의 Robolectric 이 그것을 만들지 못해 그 뒤 시험이 모두 SQLite 네이티브 오류로 무너졌다(전체 시험 129건 — 순서에 따라
 // 나타났다 안 나타났다 한다). 보통 시험의 실행 경로에서는 MINA 를 빼, 순서가 바뀌어도 다시 일어나지 않게 한다.
 afterEvaluate {
-    val unit = tasks.named<Test>("testDebugUnitTest")
-    // MINA 를 빼기 전의 경로 — 서버 시험은 이것으로 돈다.
-    val full = unit.get().classpath
-    val servers = tasks.register<Test>("testSyncServersDebug") {
-        description = "FTP · FTPS · SFTP server tests in their own JVM (MINA SSHD breaks Robolectric)."
-        testClassesDirs = unit.get().testClassesDirs
-        classpath = full
-        filter.includeTestsMatching("*.FtpConnectionTest")
-        filter.isFailOnNoMatchingTests = false
-    }
-    unit.configure {
-        classpath = full.filter { !it.name.startsWith("sshd-") }
-        filter.excludeTestsMatching("*.FtpConnectionTest")
-        // "--tests '*FtpConnectionTest*'" 처럼 서버 시험만 고르면 이 작업에는 남는 시험이 없다 — 실패로 보지 않는다(서버 시험은 아래가 돈다).
-        filter.isFailOnNoMatchingTests = false
-        dependsOn(servers)
+    // 디버그 · 릴리스 둘 다 — `check` 는 두 작업을 모두 부른다. 디버그에만 걸었을 때 릴리스 작업에 MINA 가 남아 `check` 에서
+    // SQLite 시험 128건이 무너졌다.
+    listOf("Debug", "Release").forEach { variant ->
+        val unit = tasks.named<Test>("test${variant}UnitTest")
+        // MINA 를 빼기 전의 경로 — 서버 시험은 이것으로 돈다.
+        val full = unit.get().classpath
+        val servers = tasks.register<Test>("testSyncServers$variant") {
+            description = "FTP · FTPS · SFTP server tests in their own JVM (MINA SSHD breaks Robolectric)."
+            testClassesDirs = unit.get().testClassesDirs
+            classpath = full
+            filter.includeTestsMatching("*.FtpConnectionTest")
+            filter.isFailOnNoMatchingTests = false
+        }
+        unit.configure {
+            classpath = full.filter { !it.name.startsWith("sshd-") }
+            filter.excludeTestsMatching("*.FtpConnectionTest")
+            // "--tests '*FtpConnectionTest*'" 처럼 서버 시험만 고르면 이 작업에는 남는 시험이 없다 — 실패로 보지 않는다(서버 시험은 위가 돈다).
+            filter.isFailOnNoMatchingTests = false
+            dependsOn(servers)
+        }
     }
 }
