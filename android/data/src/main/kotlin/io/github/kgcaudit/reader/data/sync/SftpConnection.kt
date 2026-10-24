@@ -45,14 +45,14 @@ internal class SftpConnection private constructor(private val session: Session, 
         try {
             sftp.rename(temp, name)
         } catch (e: SftpException) {
-            // SFTP 3판의 이름 바꾸기는 있는 파일을 덮지 않는다(대부분의 서버). 옛것을 지우고 다시.
-            runCatching { sftp.rm(name) }
-            try {
-                sftp.rename(temp, name)
-            } catch (again: SftpException) {
-                runCatching { sftp.rm(temp) }
-                throw again
-            }
+            // SFTP 3판의 이름 바꾸기는 있는 파일을 덮지 않는다(대부분의 서버). 그때만(있는 파일이 막은 것) 옛것을 지우고 다시.
+            // 권한 등 다른 까닭이면 지우지 않는다 — 지우고 나서도 못 바꾸면 이 기기 파일이 서버에서 사라졌다.
+            val exists = runCatching { sftp.stat(name) }.isSuccess
+            // 3판 서버는 일반 실패(4), 그 뒤 판을 아는 서버는 "이미 있음"(11, SSH_FX_FILE_ALREADY_EXISTS)으로 답한다.
+            if ((e.id != ChannelSftp.SSH_FX_FAILURE && e.id != FILE_ALREADY_EXISTS) || !exists) throw e
+            sftp.rm(name)
+            // 다시도 안 되면 임시 파일은 남긴다(다른 기기는 .part 를 읽지 않고, 다음 쓰기가 덮는다).
+            sftp.rename(temp, name)
         }
     }
 
@@ -75,8 +75,9 @@ internal class SftpConnection private constructor(private val session: Session, 
         var seen: String? = null
 
         override fun check(host: String?, key: ByteArray): Int {
-            val fingerprint = fingerprintOf(key)
-            if (pinned != null && fingerprint.equals(pinned, ignoreCase = true)) return HostKeyRepository.OK
+            val fingerprint = sshFingerprintOf(key)
+            // 0.59.0 에 믿어 둔 지문은 콜론 16진이다 — 그것도 받는다(다시 묻지 않게).
+            if (pinned != null && (pinned == fingerprint || pinned.equals(fingerprintOf(key), ignoreCase = true))) return HostKeyRepository.OK
             seen = fingerprint
             return HostKeyRepository.NOT_INCLUDED
         }
@@ -102,6 +103,9 @@ internal class SftpConnection private constructor(private val session: Session, 
     }
 
     companion object {
+        /** SFTP 5판 이후의 "이미 있음". JSch 에 이름이 없다. */
+        private const val FILE_ALREADY_EXISTS = 11
+
         fun open(cfg: FtpConfig, timeoutMs: Int): SftpConnection {
             val keys = PinnedKeys(cfg.trusted)
             val jsch = JSch().apply { hostKeyRepository = keys }
@@ -168,7 +172,10 @@ internal class SftpConnection private constructor(private val session: Session, 
                 causes.any { it is NoRouteToHostException } -> SyncStoreException(SyncProblem.Offline, "no route", e)
                 causes.any { it is SocketTimeoutException } || "timeout" in message.lowercase() ->
                     SyncStoreException(SyncProblem.Asleep, "timed out", e)
-                else -> SyncStoreException(SyncProblem.Offline, "ssh failed: $message", e)
+                // 서로 맞는 키 교환 · 암호 방식이 없다(옛 NAS 의 ssh-rsa 만 등). 다시 해도 같다.
+                "Algorithm negotiation fail" in message -> SyncStoreException(SyncProblem.Incompatible, "no common ssh algorithm", e)
+                // 모르는 SSH 오류는 "인터넷 없음" 이 아니다 — 그렇게 알리면 사람이 엉뚱한 것을 고친다.
+                else -> SyncStoreException(SyncProblem.Server, "ssh failed: $message", e)
             }
         } catch (e: java.io.IOException) {
             throw SyncStoreException(SyncProblem.Offline, "sftp i/o failed", e)

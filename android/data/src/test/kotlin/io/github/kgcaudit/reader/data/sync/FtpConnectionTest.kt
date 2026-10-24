@@ -1,5 +1,6 @@
 package io.github.kgcaudit.reader.data.sync
 
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Rule
@@ -122,6 +123,8 @@ class FtpConnectionTest {
         assertNotNull(asked)
         // 같은 서버는 같은 지문 — 다시 물어도 사람이 본 것과 같다.
         assertEquals(asked, checkFails(server.config(), SyncProblem.Untrusted))
+        // 사람에게 보이는 지문은 ssh-keygen · NAS 의 SSH 화면과 같은 모양이어야 맞춰 볼 수 있다.
+        assertEquals(server.hostKeyFingerprint, asked)
         val trusted = server.config(path = "책/이어 읽기", trusted = asked)
         checkOk(trusted)
         assertFalse(File(server.root, "책/이어 읽기/.olo-check").exists())
@@ -181,6 +184,24 @@ class FtpConnectionTest {
         // SFTP 도 같은 갈래.
         val sshSilent = SleepyProxy(sftp().port, wakeAfterMs = 60_000).also { p -> stops += { p.close() } }
         checkFailsWith(TestSftpServer(File(tmp.root, "x")).config().copy(port = sshSilent.port), SyncProblem.Asleep)
+    }
+
+    @Test
+    fun `a sync cancelled while connecting still closes its connection`() {
+        val server = ftp(FtpSecurity.None)
+        // 1초 뒤에 답하는 서버 — 잇는 중에 책을 닫아(띠 확인 취소) 맞추기가 취소된다.
+        val slow = SleepyProxy(server.port, wakeAfterMs = 1_000).also { p -> stops += { p.close() } }
+        val store = FtpSyncStore({ server.config().copy(port = slow.port) }, timeoutMs = 5_000)
+        runBlocking {
+            val job = launch(kotlinx.coroutines.Dispatchers.Default) { store.session { store.list() } }
+            kotlinx.coroutines.delay(300)
+            job.cancel()
+            job.join()
+        }
+        // 잇기가 끝나면 바로 닫는다 — 안 닫으면 서버에 연결이 남아, 연결 수를 묶는 NAS 가 다음 로그인을 거절했다.
+        val until = System.currentTimeMillis() + 5_000
+        while (server.connections > 0 && System.currentTimeMillis() < until) Thread.sleep(50)
+        assertEquals(0, server.connections)
     }
 
     private fun checkFailsWith(config: FtpConfig, problem: SyncProblem) = runBlocking {

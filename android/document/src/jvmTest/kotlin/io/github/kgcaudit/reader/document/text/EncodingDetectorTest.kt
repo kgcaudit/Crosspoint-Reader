@@ -168,4 +168,20 @@ class EncodingDetectorTest {
         val text = "한글 인코딩 확인"
         assertEquals(text, String(korean(text), java.nio.charset.Charset.forName(TextEncoding.koreanCharset)))
     }
+
+    @Test
+    fun `utf-8 french german and spanish text without a bom is read as utf-8`() {
+        // C3 xx(악센트 글자)는 CP949 로도 한글이라, 악센트마다 한국어 쪽에 가점이 붙어 "caf챕 챕tait" 로 깨졌다.
+        listOf(
+            "Le café était très bon, et la crème brûlée aussi. Où est la gare ? Ça va très bien.",
+            "Über die Brücke gehen wir schön langsam, die Straße ist grün und müde.",
+            "El niño comió jamón en la montaña, ¿verdad? Mañana será otro día.",
+        ).forEach { text ->
+            assertEquals(TextEncoding.UTF_8, EncodingDetector.detect(text.toByteArray(Charsets.UTF_8)).encoding, text)
+        }
+        // 한국어는 그대로 — CP949 · UTF-8 모두.
+        val korean = "어린 왕자는 별에서 왔다. 그는 장미 한 송이를 사랑했다."
+        assertEquals(TextEncoding.EUC_KR, EncodingDetector.detect(korean.toByteArray(charset("MS949"))).encoding)
+        assertEquals(TextEncoding.UTF_8, EncodingDetector.detect(korean.toByteArray(Charsets.UTF_8)).encoding)
+    }
 }

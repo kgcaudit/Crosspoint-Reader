@@ -274,4 +274,34 @@ class ZipReaderTest {
             assertEquals(256, zip.readBytes("OEBPS/images/cover.jpg")!!.size)
         }
     }
+
+    @Test
+    fun `entry names written with backslashes or a leading slash are still found`() {
+        // 옛 윈도 압축기: 목록의 href 는 다듬어 찾아, 모든 장이 빠진 책으로 열렸다.
+        val bytes = zipOf(listOf(text("OEBPS\\ch1.xhtml", "하나"), text("/OEBPS/ch2.xhtml", "둘"), text("./img/a.png", "그림")))
+        reader(bytes).use { zip ->
+            assertTrue("OEBPS/ch1.xhtml" in zip)
+            assertEquals("하나", zip.readBytes("OEBPS/ch1.xhtml")?.decodeToString())
+            assertEquals("둘", zip.readBytes("OEBPS/ch2.xhtml")?.decodeToString())
+            assertEquals("그림", zip.readBytes("img/a.png")?.decodeToString())
+            // 목록은 원래 이름 그대로(순서 · 만화 쪽 수가 바뀌지 않게).
+            assertEquals(listOf("OEBPS\\ch1.xhtml", "/OEBPS/ch2.xhtml", "./img/a.png"), zip.entries.keys.toList())
+        }
+    }
+
+    @Test
+    fun `an entry that inflates far beyond its declared size fails alone instead of filling memory`() {
+        // 압축 폭탄: 적힌 크기는 작은데 풀면 수십 MB. 그 항목만 IOException 이고, 다른 항목은 읽힌다.
+        val big = ByteArray(8 * 1024 * 1024)
+        val bytes = zipOf(listOf("bomb.xhtml" to big, text("ok.txt", "멀쩡")))
+        // 중앙 디렉터리의 풀린 크기(+24)를 1000 으로 속인다.
+        val at = (0 until bytes.size - 4).first { i ->
+            bytes[i] == 0x50.toByte() && bytes[i + 1] == 0x4B.toByte() && bytes[i + 2] == 0x01.toByte() && bytes[i + 3] == 0x02.toByte()
+        }
+        java.nio.ByteBuffer.wrap(bytes, at + 24, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).putInt(1000)
+        reader(bytes).use { zip ->
+            kotlin.test.assertFailsWith<io.github.kgcaudit.reader.document.io.IOException> { zip.openStream("bomb.xhtml")!!.use { it.readBytes() } }
+            assertEquals("멀쩡", zip.readBytes("ok.txt")?.decodeToString())
+        }
+    }
 }

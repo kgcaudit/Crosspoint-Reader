@@ -451,8 +451,11 @@ fun LibraryScreen(
         var asComic by remember(book) { mutableStateOf<Boolean?>(null) }
         LaunchedEffect(book) {
             asComic = withContext(Dispatchers.IO) {
-                val eligible = book.format == BookFormat.PDF || (book.format == BookFormat.EPUB && container.isPictureBook(book))
-                if (eligible) container.opensAsComic(book) else null
+                // 살피지 못하면(DB 깨짐 · 파일이 사라짐) 줄을 두지 않는다 — 판을 띄우다 앱이 닫히지 않게.
+                runCatching {
+                    val eligible = book.format == BookFormat.PDF || (book.format == BookFormat.EPUB && container.isPictureBook(book))
+                    if (eligible) container.opensAsComic(book) else null
+                }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }.getOrNull()
             }
         }
         CoverMenu(

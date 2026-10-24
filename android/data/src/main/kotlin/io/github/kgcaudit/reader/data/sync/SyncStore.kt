@@ -11,7 +11,7 @@ import java.io.IOException
  * 구글 드라이브 API 는 구글 클라우드에 앱을 등록해야 해 걷어냈다(사용자 결정 2026-10-23: FTP 서버로).
  */
 interface SyncStore {
-    /** 저장소의 파일 하나. [id] 는 저장소가 정한 이름표(드라이브 파일 id) — 이름이 같은 파일이 둘일 수 있어 이름으로 가리키지 않는다. */
+    /** 저장소의 파일 하나. [id] 는 저장소가 가리키는 이름표(FTP · SFTP 는 파일 이름 그대로). */
     data class Entry(val id: String, val name: String, val modifiedEpochMs: Long?, val sizeBytes: Long?)
 
     suspend fun list(): List<Entry>
@@ -19,7 +19,7 @@ interface SyncStore {
     /** 파일 글. [maxBytes] 보다 크면 null(이 앱의 파일이 아니다). */
     suspend fun read(entry: Entry, maxBytes: Long): String?
 
-    /** [existing] 이 있으면 그 파일을 덮어쓰고, 없으면 [name] 으로 새로 만든다. 쓴 파일. 다른 기기가 반쯤 쓴 글을 읽지 않게 통째로 바꾼다. */
+    /** [name] 으로 쓴다(있으면 덮는다). [existing] 은 저장소가 이미 아는 그 파일(쓰지 않아도 된다). 다른 기기가 반쯤 쓴 글을 읽지 않게 통째로 바꾼다. */
     suspend fun write(name: String, existing: Entry?, text: String): Entry
 
     /** 지운다. 이미 없으면 조용히 끝난다. */
@@ -71,6 +71,12 @@ enum class SyncProblem {
      * 보이고, 믿으면 설정에 적어 다음부터 그 지문만 받는다. 믿은 뒤 지문이 바뀌면 다시 이것 — 누가 가운데서 가로챌 수 있다.
      */
     Untrusted,
+
+    /**
+     * 서버와 맞는 방식이 없다 — SSH 의 키 교환 · 암호 방식이 겹치지 않거나, FTPS 데이터 연결이 TLS 세션 재사용을 요구한다(522).
+     * 다시 해도 같아 다시 하지 않는다. 화면이 다른 방식(SFTP · 다른 보안 연결)을 권한다.
+     */
+    Incompatible,
 
     /** 서버 쪽 오류. 다음 기회에 다시. */
     Server,

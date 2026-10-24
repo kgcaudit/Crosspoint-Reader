@@ -65,9 +65,13 @@ class XmlScanner(
             when (scanner.peek()) {
                 '/'.code -> {
                     scanner.read()
-                    readName()?.let { name ->
+                    val name = readName()
+                    if (name != null) {
                         skipUntil('>')
                         yield(XmlEvent.EndElement(name))
+                    } else {
+                        // 이름 없는 "</"(`</ p>` · 본문의 "a </3")는 태그가 아니다 — 글자로 남긴다. 버리면 두 글자가 조용히 사라졌다.
+                        text.append("</")
                     }
                 }
 

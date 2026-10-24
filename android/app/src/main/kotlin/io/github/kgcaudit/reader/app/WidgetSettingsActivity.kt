@@ -114,7 +114,8 @@ internal fun WidgetSettingsScreen(
     onCancel: () -> Unit,
     onSave: (WidgetSettings) -> Unit,
 ) {
-    var settings by remember { mutableStateOf(start) }
+    // 화면을 돌리면 활동이 새로 만들어진다 — remember 면 저장 전의 고른 것이 처음 값으로 돌아가, 저장하면 옛 설정이 남았다.
+    var settings by androidx.compose.runtime.saveable.rememberSaveable(stateSaver = WIDGET_SETTINGS_SAVER) { mutableStateOf(start) }
     val c = CpTheme.colors
     Column(Modifier.fillMaxSize().background(c.background).systemBarsPadding()) {
         CpHeader(title = "위젯 설정", onBack = onCancel)
@@ -210,3 +211,16 @@ private fun Controls(settings: WidgetSettings, onChange: (WidgetSettings) -> Uni
 /** 미리보기 크기: 4×2 위젯의 흔한 크기(구상안과 같다). */
 private val PREVIEW_WIDTH = 340.dp
 private val PREVIEW_HEIGHT = 165.dp
+
+/** 위젯 설정을 화면 돌리기 너머로 넘긴다(묶음에 넣을 수 있는 값만). 모르는 이름은 처음 값. */
+private val WIDGET_SETTINGS_SAVER = androidx.compose.runtime.saveable.listSaver<WidgetSettings, Any>(
+    save = { listOf(it.background, it.opacity, it.color.name, it.recent.name) },
+    restore = { v ->
+        WidgetSettings(
+            background = v[0] as Boolean,
+            opacity = v[1] as Int,
+            color = WidgetColor.entries.firstOrNull { it.name == v[2] } ?: WidgetColor.System,
+            recent = RecentKind.entries.firstOrNull { it.name == v[3] } ?: RecentKind.All,
+        )
+    },
+)

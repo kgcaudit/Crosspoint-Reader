@@ -238,8 +238,12 @@ private fun InputStream.asXhtmlReader(): Reader {
     return NamedCharsets.reader(stream, charset) ?: NamedCharsets.reader(stream, "UTF-8")!!
 }
 
-/** XML 선언을 찾으려고 앞에서 보는 바이트. 선언은 문서 맨 앞에 있어야 하고 한 줄이다. */
-private const val DECLARATION_PEEK = 4096
+/**
+ * XML 선언을 찾고, 선언과 실제 바이트가 맞는지 보려고 앞에서 보는 바이트. 선언은 맨 앞 한 줄이지만, "실제로는 UTF-8" 인지는
+ * 한글 바이트가 하나라도 나와야 알 수 있다. 4KB 만 보던 때는 앞에 긴 `<style>` · `<head>` 가 있어 4KB 가 모두 ASCII 인 장을,
+ * UTF-8 로 다시 저장되었는데도 선언대로 CP949 로 읽어 본문이 깨졌다.
+ */
+private const val DECLARATION_PEEK = 64 * 1024
 
 /**
  * XML 선언이 적은 인코딩. UTF-8 · 모르는 이름 · 선언 없음이면 null(부르는 쪽이 UTF-8 로 읽는다).

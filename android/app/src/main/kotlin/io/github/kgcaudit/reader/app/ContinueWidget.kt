@@ -215,7 +215,7 @@ class ContinueWidgetSingle : ContinueWidget()
 /** 같은 위젯을 받는 쪽 모두. */
 internal val PROVIDERS = listOf(ContinueWidget::class.java, ContinueWidgetSingle::class.java)
 
-/** 위젯 그리기 · 다시 그리기. 앱 전체에 하나([AppContainer.widgets]). */
+/** 위젯 그리기 · 다시 그리기. 앱 전체에 하나(object). */
 internal object ContinueWidgets {
 
     /** 놓인 위젯이 있으면 지금 모습으로 다시 그린다. 없으면 아무것도 읽지 않는다(위젯을 안 쓰는 사람에게 비용이 없다). */

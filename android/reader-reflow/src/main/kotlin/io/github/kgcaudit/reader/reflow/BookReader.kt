@@ -512,6 +512,11 @@ class BookReader(
         (document as? AutoCloseable)?.runCatching { close() }
     }
 
+    /** 화면이 알린 오류를 지운다 — 쪽이 이미 보이는 동안의 오류는 알림 한 번으로 끝난다. */
+    fun clearError() {
+        _state.value = _state.value.copy(error = null)
+    }
+
     // ── 내부 ────────────────────────────────────────────────────────
 
     private suspend fun <T> run(block: suspend () -> T): T = withContext(layoutThread) {

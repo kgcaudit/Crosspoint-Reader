@@ -186,7 +186,7 @@ interface ComicDao {
     @Query("SELECT * FROM comic_units WHERE folderUri = :folderUri")
     suspend fun inFolder(folderUri: String): List<ComicUnitEntity>
 
-    /** 이 기기에 지금 있는 만화 권 전부(폴더를 가리지 않는다). 드라이브 이어 읽기가 권을 이름 · 크기로 맞춘다. */
+    /** 이 기기에 지금 있는 만화 권 전부(폴더를 가리지 않는다). 기기 간 이어 읽기가 권을 이름 · 크기로 맞춘다. */
     @Query("SELECT * FROM comic_units WHERE missing = 0 AND notComic = 0")
     suspend fun present(): List<ComicUnitEntity>
 
@@ -345,8 +345,6 @@ interface ReadingTimeDao {
     @Query("SELECT * FROM reading_time")
     fun observeAll(): Flow<List<ReadingTimeEntity>>
 
-    @Query("SELECT * FROM reading_time WHERE itemKind = :kind AND itemId = :id")
-    suspend fun forItem(kind: String, id: String): List<ReadingTimeEntity>
 
     /** 옮긴 파일(0.50.0)의 옛 자리 기록을 비운다 — 새 자리에 합친 뒤. */
     @Query("DELETE FROM reading_time WHERE itemKind = :kind AND itemId = :id")

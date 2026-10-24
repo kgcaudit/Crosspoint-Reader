@@ -90,8 +90,9 @@ std::vector<Byte> toUtf16le(const std::string& utf8) {
     return out;
 }
 
-// The one method the app cannot do: AES-256, the coder 7z uses for
-// encryption. The SDK's reference decoder does not include it.
+// AES-256, the coder 7z uses for encryption. The SDK's reference decoder does
+// not include it; this build adds it in sevenz/7zDec.c (see the top of this
+// file), and a folder that uses it needs the password.
 const UInt32 K_AES = 0x06F10701;
 
 // The read buffer for the archive stream. The sample uses the same size.
@@ -174,7 +175,7 @@ bool isSupportedMethod(UInt32 id) {
     }
 }
 
-// Classifies the folder a file lives in: encrypted (AES, no decoder here) or
+// Classifies the folder a file lives in: encrypted (AES, needs a password) or
 // using a method this build does not do. A file with no folder -- a
 // directory or an empty file -- is neither.
 void classify(const CSzArEx& db, UInt32 fileIndex, bool& encrypted, bool& unsupported) {

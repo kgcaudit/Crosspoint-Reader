@@ -16,7 +16,10 @@ class PdfPageLabels internal constructor(private val ranges: List<Range>) {
     /** [pageIndex](0부터) 쪽의 이름. 이름표가 없는 앞쪽(첫 구간이 0 에서 시작하지 않음)은 파일 순서(1부터). */
     fun label(pageIndex: Int): String? {
         val range = ranges.lastOrNull { it.start <= pageIndex } ?: return "${pageIndex + 1}"
-        val n = range.first + (pageIndex - range.start)
+        // 큰 /St(Int 끝까지 눌러 둔 값)에 더하면 넘쳐 "-2147483647" 같은 이름이 됐다 — 넘치면 파일 순서로.
+        val wide = range.first.toLong() + (pageIndex - range.start)
+        if (wide > Int.MAX_VALUE) return "${pageIndex + 1}"
+        val n = wide.toInt()
         val number = when (range.style) {
             'D' -> n.toString()
             'R' -> roman(n)

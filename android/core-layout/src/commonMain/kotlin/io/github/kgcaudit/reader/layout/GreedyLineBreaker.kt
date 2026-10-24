@@ -216,13 +216,21 @@ class GreedyLineBreaker(
             if (measurer.advance(text, token.start, cut + 1, token.style) > available) break
             cut++
         }
-        // 이모지·확장 한자는 두 칸(서로게이트 쌍)이다. 그 사이에서 자르면 두 줄 모두 깨진 글자가 그려진다.
-        if (cut < token.contentEnd && text[cut].isLowSurrogate() && cut - 1 > token.start) cut--
+        // 이모지·확장 한자는 두 칸(서로게이트 쌍)이다. 그 사이에서 자르면 두 줄 모두 깨진 글자가 그려진다. 앞으로 물릴 수 없으면
+        // (줄 폭이 그 글자 하나보다 좁다) 뒤로 — 쌍을 통째로 이 줄에 넘치게 둔다.
+        if (cut < token.contentEnd && text[cut].isLowSurrogate()) {
+            if (cut - 1 > token.start) cut-- else cut++
+        }
         if (cut >= token.contentEnd) return null
-        return Split(
-            head = makeToken(text, token.start, cut, token.style, measurer),
-            tail = makeToken(text, cut, token.endExclusive, token.style, measurer).copy(glueNext = token.glueNext),
+        val head = makeToken(text, token.start, cut, token.style, measurer)
+        // 꼬리는 다시 재지 않는다 — 원래 폭에서 머리를 뺀다. 꼬리를 재면 띄어쓰기 없는 긴 줄(TXT 의 base64 · 깨진 글) 하나가
+        // 쪼갤 때마다 남은 꼬리 전체를 다시 재, 10만 자 한 줄에 조판이 멈춘 듯했다(길이의 제곱).
+        val tail = token.copy(
+            start = cut,
+            advance = (token.advance - head.advance).coerceAtLeast(0f),
+            breakableGapBefore = false,
         )
+        return Split(head = head, tail = tail)
     }
 
     // ── 배치 ────────────────────────────────────────────────────────

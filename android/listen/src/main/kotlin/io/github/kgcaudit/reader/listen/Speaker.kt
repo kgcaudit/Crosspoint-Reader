@@ -126,7 +126,9 @@ class AndroidSpeaker(private val context: Context, private val engine: String?) 
     override fun setVoice(voice: String?) {
         val t = tts ?: return
         val found = voice?.let { name -> runCatching { t.voices }.getOrNull()?.firstOrNull { it.name == name } }
-        if (found != null) t.voice = found else runCatching { t.defaultVoice }.getOrNull()?.let { t.voice = it }
+        // "휴대폰 기본 목소리" 는 엔진의 기본 목소리가 아니라 한국어다. 엔진의 기본 목소리로 두면, 엔진 기본 언어가 한국어가
+        // 아닌 휴대폰에서 한국어 책을 영어 목소리로 읽었다 — prepare() 가 한국어로 맞춘 것을 되돌린 셈이다.
+        if (found != null) t.voice = found else runCatching { t.language = java.util.Locale.KOREAN }
     }
 
     override fun shutdown() {

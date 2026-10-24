@@ -75,10 +75,20 @@ internal class PdfFile private constructor(private val source: SeekableSource) {
         // 멀쩡한 상호 참조에 없는 번호(가리키기만 하고 지운 객체)는 없는 것으로 본다. 그때마다 훑으면 끊긴
         // 참조 하나 때문에 큰 파일을 여는 데 몇 초가 걸린다. 훑기는 상호 참조가 **틀렸을** 때만.
         if (entry == null && xrefComplete) return null
-        val found = load(num, entry) ?: load(num, scan()[num])
-        if (found != null) cache[num] = found
-        return found
+        // 읽는 중인 객체를 다시 찾으면(제 객체 스트림 안에 저를 두었다 · 두 스트림의 /Length 가 서로를 가리킨다) 없는 것으로
+        // 본다. 끝없이 파고들어 JVM 에서는 느리게 멈추고, 넘침을 잡을 수 없는 iOS 에서는 앱이 닫혔다.
+        if (!loading.add(num)) return null
+        try {
+            val found = load(num, entry) ?: load(num, scan()[num])
+            if (found != null) cache[num] = found
+            return found
+        } finally {
+            loading.remove(num)
+        }
     }
+
+    /** [getObject] 가 지금 읽고 있는 번호들. */
+    private val loading = HashSet<Int>()
 
     /** 스트림의 내용을 풀어 준다. FlateDecode 만 푼다 — 목차에 쓰는 스트림(상호 참조·객체 스트림)은 모두 이것이다. */
     fun decode(stream: PdfStream): ByteArray? {
@@ -282,12 +292,15 @@ internal class PdfFile private constructor(private val source: SeekableSource) {
         // getOrPut 은 null 을 "없음" 으로 봐서 깨진 객체 스트림을 그 안의 객체를 찾을 때마다 다시 풀었다 — 수천 객체가 든
         // 스트림 하나가 깨지면 문서 열기가 몇 초씩 걸렸다. 실패도 기억한다.
         if (num in objectStreams) return objectStreams[num]
+        // 만드는 동안 다시 불리면(스트림이 저를 가리킨다) 실패로 본다.
+        objectStreams[num] = null
         val made = runCatching {
             val stream = resolve(PdfRef(num, 0)) as? PdfStream ?: return@runCatching null
             val data = decode(stream) ?: return@runCatching null
             val n = (resolve(stream.dict["N"]) as? PdfNumber)?.int ?: return@runCatching null
             val first = (resolve(stream.dict["First"]) as? PdfNumber)?.int ?: return@runCatching null
-            if (n !in 0..MAX_OBJECTS || first !in 0..data.size) return@runCatching null
+            // 번호 · 자리 한 쌍은 적어도 네 글자("0 0 ")다. 작은 스트림이 /N 을 천만으로 적어 80MB 를 잡게 하지 않는다.
+            if (n !in 0..MAX_OBJECTS || first !in 0..data.size || n > first / 2) return@runCatching null
             val p = PdfParser(data, length = first)
             val numbers = IntArray(n)
             val offsets = IntArray(n)

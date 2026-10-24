@@ -362,9 +362,62 @@ class PaginatorTest {
     // ── 경계 ────────────────────────────────────────────────────────
 
     @Test
-    fun `an empty chapter produces no pages`() {
-        assertTrue(paginate("", emptyList()).isEmpty())
-        assertTrue(paginate("", listOf(Block.Paragraph(listOf(InlineRun(0, 0))))).isEmpty())
+    fun `deep indents at a large font keep at least half the width for text`() {
+        // 큰 글자에서 겹친 인용 · 깊은 목록: 들여쓰기 합(120px)이 본문 폭(100px)을 넘어 한 줄에 한 글자만 남았다.
+        val text = "abcdefghij"
+        val style = BlockStyle.Default.copy(indentStartEm = 8f, indentEndEm = 4f)
+        val page = paginate(text, listOf(paragraph(text, style))).single()
+        // 폭의 절반(50px = 다섯 글자)은 남는다. 들여쓰기의 비율(왼 2 : 오른 1)은 그대로.
+        assertEquals(2, lineCount(page))
+        assertEquals(100f / 3f, page.runs.first().xPx, 0.01f)
+    }
+
+    @Test
+    fun `a line narrower than one emoji keeps the emoji whole`() {
+        // 줄 폭(5px)이 이모지 하나보다 좁다. 쪼개는 자리가 서로게이트 쌍 가운데면 두 줄에 깨진 글자가 그려졌다.
+        val text = "😀😀😀"
+        val pages = paginate(text, listOf(paragraph(text)), spec(widthPx = 5f, heightPx = 1000f))
+        val cuts = pages.flatMap { it.runs }.flatMap { listOf(it.start, it.endExclusive) }
+        assertTrue(cuts.none { it in 1 until text.length && text[it].isLowSurrogate() }, "이모지 가운데서 잘렸다: $cuts")
+    }
+
+    @Test
+    fun `a page never holds more pieces than the page cache can count`() {
+        // 아주 작은 글자의 긴 블록: 한 쪽에 6만 조각을 넘기면 캐시에 쓰다 예외가 나 장을 끝내 열 수 없었다.
+        // 글자마다 서식이 바뀌어(밑줄 · 보통) 한 글자가 한 조각이다.
+        val text = "가".repeat(80_000)
+        val runs = List(text.length) { InlineRun(it, it + 1, TextStyle(underline = it % 2 == 0)) }
+        val pages = paginate(text, listOf(Block.Paragraph(runs, BlockStyle.Default)), spec(widthPx = 100f, heightPx = 2_000_000f))
+        assertTrue(pages.sumOf { it.runs.size } > 0xFFFF, "시험 전제: 조각이 캐시 한도보다 많아야 한다")
+        assertTrue(pages.all { it.runs.size <= 0xFFFF }, "한 쪽의 조각: ${pages.map { it.runs.size }}")
+        pages.forEach { PageCodec.encode(listOf(it), textLength = text.length) }
+    }
+
+    @Test
+    fun `a very long line without break points is split without measuring its tail again and again`() {
+        // 띄어쓰기 없는 10만 자 한 줄(TXT 의 base64 · 깨진 글). 쪼갤 때마다 남은 꼬리 전체를 다시 재 길이의 제곱으로 느려졌다.
+        var measured = 0L
+        val counting = object : TextMeasurer by measurer {
+            override fun advance(text: CharSequence, start: Int, endExclusive: Int, style: TextStyle): Float {
+                measured += endExclusive - start
+                return measurer.advance(text, start, endExclusive, style)
+            }
+        }
+        val text = "a".repeat(100_000)
+        val pages = Paginator(spec(heightPx = 1_000_000f), counting).paginate(text, listOf(paragraph(text))).toList()
+        assertEquals(text.length, pages.last().endCharExclusive)
+        // 줄마다 열 글자 남짓을 재면 된다 — 꼬리를 다시 재면 수억 글자가 된다.
+        assertTrue(measured < 20_000_000L, "잰 글자 수: $measured")
+    }
+
+    @Test
+    fun `an empty chapter still has one blank page to land on`() {
+        // CSS 배경만 있는 표지 · 모두 숨긴 본문. 0 쪽이면 넘기기 · 목차가 그 장의 "0쪽" 으로 가 쪽이 없는(null) 화면이 떴다.
+        listOf(paginate("", emptyList()), paginate("", listOf(Block.Paragraph(listOf(InlineRun(0, 0)))))).forEach { pages ->
+            assertEquals(1, pages.size)
+            assertTrue(pages.single().isEmpty)
+            assertEquals(0, pages.single().startChar)
+        }
     }
 
     @Test

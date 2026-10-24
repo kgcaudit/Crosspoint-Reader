@@ -111,8 +111,13 @@ private val BACKLINKS = Regex("[↩↑⤴]|\\^\\s*$")
  * 한 칸으로. [max] 글자를 넘으면 자르고 "…" 를 붙인다 — 한 쪽 전체를 칠해도 목록 한 줄이 화면을 덮지 않게.
  */
 fun excerpt(text: String, from: Int, to: Int, paragraphStarts: Set<Int>, max: Int = Int.MAX_VALUE): String {
-    val start = from.coerceIn(0, text.length)
-    val end = to.coerceIn(start, text.length)
+    var start = from.coerceIn(0, text.length)
+    var end = to.coerceIn(start, text.length)
+    // 범위가 이모지(서로게이트 한 쌍)의 가운데에 걸리면 반쪽을 버린다. 책갈피 미리보기는 쪽 첫 글자부터 80 칸으로 부르는데,
+    // 80번째에 이모지가 걸리면 짝 잃은 반쪽이 남아 목록 끝에 깨진 글자로 보이고, 백업 · 동기화 파일에서는 '?' 로 바뀌었다
+    // (iOS 는 그 글 하나 때문에 기록 파일 전체를 쓰지 못했다 — iOS 세션 요청 2026-10-24).
+    if (end in (start + 1) until text.length && text[end - 1].isHighSurrogate() && text[end].isLowSurrogate()) end--
+    if (start in 1 until end && text[start].isLowSurrogate() && text[start - 1].isHighSurrogate()) start++
     val out = StringBuilder(end - start + 8)
     for (i in start until end) {
         if (i > start && i in paragraphStarts) out.append(' ')
@@ -120,5 +125,12 @@ fun excerpt(text: String, from: Int, to: Int, paragraphStarts: Set<Int>, max: In
         out.append(if (c < ' ' || c == OBJECT_REPLACEMENT_CHAR) ' ' else c)
     }
     val flat = out.replace(SPACE_RUN, " ").trim()
-    return if (flat.length <= max) flat else flat.take(max).trimEnd() + "…"
+    return if (flat.length <= max) flat else flat.takeWhole(max).trimEnd() + "…"
+}
+
+/** 앞 [n] 칸. 끝이 이모지의 앞 반쪽이면 한 칸 덜 — 짝 잃은 반쪽을 남기지 않는다(iOS 의 `takeWhole` 과 같은 규칙). */
+internal fun String.takeWhole(n: Int): String {
+    if (length <= n) return this
+    val end = if (n > 0 && this[n - 1].isHighSurrogate()) n - 1 else n
+    return substring(0, end.coerceAtLeast(0))
 }

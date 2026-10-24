@@ -372,6 +372,9 @@ class ContinueWidgetTest {
         compose.waitUntil(15_000) { has("위젯 설정") }
         compose.onAllNodes(hasText("끔"), useUnmergedTree = true)[0].performClick()
         compose.onAllNodes(hasText("만화만"), useUnmergedTree = true)[0].performClick()
+        // 저장하기 전에 화면을 돌려도(활동이 새로 만들어진다) 고른 것이 남는다 — 전에는 처음 값으로 돌아가 옛 설정이 저장됐다.
+        saved.recreate()
+        compose.waitUntil(15_000) { has("위젯 설정") }
         compose.onAllNodes(hasText("저장"), useUnmergedTree = true)[0].performClick()
         saved.waitClosed()
         assertEquals(android.app.Activity.RESULT_OK, saved.result.resultCode)

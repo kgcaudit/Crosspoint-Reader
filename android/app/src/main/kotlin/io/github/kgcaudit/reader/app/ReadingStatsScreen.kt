@@ -77,7 +77,8 @@ internal fun ReadingStatsScreen(onBack: () -> Unit, onOpenBook: (String) -> Unit
     // 읽은 시간이 바뀌면(화면을 끄고 듣는 중 1분마다) 다시 센다. 나머지(책 · 만화)는 그때마다 함께 읽는다.
     val stats by produceState<ReadingStats?>(null) {
         data.readingTime.rows().collect { rows ->
-            value = withContext(Dispatchers.IO) {
+            // 세지 못하면(DB 깨짐) 앞의 값을 그대로 둔다 — 화면이 닫히는 것보다 낫다.
+            value = withContext(Dispatchers.IO) { runCatching {
                 val works = data.comics.works().first()
                 val progress = data.comics.progress().first()
                 val shown = works.flatMap { w -> w.entries.flatMap { e -> listOf(e.unit.id) + e.copies.map { it.id } } }.toHashSet()
@@ -91,7 +92,7 @@ internal fun ReadingStatsScreen(onBack: () -> Unit, onOpenBook: (String) -> Unit
                     today = container.today(),
                     zone = ZoneId.systemDefault(),
                 )
-            }
+            }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }.getOrNull() } ?: value
         }
     }
     Box(Modifier.fillMaxSize().background(c.background).windowInsetsPadding(WindowInsets.safeDrawing)) {

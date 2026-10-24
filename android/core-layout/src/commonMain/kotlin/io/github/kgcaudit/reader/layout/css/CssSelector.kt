@@ -31,8 +31,13 @@ data class ElementInfo(
  *
  * 자식 결합자(`>`)는 **후손으로 취급한다.** 규칙을 버리는 것보다 조금 넓게 맞히는
  * 편이 낫다 — EPUB 에서 `div > p` 로 적힌 문단 서식을 통째로 잃으면 본문 전체가
- * 밋밋해진다. 의사 클래스(`:first-child`)와 속성 셀렉터(`[lang]`)도 같은 이유로
+ * 밋밋해진다. 속성 셀렉터(`[lang]`)와 넓게 맞혀도 해가 적은 의사 클래스(`:not` · `:lang` · `:link`)도 같은 이유로
  * 떼어 내고 나머지를 쓴다.
+ *
+ * 구조 의사 클래스는 떼어 내면 안 된다. 흔한 책 CSS 의 `p:first-child { text-indent: 0 }`(장의 첫 문단만 들이지 않기)를
+ * 떼면 `p { text-indent: 0 }` 이 되어 **모든 문단**의 들여쓰기가 사라졌다. `:first-child` 는 앞 형제가 없는지로 맞히고, 맞힐
+ * 수 없는 것(`:last-child` · `:nth-*` · `:only-*` · `*-of-type` · `:empty`)과 읽는 화면에서 일어나지 않는 상태(`:hover` ·
+ * `:focus` …)는 규칙을 버린다.
  *
  * 형제 결합자는 넓게 맞히면 안 된다. `h2 + p { text-indent: 0 }`(제목 바로 뒤 문단만 들여쓰지 않기)를 후손으로 낮추던
  * 때는 `p { text-indent: 0 }` 으로 읽혀 **모든 문단**의 들여쓰기가 사라졌다. 그래서 `+` 는 바로 앞 형제를 보고 맞히고,
@@ -49,9 +54,12 @@ data class CssSelector(val parts: List<Part>) {
         val classes: Set<String> = emptySet(),
         val id: String? = null,
         val adjacent: Boolean = false,
+        /** `:first-child` — 부모의 첫 요소 자식이어야 한다. */
+        val firstChild: Boolean = false,
     ) {
         fun matches(element: ElementInfo): Boolean {
             if (tag != null && tag != element.tag) return false
+            if (firstChild && element.previousSibling != null) return false
             if (id != null && id != element.id) return false
             return element.classes.containsAll(classes)
         }
@@ -64,7 +72,7 @@ data class CssSelector(val parts: List<Part>) {
     val specificity: Int
         get() = parts.sumOf { part ->
             (if (part.id != null) 1_000_000 else 0) +
-                part.classes.size * 1_000 +
+                (part.classes.size + if (part.firstChild) 1 else 0) * 1_000 +
                 (if (part.tag != null) 1 else 0)
         }
 
@@ -115,6 +123,8 @@ data class CssSelector(val parts: List<Part>) {
                 .filter { it.isNotBlank() }
             // 앞 형제를 모두 봐야 하는 `~` 는 맞힐 수 없다. 후손으로 낮추면 넓게 맞아 해가 되므로 규칙을 버린다.
             if ("~" in tokens) return null
+            // 맞힐 수 없는 구조 의사 클래스 · 일어나지 않는 상태는 규칙째 버린다(떼면 모든 요소에 퍼진다).
+            if (tokens.any { token -> PSEUDO_CLASS.findAll(token).any { it.groupValues[1].lowercase() in DROPPED_PSEUDO } }) return null
             val parts = ArrayList<Part>()
             for (token in tokens) {
                 if (token == "+") {
@@ -131,11 +141,20 @@ data class CssSelector(val parts: List<Part>) {
 
         private val BRACKETED = Regex("""\([^)]*\)|\[[^\]]*\]""")
 
+        private val PSEUDO_CLASS = Regex(":([A-Za-z-]+)")
+
+        private val DROPPED_PSEUDO = setOf(
+            "last-child", "nth-child", "nth-last-child", "only-child", "first-of-type", "last-of-type", "only-of-type",
+            "nth-of-type", "nth-last-of-type", "empty", "has",
+            "hover", "active", "focus", "focus-within", "focus-visible", "target", "checked", "disabled", "enabled",
+        )
+
         private val PSEUDO_ELEMENT = Regex("::|:(first-letter|first-line|before|after|marker|selection)\\b", RegexOption.IGNORE_CASE)
 
         private fun parsePart(raw: String): Part? {
-            // 의사 클래스와 속성 셀렉터를 떼어 낸다(의사 요소는 parse 에서 규칙째 버렸다). 지원하지 않지만, 규칙을
-            // 버리기보다 나머지 조건으로 맞히는 편이 실제 책에서 낫다.
+            // 의사 클래스와 속성 셀렉터를 떼어 낸다(의사 요소 · 버릴 의사 클래스는 parse 에서 규칙째 버렸다). `:first-child`
+            // 만 맞히고, 나머지는 규칙을 버리기보다 나머지 조건으로 맞히는 편이 실제 책에서 낫다.
+            val firstChild = PSEUDO_CLASS.findAll(raw).any { it.groupValues[1].equals("first-child", ignoreCase = true) }
             var text = raw.substringBefore(':')
             while (true) {
                 val open = text.indexOf('[')
@@ -177,10 +196,10 @@ data class CssSelector(val parts: List<Part>) {
             flush()
 
             return if (tag == null && classes.isEmpty() && id == null) {
-                // `*` 만 있는 경우. 전체 선택자로 남긴다.
-                if (text.contains('*')) Part() else null
+                // `*` 만 있는 경우. 전체 선택자로 남긴다. `:first-child` 만 있어도(`*:first-child`) 그것으로 맞힌다.
+                if (text.contains('*') || firstChild) Part(firstChild = firstChild) else null
             } else {
-                Part(tag, classes, id)
+                Part(tag, classes, id, firstChild = firstChild)
             }
         }
     }

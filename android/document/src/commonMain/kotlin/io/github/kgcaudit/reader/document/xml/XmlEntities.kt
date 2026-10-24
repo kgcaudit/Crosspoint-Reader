@@ -15,8 +15,26 @@ import io.github.kgcaudit.reader.document.io.codePointToString
  */
 internal object XmlEntities {
 
+    /**
+     * HTML 의 라틴-1 엔티티 96 개(U+00A0 ~ U+00FF 차례). XHTML DTD 를 쓴 EPUB · HTML 에서 옮긴 책에 흔하다 — 빠졌던 때는
+     * "Pok&eacute;mon" 처럼 원문 그대로 보였다.
+     */
+    private val LATIN1 = (
+        "nbsp iexcl cent pound curren yen brvbar sect uml copy ordf laquo not shy reg macr " +
+            "deg plusmn sup2 sup3 acute micro para middot cedil sup1 ordm raquo frac14 frac12 frac34 iquest " +
+            "Agrave Aacute Acirc Atilde Auml Aring AElig Ccedil Egrave Eacute Ecirc Euml Igrave Iacute Icirc Iuml " +
+            "ETH Ntilde Ograve Oacute Ocirc Otilde Ouml times Oslash Ugrave Uacute Ucirc Uuml Yacute THORN szlig " +
+            "agrave aacute acirc atilde auml aring aelig ccedil egrave eacute ecirc euml igrave iacute icirc iuml " +
+            "eth ntilde ograve oacute ocirc otilde ouml divide oslash ugrave uacute ucirc uuml yacute thorn yuml"
+        ).split(' ').mapIndexed { i, name -> name to (0xA0 + i).toChar().toString() }
+
     /** 전자책 본문에 실제로 등장하는 명명 엔티티. 없는 것은 숫자 참조로 쓰이므로 충분하다. */
-    private val named: Map<String, String> = mapOf(
+    private val named: Map<String, String> = LATIN1.toMap() + mapOf(
+        // 폭 없는 이음 · 방향 표시(아랍어 · 히브리어가 섞인 책, 이모지 이음)
+        "zwj" to "\u200D", "zwnj" to "\u200C", "lrm" to "\u200E", "rlm" to "\u200F",
+        // 라틴 확장(프랑스어 · 체코어 이름)
+        "OElig" to "Œ", "oelig" to "œ", "Scaron" to "Š", "scaron" to "š", "Yuml" to "Ÿ", "fnof" to "ƒ",
+        "circ" to "ˆ", "tilde" to "˜",
         // XML 기본
         "amp" to "&", "lt" to "<", "gt" to ">", "quot" to "\"", "apos" to "'",
         // 공백 · 하이픈

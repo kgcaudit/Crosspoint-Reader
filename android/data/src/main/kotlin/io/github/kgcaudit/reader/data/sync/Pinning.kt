@@ -8,9 +8,16 @@ import java.security.cert.X509Certificate
 import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
 
-/** SHA-256 지문을 "AB:CD:…" 로. NAS 설정 화면이 보이는 모양과 같아 사람이 눈으로 맞춰 볼 수 있다. */
+/** 인증서 SHA-256 지문을 "AB:CD:…" 로. NAS 의 인증서 화면 · 브라우저가 보이는 모양과 같아 사람이 눈으로 맞춰 볼 수 있다. */
 internal fun fingerprintOf(bytes: ByteArray): String =
     MessageDigest.getInstance("SHA-256").digest(bytes).joinToString(":") { "%02X".format(it) }
+
+/**
+ * SSH 서버 키 지문을 "SHA256:…"(base64, 끝 = 없음)로 — `ssh-keygen -lf` · OpenSSH · NAS 의 SSH 화면이 보이는 모양. 0.59.0 은 인증서와
+ * 같은 콜론 16진으로 보여, 사람이 NAS 화면과 맞춰 볼 수 없어 보지 않고 "믿기" 를 누르게 됐다.
+ */
+internal fun sshFingerprintOf(key: ByteArray): String =
+    "SHA256:" + java.util.Base64.getEncoder().withoutPadding().encodeToString(MessageDigest.getInstance("SHA-256").digest(key))
 
 /**
  * FTPS 인증서 판단. 공인 기관이 서명했고 이름이 주소와 맞으면 받는다. 아니면 사람이 믿기로 한 지문([pinned])과 같을 때만 받는다.

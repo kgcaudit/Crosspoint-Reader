@@ -2,7 +2,10 @@ package io.github.kgcaudit.reader.data.sync
 
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
+import org.apache.commons.net.MalformedServerReplyException
 import org.apache.commons.net.ftp.FTP
 import org.apache.commons.net.ftp.FTPClient
 import org.apache.commons.net.ftp.FTPConnectionClosedException
@@ -18,6 +21,8 @@ import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import java.time.Duration
 import javax.net.ssl.SSLException
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
 
 /**
  * 서버 한 곳의 폴더에 이어 읽기 파일을 둔다. FTP · FTPS 는 아파치 commons-net, SFTP 는 JSch([SftpConnection]).
@@ -52,26 +57,34 @@ class FtpSyncStore(
         fun close()
     }
 
-    /** [session] 안에서 쓰는 연결. 세션 밖이면 null. */
-    @Volatile
-    private var open: Connection? = null
+    /**
+     * [session] 안의 연결. 필드가 아니라 코루틴 맥락에 싣는다 — 필드면 동시에 부른 다른 맞추기가 그 연결(스레드에 안전하지 않은
+     * FTPClient · ChannelSftp)을 함께 쓰거나, 먼저 끝난 쪽이 닫은 연결을 쓴다.
+     */
+    private class Held(val connection: Connection, val store: FtpSyncStore) : AbstractCoroutineContextElement(Held) {
+        companion object Key : CoroutineContext.Key<Held>
+    }
+
+    private suspend fun held(): Connection? = currentCoroutineContext()[Held]?.takeIf { it.store === this }?.connection
 
     override suspend fun <T> session(block: suspend () -> T): T {
-        if (open != null) return block()
-        val connection = withContext(io) { connect() }
-        open = connection
+        if (held() != null) return block()
+        // 잇기와 닫기는 취소되지 않게 한다. 책을 닫아 띠 확인이 취소되면, 잇는 중이던 연결은 결과를 잃고 닫던 연결은 닫히지
+        // 않아 소켓(SFTP 면 SSH 스레드까지)이 남았다 — 연결 수를 묶는 NAS 가 그 뒤 로그인을 거절했다(421).
+        // 연결은 블록 안에서 바로 쥔다 — withContext 는 부른 쪽이 그사이 취소되면 끝난 결과도 버린다(NonCancellable 이어도).
+        var connection: Connection? = null
         try {
-            return block()
+            withContext(NonCancellable + io) { connection = connect() }
+            return withContext(Held(connection!!, this)) { block() }
         } finally {
-            open = null
-            withContext(io) { connection.close() }
+            connection?.let { c -> withContext(NonCancellable + io) { c.close() } }
         }
     }
 
     /** [session] 안이면 그 연결로, 밖이면 새로 이어서 한 번. */
     private suspend fun <T> withConnection(work: (Connection) -> T): T {
-        open?.let { c -> return withContext(io) { work(c) } }
-        return session { withContext(io) { work(open!!) } }
+        held()?.let { c -> return withContext(io) { work(c) } }
+        return session { withContext(io) { work(held()!!) } }
     }
 
     override suspend fun list(): List<SyncStore.Entry> = withConnection { it.list() }
@@ -138,9 +151,12 @@ class FtpSyncStore(
 internal class FtpConnection private constructor(private val c: FTPClient) : FtpSyncStore.Connection {
 
     override fun list(): List<SyncStore.Entry> = guard {
-        val files: Array<FTPFile> = if (c.hasFeature("MLSD")) c.mlistDir() else c.listFiles()
+        val exact = c.hasFeature("MLSD")
+        val files: Array<FTPFile> = if (exact) c.mlistDir() else c.listFiles()
         files.filter { it.isFile }.map { f ->
-            SyncStore.Entry(id = f.name, name = f.name, modifiedEpochMs = f.timestamp?.timeInMillis, sizeBytes = f.size.takeIf { it >= 0 })
+            // LIST 의 시각은 분까지다(vsftpd 등 MLSD 가 없는 서버). 같은 분 안에 다시 쓴 파일은 크기도 같기 쉬워(숫자만 바뀜)
+            // "안 바뀜" 으로 보고 옛 자리를 내놓았다 — 시각을 알리지 않아 늘 다시 읽게 한다(파일은 몇 KB).
+            SyncStore.Entry(id = f.name, name = f.name, modifiedEpochMs = if (exact) f.timestamp?.timeInMillis else null, sizeBytes = f.size.takeIf { it >= 0 })
         }
     }
 
@@ -157,13 +173,15 @@ internal class FtpConnection private constructor(private val c: FTPClient) : Ftp
         val temp = FtpSyncStore.partName(name)
         if (!c.storeFile(temp, ByteArrayInputStream(bytes))) failed(c, "store $temp")
         if (!c.rename(temp, name)) {
-            // 이름 바꾸기가 있는 파일을 덮지 않는 서버(일부 윈도 IIS · 오래된 NAS)가 있다. 옛것을 지우고 다시 — 그 사이 잠깐 파일이
-            // 없어도 다른 기기는 "이번엔 없음" 으로 넘기고 다음에 읽는다.
+            // 이름 바꾸기가 있는 파일을 덮지 않는 서버(일부 윈도 IIS · 오래된 NAS)가 있다. 그때만(있는 파일이 막은 것) 옛것을
+            // 지우고 다시 — 그 사이 잠깐 파일이 없어도 다른 기기는 "이번엔 없음" 으로 넘기고 다음에 읽는다. 권한 등 다른 까닭이면
+            // 지우지 않는다: 지우고 나서도 못 바꾸면 이 기기 파일이 서버에서 사라졌다.
+            val refusal = c.replyCode
+            val exists = c.listNames(name)?.isNotEmpty() == true
+            if (!exists) failed(c, "rename $temp", replyCode = refusal)
             c.deleteFile(name)
-            if (!c.rename(temp, name)) {
-                c.deleteFile(temp)
-                failed(c, "rename $temp")
-            }
+            // 다시도 안 되면 임시 파일은 남긴다(다른 기기는 .part 를 읽지 않고, 다음 쓰기가 덮는다).
+            if (!c.rename(temp, name)) failed(c, "rename $temp")
         }
     }
 
@@ -232,8 +250,11 @@ internal class FtpConnection private constructor(private val c: FTPClient) : Ftp
         }
 
         /** 서버의 거절 답을 사람에게 보일 갈래로. */
-        private fun failed(c: FTPClient, what: String, fallback: SyncProblem = SyncProblem.Server): Nothing {
-            val problem = when (c.replyCode) {
+        private fun failed(c: FTPClient, what: String, fallback: SyncProblem = SyncProblem.Server, replyCode: Int = c.replyCode): Nothing {
+            val problem = when (replyCode) {
+                // 522: 데이터 연결의 TLS 를 맺지 못함 — 대개 TLS 세션 재사용을 요구하는 서버(vsftpd `require_ssl_reuse`,
+                // FileZilla Server). commons-net 은 재사용을 하지 못해 다시 해도 같다 — 따로 알려 SFTP 로 이끈다.
+                522 -> SyncProblem.Incompatible
                 // 452 · 552: 저장 공간 부족.
                 452, 552 -> SyncProblem.Full
                 530 -> SyncProblem.Auth
@@ -259,6 +280,8 @@ internal class FtpConnection private constructor(private val c: FTPClient) : Ftp
             throw SyncStoreException(SyncProblem.Offline, "no route", e)
         } catch (e: SocketTimeoutException) {
             throw SyncStoreException(SyncProblem.Asleep, "timed out", e)
+        } catch (e: MalformedServerReplyException) {
+            throw SyncStoreException(SyncProblem.Server, "malformed server reply", e)
         } catch (e: FTPConnectionClosedException) {
             throw SyncStoreException(SyncProblem.Offline, "server closed the connection", e)
         } catch (e: IOException) {

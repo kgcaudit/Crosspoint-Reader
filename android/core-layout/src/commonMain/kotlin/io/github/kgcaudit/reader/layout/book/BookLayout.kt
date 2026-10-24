@@ -39,7 +39,6 @@ class BookLayout(
     private val spec: LayoutSpec,
     private val store: PageStore,
     private val measurer: TextMeasurer,
-    styleContext: StyleContext = StyleContext.of(spec),
     /** 책 글꼴표. 측정기가 같은 표로 글꼴을 골라야 한다 — 번호가 같은 가족을 가리켜야 폭이 맞는다. */
     fonts: BookFontTable = BookFontTable.EMPTY,
 ) {
@@ -47,7 +46,14 @@ class BookLayout(
     /** 이 책의 식별자. 책갈피·진도가 같은 값을 쓰도록 여기서 한 번만 꺼낸다. */
     val bookId: BookId get() = document.meta.id
 
-    private val loader = ChapterLoader(document, styleContext, fonts)
+    // 맥락은 늘 [spec] 에서 — 따로 받던 때는 spec 과 다른 맥락으로 조판한 쪽이 spec 의 캐시 열쇠로 저장될 수 있었다(규칙 4).
+    private val loader = ChapterLoader(document, StyleContext.of(spec), fonts)
+
+    /**
+     * 이번에 열린 동안 읽지 못한 장. 안내 쪽은 부분 캐시라(다음에 책을 열면 다시 읽어 본다) 쪽 수 · 쪽 · 장 글을 물을 때마다
+     * 다시 읽었다 — 큰 깨진 파일에서는 한 장을 보는 데 서너 번 해석해, 넘길 때마다 걸렸다.
+     */
+    private val unreadable = HashSet<Int>()
     private var spineCache: List<SpineItem>? = null
 
     suspend fun spine(): List<SpineItem> = spineCache ?: document.spine().also { spineCache = it }
@@ -68,10 +74,11 @@ class BookLayout(
     ): Int {
         val cache = cache(spineIndex)
         cache.readIndex()?.let { header ->
-            if (header.complete) return header.pageCount
+            if (header.complete || spineIndex in unreadable) return header.pageCount
         }
 
         val chapter = try {
+            if (spineIndex in unreadable) throw IllegalStateException("chapter $spineIndex unreadable")
             loader.load(spineIndex)
         } catch (e: kotlin.coroutines.cancellation.CancellationException) {
             throw e
@@ -79,6 +86,7 @@ class BookLayout(
             // 이 장만 버리고 계속 읽는다(깨진 입력에 관대하게). 예외를 올리면 다음 장의 쪽 수를 구하는 넘기기 · 목차 ·
             // 진행 막대가 모두 같은 오류로 끝나, 깨진 장 너머로는 갈 수 없었다. 안내 한 쪽을 두되 끝났다고 적지 않는다
             // — 저장소가 잠깐 빠져 못 읽은 것이면 다음에 다시 읽는다.
+            unreadable += spineIndex
             val notice = TextChapter.parse(UNREADABLE_CHAPTER)
             cache.writer(notice.text).use { writer ->
                 // 끝내지 않고 닫으면 부분 캐시로 남는다 — 쪽은 보이되 다음에 다시 읽어 본다.
@@ -170,6 +178,7 @@ class BookLayout(
     // 가장 오래 안 쓴 것부터 버린다(셋까지). 꺼낼 때 맨 뒤로 다시 넣어 "최근" 을 표시한다.
     private suspend fun chapter(spineIndex: Int): io.github.kgcaudit.reader.layout.html.Chapter {
         recent.remove(spineIndex)?.let { recent[spineIndex] = it; return it }
+        if (spineIndex in unreadable) throw IllegalStateException("chapter $spineIndex unreadable")
         val loaded = loader.load(spineIndex)
         recent[spineIndex] = loaded
         while (recent.size > 3) recent.remove(recent.keys.first())

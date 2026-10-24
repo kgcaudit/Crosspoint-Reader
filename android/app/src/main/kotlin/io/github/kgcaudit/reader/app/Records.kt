@@ -121,14 +121,17 @@ internal fun ReadingRecordsRows(ui: RecordsUi) {
     val context = LocalContext.current
     val scope = ui.scope
     val records = ui.records
-    LaunchedEffect(ui.refresh) { ui.summary = withContext(Dispatchers.IO) { records.summary() } }
+    LaunchedEffect(ui.refresh) {
+        // 세지 못하면(DB 깨짐) 앞의 수를 그대로 둔다 — 앱 정보 화면이 닫히지 않게.
+        withContext(Dispatchers.IO) { runCatching { records.summary() }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }.getOrNull() }?.let { ui.summary = it }
+    }
 
     val create = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         ui.busy = "백업 파일을 만드는 중…"
         scope.launch {
             val made = withContext(Dispatchers.IO) {
-                runCatching { context.contentResolver.openOutputStream(uri, "wt")?.use { records.export(it) } }.getOrNull()
+                runCatching { context.contentResolver.openOutputStream(uri, "wt")?.use { records.export(it) } }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }.getOrNull()
             }
             ui.busy = null
             if (made == null) {
@@ -148,7 +151,7 @@ internal fun ReadingRecordsRows(ui: RecordsUi) {
         scope.launch {
             // 이름 묻기도 입출력 스레드에서 한다. 드라이브 같은 제공자는 대답이 느려 화면이 멈췄다.
             val popup = withContext(Dispatchers.IO) {
-                val plan = runCatching { context.contentResolver.openInputStream(uri)?.use { records.read(it) }?.let { records.plan(it) } }.getOrNull()
+                val plan = runCatching { context.contentResolver.openInputStream(uri)?.use { records.read(it) }?.let { records.plan(it) } }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }.getOrNull()
                 plan?.let { RecordsPopup.Preview(it) } ?: RecordsPopup.NotBackup(Incoming.describe(uri, context.contentResolver).first)
             }
             ui.busy = null
@@ -192,7 +195,7 @@ internal fun ReadingRecordsPopups(ui: RecordsUi) {
             ui.popup = null
             ui.busy = "기록을 가져오는 중…"
             scope.launch {
-                val result = withContext(Dispatchers.IO) { runCatching { ui.records.apply(shown.plan) }.getOrNull() }
+                val result = withContext(Dispatchers.IO) { runCatching { ui.records.apply(shown.plan) }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }.getOrNull() }
                 ui.busy = null
                 ui.popup = result?.let { RecordsPopup.Done(it, works = shown.plan.file.works.size) } ?: RecordsPopup.Failed("기록을 가져오지 못했습니다")
                 ui.refresh++

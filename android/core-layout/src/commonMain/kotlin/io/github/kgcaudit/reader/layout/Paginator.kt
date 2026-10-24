@@ -59,7 +59,10 @@ class Paginator(
             previous = block
         }
 
-        builder.finish()?.let { yield(it) }
+        val last = builder.finish()
+        // 내용이 없는 장(CSS 배경만 있는 표지 · 모두 숨긴 본문)도 빈 쪽 하나는 둔다. 0 쪽이면 넘기기가 그 장의 "0쪽" 으로 가
+        // 빈 화면이 한 번 떴다(쪽이 null).
+        if (last != null) yield(last) else if (builder.pagesMade == 0) yield(Page(index = 0, startChar = 0, endCharExclusive = 0))
     }
 
     /** 사용자가 정한 본문 정렬([LayoutSpec.alignOverride]). 양쪽·왼쪽(시작) 문단에만 — 가운데·끝은 책의 뜻이다. */
@@ -82,8 +85,17 @@ class Paginator(
 
     private fun geometry(block: Block.Paragraph): ParagraphGeometry {
         val em = spec.baseSizePx
-        val indentStart = block.style.indentStartEm * em
-        val indentEnd = block.style.indentEndEm * em
+        var indentStart = block.style.indentStartEm * em
+        var indentEnd = block.style.indentEndEm * em
+        // 들여쓰기는 em 이라 글자를 키우면 함께 커진다. 큰 글자에서 겹친 인용 · 깊은 목록은 들여쓰기가 본문 폭을 넘어 한 줄에
+        // 한두 글자만 남고 장이 수십 배로 길어졌다. 합이 본문 폭의 절반을 넘으면 같은 비율로 줄인다.
+        val limit = spec.contentWidthPx * MAX_INDENT_SHARE
+        val total = indentStart + indentEnd
+        if (total > limit && total > 0f) {
+            val scale = limit / total
+            indentStart *= scale
+            indentEnd *= scale
+        }
         val width = (spec.contentWidthPx - indentStart - indentEnd).coerceAtLeast(MIN_WIDTH)
 
         // CSS text-indent 가 정해졌으면 그걸 쓰고, 없으면 사용자 설정을 쓴다. 둘을
@@ -128,7 +140,10 @@ class Paginator(
             // 놓는다 — 한 줄이 지면보다 높으면(아주 큰 제목) 넘겨도 영원히 안 들어간다.
             // 그림 글자로 넣은 이모지처럼 1px 그림이 빽빽한 깨진 책은 한 쪽에 그림이 캐시 칸(u16)보다 많아질 수 있다.
             // 그 전에 쪽을 넘긴다 — 넘치면 캐시가 그 쪽 그림 수를 잘못 적어 엉뚱한 그림을 그린다.
-            val crowded = builder.imageCount + line.boxes.size > PageCodec.MAX_OBJECTS_PER_PAGE
+            // 글 조각도 같다(캐시가 u16 으로 적는다). 아주 작은 글자(font-size:1px)의 긴 블록은 한 쪽에 6만 조각을 넘겨, 캐시에
+            // 쓰다 예외가 나 그 장을 끝내 열 수 없었다(안내 쪽도 없이).
+            val crowded = builder.imageCount + line.boxes.size > PageCodec.MAX_OBJECTS_PER_PAGE ||
+                builder.runCount + line.pieces.size > PageCodec.MAX_OBJECTS_PER_PAGE
             if ((!builder.fits(line.heightPx) || crowded) && !builder.isAtPageTop) {
                 builder.finish()?.let { yield(it) }
             }
@@ -340,6 +355,11 @@ class Paginator(
 
         val imageCount: Int get() = images.size
 
+        val runCount: Int get() = runs.size
+
+        /** 지금까지 내놓은 쪽 수. */
+        val pagesMade: Int get() = pageIndex
+
         private val bottom: Float get() = spec.margin.top + spec.contentHeightPx
 
         fun fits(heightPx: Float): Boolean = y + heightPx <= bottom + EPSILON
@@ -422,6 +442,9 @@ class Paginator(
 
     private companion object {
         const val EPSILON = 0.01f
+        /** 왼 · 오른 들여쓰기를 합쳐 본문 폭에서 가질 수 있는 몫. */
+        private const val MAX_INDENT_SHARE = 0.5f
+
         const val MIN_WIDTH = 1f
 
         /** 크기를 모르는 그림의 가로:세로 = 1:0.75. */

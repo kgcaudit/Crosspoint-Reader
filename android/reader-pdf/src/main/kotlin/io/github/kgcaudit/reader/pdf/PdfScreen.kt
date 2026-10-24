@@ -51,6 +51,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -279,6 +281,9 @@ fun PdfScreen(
             val p = placed.toPage(at)
             val i = layer.charAt(p.x, p.y) ?: return@go
             val word = layer.wordAt(i)
+            // 글자 층을 만드는 사이(수백 ms) 쪽이 넘어갔으면 고르지 않는다. 고르면 보이지 않는 쪽의 선택이 남아 손잡이 · 메뉴가
+            // 없고, 다음 누름이 쪽을 넘기는 대신 그 선택만 풀었다(자동 넘김도 그때까지 멈춤).
+            if (placed.page !in reader.state.value.shown) return@go
             text.tapped = null
             text.selection = PdfSelection(placed.page, word.first, word.last + 1)
         }
@@ -406,7 +411,20 @@ fun PdfScreen(
     ) {
         Column(Modifier.fillMaxSize().background(colors.paper)) {
             // 상태 막대 자리를 뺀 곳에 쪽을 놓는다. 겹치면 세로로 긴 쪽의 마지막 줄이 막대에 가린다.
-            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().windowInsetsPadding(WindowInsets.displayCutout)) {
+            BoxWithConstraints(
+                Modifier.weight(1f).fillMaxWidth().windowInsetsPadding(WindowInsets.displayCutout)
+                    // 화면 읽기(TalkBack): 쪽 그림은 손짓만 받아, 켜 두면 쪽을 넘기거나 메뉴에 갈 길이 없었다. 이름과 동작을 단다
+                    // (EPUB 지면과 같은 말).
+                    .semantics {
+                        contentDescription = PDF_SURFACE
+                        customActions = listOf(
+                            CustomAccessibilityAction(PDF_ACTION_NEXT) { advance(true, withinPage = false); true },
+                            CustomAccessibilityAction(PDF_ACTION_PREVIOUS) { advance(false, withinPage = false); true },
+                            CustomAccessibilityAction(PDF_ACTION_MENU) { panel = PdfPanel.Bar; true },
+                            CustomAccessibilityAction(PDF_ACTION_BOOKMARK) { toggleBookmark(); true },
+                        )
+                    },
+            ) {
                 val viewW = constraints.maxWidth.toFloat()
                 val viewH = constraints.maxHeight.toFloat()
                 val density = androidx.compose.ui.platform.LocalDensity.current.density
@@ -1246,3 +1264,10 @@ internal fun baseSize(view: PageViewport): Pair<Int, Int> {
 
 /** 바탕 그림 한 장의 최대 픽셀(64MB). 쪽 그림 캐시 전체와 같은 몫이라 이보다 크면 캐시에도 못 든다. */
 private const val MAX_BASE_PIXELS = 16_000_000f
+
+/** 화면 읽기에 들리는 PDF 지면의 이름과 동작. EPUB 지면(`ReaderScreen`)과 같은 말이다. */
+const val PDF_SURFACE = "책 지면"
+const val PDF_ACTION_NEXT = "다음 쪽"
+const val PDF_ACTION_PREVIOUS = "앞 쪽"
+const val PDF_ACTION_MENU = "읽기 메뉴"
+const val PDF_ACTION_BOOKMARK = "책갈피 꽂기 · 빼기"

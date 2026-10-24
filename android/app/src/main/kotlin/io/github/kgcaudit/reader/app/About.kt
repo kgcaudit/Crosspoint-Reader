@@ -146,7 +146,7 @@ internal fun AboutScreen(records: RecordsUi, onBack: () -> Unit, onLicense: (Int
         CpListRow(
             SYNC_TITLE, onSync,
             subtitle = when {
-                container.sync.enabled && container.ftpSettings.config() != null -> "서버로 맞추는 중"
+                container.sync.enabled && container.ftpSettings.hasConfig() -> "서버로 맞추는 중"
                 container.sync.legacyWasOn -> "방식이 바뀌었습니다 — 다시 켜 주세요"
                 else -> "꺼짐"
             },

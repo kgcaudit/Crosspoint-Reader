@@ -188,7 +188,8 @@ object PdfStructureReader {
                 is PdfArray -> when (val target = d.items.firstOrNull()) {
                     is PdfRef -> pageIndex[target.num]
                     // 쪽 번호를 숫자로 적은 파일(원래 다른 파일로 갈 때의 모양)도 받아 준다.
-                    is PdfNumber -> target.int.takeIf { it >= 0 }
+                    // 쪽 수 밖의 번호는 버린다 — 그대로 주면 목차를 누를 때 없는 쪽으로 갔다.
+                    is PdfNumber -> target.int.takeIf { it >= 0 && (pageIndex.isEmpty() || it < pageIndex.size) }
                     else -> null
                 }
                 is PdfName -> destinationPage(namedDests?.get(d.name), hops + 1)

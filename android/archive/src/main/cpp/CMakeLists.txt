@@ -56,7 +56,7 @@ endif()
 # where a mistake would be silent corruption. It reads only; nothing here
 # writes a 7z. The upstream makefile's 7zdec object list, minus its CLI
 # (7zMain) and the x86 assembly (LzmaDec.c has a C path). AES is not in the
-# reference decoder, so an encrypted 7z lists but is marked unreadable.
+# reference decoder; it is added below (Aes.c, 7zDec.c) for password 7z.
 set(SEVENZ_SOURCES
     sevenz/Bcj2.c sevenz/Bra.c sevenz/Bra86.c sevenz/BraIA64.c
     sevenz/CpuArch.c sevenz/Delta.c sevenz/Lzma2Dec.c sevenz/LzmaDec.c
