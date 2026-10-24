@@ -25,7 +25,9 @@ object PageCaches {
     fun prune(cacheDir: String, keep: List<String>, now: Long = currentTimeMillis()): Int {
         if (keep.isEmpty()) return 0
         val fm = NSFileManager.defaultManager
-        val kept = keep.mapTo(HashSet()) { fnv1aHex(it) }
+        val kept = keep.mapTo(HashSet()) { pageDirName(it) }
+        // 글꼴 목록은 iOS 의 셈(UTF-8 바이트)으로 이름을 짓는다(IosBookReader).
+        val keptFonts = keep.mapTo(HashSet()) { fnv1aHex(it) }
         var removed = 0
         fun remove(path: String) {
             if (fm.removeItemAtPath(path, null)) removed++
@@ -40,7 +42,7 @@ object PageCaches {
         val referenced = HashSet<String>()
         for (name in names("$fonts/books")) {
             val path = "$fonts/books/$name"
-            if (name.removeSuffix(".idx") !in kept) {
+            if (name.removeSuffix(".idx") !in keptFonts) {
                 remove(path)
                 continue
             }
@@ -55,6 +57,20 @@ object PageCaches {
             remove(path)
         }
         return removed
+    }
+
+    /**
+     * 공통 코어 `PageStore` 가 짓는 책 폴더 이름 — 같은 FNV-1a 지만 **UTF-16 글자** 단위다(코어의 `fnv1aHex`, 공개되지 않아 여기 옮겨
+     * 둔다). iOS 의 [fnv1aHex](UTF-8 바이트)로 견주면 한글이 든 책 이름마다 값이 달라, 서재에 있는 책의 쪽 캐시까지 지웠다(실기기에서
+     * 찾음 — 시험은 영문 이름만 써서 놓쳤다).
+     */
+    internal fun pageDirName(bookId: String): String {
+        var hash = -0x340d631b7bdddcdbL
+        for (ch in bookId) {
+            hash = hash xor ch.code.toLong()
+            hash *= 0x100000001b3L
+        }
+        return hash.toULong().toString(16).padStart(16, '0')
     }
 
     private fun names(dir: String): List<String> =
