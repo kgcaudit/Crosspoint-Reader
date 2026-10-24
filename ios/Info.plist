@@ -7,6 +7,10 @@
 -->
 <plist version="1.0">
 <dict>
+	<!-- 파일 앱 › 나의 iPhone 에 앱 폴더(Documents)를 보인다. 빌드 설정(INFOPLIST_KEY_UIFileSharingEnabled)은 이 칸을 채우지 않아
+	     폴더가 보이지 않았다 — "이 iPhone 의 OLO eBook 폴더" 를 누르면 파일 앱이 이름이 같은 다른 폴더를 열었다(실기기에서 찾음). -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
