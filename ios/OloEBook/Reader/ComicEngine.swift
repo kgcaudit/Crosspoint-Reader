@@ -274,7 +274,7 @@ actor ComicEngine: BookEngine, ZoomSource {
         let last = shown.max() ?? page
         let fraction = place.save(first: Int32(page), last: Int32(last), pageCount: Int32(pageCount), atEnd: i >= units.count - 1, half: half)
         let marks = Set(place.marks().map { Int(truncating: $0) })
-        var f = PageFrame(pdfImage: render(unit), page: page, pages: pageCount, percent: Double(fraction) * 100,
+        var f = PageFrame(pdfImage: render(unit, current: true), page: page, pages: pageCount, percent: Double(fraction) * 100,
                           bookmarked: !marks.isDisjoint(with: shown), hasRight: shown.count > 1, section: "", pageLabel: nil, pagesLeft: 0)
         f.isPdf = false
         f.isComic = true
@@ -322,8 +322,18 @@ actor ComicEngine: BookEngine, ZoomSource {
 
     /// 판 한 장: 어두운 바탕 위에 쪽. 휴대폰은 위에 붙이고(남는 높이는 아래로), 두 쪽이면 책등에 붙인 둘 — 오→왼이면 앞 쪽이
     /// 오른쪽. 혼자인 쪽은 공통 `SpreadSlot` 자리(표지는 뒤 쪽 자리, 혼자 남은 쪽은 앞 쪽 자리, 펼침면은 가운데).
-    private func render(_ unit: [SpreadSplit.Part]) -> UIImage {
+    /// 지금 쪽 그림에 그림을 놓은 자리(두 쪽 보기의 말림 자리 — spreadRect).
+    private var placedRects: [CGRect] = []
+
+    func spreadRect() -> CGRect? {
+        guard let spec, spec.twoPages else { return nil }
+        return spreadBox(placedRects, spine: spec.area.midX)
+    }
+
+    private func render(_ unit: [SpreadSplit.Part], current: Bool = false) -> UIImage {
         guard let spec else { return UIImage() }
+        var placed: [CGRect] = []
+        defer { if current { placedRects = placed } }
         let shown = unit.map { Int($0.page) }
         let imgs = pieces(unit) { image($0) }
         let format = UIGraphicsImageRendererFormat.preferred()
@@ -340,6 +350,7 @@ actor ComicEngine: BookEngine, ZoomSource {
                 // 휴대폰은 그림이 맨 위(남는 높이는 아래), 태블릿은 아래에 붙인다(안드로이드 verticalBias).
                 let y = phone ? box.minY : box.maxY - r.height
                 img.draw(in: CGRect(x: r.minX, y: y, width: r.width, height: r.height))
+                placed.append(CGRect(x: r.minX, y: y, width: r.width, height: r.height))
             }
             if spec.twoPages {
                 let left = CGRect(x: area.minX, y: area.minY, width: area.width / 2, height: area.height)

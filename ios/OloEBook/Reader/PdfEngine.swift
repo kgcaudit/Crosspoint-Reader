@@ -106,6 +106,19 @@ enum PdfOpenError: Error {
 protocol ZoomSource: Actor {
     func zoomed(_ p: Int, size: CGSize, zoom: CGFloat) -> UIImage?
     func pageRect() -> CGRect?
+    /// 두 쪽 보기에서 말림을 놓을 자리(spreadBox). 두 쪽 보기가 아니면 nil.
+    func spreadRect() -> CGRect?
+}
+
+/// 두 쪽 보기의 말림 자리: 놓인 쪽들을 감싸되 책등([spine])을 가운데에 둔다 — 말림이 상자의 가운데에서 반으로 나뉘어 넘어가므로,
+/// 쪽만 감싸면(혼자인 쪽 · 폭이 다른 두 쪽) 책등이 아닌 곳에서 접혔다. 화면 전체를 말면 쪽 바깥의 여백까지 종이로 넘어갔다(실기기에서 찾음).
+func spreadBox(_ rects: [CGRect], spine: CGFloat) -> CGRect? {
+    guard !rects.isEmpty else { return nil }
+    let half = rects.map { max(spine - $0.minX, $0.maxX - spine) }.max() ?? 0
+    let top = rects.map(\.minY).min() ?? 0
+    let bottom = rects.map(\.maxY).max() ?? 0
+    guard half > 1, bottom - top > 1 else { return nil }
+    return CGRect(x: spine - half, y: top, width: half * 2, height: bottom - top)
 }
 
 actor PdfEngine: BookEngine, ZoomSource {
@@ -299,6 +312,11 @@ actor PdfEngine: BookEngine, ZoomSource {
     func pageRect() -> CGRect? {
         guard let spec, let page = doc.page(at: page) else { return nil }
         return PdfPages.fit(PdfPages.size(of: page), in: spec.pageArea)
+    }
+
+    func spreadRect() -> CGRect? {
+        guard let spec, spec.twoPages, spec.fit == .page else { return nil }
+        return spreadBox(placedPages.map(\.1), spine: spec.pageArea.midX)
     }
 
     /// 폭 맞춤 · 이어서: 손을 멈춘 자리를 저장한다(쪽은 그대로, 쪽 안 세로 자리만). 이어서면 [shown](화면 가운데 쪽)을 아래 줄 ·

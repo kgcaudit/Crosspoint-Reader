@@ -489,7 +489,7 @@ final class ReaderModel: ObservableObject {
     private func pdfPageChanged() {
         pdfZoom = nil
         pdfZoomImage = nil
-        if let z = engine as? any ZoomSource { Task { pdfPageRect = await z.pageRect() } }
+        if let z = engine as? any ZoomSource { Task { pdfPageRect = await z.pageRect(); pdfSpreadRect = await z.spreadRect() } }
         if pdfFit == .width {
             // 앞 쪽으로 넘겼으면 그 쪽의 끝부터(이어 읽는 자리), 아니면 저장된 자리(처음 열 때) · 머리.
             pdfOffset = enterBottom ? pdfMaxOffset : min(CGFloat(frame?.pdfY ?? 0) / 1000 * pdfStripHeight, pdfMaxOffset)
@@ -589,6 +589,8 @@ final class ReaderModel: ObservableObject {
         return pdfPageRect
     }
     var pdfPageRect: CGRect?
+    /// 두 쪽 보기의 말림 자리(책등을 가운데에 둔 두 쪽 상자). 두 쪽이 아니면 nil.
+    var pdfSpreadRect: CGRect?
     /// 이어서의 쪽마다 높이 ÷ 폭.
     @Published private(set) var pdfAspects: [CGFloat] = []
 
@@ -695,7 +697,7 @@ final class ReaderModel: ObservableObject {
         let before = frame?.key
         frame = await comic.layOut(spec)
         // 쪽이 바뀌었으면 frame 의 didSet 이 이미 센다 — 같은 쪽을 다시 냈을 때(화면 크기)만.
-        if frame?.key == before { pdfPageRect = await comic.pageRect() }
+        if frame?.key == before { pdfPageRect = await comic.pageRect(); pdfSpreadRect = await comic.spreadRect() }
     }
 
     /// PDF 인가(구상안 32A). 보기 판 · 위 막대 · 설정 줄이 갈린다.
@@ -718,7 +720,7 @@ final class ReaderModel: ObservableObject {
             let before = frame?.key
             let f = try await pdf.layOut(spec)
             frame = f
-            if f.key == before { pdfPageRect = await pdf.pageRect() }
+            if f.key == before { pdfPageRect = await pdf.pageRect(); pdfSpreadRect = await pdf.spreadRect() }
             if spec.fit == .continuous && pdfAspects.isEmpty { pdfAspects = await pdf.aspects() }
             // 같은 쪽을 다시 냈다(화면 크기 · 쪽 맞춤) — 자리를 다시 맞춘다.
             if spec.fit == .width { pdfOffset = min(CGFloat(f.pdfY) / 1000 * pdfStripHeight, pdfMaxOffset) }
@@ -1723,9 +1725,10 @@ struct ReaderView: View {
         }
     }
 
-    /// 말림을 놓을 자리: 한 쪽 보기의 만화 · PDF 면 지금 쪽 그림의 자리(화면 좌표), 아니면 nil(화면 전체 — 책은 지면이 곧 화면).
+    /// 말림을 놓을 자리: 만화 · PDF 면 지금 쪽 그림의 자리(두 쪽 보기면 책등을 가운데에 둔 두 쪽 상자, 화면 좌표), 아니면 nil(화면
+    /// 전체 — 책은 지면이 곧 화면).
     private func curlBox(_ full: CGSize) -> CGRect? {
-        guard model.isFixed, !twoPages(full), let r = model.pdfPageRect, r.width > 1, r.height > 1 else { return nil }
+        guard model.isFixed, let r = twoPages(full) ? model.pdfSpreadRect : model.pdfPageRect, r.width > 1, r.height > 1 else { return nil }
         return r.intersection(CGRect(origin: .zero, size: full))
     }
 

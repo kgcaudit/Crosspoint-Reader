@@ -235,4 +235,11 @@ final class PageImageController: UIViewController {
         imageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(imageView)
     }
+
+    // 늘 제 크기를 따른다. 말림이 뒷면 쪽을 크기 0 으로 만든 뒤 늘리면, 늘이기(autoresizing)는 0 에서 커지지 않아 뒷면이 바탕색(만화는
+    // 검정)으로만 보였다 — 두 쪽 보기에서 넘어가는 종이 뒷면이 까맣게 나왔다(실기기에서 찾음).
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        imageView.frame = view.bounds
+    }
 }
