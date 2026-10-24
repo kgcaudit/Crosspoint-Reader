@@ -91,11 +91,15 @@ object IosComics {
         fun stream(name: String): InputStream?
     }
 
-    private class ZipArchive(val zip: ZipReader) : Archive {
+    /** [holds] 는 함께 닫을 바깥 압축 — 압축 없이 담긴 권(`IosNestedVolumes`)은 바깥 파일의 구간을 읽어, 바깥을 먼저 닫으면 못 읽는다. */
+    internal class ZipArchive(val zip: ZipReader, private val holds: AutoCloseable? = null) : Archive {
         override val names: List<String> get() = zip.entries.keys.toList()
         override fun bytes(name: String): ByteArray? = zip.readBytes(name)
         override fun stream(name: String): InputStream? = zip.openStream(name)
-        override fun close() = zip.close()
+        override fun close() {
+            zip.close()
+            holds?.close()
+        }
     }
 
     private class TarArchive(val tar: TarReader) : Archive {
@@ -146,6 +150,18 @@ class IosComicBook private constructor(
         /** 압축(cbz · cbt · zip). 그림이 없거나 열 수 없으면 null. */
         fun openArchive(path: String): IosComicBook? = runCatching {
             val a = IosComics.open(path)
+            val contents = ComicContents.ofArchive(a.names, trustExtension = true)
+            if (contents == null || contents.pages.isEmpty()) {
+                a.close()
+                null
+            } else {
+                IosComicBook(a, null, contents.pages)
+            }
+        }.getOrNull()
+
+        /** 압축 속 권(`IosNestedVolumes`). [stamp] 는 바깥 파일의 크기 · 수정 시각. 그림이 없거나 열 수 없으면 null. */
+        fun openNested(path: String, id: String, stamp: String, cacheDir: String): IosComicBook? = runCatching {
+            val a = IosNestedVolumes.open(path, id, stamp, cacheDir)
             val contents = ComicContents.ofArchive(a.names, trustExtension = true)
             if (contents == null || contents.pages.isEmpty()) {
                 a.close()

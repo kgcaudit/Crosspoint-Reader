@@ -107,16 +107,20 @@ final class ComicCovers: @unchecked Sendable {
         let end = await library.beginAccess(folderId: file.folderId)
         defer { end() }
         let image = await Task.detached(priority: .utility) { () -> UIImage? in
-            let book: IosComicBook? = if let names = file.images {
-                IosComicBook.companion.openFolder(path: file.url.path, fileNames: names)
+            let data: Data
+            if let nestedId = file.nestedId,
+               let saved = IosNestedVolumes.shared.cover(id: nestedId, stamp: file.stamp, cacheDir: Library.ComicFile.nestedCache) {
+                // 압축 속 권은 살필 때 적어 둔 표지 — 권을 열면 50~90MB 를 꺼내고, 꺼낸 사본(최근 4권)도 밀려난다.
+                data = saved as Data
             } else {
-                IosComicBook.companion.openArchive(path: file.url.path)
+                guard let book = file.open() else { return nil }
+                defer { book.close() }
+                let coverName = unit.contents?.cover
+                let index = coverName.flatMap { name in book.pages.firstIndex(of: name) } ?? 0
+                guard let page = book.data(i: Int32(index)) else { return nil }
+                data = page as Data
             }
-            guard let book else { return nil }
-            defer { book.close() }
-            let coverName = unit.contents?.cover
-            let index = coverName.flatMap { name in book.pages.firstIndex(of: name) } ?? 0
-            guard let data = book.data(i: Int32(index)), let img = ComicImages.decode(data as Data, maxPixel: 600) else { return nil }
+            guard let img = ComicImages.decode(data, maxPixel: 600) else { return nil }
             guard let cg = img.cgImage, img.size.width > img.size.height * 1.15 else { return img }
             let range = CoverCrop.shared.front(width: Int32(cg.width), height: Int32(cg.height), rightToLeft: rtl)
             let rect = CGRect(x: Int(range.first), y: 0, width: Int(range.last) - Int(range.first) + 1, height: cg.height)

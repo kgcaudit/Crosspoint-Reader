@@ -656,11 +656,7 @@ final class ReaderModel: ObservableObject {
         guard let file = comicFileRef, let library else { return }
         let id = openBookId, label = comicLabel, entry = comicEntry
         let episode: WebtoonEpisode? = await Task.detached(priority: .userInitiated) {
-            let book: IosComicBook? = if let names = file.images {
-                IosComicBook.companion.openFolder(path: file.url.path, fileNames: names)
-            } else {
-                IosComicBook.companion.openArchive(path: file.url.path)
-            }
+            let book = file.open()
             return book.map { WebtoonEpisode(entry: entry, unitId: id, label: label, book: $0) }
         }.value
         guard let episode else { return }

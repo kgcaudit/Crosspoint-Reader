@@ -236,6 +236,20 @@ final class Library: ObservableObject {
         /// 그림 폴더면 그 안의 파일 이름들. 압축이면 nil.
         let images: [String]?
         let size: Int64
+        /// 압축 속 권(안드로이드 0.48.0)이면 그 단위 id — [url] 은 바깥 압축이다.
+        var nestedId: String? = nil
+        /// 바깥 압축의 크기 · 고친 때. 바뀌면 안의 권을 다시 살피고 다시 꺼낸다.
+        var stamp: String = ""
+
+        /// 압축 속 권의 목록 · 꺼낸 사본을 두는 곳. 쪽 캐시(pages)와 따로 둔다 — 그쪽 정리가 책 id 로 폴더를 지운다.
+        static let nestedCache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].path
+
+        /// 이 단위의 쪽들. 그림 폴더 · 압축 · 압축 속 권을 한 곳에서 가른다 — 여는 곳(읽기 · 웹툰 · 표지)마다 따로 가르면 한 곳이 빠진다.
+        func open() -> IosComicBook? {
+            if let images { return IosComicBook.companion.openFolder(path: url.path, fileNames: images) }
+            if let nestedId { return IosComicBook.companion.openNested(path: url.path, id: nestedId, stamp: stamp, cacheDir: Self.nestedCache) }
+            return IosComicBook.companion.openArchive(path: url.path)
+        }
     }
 
     /// 작품 하나의 갈래(읽는 책 · 읽은 책 · 읽을 책)와 그 열쇠들(공통 `WorkStatuses`).
@@ -373,6 +387,15 @@ final class Library: ObservableObject {
                     Library.remember(probeKey, unit)
                     units.append(unit)
                     files[id] = ComicFile(url: url, folderId: folderId, images: nil, size: size)
+                } else {
+                    // 그림이 바로 없는 압축 — 권별 압축을 다시 묶은 것이면 안의 권을 하나씩 펼친다(한 겹만).
+                    let stamp = "\(size)|\(v.contentModificationDate?.timeIntervalSince1970 ?? 0)"
+                    for volume in IosNestedVolumes.shared.probe(path: url.path, outerId: id, outerName: name, folders: parents, stamp: stamp,
+                                                                 addedAt: added, cacheDir: ComicFile.nestedCache) {
+                        units.append(volume)
+                        files[volume.id] = ComicFile(url: url, folderId: folderId, images: nil, size: volume.sizeBytes?.int64Value ?? 0,
+                                                     nestedId: volume.id, stamp: stamp)
+                    }
                 }
             }
             // 그림 폴더: 바로 아래 파일들로 판정(앱 폴더 자체는 빼고 — 거기 그림 몇 장은 작품이 아니다).

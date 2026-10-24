@@ -201,11 +201,7 @@ actor ComicEngine: BookEngine, ZoomSource {
     private var broken = Set<Int>()
 
     init(file: Library.ComicFile, unitId: String, title: String, store: ReadingStore) throws {
-        let opened: IosComicBook? = if let names = file.images {
-            IosComicBook.companion.openFolder(path: file.url.path, fileNames: names)
-        } else {
-            IosComicBook.companion.openArchive(path: file.url.path)
-        }
+        let opened = file.open()
         guard let opened else { throw ComicOpenError.broken }
         try self.init(source: ArchivePages(opened), place: UnitComicPlace(store: store, unitId: unitId), unitId: unitId, title: title, store: store)
     }

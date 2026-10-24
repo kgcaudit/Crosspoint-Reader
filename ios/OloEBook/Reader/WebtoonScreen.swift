@@ -260,11 +260,7 @@ final class WebtoonModel: ObservableObject {
         let label = next.label
         Task { [weak self] in
             let opened: WebtoonEpisode? = await Task.detached(priority: .userInitiated) {
-                let book: IosComicBook? = if let names = file.images {
-                    IosComicBook.companion.openFolder(path: file.url.path, fileNames: names)
-                } else {
-                    IosComicBook.companion.openArchive(path: file.url.path)
-                }
+                let book = file.open()
                 return book.map { WebtoonEpisode(entry: next, unitId: next.unit.id, label: label, book: $0) }
             }.value
             guard let self else { return }
