@@ -2,9 +2,7 @@ package io.github.kgcaudit.reader.ios
 
 import io.github.kgcaudit.reader.layout.Insets
 import io.github.kgcaudit.reader.layout.LayoutSpec
-import io.github.kgcaudit.reader.layout.Paginator
 import io.github.kgcaudit.reader.layout.TextAlign
-import io.github.kgcaudit.reader.layout.TextMeasurer
 
 /**
  * 화면 크기에서 [LayoutSpec] 을 만든다. 값은 안드로이드의 기본 읽기 설정(`ReaderPrefs` · `ReaderScreen`)과 같다 — 같은 책이
@@ -76,7 +74,4 @@ object ReadingSpec {
         fontId = fontId,
         useBookFonts = useBookFonts,
     )
-
-    /** 기본 줄 나누기 규칙의 [Paginator]. 같은 까닭(Swift 는 기본 매개변수를 못 쓴다)으로 여기서 만든다 — 규칙을 Swift 에서 따로 고르면 안드로이드와 줄 나눔이 갈라진다. */
-    fun paginator(spec: LayoutSpec, measurer: TextMeasurer): Paginator = Paginator(spec, measurer)
 }

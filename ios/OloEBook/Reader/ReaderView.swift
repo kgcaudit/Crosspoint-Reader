@@ -6,8 +6,15 @@ import SwiftUI
 /// 넘김이 겹치면 두 번 눌러도 한 쪽만 넘어가거나 자리 저장 순서가 뒤바뀐다.
 actor ReaderEngine: BookEngine {
     private let reader: IosBookReader
+    nonisolated let title: String
+    nonisolated let author: String?
 
-    init(reader: IosBookReader) { self.reader = reader }
+    init(reader: IosBookReader) {
+        self.reader = reader
+        // 이름표는 열 때 한 번 읽어 둔다 — actor 밖에서 리더를 만지지 않게.
+        title = reader.title
+        author = reader.author
+    }
 
     /// 형광펜 보임(모든 보기 설정). 조판이 아니라 그리기만 바꾸므로 LayoutSpec 이 아니라 여기 둔다.
     var showHighlights = true
@@ -21,7 +28,7 @@ actor ReaderEngine: BookEngine {
                                           fullWidth: Float(spread?.width ?? 0), leftInset: Float(spread?.leftInset ?? 0)))
     }
 
-    func chapterCount() async throws -> Int { Int(try await reader.chapterCount()) }
+    func chapterCount() async throws -> Int { Int(truncating: try await reader.chapterCount()) }
 
     func searchChapter(_ spine: Int, _ query: String, firstId: Int) async throws -> [SearchItem] {
         try await reader.searchChapter(spine: Int32(spine), query: query).enumerated().map { i, r in
@@ -44,7 +51,7 @@ actor ReaderEngine: BookEngine {
     func peek(_ step: Int) async -> UIImage? { try? await reader.peek(step: Int32(step)) }
 
     // 형광펜 · 메모
-    func charAt(_ p: CGPoint, after: Bool) async throws -> Int { Int(try await reader.charAt(x: Float(p.x), y: Float(p.y), after: after)) }
+    func charAt(_ p: CGPoint, after: Bool) async throws -> Int { Int(truncating: try await reader.charAt(x: Float(p.x), y: Float(p.y), after: after)) }
     func wordAt(_ p: CGPoint) async throws -> (Int, Int)? {
         let w = try await reader.wordAt(x: Float(p.x), y: Float(p.y))
         return w.count == 2 ? (w[0].intValue, w[1].intValue) : nil
@@ -80,7 +87,7 @@ actor ReaderEngine: BookEngine {
 
     func contents() async throws -> (rows: [ContentsItem], current: Int) {
         let rows = try await reader.contents().enumerated().map { ContentsItem(index: $0.offset, label: $0.element.label, depth: Int($0.element.depth)) }
-        return (rows, Int(try await reader.currentContentsIndex()))
+        return (rows, Int(truncating: try await reader.currentContentsIndex()))
     }
 
     func goToContents(_ index: Int) async throws -> PageFrame? { try await reader.goToContents(index: Int32(index)).map(PageFrame.init) }
@@ -113,8 +120,6 @@ actor ReaderEngine: BookEngine {
     func hasBookFonts() async -> Bool { (try? await reader.hasBookFonts())?.boolValue ?? false }
     func bookFontPreviewPath() -> String? { reader.bookFontPreviewPath }
     func close() { reader.close() }
-    nonisolated var title: String { reader.title }
-    nonisolated var author: String? { reader.author }
 }
 
 struct ContentsItem: Identifiable, Hashable {
@@ -1237,7 +1242,7 @@ extension ReaderModel: ListenSource {
             let h = pdfStripHeight
             if let next = IosPdfText.shared.follow(top: Double(span.top * h), bottom: Double(span.bottom * h), viewTop: Double(pdfOffset),
                                                    viewHeight: Double(pdfArea.height), maxTop: Double(pdfMaxOffset)) {
-                withAnimation(CpMotion.enter(CpMotion.barIn)) { pdfOffset = CGFloat(next) }
+                withAnimation(CpMotion.enter(CpMotion.barIn)) { pdfOffset = CGFloat(truncating: next) }
             }
         } else if pdfFit == .continuous {
             continuousReveal = (span.page, span.top, span.bottom, continuousReveal.token + 1)

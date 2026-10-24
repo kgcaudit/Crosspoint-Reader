@@ -158,7 +158,7 @@ struct VoiceScreen: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     label("기본")
-                    row(title: "iPhone 기본 목소리", sub: nil, id: nil, sample: nil)
+                    row(title: "iPhone 기본 목소리", id: nil, sample: nil)
                     if !loaded {
                         CpCaption(text: "목소리를 찾는 중…").padding(.top, 8)
                     } else if groups.isEmpty {
@@ -167,7 +167,7 @@ struct VoiceScreen: View {
                     ForEach(groups) { g in
                         label(g.title)
                         ForEach(g.voices, id: \.identifier) { v in
-                            row(title: v.name, sub: nil, id: v.identifier, sample: v)
+                            row(title: v.name, id: v.identifier, sample: v)
                         }
                     }
                     CpCaption(text: "목소리를 더 받으려면: 설정 › 손쉬운 사용 › 읽기 및 말하기 › 음성 › 한국어").padding(.vertical, 16)
@@ -186,17 +186,14 @@ struct VoiceScreen: View {
         CpSectionLabel(text: t).padding(.horizontal, CpMetrics.gutter).padding(.top, 14).padding(.bottom, 2)
     }
 
-    private func row(title: String, sub: String?, id: String?, sample: AVSpeechSynthesisVoice?) -> some View {
+    private func row(title: String, id: String?, sample: AVSpeechSynthesisVoice?) -> some View {
         let on = prefs.listenVoice == id || (id == nil && AVSpeechSynthesisVoice(identifier: prefs.listenVoice ?? "") == nil)
         return HStack(spacing: 0) {
             Button { pick(id) } label: {
                 HStack(spacing: 16) {
                     Circle().stroke(on ? CpColor.accent : CpColor.outline, lineWidth: 2).frame(width: 22, height: 22)
                         .overlay { if on { Circle().fill(CpColor.accent).frame(width: 12, height: 12) } }
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(title).font(CpFont.body).foregroundStyle(CpColor.text)
-                        if let sub { Text(sub).font(CpFont.subtitle).foregroundStyle(CpColor.textMuted) }
-                    }
+                    Text(title).font(CpFont.body).foregroundStyle(CpColor.text)
                     Spacer(minLength: 8)
                 }
                 .frame(minHeight: 56).contentShape(Rectangle())

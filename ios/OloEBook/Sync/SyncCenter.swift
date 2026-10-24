@@ -303,15 +303,15 @@ final class SyncCenter: ObservableObject {
         guard enabled else { return }
         debounce?.cancel()
         let done = Once()
-        var id = UIBackgroundTaskIdentifier.invalid
+        let task = BackgroundTaskId()
         let work = Task { await writeOwn(background: true) }
-        id = UIApplication.shared.beginBackgroundTask(withName: "olo-sync") {
+        task.id = UIApplication.shared.beginBackgroundTask(withName: "olo-sync") {
             work.cancel()
-            if done.take() { UIApplication.shared.endBackgroundTask(id) }
+            if done.take() { UIApplication.shared.endBackgroundTask(task.id) }
         }
         Task {
             await work.value
-            if done.take() { UIApplication.shared.endBackgroundTask(id) }
+            if done.take() { UIApplication.shared.endBackgroundTask(task.id) }
         }
     }
 
@@ -439,6 +439,11 @@ final class SyncCenter: ObservableObject {
             }
         }
     }
+}
+
+/// 빌린 뒤 작업 시간의 번호(끝 처리기가 받기 전에 정해진다 — 상자에 담아 넘긴다).
+final class BackgroundTaskId: @unchecked Sendable {
+    var id = UIBackgroundTaskIdentifier.invalid
 }
 
 /// 비밀번호 상자(안드로이드 `KeystoreBox` 의 짝). 이 기기에서만 열리고(ThisDeviceOnly — 새 휴대폰으로 백업 · 복원되지 않는다), 처음 잠금을

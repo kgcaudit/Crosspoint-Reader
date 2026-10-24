@@ -362,7 +362,7 @@ struct WebtoonScreen: View {
             let percent = previewPercent ?? Int(IosWebtoon.shared.percent(saved: Int32(wide ? prefs.webtoonWide : prefs.webtoonNarrow), wide: wide))
             ZStack {
                 comicPaper.paperColor
-                WebtoonCanvas(model: model, color: prefs.comicColor, rightToLeft: false, zones: prefs.touchZones,
+                WebtoonCanvas(model: model, color: prefs.comicColor, zones: prefs.touchZones,
                               auto: model.autoOn && !model.autoPaused && model.panel == .none && pickCover == nil,
                               secondsPerScreen: CGFloat(truncating: IosWebtoon.shared.secondsPerScreen[Int(IosWebtoon.shared.speed(saved: Int32(prefs.webtoonSpeed)))]),
                               onMenu: {
@@ -727,7 +727,6 @@ private struct WebtoonBookmarks: View {
 private struct WebtoonCanvas: UIViewRepresentable {
     @ObservedObject var model: WebtoonModel
     let color: Int
-    let rightToLeft: Bool
     let zones: Int
     let auto: Bool
     let secondsPerScreen: CGFloat

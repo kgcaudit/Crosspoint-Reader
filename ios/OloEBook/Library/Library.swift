@@ -455,7 +455,7 @@ final class Library: ObservableObject {
 
     /// 만화 압축 판별 결과(이 실행 동안, 판 열쇠 = id · 크기 · 고친 때). 새로고침 · 받은 파일마다 모든 압축을 다시 열었다.
     nonisolated(unsafe) private static var probes: [String: ComicUnit] = [:]
-    private static let probeLock = NSLock()
+    nonisolated private static let probeLock = NSLock()
 
     nonisolated static func probed(_ key: String) -> ComicUnit? {
         probeLock.lock()

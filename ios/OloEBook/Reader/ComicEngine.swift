@@ -394,9 +394,6 @@ actor ComicEngine: BookEngine, ZoomSource {
         return i > 0 ? show(i - 1) : nil
     }
 
-    /// 마지막 판인가(더 넘기면 권 끝 판).
-    func atEnd() -> Bool { index >= units.count - 1 }
-
     func seek(_ percent: Double) async throws -> PageFrame {
         page = Int((min(max(percent, 0), 100) / 100 * Double(pageCount - 1)).rounded())
         half = .whole

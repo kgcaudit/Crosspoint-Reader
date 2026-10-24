@@ -26,8 +26,7 @@ final class CoverStore: ObservableObject, @unchecked Sendable {
 
     /// 파일 이름: id 의 SHA-1 앞 20자. id 는 경로라 '/' · 한글이 섞여 그대로 파일 이름이 될 수 없다.
     private func url(_ id: String) -> URL {
-        let digest = Insecure.SHA1.hash(data: Data(id.utf8)).map { String(format: "%02x", $0) }.joined()
-        return dir.appendingPathComponent(String(digest.prefix(20)) + ".jpg")
+        dir.appendingPathComponent(WidgetShared.shortHash(id) + ".jpg")
     }
 
     func custom(_ id: String) -> UIImage? {

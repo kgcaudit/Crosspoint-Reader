@@ -452,10 +452,6 @@ actor PdfEngine: BookEngine, ZoomSource {
         }
     }
 
-    private func refreshTints() async {
-        tints = [:]
-    }
-
     /// 쪽 위의 칠 · 찾은 말 · 듣는 문장 · 메모 쪽지(쪽이 놓인 [rect] 에 맞춰).
     private func paintMarks(_ p: Int, in rect: CGRect, cg: CGContext) {
         let t = showTints ? (tints[p] ?? []) : []

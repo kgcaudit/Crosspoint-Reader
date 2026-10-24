@@ -52,8 +52,11 @@ enum WidgetShared {
     }
 
     /// 표지 파일 이름: id 의 SHA-1 앞 20자(id 는 경로라 그대로 파일 이름이 될 수 없다).
-    static func coverName(_ id: String) -> String {
-        Insecure.SHA1.hash(data: Data(id.utf8)).map { String(format: "%02x", $0) }.joined().prefix(20) + ".png"
+    static func coverName(_ id: String) -> String { shortHash(id) + ".png" }
+
+    /// id 의 SHA-1 앞 20자 — 경로인 id 를 파일 이름으로(앱의 고른 표지 파일도 같은 셈을 쓴다).
+    static func shortHash(_ id: String) -> String {
+        String(Insecure.SHA1.hash(data: Data(id.utf8)).map { String(format: "%02x", $0) }.joined().prefix(20))
     }
 
     /// 위젯이 보낸 주소면 (만화인가, id), 아니면 nil. 앱만 여는 주소는 ("", false).

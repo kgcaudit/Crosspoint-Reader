@@ -74,8 +74,6 @@ struct Paper: Equatable {
     static let light = Paper(paper: 0xFBF9F5, ink: 0x1D1A16, inkMuted: 0x574D45, dark: false)
     static let dark = Paper(paper: 0x181613, ink: 0xE8E3DA, inkMuted: 0xCFC5B9, dark: true)
 
-    static func system(_ scheme: ColorScheme) -> Paper { scheme == .dark ? .dark : .light }
-
     var paperColor: Color { Color(CpColor.uiColor(paper)) }
     var inkMutedColor: Color { Color(CpColor.uiColor(inkMuted)) }
 }
@@ -95,7 +93,6 @@ enum CpMetrics {
     static let headerHeight: CGFloat = 64
     static let rowHeight: CGFloat = 64
     static let touchTarget: CGFloat = 48
-    static let statusBarHeight: CGFloat = 28
     static let cornerChip: CGFloat = 6
     static let cornerSmall: CGFloat = 10
     static let cornerMedium: CGFloat = 14

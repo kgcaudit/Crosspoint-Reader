@@ -157,8 +157,7 @@ final class ReaderPrefs: ObservableObject {
     func spec(size: CGSize, insets: EdgeInsets, bookFonts: Bool, twoPages: Bool = false) -> LayoutSpec {
         let book = usesBookFonts(bookFonts)
         let width = twoPages ? (size.width - insets.leading - insets.trailing) / 2 : size.width
-        return
-        ReadingSpec.shared.of(
+        return ReadingSpec.shared.of(
             widthPt: Float(width), heightPt: Float(size.height),
             safeLeft: twoPages ? 0 : Float(insets.leading), safeTop: Float(insets.top),
             // 아래 안전 영역은 더하지 않는다: 아래 줄이 화면 끝에서 14 에 서고 홈 표시줄은 읽는 동안 숨는다(구상안 13A). 더하면
