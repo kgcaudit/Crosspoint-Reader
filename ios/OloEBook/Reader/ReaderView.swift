@@ -1309,13 +1309,18 @@ struct ReaderView: View {
     @State private var closing = false
     #if DEBUG
     @State private var debugApplied = false
+    /// 메뉴 없이 읽을 때의 화면 크기 · 안전 영역(메뉴가 열려도 조판이 바뀌지 않게).
+    @State private var readingInsets: (full: CGSize, insets: EdgeInsets)?
     #endif
 
     var body: some View {
         GeometryReader { geometry in
-            let insets = geometry.safeAreaInsets
-            let full = CGSize(width: geometry.size.width + insets.leading + insets.trailing,
-                              height: geometry.size.height + insets.top + insets.bottom)
+            let raw = geometry.safeAreaInsets
+            let full = CGSize(width: geometry.size.width + raw.leading + raw.trailing,
+                              height: geometry.size.height + raw.top + raw.bottom)
+            // 메뉴가 열린 동안은 읽던 때의 안전 영역을 쓴다. iPad 는 메뉴를 열면 상태 막대가 나타나 위 안전 영역이 0 → 24 로 바뀌는데,
+            // 그 값으로 다시 짜면 메뉴를 열 때마다 쪽 경계가 달라져 다른 글이 보였다(실기기에서 찾음). 화면 크기가 바뀌면(회전) 새 값.
+            let insets = model.panel == .none ? raw : (readingInsets.flatMap { $0.full == full ? $0.insets : nil } ?? raw)
             // 만화는 늘 어두운 바탕(구상안 36) — 메뉴도 이 밝기를 따라 어둡다.
             let paper = model.isComic ? comicPaper : prefs.theme.paper(scheme)
             ZStack {
@@ -1552,7 +1557,11 @@ struct ReaderView: View {
             }
             .clipped()
             .frame(width: full.width, height: full.height)
-            .offset(x: -insets.leading, y: -insets.top)
+            .onChange(of: InsetsKey(full: full, insets: raw, reading: model.panel == .none), initial: true) { _, k in
+                if k.reading { readingInsets = (k.full, k.insets) }
+            }
+            // 화면 전체에 그리려고 실제 안전 영역만큼 되돌린다 — 조판에 쓰는 고정값(insets)으로 되돌리면 상태 막대가 나타날 때 쪽이 그만큼 밀렸다.
+            .offset(x: -raw.leading, y: -raw.top)
             .task {
                 await model.open(book, library: library)
                 await model.askSync(book, library: library)
@@ -1819,6 +1828,12 @@ struct ReaderView: View {
     }
 
     private var zones: TouchZones { TouchZones.companion.of(index: Int32(prefs.touchZones)) }
+
+    private struct InsetsKey: Equatable {
+        let full: CGSize
+        let insets: EdgeInsets
+        let reading: Bool
+    }
 
     private struct KeepAwakeKey: Equatable {
         let mode: ReaderPrefs.KeepScreenOn
