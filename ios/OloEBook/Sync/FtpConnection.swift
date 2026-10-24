@@ -358,9 +358,8 @@ final class FtpConnection: SyncConnection {
             let year = Calendar(identifier: .gregorian).component(.year, from: Date())
             let raw = try transfer(mlsd ? "MLSD" : "LIST") { try $0.readAll(max: 4 * 1024 * 1024) }
             let text = String(data: raw, encoding: encoding) ?? String(decoding: raw, as: UTF8.self)
-            return text.split(whereSeparator: \.isNewline).compactMap { line in
-                mlsd ? FtpReplies.shared.mlsd(line: String(line)) : FtpReplies.shared.list(line: String(line), nowYear: Int32(year))
-            }
+            // LIST 의 분 단위 시각은 버린다(공통 `listing`) — 같은 분 안에 다시 쓴 파일을 "안 바뀜" 으로 보지 않게.
+            return FtpReplies.shared.listing(text: text, exact: mlsd, nowYear: Int32(year))
         }
     }
 
@@ -388,19 +387,29 @@ final class FtpConnection: SyncConnection {
         try await offThread { [self] in
             let temp = IosReadingSync.companion.partName(name: name)
             try transfer("STOR \(temp)") { try $0.write(data) }
-            if try rename(temp, name) { return }
-            // 이름 바꾸기가 있는 파일을 덮지 않는 서버(일부 윈도 IIS · 오래된 NAS)가 있다. 옛것을 지우고 다시 — 그 사이 잠깐 파일이
-            // 없어도 다른 기기는 "이번엔 없음" 으로 넘기고 다음에 읽는다.
+            let refusal = try rename(temp, name)
+            if refusal == nil { return }
+            // 이름 바꾸기가 있는 파일을 덮지 않는 서버(일부 윈도 IIS · 오래된 NAS)가 있다. 그때만(있는 파일이 막은 것) 옛것을
+            // 지우고 다시 — 그 사이 잠깐 파일이 없어도 다른 기기는 "이번엔 없음" 으로 넘기고 다음에 읽는다. 권한 등 다른 까닭이면
+            // 지우지 않는다: 지우고 나서도 못 바꾸면 이 기기 파일이 서버에서 사라졌다(안드로이드 0.59.2).
+            let exists = try command("SIZE \(name)").code == 213 || command("MDTM \(name)").code == 213
+            guard exists else {
+                throw SyncFailure(problem: FtpReplies.shared.problemOf(code: Int32(refusal!), fallback: .noaccess), detail: "rename \(temp) failed")
+            }
             _ = try command("DELE \(name)")
-            if try rename(temp, name) { return }
-            _ = try command("DELE \(temp)")
-            throw SyncFailure(problem: .noaccess, detail: "rename \(temp) failed")
+            // 다시도 안 되면 임시 파일은 남긴다(다른 기기는 점으로 시작하는 파일을 읽지 않고, 다음 쓰기가 덮는다).
+            if let again = try rename(temp, name) {
+                throw SyncFailure(problem: FtpReplies.shared.problemOf(code: Int32(again), fallback: .noaccess), detail: "rename \(temp) failed")
+            }
         }
     }
 
-    private func rename(_ from: String, _ to: String) throws -> Bool {
-        guard try command("RNFR \(from)").code == 350 else { return false }
-        return try command("RNTO \(to)").code / 100 == 2
+    /// 이름을 바꾼다. 되면 nil, 안 되면 거절한 답 번호.
+    private func rename(_ from: String, _ to: String) throws -> Int? {
+        let start = try command("RNFR \(from)")
+        guard start.code == 350 else { return start.code }
+        let done = try command("RNTO \(to)")
+        return done.code / 100 == 2 ? nil : done.code
     }
 
     func delete(_ name: String) async throws {

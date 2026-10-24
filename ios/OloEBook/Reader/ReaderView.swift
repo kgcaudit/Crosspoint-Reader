@@ -748,7 +748,8 @@ final class ReaderModel: ObservableObject {
             if scrollWithinPage(step) { autoTick += 1; return true }
             enterBottom = step < 0
         }
-        let next = try? await (step > 0 ? engine.next() : engine.previous())
+        let next: PageFrame?
+        do { next = try await (step > 0 ? engine.next() : engine.previous()) } catch { failedToGo(error); return false }
         guard let next else {
             // 만화의 마지막 판에서 더 넘기면 권 끝 판(구상안 36). 책의 처음 · 끝은 아무 일도 없다.
             if isComic && step > 0 && !quiet { comicEnd = true }
@@ -804,8 +805,7 @@ final class ReaderModel: ObservableObject {
     /// 손가락으로 다 말았다: 자리를 옮긴다(그림은 이미 넘어가 있다).
     func commitFlip(_ step: Int) async {
         guard let engine else { return }
-        let next = try? await (step > 0 ? engine.next() : engine.previous())
-        guard let next else { return }
+        guard let next = await going({ try await (step > 0 ? engine.next() : engine.previous()) }) else { return }
         selection = nil
         tapped = nil
         lastActivity = Date()
@@ -844,12 +844,24 @@ final class ReaderModel: ObservableObject {
         prevImage = await engine.peek(-1)
     }
 
+    /// 쪽이 보이는 동안 넘기기 · 찾아가기가 실패했다(캐시 · 파일 읽기 실패 등) — 알림 한 번(안드로이드 `PAGE_FAILED`, 0.59.2).
+    /// 전에는 `try?` 가 삼켜 옛 쪽이 말없이 남았다. 취소(빠르게 연달아 누름)와 그 책에 없는 기능은 실패가 아니다.
+    private func failedToGo(_ error: Error) {
+        guard !(error is CancellationError), !(error is UnsupportedFeature) else { return }
+        say("이 쪽으로 가지 못했습니다. 다시 해 보거나 목차로 옮겨 보세요.")
+    }
+
+    /// [op] 의 쪽. 실패하면 알리고 nil — 쪽이 없는 것(nil)과 실패를 가른다.
+    private func going(_ op: () async throws -> PageFrame?) async -> PageFrame? {
+        do { return try await op() } catch { failedToGo(error); return nil }
+    }
+
     private func feedback(_ step: Int) {
         TurnFeedback.shared.turned(sound: turnSound, haptic: turnHaptic, forward: step > 0, widthPt: screenWidth, landscape: landscape)
     }
 
     func seek(_ percent: Double) async {
-        guard let engine, let f = try? await engine.seek(percent) else { return }
+        guard let engine, let f = await going({ try await engine.seek(percent) }) else { return }
         lastActivity = Date()
         direction = f.percent >= (frame?.percent ?? 0) ? 1 : -1
         frame = f
@@ -906,9 +918,14 @@ final class ReaderModel: ObservableObject {
 
     /// 길게 누른 자리의 낱말을 고른다. 판 · 메뉴가 열려 있으면 하지 않는다.
     func select(at point: CGPoint) async {
+        let key = frame?.key
         guard panel == .none, let engine, let (s, e) = try? await engine.wordAt(point) else { return }
+        // 낱말을 찾는 사이(PDF 는 글자 층을 만드느라 수백 ms) 쪽이 넘어갔으면 고르지 않는다 — 고르면 보이지 않는 쪽의 선택이 남아
+        // 다음 누름이 쪽을 넘기는 대신 그 선택만 풀었다(안드로이드 0.59.2 와 같다).
+        guard frame?.key == key else { return }
         tapped = nil
         await setSelection(s, e)
+        if frame?.key != key { selection = nil }
     }
 
     private func setSelection(_ start: Int, _ end: Int) async {
@@ -1015,12 +1032,12 @@ final class ReaderModel: ObservableObject {
     /// 각주 판의 "각주 자리로 가기": 그 자리를 칠해 보인다(주석 장에는 비슷한 문단이 줄지어 있다).
     func goToFootnote(_ note: FootnoteItem) async {
         footnote = nil
-        guard let engine, let f = try? await engine.jumpTo(note.spine, note.anchor, markLength: note.text.count) else { return }
+        guard let engine, let f = await going({ try await engine.jumpTo(note.spine, note.anchor, markLength: note.text.count) }) else { return }
         frame = f
     }
 
     func returnBack() async {
-        guard let engine, let f = try? await engine.returnBack() else { return }
+        guard let engine, let f = await going({ try await engine.returnBack() }) else { return }
         frame = f
     }
 
@@ -1035,7 +1052,7 @@ final class ReaderModel: ObservableObject {
     /// 결과를 연다: 그 쪽으로 가서 찾은 말을 칠하고 판을 닫는다(결과 막대가 뜬다).
     func openHit(_ index: Int) async {
         guard let engine, index >= 0, index < search.results.count,
-              let f = try? await engine.goToHit(search.results[index]) else { return }
+              let f = await going({ try await engine.goToHit(search.results[index]) }) else { return }
         search.current = index
         lastActivity = Date()
         frame = f
@@ -1170,7 +1187,7 @@ final class ReaderModel: ObservableObject {
     }
 
     func jump(_ go: (any BookEngine) async throws -> PageFrame?) async {
-        guard let engine, let f = try? await go(engine) else { return }
+        guard let engine, let f = await going({ try await go(engine) }) else { return }
         lastActivity = Date()
         frame = f
         panel = .none
@@ -1364,6 +1381,7 @@ struct ReaderView: View {
                 }
                 // 오→왼(만화): 왼쪽을 누르거나 오른쪽으로 밀면 다음 쪽 — 넘김 자리만 뒤집고 그림은 그대로.
                 TurnZones(cornerTop: insets.top, cornerRight: insets.trailing, zones: zones, rightToLeft: rtl,
+                          surface: surfaceLabel,
                           turn: { step in Task { await model.turn(step) } },
                           tap: { point, otherwise in Task { await model.tap(at: point, otherwise: otherwise) } },
                           longPress: { point in Task { await model.select(at: point) } },
@@ -1580,6 +1598,7 @@ struct ReaderView: View {
             .task(id: TurnKey(effect: prefs.pageTurn, sound: prefs.turnSound, haptic: prefs.turnHaptic, width: full.width, height: full.height)) {
                 model.turnEffect = prefs.pageTurn
                 model.turnSound = prefs.turnSound
+                TurnFeedback.shared.warm(prefs.turnSound)
                 model.turnHaptic = prefs.turnHaptic
                 model.screenWidth = full.width
                 model.landscape = full.width > full.height
@@ -1660,6 +1679,12 @@ struct ReaderView: View {
     private var rtl: Bool { model.isComic && model.comicRTL }
 
     /// 쪽 넘김의 표지 고르기. 웹툰은 `WebtoonScreen` 이 틀로 고른다(구상안 44 ⑤).
+    /// 지면의 VoiceOver 이름(안드로이드 `READING_SURFACE` · 만화 지면). 만화는 보이는 쪽까지 — 두 쪽이면 "3-4".
+    private var surfaceLabel: String {
+        guard model.isComic, let f = model.frame else { return "책 지면" }
+        return f.hasRight ? "만화 \(f.page + 1)-\(f.page + 2)쪽" : "만화 \(f.page + 1)쪽"
+    }
+
     private var picking: String? { model.isComic && model.webtoon == nil ? pickCover : nil }
 
     /// 고른 표지를 작품에 쓰고 서재로 돌아가 알린다. 못 쓰면 false — 고르기 화면이 그대로 남아 "쓸 수 없습니다" 를 띄운다.
@@ -1771,6 +1796,8 @@ private struct TurnZones: View {
     /// 어느 쪽이 다음인가(구상안 37). 오→왼 만화면 자리를 뒤집는다 — 한 손만은 늘 다음(공통 규칙 `TouchZones.step`).
     let zones: TouchZones
     let rightToLeft: Bool
+    /// VoiceOver 가 읽는 지면 이름(안드로이드와 같은 말 — 책 · PDF 는 "책 지면", 만화는 "만화 n쪽").
+    let surface: String
     /// 읽는 순서로 몇 쪽(1 다음 · -1 앞). 누름 · 손쉬운 사용 동작이 부른다.
     let turn: (Int) -> Void
     /// 누름: 먼저 그 자리의 링크를 묻고, 링크가 아니면 두 번째 함수(넘김 · 메뉴)를 부른다.
@@ -1847,12 +1874,13 @@ private struct TurnZones: View {
                 )
         }
         .accessibilityElement()
-        .accessibilityLabel("지면")
+        .accessibilityLabel(surface)
         .accessibilityHint("\(zones.description(rightToLeft: rightToLeft)), 가운데는 메뉴, 오른쪽 위 모서리는 책갈피")
+        // 동작 이름은 안드로이드 TalkBack 의 것(0.59.2)과 같다 — 두 앱을 오가는 사람이 같은 말로 찾는다.
         .accessibilityAction(named: "다음 쪽") { turn(1) }
         .accessibilityAction(named: "앞 쪽") { turn(-1) }
-        .accessibilityAction(named: "메뉴") { toggleMenu() }
-        .accessibilityAction(named: "책갈피") { bookmark() }
+        .accessibilityAction(named: "읽기 메뉴") { toggleMenu() }
+        .accessibilityAction(named: "책갈피 꽂기 · 빼기") { bookmark() }
     }
 
     /// 한 번 누름. 확대를 받으면 두 번째 누름을 0.3초 기다린다 — 두 번이면 그 자리를 2.5배로.

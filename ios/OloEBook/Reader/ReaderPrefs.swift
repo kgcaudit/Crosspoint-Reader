@@ -197,6 +197,14 @@ final class ScreenBrightness: ObservableObject {
         screen.brightness = CGFloat(value!)
     }
 
+    /// 막대를 미는 동안: 화면 밝기만 바꾸고 [value] 는 손을 뗄 때([set]) 한 번 — 안드로이드 0.59.2 와 같다. 미는 동안 [value] 를
+    /// 바꾸면 그것을 지켜보는 리더 전체가 장면마다 다시 그려져 막대가 버벅였다.
+    func preview(_ v: Double) {
+        guard let screen else { return }
+        if original == nil { original = screen.brightness }
+        screen.brightness = CGFloat(min(max(v, 0.02), 1))
+    }
+
     /// "휴대폰" 을 눌렀다 — 휴대폰 밝기로 돌아간다.
     func followPhone() {
         restore()

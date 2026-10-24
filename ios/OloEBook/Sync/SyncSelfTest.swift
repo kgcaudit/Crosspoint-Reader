@@ -94,7 +94,8 @@ enum SyncSelfTest {
         let waited = Date().timeIntervalSince(started)
         record(waited > SyncServer.timeout + SyncServer.wakeTimeout - 2 && waited < SyncServer.timeout + SyncServer.wakeTimeout + 10, "it waited 15 + 45 seconds", "\(Int(waited))s")
         let ssh = await expectFailure("sftp asks for the host key first", .untrusted, config(2222, .sftp))
-        record(ssh?.fingerprint?.replacingOccurrences(of: ":", with: "").lowercased() == sshPin.lowercased(), "ssh key fingerprint matches ssh-keygen",
+        // ssh-keygen -lf 가 보이는 "SHA256:…" 그대로(0.59.2 부터).
+        record(ssh?.fingerprint == sshPin, "ssh key fingerprint matches ssh-keygen",
                ssh?.fingerprint ?? "nil")
         await roundTrip("sftp once trusted", config(2222, .sftp, trusted: ssh?.fingerprint))
         _ = await expectFailure("sftp wrong password", .auth, config(2222, .sftp, trusted: ssh?.fingerprint), password: "wrong")

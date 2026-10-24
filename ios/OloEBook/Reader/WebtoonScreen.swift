@@ -607,7 +607,7 @@ struct WebtoonScreen: View {
             HStack(spacing: 0) {
                 Text("밝기").font(CpFont.body).foregroundStyle(CpColor.text).frame(width: 72, alignment: .leading)
                 CpSlider(value: brightness.value ?? brightness.phone, label: "밝기",
-                         onChange: { brightness.set($0) }, onCommit: { brightness.set($0) })
+                         onChange: { brightness.preview($0) }, onCommit: { brightness.set($0) })
                 Button { brightness.followPhone() } label: {
                     Text("휴대폰").font(CpFont.label)
                         .foregroundStyle(brightness.value == nil ? CpColor.accentText : CpColor.textMuted)
@@ -909,9 +909,16 @@ private struct WebtoonCanvas: UIViewRepresentable {
                 let color = color
                 let m = model
                 loading[i] = Task { [weak image] in
-                    let img = await WebtoonDecoder.shared.run { m.strip(cell, episode: episode, width: width, color: color, source: source) }
-                    guard !Task.isCancelled, let image else { return }
-                    if let img { image.image = img; image.backgroundColor = .clear } else { self.broken(image) }
+                    // 못 풀면 조금 뒤 세 번까지 다시(안드로이드 0.59.2) — 풀기는 메모리가 잠깐 모자랄 때도 실패하는데, 한 번 실패로
+                    // "그리지 못했습니다" 를 붙이면 그 칸이 화면 밖으로 나갈 때까지 남았다. 정말 깨진 그림은 세 번 뒤에 알린다.
+                    for attempt in 0..<3 {
+                        if attempt > 0 { try? await Task.sleep(for: .milliseconds(400 * attempt)) }
+                        guard !Task.isCancelled else { return }
+                        let img = await WebtoonDecoder.shared.run { m.strip(cell, episode: episode, width: width, color: color, source: source) }
+                        guard !Task.isCancelled, let image else { return }
+                        if let img { image.image = img; image.backgroundColor = .clear; return }
+                    }
+                    if let image { self.broken(image) }
                 }
             }
         }
