@@ -42,8 +42,20 @@ struct ComicCover: View {
     var shadow = false
     /// 작품의 얼굴로 그릴 때 그 작품(구상안 44) — 고른 표지가 있으면 그것. 권 줄 · 다음 권 카드는 nil(제 표지).
     var workKey: String?
+    /// 처음부터 꺼내 둔 표지로 그린다 — 비워 두면 칸이 생길 때마다 대체 칸이 한 번 비쳤다(사용자 지적: 잔상).
     @State private var image: UIImage?
     @ObservedObject private var picked = CoverStore.shared
+
+    init(unit: ComicUnit?, library: Library, rtl: Bool = false, tag: String? = nil, shadow: Bool = false, workKey: String? = nil) {
+        self.unit = unit
+        self.library = library
+        self.rtl = rtl
+        self.tag = tag
+        self.shadow = shadow
+        self.workKey = workKey
+        let chosen = workKey.flatMap { CoverStore.shared.custom(IosCovers.shared.workId(workKey: $0)) }
+        _image = State(initialValue: chosen ?? unit.flatMap { ComicCovers.shared.ready($0, rtl: rtl) })
+    }
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 8)
@@ -84,6 +96,9 @@ struct ComicCover: View {
 final class ComicCovers: @unchecked Sendable {
     static let shared = ComicCovers()
     private let cache = NSCache<NSString, UIImage>()
+
+    /// 이미 꺼내 둔 표지(압축을 열지 않는다). 칸이 처음 그려질 때 쓴다 — 대체 칸이 한 번 비치지 않게.
+    func ready(_ unit: ComicUnit, rtl: Bool) -> UIImage? { cache.object(forKey: "\(unit.id)|\(rtl)" as NSString) }
 
     func load(_ unit: ComicUnit, library: Library, rtl: Bool) async -> UIImage? {
         let key = "\(unit.id)|\(rtl)" as NSString
@@ -159,8 +174,9 @@ struct ComicShelves: View {
         GeometryReader { g in
             let width = LibraryGrid.cellWidth(g.size.width)
             let columns = LibraryGrid.columns(g.size.width)
-            if library.layout == .shelf {
-                ShelfWall {
+            // 원목 벽은 늘 두고 책장 보기에서만 보인다(ShelfWall) — 목록은 바로 바꾸고 벽만 서서히.
+            ShelfWall(shown: library.layout == .shelf) {
+                if library.layout == .shelf {
                     ScrollView {
                         VStack(spacing: 0) {
                             ShelfCrown()
@@ -178,10 +194,9 @@ struct ComicShelves: View {
                         }
                     }
                     .refreshable { await library.refresh() }
-                }
-                .ignoresSafeArea(edges: .bottom)
-                .transition(.opacity)
-            } else {
+                    // 책장은 홈 표시줄 밑까지 굴린다 — 안전 영역에서 끊으면 책장 아래에 바탕색 띠가 남는다.
+                    .ignoresSafeArea(edges: .bottom)
+                } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(sections) { section in
@@ -209,12 +224,9 @@ struct ComicShelves: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .refreshable { await library.refresh() }
-                .transition(.opacity)
+                }
             }
         }
-        // 보기를 바꾸면 겹쳐 바뀐다 — 표지는 두 보기에서 같은 자리라(WoodRow), 표지는 그대로 있고 뒤로 원목 벽 · 판이 나타나고
-        // 사라진다. 그냥 갈아 끼우면 화면이 한 번 깜빡였다. '동작 줄이기' 면 바로.
-        .animation(UIAccessibility.isReduceMotionEnabled ? nil : .easeInOut(duration: 0.3), value: library.layout)
     }
 
     /// 표지로 쓸 권. 권이 하나도 없는 작품(합치기 · 빼기 뒤에 빈 것)은 nil — 강제로 꺼내면 앱이 죽었다.

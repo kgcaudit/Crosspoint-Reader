@@ -297,8 +297,9 @@ private struct LibraryShelves: View {
         GeometryReader { g in
             let width = LibraryGrid.cellWidth(g.size.width)
             let columns = LibraryGrid.columns(g.size.width)
-            if library.layout == .shelf {
-                ShelfWall {
+            // 원목 벽은 늘 두고 책장 보기에서만 보인다(ShelfWall) — 목록은 바로 바꾸고 벽만 서서히.
+            ShelfWall(shown: library.layout == .shelf) {
+                if library.layout == .shelf {
                     ScrollView {
                         // 화면에 가까운 줄만 만든다 — VStack 이면 화면 밖 칸까지 한꺼번에 표지를 읽어, 책이 수백 권이면 메모리가 넘쳤다.
                         LazyVStack(spacing: 0) {
@@ -316,11 +317,9 @@ private struct LibraryShelves: View {
                         }
                     }
                     .refreshable { await library.refresh() }
-                }
-                // 뒷벽은 홈 표시줄 밑까지 — 안전 영역에서 끊으면 책장 아래에 바탕색 띠가 남는다.
-                .ignoresSafeArea(edges: .bottom)
-                .transition(.opacity)
-            } else {
+                    // 책장은 홈 표시줄 밑까지 굴린다 — 안전 영역에서 끊으면 책장 아래에 바탕색 띠가 남는다.
+                    .ignoresSafeArea(edges: .bottom)
+                } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(sections) { section in
@@ -349,12 +348,9 @@ private struct LibraryShelves: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .refreshable { await library.refresh() }
-                .transition(.opacity)
+                }
             }
         }
-        // 보기를 바꾸면 겹쳐 바뀐다 — 표지는 두 보기에서 같은 자리라(WoodRow), 표지는 그대로 있고 뒤로 원목 벽 · 판이 나타나고
-        // 사라진다. 그냥 갈아 끼우면 화면이 한 번 깜빡였다. '동작 줄이기' 면 바로.
-        .animation(UIAccessibility.isReduceMotionEnabled ? nil : .easeInOut(duration: 0.3), value: library.layout)
     }
 }
 
@@ -498,9 +494,18 @@ struct BookCover: View {
     let library: Library
     var small = false
     var shadow = false
+    /// 처음부터 꺼내 둔 표지로 그린다(Covers.ready) — 비워 두면 칸이 생길 때마다 대체 칸이 한 번 비쳤다.
     @State private var image: UIImage?
     /// 고른 표지가 바뀌면 다시 읽는다(구상안 44).
     @ObservedObject private var picked = CoverStore.shared
+
+    init(book: LibraryBook, library: Library, small: Bool = false, shadow: Bool = false) {
+        self.book = book
+        self.library = library
+        self.small = small
+        self.shadow = shadow
+        _image = State(initialValue: Covers.shared.ready(book))
+    }
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: small ? 4 : 8)

@@ -637,6 +637,8 @@ final class Covers: @unchecked Sendable {
         return c
     }()
     private let missing = NSCache<NSString, NSNumber>()
+    /// 서재에 보일 마지막 표지(그림책 앞 반 자르기까지 끝난 것). 칸이 새로 생길 때 [ready] 가 곧바로 꺼낸다.
+    private let shown = NSCache<NSString, UIImage>()
 
     /// 서재 칸에 쓰는 표지 크기(긴 변, 픽셀). 원본 그대로 쥐면 EPUB 표지 한 장이 10MB 를 넘기도 해, 책이 수백 권이면 메모리가 넘쳤다.
     static let maxPixel: CGFloat = 900
@@ -645,15 +647,29 @@ final class Covers: @unchecked Sendable {
     /// 공통 `CoverCrop.front`) — 만화 탭의 권 표지와 같은 규칙.
     func load(_ book: LibraryBook, library: Library) async -> UIImage? {
         if let picked = CoverStore.shared.custom(book.id) { return picked }
+        if let ready = shown.object(forKey: key(book)) { return ready }
         guard let image = await own(book, library: library) else { return nil }
-        guard let rtl = await library.bookFace(book), let cg = image.cgImage, image.size.width > image.size.height * 1.15 else { return image }
-        let range = CoverCrop.shared.front(width: Int32(cg.width), height: Int32(cg.height), rightToLeft: rtl)
-        let rect = CGRect(x: Int(range.first), y: 0, width: Int(range.last) - Int(range.first) + 1, height: cg.height)
-        return cg.cropping(to: rect).map { UIImage(cgImage: $0) } ?? image
+        var face = image
+        if let rtl = await library.bookFace(book), let cg = image.cgImage, image.size.width > image.size.height * 1.15 {
+            let range = CoverCrop.shared.front(width: Int32(cg.width), height: Int32(cg.height), rightToLeft: rtl)
+            let rect = CGRect(x: Int(range.first), y: 0, width: Int(range.last) - Int(range.first) + 1, height: cg.height)
+            face = cg.cropping(to: rect).map { UIImage(cgImage: $0) } ?? image
+        }
+        shown.setObject(face, forKey: key(book))
+        return face
+    }
+
+    /// 이미 꺼내 둔 표지(디스크 · 압축을 열지 않는다). 표지 칸이 처음 그려질 때 쓴다 — 늘 비워 두고 [load] 를 기다리면, 보기를 바꾸거나
+    /// 굴려 칸이 새로 생길 때마다 대체 칸(이름 · 형식)이 잠깐 그려졌다가 표지로 바뀌어 잔상처럼 보였다(사용자 지적).
+    func ready(_ book: LibraryBook) -> UIImage? {
+        CoverStore.shared.custom(book.id) ?? shown.object(forKey: key(book))
     }
 
     /// 보기 · 방향이 바뀌었다 — 다음에 그릴 때 새로.
-    func forget(_ book: LibraryBook) { cache.removeObject(forKey: key(book)) }
+    func forget(_ book: LibraryBook) {
+        cache.removeObject(forKey: key(book))
+        shown.removeObject(forKey: key(book))
+    }
 
     /// 책에 든 표지(EPUB 표지 그림 · PDF 첫 쪽). 판의 "원래 표지로" · 설명 줄이 이것이 있는지 본다.
     func own(_ book: LibraryBook, library: Library) async -> UIImage? {

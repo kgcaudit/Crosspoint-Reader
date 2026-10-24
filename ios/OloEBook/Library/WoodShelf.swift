@@ -116,16 +116,27 @@ actor WoodTextures {
 }
 
 /// 책장 보기면 [content](목록) 뒤에 원목 뒷벽, 위에 양옆 기둥. 뒷벽은 목록과 함께 굴러가지 않는다 — 벽은 서 있고 판과 책이 지나간다.
+/// [shown] 이 아니면(격자 · 목록) 벽 · 기둥이 서서히 사라지고 [content] 만 남는다. 보기를 바꿀 때 목록 자체를 겹쳐 바꾸면 격자의 이름 ·
+/// 진도와 목록 줄이 0.3초 동안 겹쳐 잔상으로 보였다(사용자 지적) — 목록은 바로 바꾸고 벽만 서서히. 표지는 두 보기에서 같은 자리라
+/// 책장이 들어오는 느낌은 남는다.
 struct ShelfWall<Content: View>: View {
+    var shown = true
     @ViewBuilder var content: Content
     @Environment(\.colorScheme) private var scheme
     @State private var texture: UIImage?
 
     var body: some View {
         let wood = Wood.of(scheme)
+        let fade: Animation? = UIAccessibility.isReduceMotionEnabled ? nil : .easeInOut(duration: 0.3)
         ZStack {
-            Wood.color(wood.base)
-            if let texture { Image(uiImage: texture).resizable() }
+            ZStack {
+                Wood.color(wood.base)
+                if let texture { Image(uiImage: texture).resizable() }
+            }
+            // 뒷벽은 홈 표시줄 밑까지 — 안전 영역에서 끊으면 책장 아래에 바탕색 띠가 남는다.
+            .ignoresSafeArea(edges: .bottom)
+            .opacity(shown ? 1 : 0)
+            .animation(fade, value: shown)
             content
             HStack(spacing: 0) {
                 LinearGradient(colors: [Wood.color(wood.post), Wood.color(wood.plankLow), .black.opacity(0.4)],
@@ -136,6 +147,9 @@ struct ShelfWall<Content: View>: View {
             }
             .allowsHitTesting(false)
             .accessibilityHidden(true)
+            .ignoresSafeArea(edges: .bottom)
+            .opacity(shown ? 1 : 0)
+            .animation(fade, value: shown)
         }
         .clipped()
         .task(id: wood.dark) { texture = await WoodTextures.shared.texture(wood) }
