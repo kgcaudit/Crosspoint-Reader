@@ -16,6 +16,8 @@ struct AboutScreen: View {
     @State private var toast: String?
     @ObservedObject private var sync = SyncCenter.shared
     @State private var showSync = false
+    /// 열어 둔 라이선스 본문(구상안 51).
+    @State private var license: OpenLicense?
     @State private var lastBackup = UserDefaults.standard.object(forKey: "records.lastBackupAt") as? Date
 
     var body: some View {
@@ -46,6 +48,13 @@ struct AboutScreen: View {
                         // 기기 간 이어 읽기(구상안 50). 켬 · 끔은 화면을 열 때 읽는다 — 동기화 화면에서 바꾸고 돌아오면 다시 그려진다.
                         CpSectionLabel(text: "기기 간 이어 읽기").padding(.horizontal, CpMetrics.gutter).padding(.top, 14).padding(.bottom, 4)
                         row("동기화 설정", sync.enabled ? "서버로 맞추는 중" : "꺼짐") { showSync = true }
+                        CpDivider().padding(.top, 8)
+                        // 오픈소스 라이선스(구상안 51, 안드로이드와 같은 자리): 줄을 누르면 원문.
+                        CpSectionLabel(text: "오픈소스 라이선스").padding(.horizontal, CpMetrics.gutter).padding(.top, 14).padding(.bottom, 4)
+                        ForEach(OpenLicense.all) { l in
+                            row(l.title, l.subtitle, value: l.badge) { license = l }
+                        }
+                        Spacer(minLength: 24)
                     }
                     .frame(maxWidth: 600, alignment: .leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -65,6 +74,11 @@ struct AboutScreen: View {
                     .transition(.move(edge: .trailing))
                     .zIndex(2)
             }
+            if let license {
+                LicenseScreen(license: license) { self.license = nil }
+                    .transition(.move(edge: .trailing))
+                    .zIndex(2)
+            }
             if let toast {
                 CpToast(message: toast)
                     .frame(maxHeight: .infinity, alignment: .bottom)
@@ -76,6 +90,7 @@ struct AboutScreen: View {
             }
         }
         .animation(.easeOut(duration: 0.2), value: showSync)
+        .animation(.easeOut(duration: 0.2), value: license?.id)
         // 서재를 다 훑으면(앱을 켜자마자 열었을 때) 다시 센다 — 한 번만 세면 "아직 기록이 없습니다" 로 남는다.
         .task(id: library.bookCount) { summary = library.backupSummary() }
         .task {
@@ -113,12 +128,17 @@ struct AboutScreen: View {
 
     private var canBackUp: Bool { (summary?.books ?? 0) + (summary?.comics ?? 0) + (summary?.works ?? 0) > 0 }
 
-    private func row(_ title: String, _ sub: String, dim: Bool = false, action: @escaping () -> Void) -> some View {
+    /// [value] 는 오른쪽의 짧은 이름(라이선스 줄의 허가 이름, 안드로이드 CpListRow 의 value).
+    private func row(_ title: String, _ sub: String, value: String? = nil, dim: Bool = false, action: @escaping () -> Void) -> some View {
         // 흐려도 눌린다 — 누르면 왜 안 되는지 알린다(안드로이드 0.49.1: 흐리기만 하고 빈 백업 파일을 만들었다).
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(CpFont.body).foregroundStyle(CpColor.text)
-                Text(sub).font(CpFont.subtitle).foregroundStyle(CpColor.textMuted)
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(CpFont.body).foregroundStyle(CpColor.text)
+                    Text(sub).font(CpFont.subtitle).foregroundStyle(CpColor.textMuted).fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                if let value { Text(value).font(CpFont.label).foregroundStyle(CpColor.textMuted) }
             }
             .opacity(dim ? 0.45 : 1)
             .padding(.horizontal, CpMetrics.gutter)
