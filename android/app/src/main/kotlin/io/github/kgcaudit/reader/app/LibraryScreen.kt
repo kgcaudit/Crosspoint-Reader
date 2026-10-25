@@ -996,8 +996,15 @@ internal fun notesLabel(n: NoteCounts): String? = listOfNotNull(
     n.memos.takeIf { it > 0 }?.let { "메모 $it" },
 ).joinToString(" · ").ifEmpty { null }
 
-/** 책이 든 폴더 이름(`primary:Books/소설/책.epub` → `소설`). 등록 폴더 바로 안이면 그 폴더 이름. 모르면 null. */
-private fun bookFolder(id: BookId): String? = runCatching {
+/**
+ * 책이 든 폴더 이름(`primary:Books/소설/책.epub` → `소설`). 등록 폴더 바로 안이면 그 폴더 이름. 모르면 null. 압축 속 책(0.61.0)은
+ * 압축 파일 이름 — 확정 구상안 A: 같은 압축의 권들이 한데 묶인 것을 이 자리로 알아본다.
+ */
+internal fun bookFolder(id: BookId): String? = runCatching {
+    io.github.kgcaudit.reader.document.comic.NestedArchives.split(id.value)?.let { (outer, _) ->
+        val doc = DocumentsContract.getDocumentId(Uri.parse(outer))
+        return@runCatching doc.substringAfter(':', doc).substringAfterLast('/').ifBlank { null }
+    }
     val doc = DocumentsContract.getDocumentId(Uri.parse(id.value))
     doc.substringAfter(':', doc).substringBeforeLast('/', "").substringAfterLast('/').ifBlank { null }
 }.getOrNull()

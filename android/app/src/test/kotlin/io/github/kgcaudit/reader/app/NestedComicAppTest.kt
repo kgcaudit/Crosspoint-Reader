@@ -215,8 +215,8 @@ class NestedComicAppTest {
         assertEquals(emptyList(), runBlocking { app.container.data.comics.works().first().filter { it.title == "인스타 걸" } })
         scan()
         assertEquals(listOf("1권", "2권", "3권"), labels("인스타 걸"))
-        // 한 번만: 표시를 남겨, 정말 만화가 아닌 zip 을 열 때마다 다시 살피지 않는다. 4 = 압축 속 rar · 7z 권(0.49.1).
-        assertEquals("4", File(app.noBackupFilesDir, "comic-probe-generation").readText())
+        // 한 번만: 표시를 남겨, 정말 만화가 아닌 zip 을 열 때마다 다시 살피지 않는다. 5 = 압축 속 책(0.61.0).
+        assertEquals("5", File(app.noBackupFilesDir, "comic-probe-generation").readText())
     }
 
     @Test

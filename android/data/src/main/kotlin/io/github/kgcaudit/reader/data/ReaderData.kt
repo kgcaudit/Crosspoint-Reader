@@ -182,6 +182,7 @@ class ReaderData(
             var contents: ComicContents? = null
             var info: ComicInfo? = null
             var volumes: List<Pair<String, Long?>>? = null
+            var books: List<Pair<String, Long?>>? = null
             try {
                 openArchive(unit.id, keep = null).use { archive ->
                     // 압축 속 권은 만화 묶음에서 꺼낸 것이라 cbz 처럼 믿는다 — 그림이 하나라도 있으면 만화다. 안내 글 하나 섞였다고
@@ -193,6 +194,8 @@ class ReaderData(
                     // 한 겹만 펼친다(사용자 결정 ②) — 안에서 꺼낸 권 속의 압축은 보지 않는다.
                     if (unit.kind == ComicUnitKind.ARCHIVE.name) {
                         volumes = NestedArchives.volumes(archive.names).map { it to archive.sizeOf(it) }
+                        // 압축 속 책(0.61.0): 만화인지와 따로 — 그림과 책이 섞였으면 둘 다 보인다(사용자 결정).
+                        books = NestedArchives.books(archive.names.map { it to archive.sizeOf(it) })
                     }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -215,6 +218,7 @@ class ReaderData(
                 if ((removals[unit.folderUri] ?: 0) != (removalsAtStart[unit.folderUri] ?: 0)) return@withLock false
                 // 바깥을 열지 못했으면(volumes == null) 전에 꺼낸 권들은 그대로 둔다 — 잠깐 못 읽은 것으로 권이 사라지지 않게.
                 volumes?.let { comics.saveVolumes(unit, it, clock()) }
+                books?.let { library.saveNestedBooks(unit, it, clock()) }
                 comics.saveProbe(unit, contents, info, holdsVolumes = !volumes.isNullOrEmpty())
                 true
             }
@@ -397,9 +401,10 @@ class ReaderData(
         /**
          * 살피기 규칙의 세대. 규칙이 바뀌어 옛 "만화 아님" 판정이 틀릴 수 있으면 올린다. 1 = 0.33.0 ~ 0.47.1, 2 = 0.48.0 압축 속 권,
          * 3 = 0.48.3 확장자 없는 표시 파일("zzzzzzzzzz")을 문서로 치지 않음 · 압축 속 권은 믿음, 4 = 압축 속 .rar · .7z 도 권으로
-         * 펼침(그 전에는 "1권.rar · 2권.7z" 만 든 zip 이 "만화 아님" 으로 적혔다).
+         * 펼침(그 전에는 "1권.rar · 2권.7z" 만 든 zip 이 "만화 아님" 으로 적혔다), 5 = 0.61.0 압축 속 책(TXT · EPUB · PDF 만 든
+         * zip 을 "만화 아님" 으로 적고 다시 보지 않아, 올린 휴대폰에서 소설 묶음이 계속 빠졌을 것이다).
          */
-        const val PROBE_GENERATION = 4
+        const val PROBE_GENERATION = 5
         const val PROBE_MARK = "comic-probe-generation"
         /**
          * 다 풀었다는 표시 파일(빈 파일 — 있는지만 본다. 어느 권인지는 폴더 열쇠가 말한다). 풀다가 앱이 닫히거나 공간이 모자라
