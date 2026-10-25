@@ -36,6 +36,10 @@ interface BookDao {
     @Query("SELECT * FROM books WHERE folderUri = :folderUri")
     suspend fun inFolder(folderUri: String): List<BookEntity>
 
+    /** 압축 [prefix](`바깥 주소#!/`) 속에서 펼친 책들(0.61.0). */
+    @Query("SELECT * FROM books WHERE substr(id, 1, length(:prefix)) = :prefix")
+    suspend fun nestedIn(prefix: String): List<BookEntity>
+
     @Upsert
     suspend fun upsert(books: List<BookEntity>)
 

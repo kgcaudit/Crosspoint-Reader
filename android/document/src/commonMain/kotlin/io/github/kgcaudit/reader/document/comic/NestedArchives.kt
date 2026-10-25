@@ -1,5 +1,6 @@
 package io.github.kgcaudit.reader.document.comic
 
+import io.github.kgcaudit.reader.document.BookFormat
 import io.github.kgcaudit.reader.document.extensionOf
 
 /**
@@ -30,6 +31,26 @@ object NestedArchives {
     fun volumes(entryNames: List<String>): List<String> = entryNames.filter(::isVolumeName).sortedWith(NaturalOrder)
 
     fun id(outerId: String, inner: String): String = outerId + SEPARATOR + inner
+
+    /**
+     * 압축 속 책(0.61.0, 사용자 결정: 권처럼 펼침 · 열 때 그 권만 · 만화와 섞이면 둘 다). 소설을 권별 TXT · EPUB 으로 zip 하나에
+     * 묶어 두면("[윤현승] 하얀늑대들.zip") 그림이 없어 "만화 아님" 으로 서재에서 통째로 빠졌다. [entries] 는 (항목 이름, 풀린 크기).
+     *
+     * 한 겹만 본다(압축 속 권 속의 책은 보지 않는다). [SMALL_TXT] 보다 작은 TXT 는 책이 아니라 쪽지다 — 만화 압축에 흔한
+     * "읽어주세요.txt" 가 서재에 책으로 서지 않게. 크기를 모르면 책으로 본다.
+     */
+    fun books(entries: List<Pair<String, Long?>>): List<Pair<String, Long?>> =
+        entries.filter { (name, size) ->
+            if (name.endsWith("/") || ComicContents.isJunk(name)) return@filter false
+            when (BookFormat.fromFileName(name)) {
+                null -> false
+                BookFormat.TXT -> size == null || size >= SMALL_TXT
+                else -> true
+            }
+        }.sortedWith { a, b -> NaturalOrder.compare(a.first, b.first) }
+
+    /** 이보다 작은 TXT 는 압축 속에서 책으로 펼치지 않는다(바이트). 소설 한 권은 이보다 훨씬 크다. */
+    const val SMALL_TXT: Long = 4 * 1024
 
     /** (바깥 id, 안쪽 경로). 압축 속 권이 아니면 null. */
     fun split(id: String): Pair<String, String>? {

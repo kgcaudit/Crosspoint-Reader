@@ -3,7 +3,10 @@ package io.github.kgcaudit.reader.data.saf
 import android.content.ContentResolver
 import android.net.Uri
 import android.os.ParcelFileDescriptor
+import io.github.kgcaudit.reader.data.ComicArchive
 import io.github.kgcaudit.reader.document.ByteSource
+import io.github.kgcaudit.reader.document.comic.NestedArchives
+import io.github.kgcaudit.reader.document.extensionOf
 import io.github.kgcaudit.reader.document.SeekableSource
 import java.io.File
 import java.io.FileInputStream
@@ -31,6 +34,7 @@ class UriSources(
 
     /** TXT 처럼 앞에서부터 읽으면 되는 책. 여러 번 다시 열 수 있다. */
     fun byteSource(uri: Uri): ByteSource = ByteSource {
+        nestedOf(uri)?.let { (outer, inner) -> return@ByteSource nestedStream(outer, inner) }
         resolver.openInputStream(uri) ?: throw FileNotFoundException("cannot open $uri")
     }
 
@@ -39,6 +43,7 @@ class UriSources(
      * 그사이 늘어난 TXT 를 그 크기로 조판 캐시에서 찾으면 옛 글의 쪽이 나왔다.
      */
     fun size(uri: Uri): Long? = runCatching {
+        nestedOf(uri)?.let { (outer, inner) -> return@runCatching openOuter(outer, inner).use { it.sizeOf(inner) } }
         resolver.openAssetFileDescriptor(uri, "r")?.use { it.length.takeIf { n -> n >= 0 } }
     }.getOrNull()
 
@@ -51,6 +56,13 @@ class UriSources(
      * "이 책은 열리지 않습니다" 보다 첫 열기가 느린 편이 낫다.
      */
     fun seekableSource(uri: Uri): SeekableSource {
+        nestedOf(uri)?.let { (outer, inner) ->
+            // 압축 없이 담겼으면(zip) 바깥 파일의 그 구간을 그대로 — 복사가 없다. 아니면 한 번 꺼내 둔 사본에서.
+            val archive = openOuter(outer, inner)
+            (archive as? ComicArchive.Zip)?.storedSource(inner)?.let { return it }
+            archive.close()
+            return FileDescriptorSource.open(ParcelFileDescriptor.open(keptCopy(uri, outer, inner), ParcelFileDescriptor.MODE_READ_ONLY))
+        }
         val pfd = resolver.openFileDescriptor(uri, "r") ?: throw FileNotFoundException("cannot open $uri")
         val direct = runCatching { FileDescriptorSource.open(pfd) }.getOrNull()
         if (direct != null) return direct
@@ -83,6 +95,8 @@ class UriSources(
      * [seekableSource] 처럼 캐시로 옮겨 연다.
      */
     fun seekableDescriptor(uri: Uri): ParcelFileDescriptor {
+        // PDF 는 파일이어야 한다 — 압축 속 PDF 는 늘 꺼내 둔 사본에서.
+        nestedOf(uri)?.let { (outer, inner) -> return ParcelFileDescriptor.open(keptCopy(uri, outer, inner), ParcelFileDescriptor.MODE_READ_ONLY) }
         val pfd = resolver.openFileDescriptor(uri, "r") ?: throw FileNotFoundException("cannot open $uri")
         if (pfd.statSize >= 0) return pfd
         pfd.close()
@@ -129,6 +143,79 @@ class UriSources(
 
     class LocalPath(val path: String, private val release: () -> Unit) : java.io.Closeable {
         override fun close() = release()
+    }
+
+    private companion object {
+        /** 꺼내 둔 압축 속 책을 몇 권까지 두나. 읽던 책 · 표지를 만들던 책 · 그 사이를 오가는 몇 권. */
+        const val KEEP_NESTED = 4
+        const val NESTED_DONE = "done"
+    }
+
+    // ── 압축 속 책(0.61.0) ──────────────────────────────────────────
+    // 서재가 `바깥 압축 주소#!/안쪽 경로` 를 책 id 로 쓴다(만화의 압축 속 권과 같은 꼴). 여기서 풀어 주면 책 열기 · 표지 ·
+    // 그림책 판정이 모두 보통 책과 같은 길을 탄다.
+
+    /**
+     * 꺼내 둔 압축 속 책. 앱 캐시라 지워져도 다시 꺼내면 된다. [spoolDir] 와 달리 켤 때 비우지 않는다 — 비우면 압축 속 EPUB 을
+     * 열 때마다 다시 꺼냈다.
+     */
+    private val nestedDir = File(spoolDir.parentFile ?: spoolDir, "nested-books")
+
+    private fun nestedOf(uri: Uri): Pair<Uri, String>? =
+        NestedArchives.split(uri.toString())?.let { (outer, inner) -> Uri.parse(outer) to inner }
+
+    private fun openOuter(outer: Uri, inner: String): ComicArchive {
+        val archive = ComicArchive.open(this, outer, spoolDir)
+        if (inner !in archive.names) {
+            archive.close()
+            throw FileNotFoundException("$inner is no longer in $outer")
+        }
+        return archive
+    }
+
+    /** 압축 속 항목의 흐름. 닫으면 바깥 압축도 닫힌다. */
+    private fun nestedStream(outer: Uri, inner: String): java.io.InputStream {
+        val archive = openOuter(outer, inner)
+        val input = try {
+            archive.entry(inner) ?: throw FileNotFoundException("cannot open $inner in $outer")
+        } catch (e: Throwable) {
+            archive.close()
+            throw e
+        }
+        return object : java.io.FilterInputStream(input) {
+            override fun close() {
+                try { super.close() } finally { archive.close() }
+            }
+        }
+    }
+
+    /**
+     * 압축 속 책을 꺼내 둔 파일. 바깥 압축이 바뀌면(크기) 다른 사본이 된다. 다 꺼냈을 때만 표시를 남긴다 — 반쯤 꺼낸 사본을
+     * 다음에 그대로 열면 책 끝이 잘린다. 가장 최근 [KEEP_NESTED] 권만 둔다(소설 묶음 한 권씩 캐시가 쌓이지 않게).
+     */
+    @Synchronized
+    private fun keptCopy(uri: Uri, outer: Uri, inner: String): File {
+        val key = java.security.MessageDigest.getInstance("SHA-1").digest("$uri|${size(outer) ?: -1}".toByteArray())
+            .joinToString("") { "%02x".format(it) }.take(16)
+        val dir = File(nestedDir, key)
+        val file = File(dir, "book." + (extensionOf(inner) ?: "bin"))
+        val done = File(dir, NESTED_DONE)
+        if (!done.isFile || !file.isFile) {
+            dir.mkdirs()
+            done.delete()
+            val tmp = File(dir, file.name + ".part")
+            openOuter(outer, inner).use { archive ->
+                if (!archive.copyEntry(inner, tmp) || !tmp.renameTo(file)) {
+                    tmp.delete()
+                    throw IOException("cannot copy out $inner")
+                }
+            }
+            done.createNewFile()
+        }
+        dir.setLastModified(System.currentTimeMillis())
+        nestedDir.listFiles()?.filter { it.isDirectory && it != dir }?.sortedByDescending { it.lastModified() }
+            ?.drop(KEEP_NESTED - 1)?.forEach { it.deleteRecursively() }
+        return file
     }
 
     private fun spool(uri: Uri): File {
