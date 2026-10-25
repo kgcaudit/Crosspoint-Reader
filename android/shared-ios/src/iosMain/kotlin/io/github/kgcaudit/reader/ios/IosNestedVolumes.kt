@@ -37,8 +37,11 @@ object IosNestedVolumes {
     /** 꺼내 둔 권을 이만큼만 남긴다(안드로이드 `KEEP_UNPACKED`). 다 두면 몇십 권에 캐시가 기가바이트로 쌓인다. */
     const val KEEP_UNPACKED: Int = 4
 
-    /** 살핀 결과 파일의 첫 줄. 형식을 바꾸면 올린다 — 옛 결과를 새 형식으로 잘못 읽지 않게. */
-    private const val PROBE_HEADER = "olo-nested-1"
+    /**
+     * 살핀 결과 파일의 첫 줄. 형식이나 읽을 수 있는 것이 바뀌면 올린다 — 옛 결과를 그대로 믿지 않게. 2 = rar · 7z · tar 권
+     * (2026-10-25): 1 은 그런 권을 열지 못해 "빈 권" 으로 적었고, 그대로 두면 해제기를 넣은 뒤에도 그 권이 서재에 나오지 않는다.
+     */
+    private const val PROBE_HEADER = "olo-nested-2"
 
     /**
      * [path](바깥 압축) 안의 권들을 만화 단위로. 권이 없거나 열 수 없으면 빈 목록. [stamp] 는 바깥 파일의 크기 · 수정 시각 — 바뀌면
@@ -51,18 +54,16 @@ object IosNestedVolumes {
         if (!IosComics.opensArchive(outerName)) return emptyList()
         val outer = runCatching { IosComics.open(path) }.getOrNull() ?: return emptyList()
         return outer.use { archive ->
-            // tar 속 권은 아직 아니다(안드로이드도 zip 바깥만 그 자리에서 읽는다) — 한 겹 zip 이 거의 전부다.
-            val zip = (archive as? IosComics.ZipArchive)?.zip ?: return@use emptyList()
             NestedArchives.volumes(archive.names).mapNotNull { inner ->
                 val key = key(outerId, stamp, inner)
-                val names = cachedNames(cacheDir, key) ?: listNames(zip, inner, cacheDir, key) ?: return@mapNotNull null
+                val names = cachedNames(cacheDir, key) ?: listNames(archive, inner, cacheDir, key) ?: return@mapNotNull null
                 val contents = ComicContents.ofArchive(names, trustExtension = true) ?: return@mapNotNull null
                 ComicUnit(
                     id = NestedArchives.id(outerId, inner),
                     name = inner.substringAfterLast('/'),
                     folders = NestedArchives.folders(folders, outerName, inner),
                     kind = ComicUnitKind.NESTED,
-                    sizeBytes = zip.entries[inner]?.size,
+                    sizeBytes = archive.sizeOf(inner),
                     contents = contents,
                     pageCount = contents.pages.size,
                     addedAtEpochMs = addedAt,
@@ -83,20 +84,27 @@ object IosNestedVolumes {
      */
     internal fun open(path: String, id: String, stamp: String, cacheDir: String): IosComics.Archive {
         val (outerId, inner) = NestedArchives.split(id) ?: throw IOException("not a volume id: $id")
-        val source = FileSeekableSource(path)
+        val outer = IosComics.open(path)
         try {
-            val outer = ZipReader.open(source)
-            if (inner !in outer) throw IOException("$inner is no longer in the archive")
-            outer.storedSource(inner)?.let { return IosComics.ZipArchive(ZipReader.open(it), holds = outer) }
+            if (inner !in outer.names) throw IOException("$inner is no longer in the archive")
+            (outer as? IosComics.ZipArchive)?.zip?.storedSource(inner)?.let { slice ->
+                // 압축 없이 담긴 zip 권: 바깥 파일의 구간을 그대로(복사 없음). 안쪽이 rar · 7z 면 해제기가 파일을 원해 아래로 간다.
+                val head = ByteArray(8)
+                val n = slice.readAt(0, head, 0, head.size)
+                if (IosNativeArchives.kindOf(head, n) == null) {
+                    return runCatching { IosComics.ZipArchive(ZipReader.open(slice), holds = outer) }
+                        .getOrElse { slice.close(); throw it }
+                }
+                slice.close()
+            }
             val dir = "${cacheDir}/nested/open/${key(outerId, stamp, inner)}"
-            val file = "$dir/volume.zip"
+            val file = "$dir/volume"
             val done = "$dir/done"
             val fm = NSFileManager.defaultManager
             if (!fm.fileExistsAtPath(done) || !fm.fileExistsAtPath(file)) {
+                fm.removeItemAtPath(dir, null)
                 fm.createDirectoryAtPath(dir, withIntermediateDirectories = true, attributes = null, error = null)
-                fm.removeItemAtPath(done, null)
-                fm.removeItemAtPath(file, null)
-                if (!copyEntry(outer.openStream(inner), "$file.part") || !fm.moveItemAtPath("$file.part", file, null)) {
+                if (!copyOut(outer, inner, "$file.part") || !fm.moveItemAtPath("$file.part", file, null)) {
                     fm.removeItemAtPath("$file.part", null)
                     throw IOException("cannot copy out $inner")
                 }
@@ -104,12 +112,25 @@ object IosNestedVolumes {
             }
             outer.close()
             keepRecent("${cacheDir}/nested/open", dir)
-            return IosComics.ZipArchive(ZipReader.open(FileSeekableSource(file)))
+            val volume = IosComics.open(file)
+            if (volume !is NativeArchive) return volume
+            // RAR · 7z 권: 꺼낸 사본 곁의 pages 에 한 번에 다 푼다(통짜 RAR 을 쪽마다 풀면 n²). 다 풀었을 때만 표시.
+            val pages = "$dir/pages"
+            if (!fm.fileExistsAtPath("$pages/done")) {
+                fm.removeItemAtPath(pages, null)
+                fm.createDirectoryAtPath(pages, withIntermediateDirectories = true, attributes = null, error = null)
+                if (volume.unpackAll(pages)) fm.createFileAtPath("$pages/done", null, null)
+            }
+            return UnpackedArchive(pages, volume.names)
         } catch (e: Throwable) {
-            source.close()
+            outer.close()
             throw e
         }
     }
+
+    /** 바깥 압축의 항목 하나를 [target] 파일로. RAR · 7z 바깥은 해제기가 풀어 옮긴다(흐름으로 읽으면 권이 메모리에 통째로 오른다). */
+    private fun copyOut(outer: IosComics.Archive, inner: String, target: String): Boolean =
+        if (outer is NativeArchive) outer.copyEntry(inner, target) else copyEntry(outer.stream(inner), target)
 
     internal fun key(outerId: String, stamp: String, inner: String) = fnv1aHex("$outerId|$stamp|$inner")
 
@@ -126,22 +147,23 @@ object IosNestedVolumes {
      * 권의 항목 이름들. 못 연 권(깨짐 · 암호)도 빈 목록으로 적어 둔다 — 안 적으면 깨진 90MB 권을 서재를 훑을 때마다 다시 꺼낸다.
      * 적는 것 자체가 실패하면(공간 없음) null 이 아니라 읽은 목록을 돌려준다 — 이번 훑기에는 보인다.
      */
-    private fun listNames(zip: ZipReader, inner: String, cacheDir: String, key: String): List<String>? {
+    private fun listNames(outer: IosComics.Archive, inner: String, cacheDir: String, key: String): List<String>? {
         val dir = probeDir(cacheDir)
         val tmp = "$dir/$key.tmp"
         NSFileManager.defaultManager.createDirectoryAtPath(dir, withIntermediateDirectories = true, attributes = null, error = null)
         val names: List<String> = try {
-            val stored = zip.storedSource(inner)
-            val reader = if (stored != null) {
-                ZipReader.open(stored)
+            val stored = (outer as? IosComics.ZipArchive)?.zip?.storedSource(inner)
+            val volume = if (stored != null && isZip(stored)) {
+                IosComics.ZipArchive(ZipReader.open(stored))
             } else {
-                if (!copyEntry(zip.openStream(inner), tmp)) throw IOException("cannot copy out $inner")
-                ZipReader.open(FileSeekableSource(tmp))
+                stored?.close()
+                if (!copyOut(outer, inner, tmp)) throw IOException("cannot copy out $inner")
+                IosComics.open(tmp)
             }
-            reader.use { volume ->
-                val list = volume.entries.keys.toList()
+            volume.use { v ->
+                val list = v.names
                 ComicContents.ofArchive(list, trustExtension = true)?.cover?.let { cover ->
-                    volume.readBytes(cover)?.takeIf { it.isNotEmpty() }?.let { bytes ->
+                    v.bytes(cover)?.takeIf { it.isNotEmpty() }?.let { bytes ->
                         bytes.usePinned { NSData.create(bytes = it.addressOf(0), length = bytes.size.toULong()) }
                             .writeToFile("$dir/$key.cover", atomically = true)
                     }
@@ -156,6 +178,12 @@ object IosNestedVolumes {
         // 줄바꿈이 든 이름은 목록 파일에서 둘로 갈라진다 — 그런 권은 적지 않고 이번에만 쓴다.
         if (names.none { '\n' in it }) TextFiles.write("$dir/$key.txt", (listOf(PROBE_HEADER) + names).joinToString("\n"))
         return names
+    }
+
+    /** 압축 없이 담긴 항목이 zip 인가(rar · 7z · tar 면 그 자리에서 읽지 못한다). */
+    private fun isZip(source: io.github.kgcaudit.reader.document.SeekableSource): Boolean {
+        val head = ByteArray(4)
+        return source.readAt(0, head, 0, 4) == 4 && head[0] == 0x50.toByte() && head[1] == 0x4B.toByte()
     }
 
     /** 항목 하나를 파일로 꺼낸다(풀면서 쓴다 — 90MB 권을 메모리에 통째로 올리지 않게). [input] 은 여기서 닫는다. */

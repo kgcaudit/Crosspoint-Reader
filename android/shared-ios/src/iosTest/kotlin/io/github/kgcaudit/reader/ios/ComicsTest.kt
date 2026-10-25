@@ -51,11 +51,12 @@ class ComicsTest {
     }
 
     @Test
-    fun `a zip with other files or an archive iOS cannot open is not on the shelf`() {
+    fun `a zip with other files or an archive that cannot be read is not on the shelf`() {
         val mixed = write("b.zip", storedZip(listOf("1.png" to png(10, 10), "2.png" to png(10, 10), "readme.txt" to "글".encodeToByteArray())))
         assertNull(IosComics.probe(mixed, "app:b.zip", "b.zip", emptyList(), 1, 1), "a plain zip must hold pictures only")
-        val rar = write("c.cbr", "Rar!".encodeToByteArray())
-        assertNull(IosComics.probe(rar, "app:c.cbr", "c.cbr", emptyList(), 1, 1), "no RAR reader on iOS yet (35A)")
+        // 깨진 cbr 은 cbz 처럼 서재에 남고(열 때 알린다), 깨진 .rar 는 만화라고 말하지 않으니 빠진다(해제기는 2026-10-25 부터).
+        val rar = write("c.rar", "Rar!".encodeToByteArray())
+        assertNull(IosComics.probe(rar, "app:c.rar", "c.rar", emptyList(), 1, 1), "a plain rar that cannot be read is not a comic")
         // 이름이 만화라고 말하는 cbz 는 깨져도 서재에 남는다 — 열 때 까닭을 알린다.
         val broken = write("d.cbz", "깨짐".encodeToByteArray())
         assertNotNull(IosComics.probe(broken, "app:d.cbz", "d.cbz", emptyList(), 1, 1))

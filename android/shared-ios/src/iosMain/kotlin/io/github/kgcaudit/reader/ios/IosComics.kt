@@ -23,6 +23,7 @@ import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.usePinned
 import platform.Foundation.NSData
+import platform.Foundation.NSFileManager
 import platform.Foundation.create
 
 /**
@@ -34,7 +35,7 @@ import platform.Foundation.create
  */
 object IosComics {
     /** iOS 가 열 수 있는 만화 압축 확장자. cbr · cb7 · rar · 7z 는 아직 아니다. */
-    fun opensArchive(name: String): Boolean = ext(name) in setOf("cbz", "cbt", "zip", "tar")
+    fun opensArchive(name: String): Boolean = ext(name) in setOf("cbz", "cbt", "cbr", "cb7", "zip", "tar", "rar", "7z")
 
     /** 이름만으로 만화인 것(cbz · cbt). zip · tar 는 열어 그림만 들었을 때만. */
     private fun trusted(name: String): Boolean = ext(name) in ArchiveExtensions.COMIC
@@ -75,6 +76,11 @@ object IosComics {
         try {
             val head = ByteArray(512)
             val read = source.readAt(0, head, 0, head.size)
+            IosNativeArchives.kindOf(head, read)?.let { kind ->
+                // RAR · 7z 는 해제기가 파일 경로로 읽는다 — 열어 둔 원천은 쓰지 않는다.
+                source.close()
+                return NativeArchive(kind, path)
+            }
             return if (read >= 512 && TarReader.looksLikeTar(head)) TarArchive(TarReader.open(source)) else ZipArchive(ZipReader.open(source))
         } catch (e: Throwable) {
             // 깨진 tar 는 여기서 던진다 — 닫지 않으면 서재를 훑을 때마다 깨진 파일 하나에 파일 핸들 하나가 샜다.
@@ -152,9 +158,12 @@ class IosComicBook private constructor(
     }
 
     companion object {
-        /** 압축(cbz · cbt · zip). 그림이 없거나 열 수 없으면 null. */
-        fun openArchive(path: String): IosComicBook? = runCatching {
-            val a = IosComics.open(path)
+        /**
+         * 압축(cbz · cbt · cbr · cb7 · zip). 그림이 없거나 열 수 없으면 null. RAR · 7z 는 [cacheDir] 아래에 한 번에 다 풀어 두고 거기서
+         * 읽는다(안드로이드 `ReaderData.openComic` 과 같다 — 통짜 RAR 을 쪽마다 풀면 n²). [cacheDir] 가 없으면 쪽마다 푼다(시험).
+         */
+        fun openArchive(path: String, cacheDir: String? = null): IosComicBook? = runCatching {
+            val a = unpacked(IosComics.open(path), path, cacheDir)
             val contents = ComicContents.ofArchive(a.names, trustExtension = true)
             if (contents == null || contents.pages.isEmpty()) {
                 a.close()
@@ -163,6 +172,29 @@ class IosComicBook private constructor(
                 IosComicBook(a, null, contents.pages)
             }
         }.getOrNull()
+
+        /**
+         * RAR · 7z 면 [cacheDir]/nested/unpacked 에 다 풀어 둔 것으로 바꾼다(최근 [IosNestedVolumes.KEEP_UNPACKED] 권). 다 풀었을 때만
+         * 표시를 남긴다 — 공간이 모자라 반쯤 풀렸는데 표시가 남으면 뒤쪽 쪽들이 영영 빈 쪽이 된다. 열쇠는 경로 · 크기 · 고친 때.
+         */
+        internal fun unpacked(archive: IosComics.Archive, path: String, cacheDir: String?): IosComics.Archive {
+            if (archive !is NativeArchive || cacheDir == null) return archive
+            val root = "$cacheDir/nested/unpacked"
+            val dir = "$root/" + fnv1aHex("$path|" + FileStamp.of(path))
+            val fm = NSFileManager.defaultManager
+            if (!fm.fileExistsAtPath("$dir/done")) {
+                fm.removeItemAtPath(dir, null)
+                fm.createDirectoryAtPath(dir, withIntermediateDirectories = true, attributes = null, error = null)
+                if (!archive.unpackAll(dir)) {
+                    // 도중에 멈췄다 — 풀린 쪽은 보이고, 표시가 없으니 다음에 열 때 처음부터 다시 푼다.
+                    IosNestedVolumes.keepRecent(root, dir)
+                    return UnpackedArchive(dir, archive.names)
+                }
+                fm.createFileAtPath("$dir/done", null, null)
+            }
+            IosNestedVolumes.keepRecent(root, dir)
+            return UnpackedArchive(dir, archive.names)
+        }
 
         /** 압축 속 권(`IosNestedVolumes`). [stamp] 는 바깥 파일의 크기 · 수정 시각. 그림이 없거나 열 수 없으면 null. */
         fun openNested(path: String, id: String, stamp: String, cacheDir: String): IosComicBook? = runCatching {

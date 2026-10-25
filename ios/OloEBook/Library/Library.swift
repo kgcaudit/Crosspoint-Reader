@@ -264,10 +264,12 @@ final class Library: ObservableObject {
         static let nestedCache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].path
 
         /// 이 단위의 쪽들. 그림 폴더 · 압축 · 압축 속 권을 한 곳에서 가른다 — 여는 곳(읽기 · 웹툰 · 표지)마다 따로 가르면 한 곳이 빠진다.
-        func open() -> IosComicBook? {
+        /// [cover] 면 첫 쪽만 볼 것이다 — RAR · 7z 를 읽으려고 열 때는 캐시에 다 풀어 두지만(쪽마다 풀면 n²), 서재 표지 하나 때문에
+        /// 권마다 다 풀면 훑을 때마다 몇백 MB 를 풀고 최근 4권 규칙이 읽던 권까지 밀어낸다.
+        func open(cover: Bool = false) -> IosComicBook? {
             if let images { return IosComicBook.companion.openFolder(path: url.path, fileNames: images) }
             if let nestedId { return IosComicBook.companion.openNested(path: url.path, id: nestedId, stamp: stamp, cacheDir: Self.nestedCache) }
-            return IosComicBook.companion.openArchive(path: url.path)
+            return IosComicBook.companion.openArchive(path: url.path, cacheDir: cover ? nil : Self.nestedCache)
         }
     }
 

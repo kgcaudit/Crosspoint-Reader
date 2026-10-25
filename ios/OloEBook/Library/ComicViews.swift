@@ -113,7 +113,7 @@ final class ComicCovers: @unchecked Sendable {
                 // 압축 속 권은 살필 때 적어 둔 표지 — 권을 열면 50~90MB 를 꺼내고, 꺼낸 사본(최근 4권)도 밀려난다.
                 data = saved as Data
             } else {
-                guard let book = file.open() else { return nil }
+                guard let book = file.open(cover: true) else { return nil }
                 defer { book.close() }
                 let coverName = unit.contents?.cover
                 let index = coverName.flatMap { name in book.pages.firstIndex(of: name) } ?? 0

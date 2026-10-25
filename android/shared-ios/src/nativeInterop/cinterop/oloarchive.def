@@ -1,0 +1,5 @@
+# RAR · 7z 해제기의 C 다리(olo_archive.h). 라이브러리는 build.gradle.kts 의 NativeArchiveLib 이 대상마다 만든다.
+headers = olo_archive.h
+package = io.github.kgcaudit.reader.ios.archive
+staticLibraries = libolo_archive.a
+linkerOpts = -lc++
