@@ -293,6 +293,7 @@ final class WebtoonModel: ObservableObject {
         saveNow()
         pauseClock()
         for e in episodes { e.book.close() }
+        DecodedTall.clear()
     }
 
     // MARK: 표지 고르기(구상안 44 ⑤)
@@ -320,7 +321,8 @@ final class WebtoonModel: ObservableObject {
     nonisolated func strip(_ cell: WebtoonCell, episode: WebtoonEpisode, width: CGFloat, color: Int, source: CGImageSource?) -> UIImage? {
         guard cell.known, let source,
               let size = episode.sizes.indices.contains(Int(cell.index)) ? episode.sizes[Int(cell.index)] : nil,
-              let full = Self.decode(source, columnPx: max(width * ScreenInfo.scale, 1)) else { return nil }
+              let full = DecodedTall.image(source, columnPx: max(width * ScreenInfo.scale, 1), strips: cell.rowFrom > 0 || cell.rowTo < size.height,
+                                           decode: Self.decode) else { return nil }
         // 머리의 크기와 실제 그림 크기가 다르면(깨진 머리) 비율로 맞춘다.
         let ratio = CGFloat(full.height) / CGFloat(max(size.height, 1))
         let rows = CGRect(x: 0, y: CGFloat(cell.rowFrom) * ratio, width: CGFloat(full.width), height: CGFloat(cell.rowTo - cell.rowFrom) * ratio).integral
@@ -339,7 +341,7 @@ final class WebtoonModel: ObservableObject {
 
     /// 그림을 기둥 폭에 맞춰 줄여 푼다(원본이 더 넓을 때만). 원본 그대로 풀면 800×30000 한 장이 96MB — 띠마다 따로 푸니 램이 적은
     /// iPhone 에서 한도를 넘을 수 있었다. 줄일 수 없으면(원본이 기둥보다 좁다) 그대로.
-    nonisolated private static func decode(_ source: CGImageSource, columnPx: CGFloat) -> CGImage? {
+    nonisolated fileprivate static func decode(_ source: CGImageSource, columnPx: CGFloat) -> CGImage? {
         if let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
            let w = (props[kCGImagePropertyPixelWidth] as? NSNumber)?.doubleValue, let h = (props[kCGImagePropertyPixelHeight] as? NSNumber)?.doubleValue,
            w > Double(columnPx) * 1.05, w > 0 {
@@ -1021,6 +1023,51 @@ private struct WebtoonCanvas: UIViewRepresentable {
 }
 
 /// 웹툰 띠 풀기를 한 번에 하나씩. 보이는 칸 수만큼 동시에 풀면 큰 그림 여러 장이 한꺼번에 메모리에 올라 램이 적은 기기에서 한도를 넘었다.
+/// 여러 띠로 나뉜 긴 그림의 푼 그림(최근 두 장). 띠마다 원본을 다시 풀면 PNG 는 줄만 골라 풀 수 없어 800×30000 한 장을 띠 수만큼
+/// 통째로 풀었다 — 맥에서 띠 하나 331ms · 메모리 +145MB, iPhone 에서는 빨리 내리면 빈 띠가 보였다(JPEG 는 필요한 줄만 풀려 23ms).
+/// 한 번 풀어 두고 잘라 쓴다. 두 장인 까닭: 그림 경계에서 위 그림 끝 띠와 아래 그림 첫 띠를 오가며 서로 밀어내지 않게.
+/// 띠 하나뿐인 그림은 담지 않는다 — 다시 쓸 일이 없는데 큰 그림 자리를 차지한다.
+enum DecodedTall {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var held: [(source: ObjectIdentifier, columnPx: CGFloat, image: CGImage)] = []
+    static let keep = 2
+
+    static func image(_ source: CGImageSource, columnPx: CGFloat, strips: Bool,
+                      decode: (CGImageSource, CGFloat) -> CGImage?) -> CGImage? {
+        guard strips else { return decode(source, columnPx) }
+        let id = ObjectIdentifier(source)
+        lock.lock()
+        if let i = held.firstIndex(where: { $0.source == id && $0.columnPx == columnPx }) {
+            let hit = held.remove(at: i)
+            held.append(hit)
+            lock.unlock()
+            return hit.image
+        }
+        lock.unlock()
+        guard let lazy = decode(source, columnPx), let image = forced(lazy) else { return nil }
+        lock.lock()
+        held.append((id, columnPx, image))
+        if held.count > keep { held.removeFirst(held.count - keep) }
+        lock.unlock()
+        return image
+    }
+
+    /// 화면을 닫을 때 — 큰 그림을 쥔 채 서재로 돌아가지 않게.
+    static func clear() {
+        lock.lock()
+        held.removeAll()
+        lock.unlock()
+    }
+
+    /// 지금 다 풀어 둔 사본. ImageIO 의 그림은 그릴 때마다 원본에서 다시 풀 수 있어(캐시 없음) 담아 두어도 아낄 것이 없다.
+    private static func forced(_ image: CGImage) -> CGImage? {
+        guard let ctx = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        return ctx.makeImage()
+    }
+}
+
 actor WebtoonDecoder {
     static let shared = WebtoonDecoder()
 
