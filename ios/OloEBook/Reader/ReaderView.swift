@@ -384,6 +384,17 @@ final class ReaderModel: ObservableObject {
             }
             return
         }
+        // 압축 속 책(안드로이드 0.61.0): 그 권만 꺼낸 사본을 연다. 아래 길들(그림책 · PDF · 책)은 모두 파일 경로를 받는다.
+        let nested = book.nestedStamp != nil
+        var book = book
+        if nested {
+            let source = book
+            guard let path = try? await Task.detached(priority: .userInitiated, operation: { try source.filePath() }).value else {
+                failure = "압축 안에서 이 책을 꺼내지 못했습니다. 압축 파일이 바뀌었거나 저장 공간이 모자랍니다."
+                return
+            }
+            book = book.unpacked(at: path)
+        }
         // 그림 위주 EPUB(구상안 46): 고르지 않았으면 판별대로, "책으로 보기" 를 골랐으면 책으로. 만화로 열지 못하면 책으로 연다 —
         // "열리지 않습니다" 보다 글이 보이는 편이 낫다.
         if book.format == .epub, library.bookView(book.id) != "BOOK", let pictures = await library.pictureBook(book),
@@ -430,6 +441,7 @@ final class ReaderModel: ObservableObject {
                 speed = ReadingSpeed.load(.pages)
                 title = pdf.title
                 author = pdf.author
+                if nested { library.learnInfo(book, title: pdf.title, author: pdf.author) }
             } catch let error as PdfOpenError {
                 failure = error.message
             } catch {
@@ -448,6 +460,7 @@ final class ReaderModel: ObservableObject {
             self.engine = engine
             title = reader.title
             author = reader.author
+            if nested { library.learnInfo(book, title: reader.title, author: reader.author) }
         } catch {
             // "이 책은 열리지 않습니다" 는 가장 나쁜 답이지만, 정말 열 수 없는 파일(zip 이 아닌 EPUB)에는 까닭을 알린다.
             failure = "파일이 망가졌거나 EPUB · TXT 가 아닙니다."

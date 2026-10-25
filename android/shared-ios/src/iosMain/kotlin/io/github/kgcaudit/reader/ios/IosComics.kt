@@ -89,6 +89,9 @@ object IosComics {
 
         /** 항목을 앞에서부터 읽는 흐름(그림 머리만 볼 때). */
         fun stream(name: String): InputStream?
+
+        /** 풀린 크기. 모르면 null(압축 속 책이 작은 TXT 쪽지를 가를 때). */
+        fun sizeOf(name: String): Long?
     }
 
     /** [holds] 는 함께 닫을 바깥 압축 — 압축 없이 담긴 권(`IosNestedVolumes`)은 바깥 파일의 구간을 읽어, 바깥을 먼저 닫으면 못 읽는다. */
@@ -96,6 +99,7 @@ object IosComics {
         override val names: List<String> get() = zip.entries.keys.toList()
         override fun bytes(name: String): ByteArray? = zip.readBytes(name)
         override fun stream(name: String): InputStream? = zip.openStream(name)
+        override fun sizeOf(name: String): Long? = zip.entries[name]?.size
         override fun close() {
             zip.close()
             holds?.close()
@@ -106,6 +110,7 @@ object IosComics {
         override val names: List<String> get() = tar.entries.keys.toList()
         override fun bytes(name: String): ByteArray? = tar.openStream(name)?.use { it.readAllBytes() }
         override fun stream(name: String): InputStream? = tar.openStream(name)
+        override fun sizeOf(name: String): Long? = tar.entries[name]?.second
         override fun close() = tar.close()
     }
 }

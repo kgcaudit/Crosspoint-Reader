@@ -18,6 +18,23 @@ struct LibraryBook: Identifiable, Hashable {
     /// 책 안의 제목 · 저자(구상안 29A). 제목이 없으면 확장자를 뗀 파일 이름.
     var title = ""
     var author: String?
+    /// 압축 속 책(안드로이드 0.61.0)이면 바깥 압축의 크기 · 고친 때 — 그때 [url] 은 바깥 압축이고, 바뀌면 다른 사본을 꺼낸다.
+    var nestedStamp: String? = nil
+
+    /// 여는 파일의 경로. 압축 속 책은 그 권만 꺼낸 사본 — 처음에는 꺼내느라 걸리니 화면 밖(뒤 작업)에서 부른다.
+    nonisolated func filePath() throws -> String {
+        guard let nestedStamp else { return url.path }
+        return try IosNestedBooks.shared.extract(path: url.path, id: id, stamp: nestedStamp, cacheDir: Library.ComicFile.nestedCache)
+    }
+
+    /// 꺼낸 사본 [path] 를 가리키는 같은 책(id · 판 그대로 — 기록 · 쪽 캐시가 이어진다). 여는 길들은 파일만 받는다.
+    func unpacked(at path: String) -> LibraryBook {
+        var b = LibraryBook(id: id, url: URL(fileURLWithPath: path), displayName: displayName, format: format, sizeBytes: sizeBytes,
+                            modified: modified, added: added, folderId: folderId)
+        b.title = title
+        b.author = author
+        return b
+    }
 
     /// 서재에 보이는 이름(안드로이드 `label`): 책 제목, 모르면 파일 이름.
     var label: String { title.isEmpty ? displayName : title }
@@ -30,6 +47,8 @@ struct LibraryBook: Identifiable, Hashable {
     /// 책이 든 폴더 이름(목록 보기의 "84KB · 소설"). 앱 폴더 바로 안이면 "OLO eBook" — 실제 이름 "Documents" 는
     /// 파일 앱에서도 보이지 않는 이름이라 사람이 알아보지 못한다.
     @MainActor var folderLabel: String {
+        // 압축 속 책은 압축 이름(안드로이드 `bookFolder`, 확정 구상안 A) — 같은 묶음의 권들을 이 자리로 알아본다.
+        if nestedStamp != nil { return url.lastPathComponent }
         let parent = url.deletingLastPathComponent()
         return parent.standardizedFileURL.path == Library.appFolder.standardizedFileURL.path ? "OLO eBook" : parent.lastPathComponent
     }
@@ -309,7 +328,9 @@ final class Library: ObservableObject {
         guard book.format == .epub else { return nil }
         let end = beginAccess(book)
         defer { end() }
-        let found = try? await IosPictureBooks.shared.detect(path: book.url.path)
+        // 압축 속 책은 꺼낸 사본으로 — 바깥 압축을 EPUB 으로 열면 "그림책 아님" 이 이 판의 답으로 남는다.
+        guard let path = try? await Task.detached(priority: .userInitiated, operation: { try book.filePath() }).value else { return nil }
+        let found = try? await IosPictureBooks.shared.detect(path: path)
         IosPictureBooks.shared.remember(store: store, bookId: book.id, size: book.sizeBytes, picture: found != nil,
                                         rightToLeft: found?.rightToLeft)
         return found
@@ -428,6 +449,8 @@ final class Library: ObservableObject {
             books.map { book in
                 let key = infoKey(book)
                 let info = known[key] ?? {
+                    // 압축 속 책은 파일 이름 — 이름표 하나 보려고 서재를 훑을 때마다 권을 꺼내지 않는다. 연 뒤에 책 안의 제목을 적는다.
+                    if book.nestedStamp != nil { return Info(title: (book.displayName as NSString).deletingPathExtension, author: nil) }
                     let i = IosBookReader.companion.info(path: book.url.path, displayName: book.displayName)
                     return Info(title: i.title, author: i.author)
                 }()
@@ -472,7 +495,14 @@ final class Library: ObservableObject {
             case "epub": format = .epub
             case "txt": format = .txt
             case "pdf": format = .pdf
-            default: continue
+            default:
+                // 압축 속 책(안드로이드 0.61.0): 만화인지와 따로 본다 — 그림과 책이 섞였으면 둘 다 보인다(사용자 결정).
+                guard IosComics.shared.opensArchive(name: url.lastPathComponent),
+                      let values = try? url.resourceValues(forKeys: Set(keys)), values.isRegularFile == true, downloaded(url, values) else { continue }
+                let path = url.standardizedFileURL.path
+                let relative = path.hasPrefix(rootPath) ? String(path.dropFirst(rootPath.count).drop(while: { $0 == "/" })) : url.lastPathComponent
+                out += nestedBooks(url, id: (prefix + relative).precomposedStringWithCanonicalMapping, values: values, folderId: folderId)
+                continue
             }
             guard let values = try? url.resourceValues(forKeys: Set(keys)), values.isRegularFile == true, downloaded(url, values) else { continue }
             let path = url.standardizedFileURL.path
@@ -490,6 +520,50 @@ final class Library: ObservableObject {
             ))
         }
         return out
+    }
+
+    /// 압축 [url] 안의 책들. 목록은 판(크기 · 고친 때)마다 이 실행 동안 기억한다 — 새로고침마다 압축을 모두 다시 열지 않게.
+    private nonisolated static func nestedBooks(_ url: URL, id: String, values: URLResourceValues, folderId: String?) -> [LibraryBook] {
+        let modified = values.contentModificationDate ?? .distantPast
+        let stamp = "\(values.fileSize ?? 0)|\(modified.timeIntervalSince1970)"
+        let key = "\(id)|\(stamp)"
+        nestedLock.lock()
+        let saved = nestedLists[key]
+        nestedLock.unlock()
+        let entries = saved ?? IosNestedBooks.shared.list(path: url.path, outerId: id, outerName: url.lastPathComponent)
+        if saved == nil {
+            nestedLock.lock()
+            nestedLists[key] = entries
+            nestedLock.unlock()
+        }
+        return entries.compactMap { e in
+            let format: LibraryBook.Format
+            switch (e.name as NSString).pathExtension.lowercased() {
+            case "epub": format = .epub
+            case "txt": format = .txt
+            case "pdf": format = .pdf
+            default: return nil
+            }
+            var book = LibraryBook(id: e.id.precomposedStringWithCanonicalMapping, url: url, displayName: e.name, format: format,
+                                   sizeBytes: e.size?.int64Value ?? 0, modified: modified,
+                                   added: values.creationDate ?? modified, folderId: folderId)
+            book.nestedStamp = stamp
+            return book
+        }
+    }
+
+    nonisolated(unsafe) private static var nestedLists: [String: [IosNestedBooks.Entry]] = [:]
+    nonisolated private static let nestedLock = NSLock()
+
+    /// 압축 속 책을 연 뒤 책 안의 제목 · 저자를 적는다(훑을 때는 파일 이름만 — 권을 꺼내지 않으려고).
+    func learnInfo(_ book: LibraryBook, title: String, author: String?) {
+        let info = Info(title: title, author: author)
+        infos[Library.infoKey(book)] = info
+        Library.saveInfos(infos)
+        guard let i = books.firstIndex(where: { $0.id == book.id }), books[i].title != title || books[i].author != author else { return }
+        books[i].title = title
+        books[i].author = author
+        arrange()
     }
 
     /// 만화 압축 판별 결과(이 실행 동안, 판 열쇠 = id · 크기 · 고친 때). 새로고침 · 받은 파일마다 모든 압축을 다시 열었다.
@@ -698,7 +772,8 @@ final class Covers: @unchecked Sendable {
     func own(_ book: LibraryBook, library: Library) async -> UIImage? {
         let key = key(book)
         if let image = cache.object(forKey: key) { return image }
-        if missing.object(forKey: key) != nil || book.format == .txt { return nil }
+        // 압축 속 책은 이름 표지 — 표지 하나 보려고 권마다 꺼내면 꺼낸 사본(최근 4권)이 서로 밀어내며 훑을 때마다 다시 꺼낸다.
+        if missing.object(forKey: key) != nil || book.format == .txt || book.nestedStamp != nil { return nil }
         let end = await library.beginAccess(book)
         defer { end() }
         let path = book.url.path

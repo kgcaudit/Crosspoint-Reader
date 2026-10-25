@@ -7,6 +7,7 @@ import io.github.kgcaudit.reader.document.comic.ComicUnit
 import io.github.kgcaudit.reader.document.comic.ComicUnitKind
 import io.github.kgcaudit.reader.document.comic.NestedArchives
 import io.github.kgcaudit.reader.document.io.IOException
+import io.github.kgcaudit.reader.document.io.InputStream
 import io.github.kgcaudit.reader.document.zip.ZipReader
 import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ExperimentalForeignApi
@@ -95,7 +96,7 @@ object IosNestedVolumes {
                 fm.createDirectoryAtPath(dir, withIntermediateDirectories = true, attributes = null, error = null)
                 fm.removeItemAtPath(done, null)
                 fm.removeItemAtPath(file, null)
-                if (!copyEntry(outer, inner, "$file.part") || !fm.moveItemAtPath("$file.part", file, null)) {
+                if (!copyEntry(outer.openStream(inner), "$file.part") || !fm.moveItemAtPath("$file.part", file, null)) {
                     fm.removeItemAtPath("$file.part", null)
                     throw IOException("cannot copy out $inner")
                 }
@@ -110,7 +111,7 @@ object IosNestedVolumes {
         }
     }
 
-    private fun key(outerId: String, stamp: String, inner: String) = fnv1aHex("$outerId|$stamp|$inner")
+    internal fun key(outerId: String, stamp: String, inner: String) = fnv1aHex("$outerId|$stamp|$inner")
 
     private fun probeDir(cacheDir: String) = "$cacheDir/nested/probe"
 
@@ -134,7 +135,7 @@ object IosNestedVolumes {
             val reader = if (stored != null) {
                 ZipReader.open(stored)
             } else {
-                if (!copyEntry(zip, inner, tmp)) throw IOException("cannot copy out $inner")
+                if (!copyEntry(zip.openStream(inner), tmp)) throw IOException("cannot copy out $inner")
                 ZipReader.open(FileSeekableSource(tmp))
             }
             reader.use { volume ->
@@ -157,9 +158,9 @@ object IosNestedVolumes {
         return names
     }
 
-    /** 항목 하나를 파일로 꺼낸다(풀면서 쓴다 — 90MB 권을 메모리에 통째로 올리지 않게). */
-    private fun copyEntry(zip: ZipReader, inner: String, target: String): Boolean {
-        val input = zip.openStream(inner) ?: return false
+    /** 항목 하나를 파일로 꺼낸다(풀면서 쓴다 — 90MB 권을 메모리에 통째로 올리지 않게). [input] 은 여기서 닫는다. */
+    internal fun copyEntry(input: InputStream?, target: String): Boolean {
+        input ?: return false
         val out = fopen(target, "wb") ?: run { input.close(); return false }
         var ok = true
         try {
@@ -182,12 +183,12 @@ object IosNestedVolumes {
         return ok
     }
 
-    /** 방금 연 [current] 를 새것으로 표시하고, 오래된 순으로 [KEEP_UNPACKED] 개 밖을 지운다. */
-    private fun keepRecent(root: String, current: String) {
+    /** 방금 연 [current] 를 새것으로 표시하고, 오래된 순으로 [keep] 개 밖을 지운다. */
+    internal fun keepRecent(root: String, current: String, keep: Int = KEEP_UNPACKED) {
         val fm = NSFileManager.defaultManager
         fm.setAttributes(mapOf<Any?, Any?>(NSFileModificationDate to NSDate()), ofItemAtPath = current, error = null)
         val dirs = fm.contentsOfDirectoryAtPath(root, null)?.map { "$root/$it" }.orEmpty().filter { it != current }
         fun modified(p: String) = (fm.attributesOfItemAtPath(p, null)?.get(NSFileModificationDate) as? NSDate)?.timeIntervalSince1970 ?: 0.0
-        dirs.sortedByDescending(::modified).drop(KEEP_UNPACKED - 1).forEach { fm.removeItemAtPath(it, null) }
+        dirs.sortedByDescending(::modified).drop(keep - 1).forEach { fm.removeItemAtPath(it, null) }
     }
 }

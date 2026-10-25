@@ -200,6 +200,10 @@ private struct ReaderBar: View {
                             .frame(width: 420)
                             .frame(maxHeight: 620)
                             .presentationCompactAdaptation(.popover)
+                            // 바탕은 휴대폰 판과 같은 불투명 면. iOS 26 팝오버의 기본 유리는 뒤 지면을 비춘다 — 만화는 어두운 메뉴라
+                            // 밝은 글자가 흰 만화 쪽 위에 놓여 읽히지 않았다(실기기). 색은 판의 밝기로 직접 고른다: 판 안의
+                            // colorScheme 은 팝오버 바탕까지 내려가지 않는다.
+                            .presentationBackground(Color(CpColor.uiColor(model.darkPaper ? 0x1C1A16 : 0xFCFAF6)))
                             .environment(\.colorScheme, model.darkPaper ? .dark : .light)
                         }
                         Spacer(minLength: 0)
