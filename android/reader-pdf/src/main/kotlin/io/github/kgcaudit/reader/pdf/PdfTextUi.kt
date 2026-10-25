@@ -1,6 +1,7 @@
 package io.github.kgcaudit.reader.pdf
 
 import io.github.kgcaudit.reader.layout.pdf.PageRegion
+import io.github.kgcaudit.reader.layout.pdf.anchorHighlight
 import io.github.kgcaudit.reader.layout.pdf.layerHits
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -124,10 +125,14 @@ internal fun PdfTextOverlay(
         val layer = reader.cachedLayer(page) ?: return emptyList()
         return layer.rects(range.first, range.last + 1).map(placed::toScreen)
     }
+    // 칠이 앉을 구간은 층이 바뀔 때만 다시 잡는다 — 그리기마다 쪽 글 전체를 훑지 않게.
+    val anchored = androidx.compose.runtime.remember(visibleNotes, version) {
+        visibleNotes.associate { it.id to noteRange(reader.cachedLayer(it.start.spine), it) }
+    }
     Canvas(Modifier.fillMaxSize()) {
         version.hashCode()
         for (note in visibleNotes) {
-            val boxes = rects(note.start.spine, note.start.charOffset until note.end.charOffset)
+            val boxes = rects(note.start.spine, anchored[note.id] ?: (note.start.charOffset until note.end.charOffset))
             val pen = note.color.pen
             boxes.forEach { drawRect(pen.fill(false), it.topLeft, it.size) }
             if (note.note != null) boxes.lastOrNull()?.let { box -> drawMemoGlyph(Offset(box.right, box.top), (box.height * 0.55f).coerceAtLeast(6f), pen.mark(false)) }
@@ -151,7 +156,7 @@ internal fun PdfTextOverlay(
         }
     }
     text.tapped?.let { note ->
-        val boxes = rects(note.start.spine, note.start.charOffset until note.end.charOffset)
+        val boxes = rects(note.start.spine, noteRange(reader.cachedLayer(note.start.spine), note))
         if (boxes.isNotEmpty() && text.memo == null) CpFloatingMenu(boxes.bounds(), note.color.pen, listOf("메모", "복사", "공유", "지우기"), onPen, onWord)
     }
 }
@@ -161,9 +166,18 @@ internal fun annotationAt(reader: PdfReader, text: PdfTextState, notes: List<Ann
     val placed = text.placedAt(at) ?: return null
     val layer = reader.cachedLayer(placed.page) ?: return null
     return notes.filter { it.start.spine == placed.page }.lastOrNull { note ->
-        layer.rects(note.start.charOffset, note.end.charOffset).any { placed.toScreen(it).contains(at) }
+        val range = noteRange(layer, note)
+        layer.rects(range.first, range.last + 1).any { placed.toScreen(it).contains(at) }
     }
 }
+
+/**
+ * 칠이 앉을 글자 구간: 칠한 글로 다시 잡은 것(0.61.1, 공통 [anchorHighlight]). 다른 기기의 PDF 엔진이 같은 쪽 글을 다르게 나눠
+ * 백업 · 동기화로 옮긴 칠이 몇 글자 밀렸다. 층이 아직 없으면 저장된 번호.
+ */
+internal fun noteRange(layer: io.github.kgcaudit.reader.layout.pdf.PageText?, note: Annotation): IntRange =
+    layer?.let { anchorHighlight(it, note.start.charOffset, note.end.charOffset, note.snippet) }
+        ?: (note.start.charOffset until note.end.charOffset)
 
 /**
  * 손잡이 끌기. 쪽 그림의 넘기기 · 확대보다 **먼저**(Initial 단계) 받아 먹는다 — 그래야 손잡이를 옆으로 끌 때 쪽이
