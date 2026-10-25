@@ -199,7 +199,7 @@ class ChapterParser(
 
             val inherited = resolver.inherit(current(), declarations)
             val isBlock = tag in TagDefaults.BLOCK_TAGS
-            frames.add(Frame(tag, inherited, isBlock, blockStyle, link = openLink(tag, event, inherited)))
+            frames.add(Frame(tag, inherited, isBlock, blockStyle, link = openLink(tag, event, inherited), boxWidth = if (isBlock) declarations.width else null))
             noteTarget(tag, event)
 
             if (isBlock) {
@@ -504,9 +504,9 @@ class ChapterParser(
                         // HTML 의 width/height 는 CSS 보다 약한 "표현 힌트" 다. CSS 가 정했으면
                         // CSS 를 따른다 — Calibre 는 속성과 클래스를 함께 쓰는데 클래스 쪽이 의도다.
                         sizing = ImageSizing(
-                            width = declarations.width ?: event.attribute("width")?.let(::htmlLength),
+                            width = inBox(declarations.width ?: event.attribute("width")?.let(::htmlLength)),
                             height = declarations.height ?: event.attribute("height")?.let(::htmlLength),
-                            maxWidth = declarations.maxWidth,
+                            maxWidth = inBox(declarations.maxWidth),
                             maxHeight = declarations.maxHeight,
                         ),
                     ),
@@ -516,6 +516,18 @@ class ChapterParser(
             // 그림 바로 뒤 공백은 글자로 남기지 않는다(문단 첫머리처럼 다룬다) — 예전 판과 글자 위치를 맞춘다.
             paragraphStart = text.length
             pictureEnd = text.length
+        }
+
+        /**
+         * 그림의 퍼센트 폭을 폭을 정한 가장 가까운 조상 블록 기준으로 푼다. `<div class="icon" style="width:2.5em">` 속
+         * `img{width:100%}`(장 머리 장식)가 본문 폭 가득 늘어나 흐리게 그려졌다(iOS 실기기, 「듄의 아이들」). 그림은
+         * 언제나 가운데 놓이므로 `margin: auto` 상자와 같은 자리다. 상자 폭이 퍼센트 · 0 · 없음이면 예전처럼 본문 폭 기준.
+         */
+        private fun inBox(length: CssLength?): CssLength? {
+            if (length == null || length.unit != CssUnit.Percent) return length
+            val box = frames.lastOrNull { it.isBlock && it.boxWidth != null }?.boxWidth ?: return length
+            if (box.unit == CssUnit.Percent || !(box.value > 0f)) return length
+            return CssLength(box.value * length.value / 100f, box.unit)
         }
 
         private fun rule() {
@@ -600,6 +612,8 @@ class ChapterParser(
         val restoreStyle: BlockStyle,
         /** 이 요소가 연 링크(`<a href>`). 닫힐 때 구간이 정해진다. */
         val link: OpenLink? = null,
+        /** 블록이 CSS 로 정한 폭. 안의 그림이 퍼센트 폭의 기준으로 쓴다([inBox]). */
+        val boxWidth: CssLength? = null,
     )
 
     private class OpenLink(val href: String, val start: Int, val noteRef: Boolean, val superscript: Boolean)

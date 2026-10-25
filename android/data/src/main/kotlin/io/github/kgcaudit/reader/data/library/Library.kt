@@ -168,8 +168,10 @@ class Library(private val db: ReaderDatabase) {
         )
 
         if (result.complete) {
-            val seen = result.books.mapTo(HashSet()) { it.uri }
-            val gone = existing.values.filter { !it.missing && it.id !in seen }.map { it.id }
+            // 압축 속 책(0.61.0)은 훑기가 보지 못한다(파일이 아니다) — 바깥 압축이 보이는 동안은 두고, 바깥이 사라지면 함께 숨긴다.
+            // 바깥 압축은 만화 쪽 결과에 든다.
+            val seen = result.books.mapTo(HashSet()) { it.uri }.apply { result.comics.forEach { add(it.uri) } }
+            val gone = existing.values.filter { !it.missing && (NestedArchives.split(it.id)?.first ?: it.id) !in seen }.map { it.id }
             // SQLite 의 변수 개수 제한(999)에 걸리지 않게 나눠 보낸다.
             gone.chunked(500).forEach { books.markMissing(it) }
         }
@@ -184,6 +186,35 @@ class Library(private val db: ReaderDatabase) {
      * 팝업은 "기록은 남습니다" 라고 약속하는데 새 휴대폰으로는 옮겨지지 않았다.
      */
     suspend fun forgetFolder(folderUri: String) = books.hideFolder(folderUri)
+
+    /**
+     * 살핀 압축 [outer] 안의 책들을 적는다(0.61.0). [found] 는 (안쪽 경로, 풀린 크기). 목록에서 빠진 책은 숨긴다 — 기록은 남아서
+     * 같은 책이 다시 들어오면 이어진다. 바깥 압축이 바뀌면(크기 · 수정 시각) 읽어 둔 제목을 버린다(같은 이름의 다른 판).
+     */
+    suspend fun saveNestedBooks(outer: ComicUnitEntity, found: List<Pair<String, Long?>>, nowEpochMs: Long) = db.withTransaction {
+        val existing = books.nestedIn(outer.id + NestedArchives.SEPARATOR).associateBy { it.id }
+        val rows = found.mapNotNull { (inner, size) ->
+            val format = BookFormat.fromFileName(inner) ?: return@mapNotNull null
+            val id = NestedArchives.id(outer.id, inner)
+            val old = existing[id]
+            val changed = old != null && (old.sizeBytes != size || old.lastModifiedEpochMs != outer.lastModifiedEpochMs)
+            BookEntity(
+                id = id,
+                folderUri = outer.folderUri,
+                displayName = inner.substringAfterLast('/'),
+                format = format.name,
+                sizeBytes = size,
+                lastModifiedEpochMs = outer.lastModifiedEpochMs,
+                title = if (changed) null else old?.title,
+                author = if (changed) null else old?.author,
+                addedAtEpochMs = old?.addedAtEpochMs ?: nowEpochMs,
+                missing = false,
+            )
+        }
+        books.upsert(rows)
+        val kept = rows.mapTo(HashSet()) { it.id }
+        existing.keys.filter { it !in kept }.chunked(500).forEach { books.markMissing(it) }
+    }
 
     // ── 책을 만화로 보기(0.50.0) ──
     // 책마다 하나뿐인 작은 값이라 표를 새로 두지 않고 손 고침 표에 책 id 를 주어로 적는다(스키마 그대로). 이 종류들은 백업의

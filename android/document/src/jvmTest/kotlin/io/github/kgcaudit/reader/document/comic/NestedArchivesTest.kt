@@ -152,4 +152,35 @@ class NestedArchivesTest {
         val unit = ComicUnit(NestedArchives.id("o", "01.zip"), "01.zip", listOf("Comic", "별을 줍는 아이.zip"), ComicUnitKind.NESTED)
         assertEquals("별을 줍는 아이", ComicShelf.group(listOf(unit)).single().title)
     }
+
+    @Test
+    fun `books packed in an archive are picked out in natural order and notes and junk are left`() {
+        // 「[윤현승] 하얀늑대들.zip」 꼴: 권별 TXT 와 쪽지 · 맥 찌꺼기 · 폴더 항목.
+        val big = 400_000L
+        val found = NestedArchives.books(
+            listOf(
+                "하얀늑대들/" to null,
+                "하얀늑대들/하얀늑대들 10.txt" to big,
+                "하얀늑대들/하얀늑대들 2.txt" to big,
+                "하얀늑대들/하얀늑대들 1.txt" to big,
+                "하얀늑대들/읽어주세요.txt" to 120L,
+                "__MACOSX/하얀늑대들/._하얀늑대들 1.txt" to big,
+                "하얀늑대들/표지.jpg" to big,
+                "하얀늑대들/외전.epub" to 1_000L,
+                "하얀늑대들/설정집.pdf" to null,
+                "하얀늑대들/크기 모름.txt" to null,
+            ),
+        ).map { it.first.substringAfterLast('/') }
+        // 1, 2, 10 순서(자연 순) — 글자 순이면 10 권이 1 권 다음에 섰다.
+        assertEquals(listOf("크기 모름.txt", "하얀늑대들 1.txt", "하얀늑대들 2.txt", "하얀늑대들 10.txt", "설정집.pdf", "외전.epub").sorted(), found.sorted())
+        assertEquals(listOf("하얀늑대들 1.txt", "하얀늑대들 2.txt", "하얀늑대들 10.txt"), found.filter { it.startsWith("하얀늑대들") })
+    }
+
+    @Test
+    fun `a text just under the note size stays out and one at the size goes in`() {
+        val below = NestedArchives.books(listOf("a.txt" to NestedArchives.SMALL_TXT - 1))
+        val at = NestedArchives.books(listOf("a.txt" to NestedArchives.SMALL_TXT))
+        assertEquals(emptyList(), below)
+        assertEquals(listOf("a.txt" to NestedArchives.SMALL_TXT), at)
+    }
 }

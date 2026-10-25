@@ -62,6 +62,22 @@ internal sealed class ComicArchive : Closeable {
             return Zip(inner, owner = this)
         }
 
+        /**
+         * 압축 없이 담은 항목을 그 자리에서 읽는 원천(0.61.0, 압축 속 책). 압축해 담았으면 null. 돌려준 것을 닫으면 이 압축도
+         * 닫힌다 — 책을 닫을 때 바깥 압축 손잡이가 남지 않게.
+         */
+        fun storedSource(name: String): io.github.kgcaudit.reader.document.SeekableSource? {
+            val slice = zip.storedSource(name) ?: return null
+            val archive = this
+            return object : io.github.kgcaudit.reader.document.SeekableSource {
+                override val size: Long get() = slice.size
+                override fun readAt(offset: Long, dest: ByteArray, destOffset: Int, length: Int) = slice.readAt(offset, dest, destOffset, length)
+                override fun close() {
+                    try { slice.close() } finally { archive.close() }
+                }
+            }
+        }
+
         override fun close() {
             try { zip.close() } finally { owner?.close() }
         }
