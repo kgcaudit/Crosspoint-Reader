@@ -466,7 +466,7 @@ actor PdfEngine: BookEngine, ZoomSource {
 
     private func loadTints(_ pages: [Int]) async {
         for p in pages where tints[p] == nil {
-            tints[p] = (try? await book.tintsOn(page: Int32(p))) ?? []
+            tints[p] = (try? await book.tintsOn(page: Int32(p), layer: layer(p))) ?? []
         }
     }
 
@@ -647,9 +647,10 @@ actor PdfEngine: BookEngine, ZoomSource {
         let t = tints[pg] ?? []
         let k = Int(IosPdfText.shared.tintAt(layer: layer(pg), tints: t, x: fx, y: fy))
         guard k >= 0 else { return nil }
-        let rows = try await book.notesOn(page: Int32(pg))
+        let rows = try await book.notesOn(page: Int32(pg), layer: layer(pg))
+        // 칠 id 로 맞춘다 — 자리는 칠한 글로 다시 잡은 것이라 저장된 번호와 다를 수 있다(안드로이드 0.61.1).
         let hit = t[k]
-        guard let row = rows.first(where: { IosPdfText.shared.charOf(index: $0.start) == hit.start && IosPdfText.shared.charOf(index: $0.end) == hit.end }) else { return nil }
+        guard let row = rows.first(where: { $0.id == hit.id }) else { return nil }
         return LinkAction(kind: "note", title: "", text: "", url: "", spine: Int32(pg), anchor: nil, frame: nil, note: row)
     }
 

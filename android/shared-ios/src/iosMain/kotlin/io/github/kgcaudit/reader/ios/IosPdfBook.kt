@@ -9,6 +9,8 @@ import io.github.kgcaudit.reader.document.ReadingProgress
 import io.github.kgcaudit.reader.document.io.currentTimeMillis
 import io.github.kgcaudit.reader.document.pdf.PdfStructure
 import io.github.kgcaudit.reader.document.pdf.PdfStructureReader
+import io.github.kgcaudit.reader.layout.pdf.PageText
+import io.github.kgcaudit.reader.layout.pdf.anchorHighlight
 
 /** PDF 목차 한 줄. [page] 는 0 부터, [pageName] 은 줄 끝에 보이는 쪽(인쇄된 번호가 있으면 그것). */
 class PdfContentsRow(val label: String, val page: Int, val depth: Int, val pageName: String)
@@ -109,10 +111,19 @@ class IosPdfBook private constructor(
      * 이 쪽에 앉은 칠들. 자리는 [Locator.Reflow] 에 쪽 번호와 그 쪽 글자 층의 번호(안드로이드 `PdfReader.highlight` 와 같다 — PDF 는 글이
      * 다시 흐르지 않아 (쪽, 글자) 가 늘 같은 글자다). 한 쪽 안의 칠만.
      */
-    suspend fun tintsOn(page: Int): List<PdfTint> = notes().filter { it.start.spine == page && it.end.spine == page }
-        .map { PdfTint(it.start.charOffset, it.end.charOffset, it.color.ordinal, it.note != null) }
+    suspend fun tintsOn(page: Int, layer: PageText?): List<PdfTint> = notes().filter { it.start.spine == page && it.end.spine == page }
+        .map { a -> placed(a, layer).let { PdfTint(it.first, it.last + 1, a.color.ordinal, a.note != null, a.id) } }
 
-    suspend fun notesOn(page: Int): List<NoteRow> = notes().filter { it.start.spine == page && it.end.spine == page }.map(::row)
+    /** 이 쪽의 칠 줄 — 자리는 [layer] 에서 칠한 글로 다시 잡은 것(칠 메뉴가 그 글자 위에 뜨게). */
+    suspend fun notesOn(page: Int, layer: PageText?): List<NoteRow> =
+        notes().filter { it.start.spine == page && it.end.spine == page }.map { row(it, placed(it, layer)) }
+
+    /**
+     * 칠이 앉을 글자 구간(안드로이드 0.61.1 `noteRange`, 공통 `anchorHighlight`): 다른 기기의 PDF 엔진이 같은 쪽 글을 다르게 나눠
+     * 백업 · 동기화로 옮긴 칠이 몇 글자 밀렸다. 저장된 번호는 바꾸지 않는다 — 원래 기기에서는 그 번호가 맞다. 층이 없으면 저장된 번호.
+     */
+    private fun placed(a: Annotation, layer: PageText?): IntRange =
+        layer?.let { anchorHighlight(it, a.start.charOffset, a.end.charOffset, a.snippet) } ?: (a.start.charOffset until a.end.charOffset)
 
     /** 칠한다. 같은 구간이 이미 있으면 색 · 메모만 바꾼다(둘이면 지울 때 하나가 남는다). 빈 구간은 무시. */
     suspend fun highlight(page: Int, start: Int, end: Int, color: Int, note: String?, snippet: String) {
@@ -145,10 +156,10 @@ class IosPdfBook private constructor(
 
     private suspend fun notes(): List<Annotation> = store.annotations.forBook(BookId(bookId))
 
-    private fun row(a: Annotation): NoteRow {
+    private fun row(a: Annotation, at: IntRange = a.start.charOffset until a.end.charOffset): NoteRow {
         val page = a.start.spine
         return NoteRow(
-            a.id, page, IosPdfText.encode(page, a.start.charOffset), IosPdfText.encode(page, a.end.charOffset), a.color.ordinal,
+            a.id, page, IosPdfText.encode(page, at.first), IosPdfText.encode(page, at.last + 1), a.color.ordinal,
             a.snippet, a.note, ((page + 1) * 100f / pageCount).coerceIn(0f, 100f), section(page).ifEmpty { "${pageName(page)}쪽" },
             a.createdAtEpochMs,
         )

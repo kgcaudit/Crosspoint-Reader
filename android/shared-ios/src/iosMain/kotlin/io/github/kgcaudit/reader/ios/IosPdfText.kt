@@ -9,7 +9,7 @@ import io.github.kgcaudit.reader.layout.pdf.layerHits
 class PdfPaintBox(val left: Float, val top: Float, val right: Float, val bottom: Float, val rgb: Int, val alpha: Double, val memo: Boolean)
 
 /** 쪽에 보이는 칠 하나(이 쪽 글자 층의 구간). */
-class PdfTint(val start: Int, val end: Int, val color: Int, val hasNote: Boolean)
+class PdfTint(val start: Int, val end: Int, val color: Int, val hasNote: Boolean, val id: Long = 0)
 
 /**
  * PDF 글자 기능(구상안 34A): 찾기 · 고르기 · 칠 · 듣기 문장. 글자 층의 셈은 공통 `PageText`(안드로이드 `reader-pdf` 에서 옮겨 온

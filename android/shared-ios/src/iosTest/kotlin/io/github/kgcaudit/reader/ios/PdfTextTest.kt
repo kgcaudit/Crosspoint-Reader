@@ -4,6 +4,7 @@ package io.github.kgcaudit.reader.ios
 
 import io.github.kgcaudit.reader.document.BookId
 import io.github.kgcaudit.reader.document.Locator
+import io.github.kgcaudit.reader.layout.pdf.PageText
 import kotlinx.coroutines.test.runTest
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSTemporaryDirectory
@@ -132,14 +133,37 @@ class PdfTextTest {
         assertEquals(IosPdfText.encode(4, 3), row.start)
         assertEquals(4, IosPdfText.pageOf(row.start))
         assertEquals(3, IosPdfText.charOf(row.start))
-        assertTrue(book.tintsOn(4).single().hasNote)
-        assertTrue(book.tintsOn(5).isEmpty())
+        assertTrue(book.tintsOn(4, null).single().hasNote)
+        assertTrue(book.tintsOn(5, null).isEmpty())
         book.highlight(4, 6, 6, 0, null, "")
         book.highlight(99, 0, 2, 0, null, "")
         assertEquals(1, book.noteRows().size, "an empty span or a page outside the book is not saved")
         book.removeNote(row.id)
         assertTrue(book.noteRows().isEmpty())
     }
+
+    @Test
+    fun `a highlight made on another device sits on the same words here`() = runTest {
+        val store = ReadingStore("$root/r.tsv")
+        val book = IosPdfBook.open("$root/없음.pdf", "app:a.pdf", "a.pdf", 10, store)
+        // 다른 기기의 엔진은 "오래된등대에" 로 냈다 — 거기서 "등대에" 는 3..6. 이 기기의 엔진은 공백을 하나 넣어 "오래된 등대에".
+        book.highlight(4, 3, 6, 1, null, "등대에")
+        val here = pageText("오래된 등대에 불이")
+        val tint = book.tintsOn(4, here).single()
+        assertEquals("등대에", here.text.substring(tint.start, tint.end), "the tint sits on the words it was made on")
+        val row = book.notesOn(4, here).single()
+        assertEquals(tint.start, IosPdfText.charOf(row.start), "the note menu opens over the same words")
+        assertEquals(row.id, tint.id, "a tapped tint finds its note by id, not by the saved numbers")
+        // 저장된 번호는 그대로 — 원래 기기에서는 그 번호가 맞다.
+        assertEquals(Locator.Reflow(4, 3), store.annotations.forBook(BookId("app:a.pdf")).single().start)
+        // 쪽에 그 글이 없으면(다른 판의 PDF) 저장된 번호 그대로 — 칠이 엉뚱한 곳으로 옮겨 가지 않는다.
+        val other = book.tintsOn(4, pageText("전혀 다른 쪽의 글")).single()
+        assertEquals(3 to 6, other.start to other.end)
+    }
+
+    /** 글자마다 가로로 늘어선 네모를 가진 층(자리는 이 시험에서 보지 않는다). */
+    private fun pageText(text: String) =
+        PageText(text, FloatArray(text.length * 4) { i -> if (i % 4 == 0) (i / 4) * 0.01f else if (i % 4 == 2) (i / 4) * 0.01f + 0.01f else if (i % 4 == 1) 0.1f else 0.12f })
 
     @Test
     fun `a spoken sentence already on screen does not move the page`() {
