@@ -162,6 +162,18 @@ class HomeTest {
         val p = bitmap.getPixel((4 * density).toInt(), cover.center.y.toInt())
         val r = android.graphics.Color.red(p); val g = android.graphics.Color.green(p); val b = android.graphics.Color.blue(p)
         assertTrue(r in 100..190 && r > g + 20 && g > b, "책장 바탕이 나무색이 아니다: #${Integer.toHexString(p)}")
+        // 뒷벽은 꿀빛 애쉬(0.62.0, 사용자 결정 A): 빈 칸의 넓은 자리를 평균 내 색상이 금빛 꿀색(약 38°)이다. 0.61 까지의 주황
+        // 메이플(약 28°)은 브랜드 클레이(약 15°)와 가까워 강조색 · 표지가 나무에 묻혔다.
+        run {
+            var sr = 0L; var sg = 0L; var sb = 0L; var n = 0
+            val y0 = (bitmap.height * 0.6f).toInt()
+            for (y in y0 until y0 + (120 * density).toInt() step 3) for (x in (bitmap.width * 0.2f).toInt() until (bitmap.width * 0.8f).toInt() step 3) {
+                val q = bitmap.getPixel(x, y); sr += android.graphics.Color.red(q); sg += android.graphics.Color.green(q); sb += android.graphics.Color.blue(q); n++
+            }
+            val hsv = FloatArray(3)
+            android.graphics.Color.RGBToHSV((sr / n).toInt(), (sg / n).toInt(), (sb / n).toInt(), hsv)
+            assertTrue(hsv[0] in 33f..46f, "책장 뒷벽이 꿀빛 애쉬가 아니다: 색상 ${hsv[0]}°")
+        }
         // 판: 표지 바로 아래가 판 색(더 밝은 나무).
         val plank = bitmap.getPixel(cover.center.x.toInt(), (cover.bottom + 5 * density).toInt())
         assertTrue(android.graphics.Color.red(plank) > r, "표지 밑에 판이 없다: #${Integer.toHexString(plank)}")
