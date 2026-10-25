@@ -39,13 +39,12 @@ import androidx.compose.ui.unit.dp
 import io.github.kgcaudit.reader.ui.design.COVER_ASPECT
 import io.github.kgcaudit.reader.ui.design.CpText
 import io.github.kgcaudit.reader.ui.design.CpTheme
-import kotlin.math.abs
 import kotlin.math.sin
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /*
- * 책장 보기(0.39.0, 다시 그림 0.44.0 — docs/CONSISTENCY_PLAN.md, 사용자 참고 그림의 원목 책장). 뒷벽은 원목 결, 양옆에 기둥,
+ * 책장 보기(0.39.0, 다시 그림 0.44.0 — docs/CONSISTENCY_PLAN.md, 사용자 참고 그림의 원목 책장 · 0.62.0 꿀빛 애쉬와 널빤지 결). 뒷벽은 원목 결, 양옆에 기둥,
  * 칸마다 위에 칸막이(판)를 두고 그 앞면에 **그 칸의 이름**을 새긴다(사용자 정정: 이름이 책 아래에 있으면 어느 칸 것인지
  * 헷갈린다). 이름 · 첫 표지는 격자 · 목록 보기와 같은 시작선(gutter) — 보기를 바꿔도 글자가 옆으로 움직이지 않는다.
  * 책이 적어도 빈 판을 화면 끝까지 잇는다.
@@ -53,7 +52,13 @@ import kotlinx.coroutines.withContext
  * 표지만 판 위에 세운다. 제목 · 진도는 격자 · 목록 보기에 있다 — 글자를 얹으면 판 사이가 벌어져 책장으로 읽히지 않는다.
  */
 
-/** 나무 한 벌. 밝은 테마는 원목(참고 그림의 주황빛), 어두운 테마는 같은 결을 낮춘 색 — 밤에 밝은 원목은 눈부시다. */
+/**
+ * 나무 한 벌. 밝은 테마는 꿀빛 애쉬, 어두운 테마는 같은 결을 낮춘 색 — 밤에 밝은 원목은 눈부시다.
+ *
+ * 꿀빛 애쉬(0.62.0, 사용자 결정 A — 사용자가 보낸 원목 사진에서 뽑은 금빛 꿀색, 색상 약 38°). 0.61 까지의 주황 메이플(28°)은
+ * 브랜드 클레이(#B95B3B, 15°)와 색상이 가까워 강조색 · 표지가 나무에 묻혔다. 테라코타 · 클레이에는 허니 · 내추럴 오크가 흔한
+ * 짝이다(조사). 값은 `docs/design-handoff/README.md` 의 책장 표.
+ */
 internal class Wood(
     val base: Color,
     val light: Color,
@@ -67,17 +72,17 @@ internal class Wood(
     val dark: Boolean,
 )
 
-private val MAPLE = Wood(
-    Color(0xFFC27733), Color(0xFFDE9A50), Color(0xFF8A4A1A), Color(0xCC4A2208),
-    Color(0xFFE6A865), Color(0xFFB8702F), Color(0xFF7E4618), Color(0xFF6E3A12), Color(0xFFFBE8D0), dark = false,
+private val HONEY_ASH = Wood(
+    Color(0xFFB98F4E), Color(0xFFD4AE6E), Color(0xFF6E4E1E), Color(0xCC3E2A0C),
+    Color(0xFFD8B57A), Color(0xFFA67D3E), Color(0xFF6E4E22), Color(0xFF5C3F18), Color(0xFFFFF3DC), dark = false,
 )
 private val NIGHT = Wood(
-    Color(0xFF5A3518), Color(0xFF744620), Color(0xFF2E1808), Color(0xDD120802),
-    Color(0xFF8A5A30), Color(0xFF5E3818), Color(0xFF38200C), Color(0xFF2A1708), Color(0xFFE3CFB8), dark = true,
+    Color(0xFF4A361A), Color(0xFF634A26), Color(0xFF22170A), Color(0xDD0E0904),
+    Color(0xFF7A5C32), Color(0xFF4E3818), Color(0xFF2E2010), Color(0xFF22180A), Color(0xFFEADBC2), dark = true,
 )
 
 @Composable
-internal fun wood(): Wood = if (CpTheme.colors.background.luminance() < 0.5f) NIGHT else MAPLE
+internal fun wood(): Wood = if (CpTheme.colors.background.luminance() < 0.5f) NIGHT else HONEY_ASH
 
 /**
  * 판은 얇게(윗면 4 + 빛 1 + 이름 한 줄 20 + 아랫선 1 = 26dp, 2026-10-04 사용자 결정 — 45dp 는 투박했다). 칸 이름 글자만 격자
@@ -111,60 +116,76 @@ private const val TEXTURE_W = 600
 private const val TEXTURE_H = 1400
 
 /**
- * 결 그리기: 널빤지마다 밝기가 천천히 오르내리고(넓은 물결), 가는 결 줄이 길이 · 굵기 · 짙기를 달리해 조금씩 흔들리며,
- * 군데군데 불꽃 무늬(널결)가 있다. 가장자리는 어둡게(참고 그림의 그늘). 씨앗을 고정해 열 때마다 같은 결이다.
+ * 결 그리기(0.62.0, 사용자 결정: 새 결 — 참고 원목 사진). 한 장짜리 결은 단조로웠다. 이제 사진처럼:
+ * - 널빤지 여러 장: 폭(화면의 17~29%)과 밝기가 판마다 조금씩 다르고, 판 사이에 이음매(그늘 한 줄 + 빛 한 줄).
+ * - 판마다 곧은결: 가는 줄이 길게 조금씩 흔들린다.
+ * - 불꽃결(널결): 넓은 띠(여름 나무)와 그 가장자리의 짙은 선이 겹친 아치 — 판 폭 대부분을 덮는다. 판마다 한두 개.
+ * 가장자리는 어둡게(그늘). 씨앗을 고정해 열 때마다 같은 결이다.
  */
-internal fun woodTexture(w: Int, h: Int, t: Wood, seed: Long = 7): ImageBitmap {
+internal fun woodTexture(w: Int, h: Int, t: Wood, seed: Long = 11): ImageBitmap {
     val rnd = java.util.Random(seed)
     val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
     val c = Canvas(bmp)
     c.drawColor(t.base.toArgb())
     val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
-    val phases = DoubleArray(3) { rnd.nextDouble() * 6.28 }
-    for (x in 0 until w) {
-        val v = sin(x * 0.009 + phases[0]) * 0.45 + sin(x * 0.037 + phases[1]) * 0.35 + sin(x * 0.13 + phases[2]) * 0.2
-        p.color = (if (v > 0) t.light else t.grain).toArgb()
-        p.alpha = (abs(v) * 90).toInt().coerceIn(0, 255)
-        p.strokeWidth = 1.2f
-        c.drawLine(x.toFloat(), 0f, x.toFloat(), h.toFloat(), p)
-    }
-    repeat(w) {
-        val x0 = rnd.nextFloat() * w
-        val y0 = rnd.nextFloat() * h * 0.6f - h * 0.2f
-        val len = h * (0.3f + rnd.nextFloat() * 0.9f)
-        val ph = rnd.nextDouble() * 6.28
-        val amp = 1.5 + rnd.nextDouble() * 3
-        val path = Path().apply {
-            moveTo(x0, y0)
-            var y = y0
-            while (y < y0 + len) { y += 20f; lineTo(x0 + (sin(y * 0.005 + ph) * amp).toFloat(), y) }
-        }
-        val darkLine = rnd.nextFloat() < 0.75f
-        p.color = (if (darkLine) t.grain else t.light).toArgb()
-        p.alpha = if (darkLine) 25 + rnd.nextInt(60) else 30 + rnd.nextInt(50)
-        p.strokeWidth = 0.5f + rnd.nextFloat() * 1.6f
-        c.drawPath(path, p)
-    }
-    repeat(2) {
-        val cx = w * (0.25f + rnd.nextFloat() * 0.5f)
-        val top = h * (0.1f + rnd.nextFloat() * 0.5f)
-        for (j in 0 until 7) {
-            val half = 10f + j * 9f
-            val apex = top + j * 26f
-            val bottom = apex + 420f + j * 30f
+    val fill = Paint()
+    var x = 0f
+    var board = 0
+    while (x < w) {
+        val bw = (w * (0.17f + rnd.nextFloat() * 0.12f)).coerceAtMost(w - x)
+        fill.color = (if (rnd.nextBoolean()) t.light else t.grain).toArgb()
+        fill.alpha = 18 + rnd.nextInt(34)
+        c.drawRect(x, 0f, x + bw, h.toFloat(), fill)
+        c.save()
+        c.clipRect(x, 0f, x + bw, h.toFloat())
+        repeat((bw / 3).toInt()) {
+            val lx = x + rnd.nextFloat() * bw
+            val ph = rnd.nextDouble() * 6.28
+            val amp = 1.0 + rnd.nextDouble() * 2.5
             val path = Path().apply {
-                moveTo(cx - half * 2.2f, bottom)
-                cubicTo(cx - half * 1.6f, apex + 160f, cx - half * 0.5f, apex + 10f, cx, apex)
-                cubicTo(cx + half * 0.5f, apex + 10f, cx + half * 1.6f, apex + 160f, cx + half * 2.2f, bottom)
+                moveTo(lx, -10f)
+                var y = -10f
+                while (y < h + 10) { y += 24f; lineTo(lx + (sin(y * 0.004 + ph) * amp).toFloat(), y) }
             }
-            p.color = t.grain.toArgb(); p.alpha = 30 + rnd.nextInt(30); p.strokeWidth = 1.2f + rnd.nextFloat()
+            p.color = t.grain.toArgb(); p.alpha = 25 + rnd.nextInt(55); p.strokeWidth = 0.6f + rnd.nextFloat() * 1.6f
             c.drawPath(path, p)
         }
+        repeat(if (rnd.nextFloat() < 0.7f) 2 else 1) { k ->
+            val cx = x + bw * (0.35f + rnd.nextFloat() * 0.3f)
+            val top = h * (k * 0.5f + rnd.nextFloat() * 0.25f)
+            val rings = 7 + rnd.nextInt(5)
+            var gap = 0f
+            for (j in 0 until rings) {
+                gap += 22f + rnd.nextFloat() * 26f
+                val half = 8f + gap * 0.55f
+                val apex = top + gap * 0.9f
+                val bottom = apex + 700f + gap
+                val wob = (rnd.nextFloat() - 0.5f) * 14f
+                val path = Path().apply {
+                    moveTo(cx - half * 2.4f + wob, bottom)
+                    cubicTo(cx - half * 2.0f, apex + 220f, cx - half * 0.7f, apex + 6f, cx, apex)
+                    cubicTo(cx + half * 0.7f, apex + 6f, cx + half * 2.0f, apex + 220f, cx + half * 2.4f - wob, bottom)
+                }
+                p.color = t.grain.toArgb(); p.alpha = 34 + rnd.nextInt(26); p.strokeWidth = 9f + rnd.nextFloat() * 8f
+                c.drawPath(path, p)
+                p.alpha = 80 + rnd.nextInt(50); p.strokeWidth = 1.4f + rnd.nextFloat() * 1.2f
+                c.drawPath(path, p)
+                p.color = t.light.toArgb(); p.alpha = 45; p.strokeWidth = 5f
+                c.save(); c.translate(0f, 7f); c.drawPath(path, p); c.restore()
+            }
+        }
+        c.restore()
+        if (board > 0) {
+            fill.color = 0x55000000; c.drawRect(x, 0f, x + 1.5f, h.toFloat(), fill)
+            fill.color = 0x22FFFFFF; c.drawRect(x + 1.5f, 0f, x + 2.5f, h.toFloat(), fill)
+        }
+        x += bw
+        board++
     }
     val vignette = Paint().apply {
         shader = RadialGradient(
             w / 2f, h * 0.45f, maxOf(w, h) * 0.75f,
-            intArrayOf(0x00000000, 0x00000000, t.edge.toArgb()), floatArrayOf(0f, 0.45f, 1f), Shader.TileMode.CLAMP,
+            intArrayOf(0x00000000, 0x00000000, t.edge.toArgb()), floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP,
         )
     }
     c.drawRect(0f, 0f, w.toFloat(), h.toFloat(), vignette)
