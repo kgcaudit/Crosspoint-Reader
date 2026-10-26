@@ -1365,10 +1365,11 @@ struct ReaderView: View {
     /// 앱이 뒤로 갈 때 보던 쪽(듣는 동안 쪽이 넘어갔는지 견준다).
     @State private var leftAt: String?
     @State private var closing = false
+    /// 이 화면 크기에서 본 가장 작은 안전 영역(상태 막대가 나타났다 사라져도 조판이 바뀌지 않게). DEBUG 블록 밖이어야 한다 — 안에
+    /// 두었더니 배포용 빌드가 컴파일되지 않았다(e7ef23a 부터).
+    @State private var readingInsets: (full: CGSize, insets: EdgeInsets)?
     #if DEBUG
     @State private var debugApplied = false
-    /// 이 화면 크기에서 본 가장 작은 안전 영역(상태 막대가 나타났다 사라져도 조판이 바뀌지 않게).
-    @State private var readingInsets: (full: CGSize, insets: EdgeInsets)?
     #endif
 
     var body: some View {
