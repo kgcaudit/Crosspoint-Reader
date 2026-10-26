@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import simd
 
 /*
  * 책장 보기(안드로이드 `WoodShelf.kt` 0.39 · 0.44 의 짝, 구상안 10 확정). 뒷벽은 원목 결, 양옆에 기둥, 칸마다 위에 칸막이(판)를
@@ -8,19 +9,23 @@ import UIKit
  * 표지만 판 위에 세운다. 제목 · 진도를 얹으면 판 사이가 벌어져 책장으로 읽히지 않는다.
  */
 
-/// 나무 한 벌. 밝은 테마는 원목, 어두운 테마는 같은 결을 낮춘 색 — 밤에 밝은 원목은 눈부시다. 값은 안드로이드 그대로
-/// (`docs/design-handoff/README.md` "책장 원목 — 꿀빛 애쉬", 0.62.0 사용자 결정). 0.61 까지의 주황 메이플(색상 28°)은 브랜드
-/// 클레이(15°)와 가까워 강조색 · 표지가 나무에 묻혔다 — 금빛 꿀색(약 38°)으로.
+/// 나무 한 벌. 밝은 테마는 내추럴 라이트 오크, 어두운 테마는 같은 결을 따뜻한 짙은 갈색으로 — 밤에 밝은 원목은 눈부시다. 값은
+/// 안드로이드 그대로(`docs/design-handoff/README.md` "책장 원목 — 내추럴 라이트 오크", 0.62.1 사용자 결정). 0.62.0 의 꿀빛
+/// 애쉬는 짙은 결 · 거의 검은 그늘 · 짙은 기둥 때문에 회색 기운이 돌아 "깔끔하지 않다" 고 했다 — 모든 색이 같은 따뜻한 색상(약
+/// 36°)에서 밝기만 다르고, 그늘도 검정이 아니라 호박색으로 옅게. 밝은 나무 위 칸 이름은 짙은 갈색(흰 글자는 읽히지 않는다).
 struct Wood: Sendable {
     let base, light, grain, edge, plankTop, plankFront, plankLow, post, label: UInt32
     let dark: Bool
 
-    static let honeyAsh = Wood(base: 0xFFB98F4E, light: 0xFFD4AE6E, grain: 0xFF6E4E1E, edge: 0xCC3E2A0C, plankTop: 0xFFD8B57A,
-                               plankFront: 0xFFA67D3E, plankLow: 0xFF6E4E22, post: 0xFF5C3F18, label: 0xFFFFF3DC, dark: false)
-    static let night = Wood(base: 0xFF4A361A, light: 0xFF634A26, grain: 0xFF22170A, edge: 0xDD0E0904, plankTop: 0xFF7A5C32,
-                            plankFront: 0xFF4E3818, plankLow: 0xFF2E2010, post: 0xFF22180A, label: 0xFFEADBC2, dark: true)
+    static let naturalOak = Wood(base: 0xFFD7AE73, light: 0xFFE8C893, grain: 0xFFA97A3E, edge: 0x558A5A2A, plankTop: 0xFFEBD0A4,
+                                 plankFront: 0xFFC99B60, plankLow: 0xFFA87A42, post: 0xFF9C6E3A, label: 0xFF3A250F, dark: false)
+    static let night = Wood(base: 0xFF5A3F1E, light: 0xFF7A5630, grain: 0xFF3A2610, edge: 0xCC1A0F05, plankTop: 0xFF8A6A3E,
+                            plankFront: 0xFF5E4220, plankLow: 0xFF3E2A14, post: 0xFF3A2612, label: 0xFFF2E3C8, dark: true)
 
-    static func of(_ scheme: ColorScheme) -> Wood { scheme == .dark ? .night : .honeyAsh }
+    static func of(_ scheme: ColorScheme) -> Wood { scheme == .dark ? .night : .naturalOak }
+
+    /// 그늘 색(기둥 안쪽 · 판 밑): 밤은 검정, 밝은 나무는 호박색으로 옅게 — 검은 그늘이 회색 기운을 만들었다(안드로이드 0.62.1).
+    var shade: Color { dark ? .black : Color(Wood.ui(0xFF3A2410)) }
 
     /// 0xAARRGGBB(안드로이드 Color 와 같은 순서).
     static func ui(_ v: UInt32) -> UIColor {
@@ -55,76 +60,104 @@ actor WoodTextures {
         return image
     }
 
-    /// 결 그리기(안드로이드 0.62.0 `woodTexture` 와 같은 셈, 사용자 결정: 새 결 — 참고 원목 사진). 한 장짜리 결은 단조로웠다:
-    /// - 널빤지 여러 장: 폭(17~29%)과 밝기가 판마다 조금씩 다르고, 판 사이에 이음매(그늘 1.5 + 빛 1).
-    /// - 판마다 곧은결: 가는 줄이 길게 조금씩 흔들린다.
-    /// - 불꽃결(널결): 넓은 띠(여름 나무)와 그 가장자리의 짙은 선이 겹친 아치 — 판마다 한두 개.
-    /// 가장자리는 어둡게(그늘). 씨앗을 고정해 열 때마다 같은 결이다(난수만 안드로이드와 다르다 — 결의 모양 규칙은 같다).
-    nonisolated static func draw(_ t: Wood, w: CGFloat = 600, h: CGFloat = 1400) -> UIImage {
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        return UIGraphicsImageRenderer(size: CGSize(width: w, height: h), format: format).image { ctx in
-            let c = ctx.cgContext
-            var rnd = Seeded(11)
-            func ink(_ v: UInt32, _ alpha: Double) -> CGColor { Wood.ui(v).withAlphaComponent(alpha / 255).cgColor }
-            c.setFillColor(Wood.ui(t.base).cgColor)
-            c.fill(CGRect(x: 0, y: 0, width: w, height: h))
-            c.setLineCap(.round)
-            var x: CGFloat = 0
-            var board = 0
-            while x < w {
-                let bw = min(w * (0.17 + rnd.next() * 0.12), w - x)
-                c.setFillColor(ink(rnd.next() < 0.5 ? t.light : t.grain, 18 + floor(rnd.next() * 34)))
-                c.fill(CGRect(x: x, y: 0, width: bw, height: h))
-                c.saveGState()
-                c.clip(to: CGRect(x: x, y: 0, width: bw, height: h))
-                for _ in 0..<Int(bw / 3) {
-                    let lx = x + rnd.next() * bw, ph = rnd.next() * 6.28, amp = 1.0 + rnd.next() * 2.5
-                    c.move(to: CGPoint(x: lx, y: -10))
-                    var y: CGFloat = -10
-                    while y < h + 10 { y += 24; c.addLine(to: CGPoint(x: lx + sin(y * 0.004 + ph) * amp, y: y)) }
-                    c.setStrokeColor(ink(t.grain, 25 + floor(rnd.next() * 55)))
-                    c.setLineWidth(0.6 + rnd.next() * 1.6)
-                    c.strokePath()
-                }
-                let flames = rnd.next() < 0.7 ? 2 : 1
-                for k in 0..<flames {
-                    let cx = x + bw * (0.35 + rnd.next() * 0.3)
-                    let top = h * (CGFloat(k) * 0.5 + rnd.next() * 0.25)
-                    let rings = 7 + Int(rnd.next() * 5)
-                    var gap: CGFloat = 0
-                    for _ in 0..<rings {
-                        gap += 22 + rnd.next() * 26
-                        let half = 8 + gap * 0.55, apex = top + gap * 0.9, bottom = apex + 700 + gap
-                        let wob = (rnd.next() - 0.5) * 14
-                        let arch = CGMutablePath()
-                        arch.move(to: CGPoint(x: cx - half * 2.4 + wob, y: bottom))
-                        arch.addCurve(to: CGPoint(x: cx, y: apex), control1: CGPoint(x: cx - half * 2.0, y: apex + 220),
-                                      control2: CGPoint(x: cx - half * 0.7, y: apex + 6))
-                        arch.addCurve(to: CGPoint(x: cx + half * 2.4 - wob, y: bottom), control1: CGPoint(x: cx + half * 0.7, y: apex + 6),
-                                      control2: CGPoint(x: cx + half * 2.0, y: apex + 220))
-                        // 넓은 여름 나무 띠 → 그 가장자리의 짙은 선 → 아래로 7 비낀 밝은 띠(띠 사이의 봄 나무).
-                        c.addPath(arch); c.setStrokeColor(ink(t.grain, 34 + floor(rnd.next() * 26))); c.setLineWidth(9 + rnd.next() * 8); c.strokePath()
-                        c.addPath(arch); c.setStrokeColor(ink(t.grain, 80 + floor(rnd.next() * 50))); c.setLineWidth(1.4 + rnd.next() * 1.2); c.strokePath()
-                        c.saveGState(); c.translateBy(x: 0, y: 7)
-                        c.addPath(arch); c.setStrokeColor(ink(t.light, 45)); c.setLineWidth(5); c.strokePath()
-                        c.restoreGState()
-                    }
-                }
-                c.restoreGState()
-                if board > 0 {
-                    c.setFillColor(UIColor(white: 0, alpha: 0x55 / 255.0).cgColor); c.fill(CGRect(x: x, y: 0, width: 1.5, height: h))
-                    c.setFillColor(UIColor(white: 1, alpha: 0x22 / 255.0).cgColor); c.fill(CGRect(x: x + 1.5, y: 0, width: 1, height: h))
-                }
-                x += bw
-                board += 1
+    /// 결 그리기(안드로이드 0.62.1 `woodTexture` 와 같은 식). 결을 선으로 긋지 않고 **나무를 잘라 본다** — 절차적 나무결의 표준
+    /// 방식. 선으로 그은 아치는 "인위적" 이었다(사용자).
+    /// - 나이테는 줄기 둘레의 동심 원통. 판 면이 줄기와 조금 비스듬히 지나가 원통이 잘린 자리가 위로 선 아치(널결), 양옆은 곧은결.
+    ///   판이 심을 지나지 않게 깊이를 둔다 — 지나면 닫힌 타원(옹이처럼)이 생긴다.
+    /// - **통판 한 장**(이음매 · 판마다 밝기 차이 없음). 줄기 가운데 흔들림 · 반지름 · 나이테 간격에 펄린 잡음.
+    /// - 나이테 하나 = 밝은 봄 나무 + 고리 끝의 옅은 여름 나무 띠, 나이테마다 짙기가 다르다. 세로로 긴 섬유, 넓은 밝기 물결.
+    /// 씨앗 11 로 열 때마다 같은 결(난수 생성기가 자바와 달라 결의 자리는 안드로이드와 똑같지 않다 — 식 · 모양은 같다).
+    nonisolated static func draw(_ t: Wood, w: Int = 600, h: Int = 1400) -> UIImage {
+        var rnd = Seeded(11)
+        let noise = Perlin(&rnd)
+        func rgb(_ v: UInt32) -> SIMD3<Float> {
+            SIMD3(Float((v >> 16) & 0xFF), Float((v >> 8) & 0xFF), Float(v & 0xFF)) / 255
+        }
+        func mix(_ a: SIMD3<Float>, _ b: SIMD3<Float>, _ k: Float) -> SIMD3<Float> { a + (b - a) * k }
+        let base = rgb(t.base)
+        let early = mix(base, rgb(t.light), 0.45), late = mix(base, rgb(t.grain), 0.6)
+        let pith = Float(w) * 0.44, depth: Float = 140, tilt: Float = 0.035, spacing: Float = 6
+        let off = Float(rnd.next()) * 100
+        let fh = Float(h) * stretch
+        var pixels = [UInt8](repeating: 255, count: w * h * 4)
+        for y in 0..<h {
+            // 그림은 벽 높이로 세로 2배쯤 늘어난다 — 결을 그만큼 촘촘히 그려 늘어난 뒤 사진의 결 간격이 되게.
+            let yy = Float(y) * stretch
+            let sway = 40 * noise.fbm(off * 0.7 + yy * 0.00175, 2.2, 3)
+            let d = depth + (fh - yy) * tilt + 30 * noise.fbm(off + yy * 0.0015, off * 0.3 + 0.5, 3)
+            for x in 0..<w {
+                let fx = Float(x)
+                let dx = fx - pith - sway
+                let r = (dx * dx + d * d).squareRoot() + 12 * noise.fbm(off + fx * 0.006, yy * 0.00125, 3)
+                    + 1.6 * noise.fbm(off + fx * 0.025, yy * 0.005, 2)
+                let ring = r / spacing + 3 * noise.fbm(off + r * 0.008, 7.3, 3)
+                let f = ring - ring.rounded(.down)
+                let latewood = min(max((f - 0.55) / 0.30, 0), 1) * min(max((1 - f) / 0.10, 0), 1)
+                let band = 0.55 + 0.45 * noise.fbm(off + ring.rounded(.down) * 0.37, 3.1, 1)
+                let fiber = noise.fbm(off + fx * 0.55, yy * 0.005, 2)
+                let amount = min(max(powf(latewood, 0.8) * 0.5 * band + fiber * 0.18 + 0.10 + 0.08 * noise.fbm(off + fx * 0.005, yy * 0.001, 2), 0), 1)
+                let light = 1 + 0.06 * noise.fbm(fx * 0.002 + off * 0.01, yy * 0.00075, 2)
+                let c = simd_clamp(mix(early, late, amount) * light, SIMD3(repeating: 0), SIMD3(repeating: 1))
+                let i = (y * w + x) * 4
+                pixels[i] = UInt8(c.x * 255); pixels[i + 1] = UInt8(c.y * 255); pixels[i + 2] = UInt8(c.z * 255)
             }
-            let colors = [UIColor.clear.cgColor, UIColor.clear.cgColor, Wood.ui(t.edge).cgColor] as CFArray
-            if let g = CGGradient(colorsSpace: nil, colors: colors, locations: [0, 0.5, 1]) {
-                let center = CGPoint(x: w / 2, y: h * 0.45)
-                c.drawRadialGradient(g, startCenter: center, startRadius: 0, endCenter: center, endRadius: max(w, h) * 0.75,
-                                     options: .drawsAfterEndLocation)
+        }
+        let space = CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(data: &pixels, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: space,
+                                  bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return UIImage() }
+        // 가장자리 그늘(호박색으로 옅게, 밤은 짙게). CGContext 는 아래가 0 — 가운데 높이를 위에서 45% 로 맞춘다.
+        let colors = [UIColor.clear.cgColor, UIColor.clear.cgColor, Wood.ui(t.edge).cgColor] as CFArray
+        if let g = CGGradient(colorsSpace: nil, colors: colors, locations: [0, 0.5, 1]) {
+            let center = CGPoint(x: CGFloat(w) / 2, y: CGFloat(h) * 0.55)
+            ctx.drawRadialGradient(g, startCenter: center, startRadius: 0, endCenter: center, endRadius: CGFloat(max(w, h)) * 0.75,
+                                   options: .drawsAfterEndLocation)
+        }
+        guard let image = ctx.makeImage() else { return UIImage() }
+        return UIImage(cgImage: image)
+    }
+
+    /// 결 그림이 벽에 늘어나는 세로 배율(어림, 안드로이드 `STRETCH`).
+    nonisolated static let stretch: Float = 2
+
+    /// 펄린 잡음(2차원, -1~1 언저리). 씨앗으로 섞은 순열 — 같은 씨앗이면 같은 결.
+    struct Perlin: Sendable {
+        private var perm = [Int](repeating: 0, count: 512)
+        private var gx = [Float](repeating: 0, count: 256)
+        private var gy = [Float](repeating: 0, count: 256)
+
+        init(_ rnd: inout Seeded) {
+            var p = Array(0..<256)
+            for i in stride(from: 255, to: 0, by: -1) { p.swapAt(i, Int(rnd.next() * CGFloat(i + 1))) }
+            for i in 0..<512 { perm[i] = p[i & 255] }
+            for i in 0..<256 {
+                let a = Float(rnd.next()) * 6.2831855
+                gx[i] = cos(a); gy[i] = sin(a)
             }
+        }
+
+        private func fade(_ t: Float) -> Float { t * t * t * (t * (t * 6 - 15) + 10) }
+
+        private func grad(_ ix: Int, _ iy: Int, _ dx: Float, _ dy: Float) -> Float {
+            let g = perm[perm[ix] + iy]
+            return gx[g] * dx + gy[g] * dy
+        }
+
+        func at(_ x: Float, _ y: Float) -> Float {
+            let fx = x.rounded(.down), fy = y.rounded(.down)
+            let xi = Int(fx) & 255, yi = Int(fy) & 255
+            let xf = x - fx, yf = y - fy
+            let u = fade(xf), v = fade(yf)
+            let a = grad(xi, yi, xf, yf), b = grad(xi + 1, yi, xf - 1, yf)
+            let c = grad(xi, yi + 1, xf, yf - 1), d = grad(xi + 1, yi + 1, xf - 1, yf - 1)
+            let top = a + (b - a) * u
+            return top + ((c + (d - c) * u) - top) * v
+        }
+
+        /// 겹친 잡음(옥타브 [octaves]). 큰 물결에 잔물결이 얹힌다.
+        func fbm(_ x: Float, _ y: Float, _ octaves: Int) -> Float {
+            var sum: Float = 0, amp: Float = 1, freq: Float = 1, norm: Float = 0
+            for _ in 0..<octaves { sum += at(x * freq, y * freq) * amp; norm += amp; amp *= 0.5; freq *= 2 }
+            return sum / norm
         }
     }
 
@@ -164,10 +197,11 @@ struct ShelfWall<Content: View>: View {
             .animation(fade, value: shown)
             content
             HStack(spacing: 0) {
-                LinearGradient(colors: [Wood.color(wood.post), Wood.color(wood.plankLow), .black.opacity(0.4)],
+                // 안쪽 그늘: 밝은 나무에서는 옅게 — 짙은 그늘이 회색 기운을 만들었다(안드로이드 0.62.1).
+                LinearGradient(colors: [Wood.color(wood.post), Wood.color(wood.plankLow), Color.black.opacity(wood.dark ? 0.4 : 0.13)],
                                startPoint: .leading, endPoint: .trailing).frame(width: ShelfMetrics.post)
                 Spacer(minLength: 0)
-                LinearGradient(colors: [.black.opacity(0.4), Wood.color(wood.plankLow), Wood.color(wood.post)],
+                LinearGradient(colors: [Color.black.opacity(wood.dark ? 0.4 : 0.13), Wood.color(wood.plankLow), Wood.color(wood.post)],
                                startPoint: .leading, endPoint: .trailing).frame(width: ShelfMetrics.post)
             }
             .allowsHitTesting(false)
@@ -210,8 +244,11 @@ struct ShelfBoard: View {
                 .frame(height: ShelfMetrics.boardTop)
             Wood.color(0x66FFF0D8).frame(height: 1)
             ZStack(alignment: .leading) {
-                Text(label ?? " ").font(CpFont.label).foregroundStyle(Color.black.opacity(label == nil ? 0 : 0.53))
-                    .offset(y: 1).accessibilityHidden(true) // 그림자 글자 — 화면 읽기가 칸 이름을 두 번 읽지 않게.
+                // 그림자 글자: 짙은 글자(밝은 나무)는 빛 그림자, 밝은 글자(밤)는 짙은 그림자 — 새긴 글자처럼(안드로이드 0.62.1).
+                // 화면 읽기가 칸 이름을 두 번 읽지 않게 숨긴다.
+                Text(label ?? " ").font(CpFont.label)
+                    .foregroundStyle((wood.dark ? Color.black.opacity(0.53) : Color.white.opacity(0.33)).opacity(label == nil ? 0 : 1))
+                    .offset(y: 1).accessibilityHidden(true)
                 if let label {
                     Text(label).font(CpFont.label).foregroundStyle(Wood.color(wood.label)).accessibilityAddTraits(.isHeader)
                 }
@@ -219,15 +256,20 @@ struct ShelfBoard: View {
             .padding(.horizontal, CpMetrics.gutter)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(LinearGradient(colors: [Wood.color(wood.plankFront), Wood.color(wood.plankLow)], startPoint: .top, endPoint: .bottom))
-            Color.black.opacity(0.33).frame(height: 1)
+            (wood.dark ? Color.black.opacity(0.33) : Wood.color(wood.plankLow).opacity(0.8)).frame(height: 1)
         }
     }
 }
 
 /// 판 밑그늘: 아래 칸 뒷벽 위쪽. 칸의 높이를 차지하지 않고 겹친다 — 표지 윗부분에도 그늘이 진다.
 struct UnderBoardShadow: View {
+    @Environment(\.colorScheme) private var scheme
     var body: some View {
-        LinearGradient(colors: [.black.opacity(0.6), .black.opacity(0.2), .clear], startPoint: .top, endPoint: .bottom)
+        // 밝은 나무에서는 호박색으로 옅게 — 검은 그늘이 회색 기운을 만들었다(안드로이드 0.62.1).
+        let wood = Wood.of(scheme)
+        let colors: [Color] = wood.dark ? [.black.opacity(0.6), .black.opacity(0.2), .clear]
+            : [wood.shade.opacity(0.33), wood.shade.opacity(0.1), wood.shade.opacity(0)]
+        LinearGradient(colors: colors, startPoint: .top, endPoint: .bottom)
             .frame(height: 30)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
