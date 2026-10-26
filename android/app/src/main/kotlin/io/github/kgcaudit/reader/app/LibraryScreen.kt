@@ -229,16 +229,21 @@ fun LibraryScreen(
                 onSearch = { searching = true },
                 onMore = { moreMenu = true },
             )
-            if (scanning) CpProgressBar(0.35f, Modifier.padding(horizontal = CpTheme.metrics.gutter), CpBarWeight.Thin)
+            // 훑는 중 막대는 없앴다(0.62.2, 사용자 결정) — 움직이지 않는 35% 막대가 켤 때 · 돌아올 때 잠깐 떴다 사라져 무엇인지 알 수
+            // 없는 선으로 보였고, 뜨고 질 때 책장이 4dp 씩 내려갔다 올라왔다. 훑기는 뒤에서 하고 찾은 책은 목록에 바로 선다.
         }
 
         val columns = shelfColumns()
         val bookPage: @Composable () -> Unit = {
-            if (list != null && list.isEmpty() && !scanning) {
+            if (list != null && list.isEmpty()) {
                 Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
                     CpText(
-                        if (comics) "등록한 폴더에 EPUB · TXT · PDF 파일이 없습니다. 만화는 만화 탭에 있습니다."
-                        else "등록한 폴더에 EPUB · TXT · PDF 파일이 없습니다.",
+                        // 서재가 비어 있는 동안만 훑는 중이라고 알린다 — 막대가 없으니, 처음 폴더를 넣은 뒤 빈 화면만 보이면 멈춘 줄 안다.
+                        when {
+                            scanning -> SCANNING_NOTE
+                            comics -> "등록한 폴더에 EPUB · TXT · PDF 파일이 없습니다. 만화는 만화 탭에 있습니다."
+                            else -> "등록한 폴더에 EPUB · TXT · PDF 파일이 없습니다."
+                        },
                         CpTheme.type.subtitle, colors.textMuted, maxLines = 3,
                     )
                 }
@@ -1107,3 +1112,6 @@ private const val SHELF_COLUMNS = 3
 private val SHELF_ITEM = 102.dp
 private val SHELF_ITEM_TABLET = 130.dp
 internal val SHELF_GAP = 14.dp
+
+/** 서재가 빈 동안 폴더를 훑고 있을 때. */
+internal const val SCANNING_NOTE = "폴더를 살피는 중…"
