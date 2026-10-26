@@ -52,7 +52,14 @@ struct LibraryView: View {
                         }
                     }
                     LibraryTools(library: library, onSort: { showSort = true }, onSearch: { searching = true }, onMore: { showMore = true })
-                    if library.scanning { CpProgressBar(fraction: 0.35).padding(.horizontal, CpMetrics.gutter) }
+                    // 훑는 중 막대는 없앴다(안드로이드 0.62.2, 사용자 결정) — 움직이지 않는 35% 막대가 켤 때 · 돌아올 때 잠깐 떴다 사라져
+                    // 정체 모를 선으로 보였고, 뜨고 질 때 책장이 내려갔다 올라왔다. 훑기는 뒤에서 하고 찾은 책은 목록에 바로 선다.
+                    // 서재가 빈 동안만 알린다 — 처음 폴더를 넣은 뒤 빈 화면만 보이면 멈춘 줄 안다.
+                    if library.isEmpty && library.scanning {
+                        Text("폴더를 살피는 중…").font(CpFont.subtitle).foregroundStyle(CpColor.textMuted)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, CpMetrics.gutter).padding(.vertical, 12)
+                    }
                     if library.works.isEmpty {
                         LibraryShelves(library: library, open: open, menu: { menuBook = $0.id })
                     } else {
