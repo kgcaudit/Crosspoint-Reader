@@ -162,8 +162,9 @@ class HomeTest {
         val p = bitmap.getPixel((4 * density).toInt(), cover.center.y.toInt())
         val r = android.graphics.Color.red(p); val g = android.graphics.Color.green(p); val b = android.graphics.Color.blue(p)
         assertTrue(r in 100..190 && r > g + 20 && g > b, "책장 바탕이 나무색이 아니다: #${Integer.toHexString(p)}")
-        // 뒷벽은 꿀빛 애쉬(0.62.0, 사용자 결정 A): 빈 칸의 넓은 자리를 평균 내 색상이 금빛 꿀색(약 38°)이다. 0.61 까지의 주황
-        // 메이플(약 28°)은 브랜드 클레이(약 15°)와 가까워 강조색 · 표지가 나무에 묻혔다.
+        // 뒷벽은 내추럴 라이트 오크(0.62.x, 사용자 결정 A): 빈 칸의 넓은 자리를 평균 내 색상이 따뜻한 오크(약 36°)이고 밝다.
+        // 0.61 까지의 주황 메이플(약 28°)은 브랜드 클레이(약 15°)와 가까워 강조색 · 표지가 나무에 묻혔고, 그 뒤의 꿀빛 애쉬는
+        // 어두워 회색 기운이 돌았다(사용자: 깔끔하지 않다).
         run {
             var sr = 0L; var sg = 0L; var sb = 0L; var n = 0
             val y0 = (bitmap.height * 0.6f).toInt()
@@ -172,7 +173,8 @@ class HomeTest {
             }
             val hsv = FloatArray(3)
             android.graphics.Color.RGBToHSV((sr / n).toInt(), (sg / n).toInt(), (sb / n).toInt(), hsv)
-            assertTrue(hsv[0] in 33f..46f, "책장 뒷벽이 꿀빛 애쉬가 아니다: 색상 ${hsv[0]}°")
+            assertTrue(hsv[0] in 30f..44f, "책장 뒷벽이 내추럴 오크 색상이 아니다: 색상 ${hsv[0]}°")
+            assertTrue(hsv[2] >= 0.76f, "책장 뒷벽이 밝은 오크가 아니다: 밝기 ${hsv[2]}")
         }
         // 판: 표지 바로 아래가 판 색(더 밝은 나무).
         val plank = bitmap.getPixel(cover.center.x.toInt(), (cover.bottom + 5 * density).toInt())
