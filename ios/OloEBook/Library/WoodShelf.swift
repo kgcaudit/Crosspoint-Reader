@@ -53,11 +53,35 @@ actor WoodTextures {
     static let shared = WoodTextures()
     private var done: [Bool: UIImage] = [:]
 
+    /// 결 그림의 판. 식 · 색 · 씨앗을 바꾸면 올린다 — 저장해 둔 옛 결이 새 판에 보이지 않게.
+    nonisolated static let edition = "0.62.1-oak-11"
+
+    /// 결 그림. 메모리 → 저장해 둔 파일 → 새로 그림. 0.62.1 의 결은 점 84만 개를 하나씩 셈해, 개발용 빌드에서는 몇 초 걸려 첫 실행에
+    /// 나무결이 뒤늦게 떴다(실기기, 사용자). 한 번 그린 것은 Caches 에 PNG 로 두어 다음 실행부터는 바로 읽는다.
     func texture(_ wood: Wood) -> UIImage {
         if let image = done[wood.dark] { return image }
-        let image = Self.draw(wood)
+        let file = Self.file(wood)
+        let image = UIImage(contentsOfFile: file.path) ?? {
+            let drawn = Self.draw(wood)
+            try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? drawn.pngData()?.write(to: file, options: .atomic)
+            return drawn
+        }()
         done[wood.dark] = image
         return image
+    }
+
+    /// 앱이 켜질 때 미리 그린다 — 서재가 책장 보기로 열리면 화면이 뜰 때쯤 결이 있다. 다른 보기면 하지 않는다(쓰지 않을 셈).
+    nonisolated static func prewarm() {
+        guard UserDefaults.standard.string(forKey: "library.layout") == LibraryLayout.shelf.rawValue else { return }
+        let wood = UIScreen.main.traitCollection.userInterfaceStyle == .dark ? Wood.night : Wood.naturalOak
+        Task.detached(priority: .userInitiated) { _ = await WoodTextures.shared.texture(wood) }
+    }
+
+    private nonisolated static func file(_ wood: Wood) -> URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("wood", isDirectory: true)
+            .appendingPathComponent("\(edition)-\(wood.dark ? "night" : "day").png")
     }
 
     /// 결 그리기(안드로이드 0.62.1 `woodTexture` 와 같은 식). 결을 선으로 긋지 않고 **나무를 잘라 본다** — 절차적 나무결의 표준

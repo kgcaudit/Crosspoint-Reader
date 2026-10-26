@@ -28,6 +28,8 @@ struct OloEBookApp: App {
         _ = FontLibrary.shared
         // 서재부터 고른 방향으로 연다(설정은 읽기 화면에 있지만 앱 전체에 걸린다 — 안드로이드와 같다).
         ScreenRotation.apply(UserDefaults.standard.integer(forKey: "reader.rotation"))
+        // 책장 나무결은 처음 그리는 데 시간이 걸린다 — 서재가 뜨는 동안 뒤에서 미리.
+        WoodTextures.prewarm()
         #if DEBUG
         SyncSelfTest.runIfAsked()
         #endif
