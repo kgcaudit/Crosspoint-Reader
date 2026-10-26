@@ -8,17 +8,19 @@ import UIKit
  * 표지만 판 위에 세운다. 제목 · 진도를 얹으면 판 사이가 벌어져 책장으로 읽히지 않는다.
  */
 
-/// 나무 한 벌. 밝은 테마는 원목, 어두운 테마는 같은 결을 낮춘 색 — 밤에 밝은 원목은 눈부시다. 값은 안드로이드 그대로.
+/// 나무 한 벌. 밝은 테마는 원목, 어두운 테마는 같은 결을 낮춘 색 — 밤에 밝은 원목은 눈부시다. 값은 안드로이드 그대로
+/// (`docs/design-handoff/README.md` "책장 원목 — 꿀빛 애쉬", 0.62.0 사용자 결정). 0.61 까지의 주황 메이플(색상 28°)은 브랜드
+/// 클레이(15°)와 가까워 강조색 · 표지가 나무에 묻혔다 — 금빛 꿀색(약 38°)으로.
 struct Wood: Sendable {
     let base, light, grain, edge, plankTop, plankFront, plankLow, post, label: UInt32
     let dark: Bool
 
-    static let maple = Wood(base: 0xFFC27733, light: 0xFFDE9A50, grain: 0xFF8A4A1A, edge: 0xCC4A2208, plankTop: 0xFFE6A865,
-                            plankFront: 0xFFB8702F, plankLow: 0xFF7E4618, post: 0xFF6E3A12, label: 0xFFFBE8D0, dark: false)
-    static let night = Wood(base: 0xFF5A3518, light: 0xFF744620, grain: 0xFF2E1808, edge: 0xDD120802, plankTop: 0xFF8A5A30,
-                            plankFront: 0xFF5E3818, plankLow: 0xFF38200C, post: 0xFF2A1708, label: 0xFFE3CFB8, dark: true)
+    static let honeyAsh = Wood(base: 0xFFB98F4E, light: 0xFFD4AE6E, grain: 0xFF6E4E1E, edge: 0xCC3E2A0C, plankTop: 0xFFD8B57A,
+                               plankFront: 0xFFA67D3E, plankLow: 0xFF6E4E22, post: 0xFF5C3F18, label: 0xFFFFF3DC, dark: false)
+    static let night = Wood(base: 0xFF4A361A, light: 0xFF634A26, grain: 0xFF22170A, edge: 0xDD0E0904, plankTop: 0xFF7A5C32,
+                            plankFront: 0xFF4E3818, plankLow: 0xFF2E2010, post: 0xFF22180A, label: 0xFFEADBC2, dark: true)
 
-    static func of(_ scheme: ColorScheme) -> Wood { scheme == .dark ? .night : .maple }
+    static func of(_ scheme: ColorScheme) -> Wood { scheme == .dark ? .night : .honeyAsh }
 
     /// 0xAARRGGBB(안드로이드 Color 와 같은 순서).
     static func ui(_ v: UInt32) -> UIColor {
@@ -53,50 +55,72 @@ actor WoodTextures {
         return image
     }
 
-    /// 결 그리기(안드로이드 `woodTexture` 와 같은 셈): 널빤지마다 밝기가 천천히 오르내리고, 가는 결 줄이 길이 · 굵기 · 짙기를
-    /// 달리해 흔들리며, 군데군데 불꽃 무늬. 가장자리는 어둡게. 씨앗을 고정해 열 때마다 같은 결이다(난수만 안드로이드와 다르다).
+    /// 결 그리기(안드로이드 0.62.0 `woodTexture` 와 같은 셈, 사용자 결정: 새 결 — 참고 원목 사진). 한 장짜리 결은 단조로웠다:
+    /// - 널빤지 여러 장: 폭(17~29%)과 밝기가 판마다 조금씩 다르고, 판 사이에 이음매(그늘 1.5 + 빛 1).
+    /// - 판마다 곧은결: 가는 줄이 길게 조금씩 흔들린다.
+    /// - 불꽃결(널결): 넓은 띠(여름 나무)와 그 가장자리의 짙은 선이 겹친 아치 — 판마다 한두 개.
+    /// 가장자리는 어둡게(그늘). 씨앗을 고정해 열 때마다 같은 결이다(난수만 안드로이드와 다르다 — 결의 모양 규칙은 같다).
     nonisolated static func draw(_ t: Wood, w: CGFloat = 600, h: CGFloat = 1400) -> UIImage {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         return UIGraphicsImageRenderer(size: CGSize(width: w, height: h), format: format).image { ctx in
             let c = ctx.cgContext
-            var rnd = Seeded(7)
-            Wood.ui(t.base).setFill()
+            var rnd = Seeded(11)
+            func ink(_ v: UInt32, _ alpha: Double) -> CGColor { Wood.ui(v).withAlphaComponent(alpha / 255).cgColor }
+            c.setFillColor(Wood.ui(t.base).cgColor)
             c.fill(CGRect(x: 0, y: 0, width: w, height: h))
-            let ph = (0..<3).map { _ in rnd.next() * 6.28 }
-            c.setLineWidth(1.2)
-            for x in 0..<Int(w) {
-                let xd = Double(x)
-                let v = sin(xd * 0.009 + ph[0]) * 0.45 + sin(xd * 0.037 + ph[1]) * 0.35 + sin(xd * 0.13 + ph[2]) * 0.2
-                Wood.ui(v > 0 ? t.light : t.grain).withAlphaComponent(min(abs(v) * 90 / 255, 1)).setStroke()
-                c.move(to: CGPoint(x: xd, y: 0)); c.addLine(to: CGPoint(x: xd, y: h)); c.strokePath()
-            }
-            for _ in 0..<Int(w) {
-                let x0 = rnd.next() * w, y0 = rnd.next() * h * 0.6 - h * 0.2, len = h * (0.3 + rnd.next() * 0.9)
-                let p = rnd.next() * 6.28, amp = 1.5 + rnd.next() * 3
-                c.move(to: CGPoint(x: x0, y: y0))
-                var y = y0
-                while y < y0 + len { y += 20; c.addLine(to: CGPoint(x: x0 + sin(y * 0.005 + p) * amp, y: y)) }
-                let darkLine = rnd.next() < 0.75
-                let alpha = darkLine ? 25 + rnd.next() * 60 : 30 + rnd.next() * 50
-                Wood.ui(darkLine ? t.grain : t.light).withAlphaComponent(alpha / 255).setStroke()
-                c.setLineWidth(0.5 + rnd.next() * 1.6); c.strokePath()
-            }
-            for _ in 0..<2 {
-                let cx = w * (0.25 + rnd.next() * 0.5), top = h * (0.1 + rnd.next() * 0.5)
-                for j in 0..<7 {
-                    let half = 10 + Double(j) * 9, apex = top + Double(j) * 26, bottom = apex + 420 + Double(j) * 30
-                    c.move(to: CGPoint(x: cx - half * 2.2, y: bottom))
-                    c.addCurve(to: CGPoint(x: cx, y: apex), control1: CGPoint(x: cx - half * 1.6, y: apex + 160),
-                               control2: CGPoint(x: cx - half * 0.5, y: apex + 10))
-                    c.addCurve(to: CGPoint(x: cx + half * 2.2, y: bottom), control1: CGPoint(x: cx + half * 0.5, y: apex + 10),
-                               control2: CGPoint(x: cx + half * 1.6, y: apex + 160))
-                    Wood.ui(t.grain).withAlphaComponent((30 + rnd.next() * 30) / 255).setStroke()
-                    c.setLineWidth(1.2 + rnd.next()); c.strokePath()
+            c.setLineCap(.round)
+            var x: CGFloat = 0
+            var board = 0
+            while x < w {
+                let bw = min(w * (0.17 + rnd.next() * 0.12), w - x)
+                c.setFillColor(ink(rnd.next() < 0.5 ? t.light : t.grain, 18 + floor(rnd.next() * 34)))
+                c.fill(CGRect(x: x, y: 0, width: bw, height: h))
+                c.saveGState()
+                c.clip(to: CGRect(x: x, y: 0, width: bw, height: h))
+                for _ in 0..<Int(bw / 3) {
+                    let lx = x + rnd.next() * bw, ph = rnd.next() * 6.28, amp = 1.0 + rnd.next() * 2.5
+                    c.move(to: CGPoint(x: lx, y: -10))
+                    var y: CGFloat = -10
+                    while y < h + 10 { y += 24; c.addLine(to: CGPoint(x: lx + sin(y * 0.004 + ph) * amp, y: y)) }
+                    c.setStrokeColor(ink(t.grain, 25 + floor(rnd.next() * 55)))
+                    c.setLineWidth(0.6 + rnd.next() * 1.6)
+                    c.strokePath()
                 }
+                let flames = rnd.next() < 0.7 ? 2 : 1
+                for k in 0..<flames {
+                    let cx = x + bw * (0.35 + rnd.next() * 0.3)
+                    let top = h * (CGFloat(k) * 0.5 + rnd.next() * 0.25)
+                    let rings = 7 + Int(rnd.next() * 5)
+                    var gap: CGFloat = 0
+                    for _ in 0..<rings {
+                        gap += 22 + rnd.next() * 26
+                        let half = 8 + gap * 0.55, apex = top + gap * 0.9, bottom = apex + 700 + gap
+                        let wob = (rnd.next() - 0.5) * 14
+                        let arch = CGMutablePath()
+                        arch.move(to: CGPoint(x: cx - half * 2.4 + wob, y: bottom))
+                        arch.addCurve(to: CGPoint(x: cx, y: apex), control1: CGPoint(x: cx - half * 2.0, y: apex + 220),
+                                      control2: CGPoint(x: cx - half * 0.7, y: apex + 6))
+                        arch.addCurve(to: CGPoint(x: cx + half * 2.4 - wob, y: bottom), control1: CGPoint(x: cx + half * 0.7, y: apex + 6),
+                                      control2: CGPoint(x: cx + half * 2.0, y: apex + 220))
+                        // 넓은 여름 나무 띠 → 그 가장자리의 짙은 선 → 아래로 7 비낀 밝은 띠(띠 사이의 봄 나무).
+                        c.addPath(arch); c.setStrokeColor(ink(t.grain, 34 + floor(rnd.next() * 26))); c.setLineWidth(9 + rnd.next() * 8); c.strokePath()
+                        c.addPath(arch); c.setStrokeColor(ink(t.grain, 80 + floor(rnd.next() * 50))); c.setLineWidth(1.4 + rnd.next() * 1.2); c.strokePath()
+                        c.saveGState(); c.translateBy(x: 0, y: 7)
+                        c.addPath(arch); c.setStrokeColor(ink(t.light, 45)); c.setLineWidth(5); c.strokePath()
+                        c.restoreGState()
+                    }
+                }
+                c.restoreGState()
+                if board > 0 {
+                    c.setFillColor(UIColor(white: 0, alpha: 0x55 / 255.0).cgColor); c.fill(CGRect(x: x, y: 0, width: 1.5, height: h))
+                    c.setFillColor(UIColor(white: 1, alpha: 0x22 / 255.0).cgColor); c.fill(CGRect(x: x + 1.5, y: 0, width: 1, height: h))
+                }
+                x += bw
+                board += 1
             }
             let colors = [UIColor.clear.cgColor, UIColor.clear.cgColor, Wood.ui(t.edge).cgColor] as CFArray
-            if let g = CGGradient(colorsSpace: nil, colors: colors, locations: [0, 0.45, 1]) {
+            if let g = CGGradient(colorsSpace: nil, colors: colors, locations: [0, 0.5, 1]) {
                 let center = CGPoint(x: w / 2, y: h * 0.45)
                 c.drawRadialGradient(g, startCenter: center, startRadius: 0, endCenter: center, endRadius: max(w, h) * 0.75,
                                      options: .drawsAfterEndLocation)
@@ -108,9 +132,10 @@ actor WoodTextures {
     struct Seeded {
         var s: UInt64
         init(_ seed: UInt64) { s = seed }
-        mutating func next() -> Double {
+        /// 0 이상 1 미만. 좌표 셈에 바로 쓰도록 CGFloat.
+        mutating func next() -> CGFloat {
             s = s &* 6364136223846793005 &+ 1442695040888963407
-            return Double(s >> 11) / Double(UInt64(1) << 53)
+            return CGFloat(Double(s >> 11) / Double(UInt64(1) << 53))
         }
     }
 }
