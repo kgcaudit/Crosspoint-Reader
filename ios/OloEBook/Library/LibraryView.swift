@@ -311,6 +311,8 @@ private struct LibraryShelves: View {
                         // 화면에 가까운 줄만 만든다 — VStack 이면 화면 밖 칸까지 한꺼번에 표지를 읽어, 책이 수백 권이면 메모리가 넘쳤다.
                         LazyVStack(spacing: 0) {
                             ShelfCrown()
+                                // 튕기지 않고 당겨서 새로고침도 없다 — NoScrollBounce 참고. 스크롤 안쪽에 두어야 감싼 UIScrollView 를 찾는다.
+                                .background(NoScrollBounce())
                             // 모든 묶음의 줄을 한 목록으로, 줄마다 "묶음#번호" 이름 — 묶음마다 줄 번호(0, 1 …)로 이름을 붙이면 게으른
                             // 줄이 다른 묶음의 같은 번호 줄을 같은 것으로 보아, 줄이 빠지고 판 없이 빈 칸이 생겼다(실기기에서 찾음).
                             ForEach(shelfLines(columns)) { line in
@@ -323,7 +325,6 @@ private struct LibraryShelves: View {
                             EmptyShelves(cellWidth: width, minHeight: g.size.height)
                         }
                     }
-                    .refreshable { await library.refresh() }
                     // 책장은 홈 표시줄 밑까지 굴린다 — 안전 영역에서 끊으면 책장 아래에 바탕색 띠가 남는다.
                     .ignoresSafeArea(edges: .bottom)
                 } else {

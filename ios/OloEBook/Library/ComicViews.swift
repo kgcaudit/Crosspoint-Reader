@@ -184,6 +184,8 @@ struct ComicShelves: View {
                     ScrollView {
                         VStack(spacing: 0) {
                             ShelfCrown()
+                                // 튕기지 않고 당겨서 새로고침도 없다 — NoScrollBounce 참고. 스크롤 안쪽에 두어야 감싼 UIScrollView 를 찾는다.
+                                .background(NoScrollBounce())
                             ForEach(sections) { section in
                                 let rows = section.items.chunked(columns)
                                 ForEach(rows.indices, id: \.self) { i in
@@ -197,7 +199,6 @@ struct ComicShelves: View {
                             EmptyShelves(cellWidth: width, minHeight: g.size.height)
                         }
                     }
-                    .refreshable { await library.refresh() }
                     // 책장은 홈 표시줄 밑까지 굴린다 — 안전 영역에서 끊으면 책장 아래에 바탕색 띠가 남는다.
                     .ignoresSafeArea(edges: .bottom)
                 } else {
