@@ -72,6 +72,8 @@ struct ComicCover: View {
                 }
                 .clipShape(shape)
                 .overlay(shape.stroke(CpColor.divider, lineWidth: 1))
+                // 책 표지와 같은 뒷벽 그림자. 받아 두기만 하고 그리지 않아 만화 책장의 표지가 벽에 붙어 보였다(실기기, 사용자).
+                .background { if shadow { CoverShadow() } }
                 .overlay(alignment: .bottomTrailing) {
                     if let tag {
                         Text(tag).font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
@@ -181,11 +183,11 @@ struct ComicShelves: View {
             // 원목 벽은 늘 두고 책장 보기에서만 보인다(ShelfWall) — 목록은 바로 바꾸고 벽만 서서히.
             ShelfWall(shown: library.layout == .shelf) {
                 if library.layout == .shelf {
+                    // 당겨서 새로고침은 시스템 것 대신 책장용(ShelfRefresh) — 시스템 것은 책장 틀을 끌어내렸다.
+                    ShelfRefresh(action: { await library.refresh() }) {
                     ScrollView {
                         VStack(spacing: 0) {
                             ShelfCrown()
-                                // 튕기지 않고 당겨서 새로고침도 없다 — NoScrollBounce 참고. 스크롤 안쪽에 두어야 감싼 UIScrollView 를 찾는다.
-                                .background(NoScrollBounce())
                             ForEach(sections) { section in
                                 let rows = section.items.chunked(columns)
                                 ForEach(rows.indices, id: \.self) { i in
@@ -198,6 +200,7 @@ struct ComicShelves: View {
                             }
                             EmptyShelves(cellWidth: width, minHeight: g.size.height)
                         }
+                    }
                     }
                     // 책장은 홈 표시줄 밑까지 굴린다 — 안전 영역에서 끊으면 책장 아래에 바탕색 띠가 남는다.
                     .ignoresSafeArea(edges: .bottom)

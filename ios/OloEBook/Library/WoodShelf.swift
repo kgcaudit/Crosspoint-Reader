@@ -240,35 +240,182 @@ struct ShelfWall<Content: View>: View {
 }
 
 /// 책장 맨 위 테두리: 기둥과 같은 짙은 나무로 책장 틀을 닫는다. 목록 맨 앞에 한 번만.
+/// 당기는 동안에는 테두리가 그만큼 두꺼워진다(ShelfPull.stretch, 최대 10pt) — 테두리와 첫 판 사이가 벌어지지 않고 틀이 닫힌 채
+/// 책장 전체가 조금 내려앉는다.
 struct ShelfCrown: View {
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.shelfPull) private var pull
     var body: some View {
         let wood = Wood.of(scheme)
         VStack(spacing: 0) {
             LinearGradient(colors: [Wood.color(wood.post), Wood.color(wood.plankLow)], startPoint: .top, endPoint: .bottom)
-                .frame(height: ShelfMetrics.crown)
+                .frame(height: ShelfMetrics.crown + pull.stretch)
             Color.black.opacity(0.33).frame(height: 1)
+        }
+        // 스크롤 안쪽에 두어야 감싼 UIScrollView 를 찾는다.
+        .background(ShelfPullProbe(link: pull))
+        .accessibilityHidden(true)
+    }
+}
+
+/// 책장 보기의 당겨서 새로고침. 시스템 것(.refreshable)은 목록 전체를 손가락만큼 끌어내려, 맨 위 테두리 위로 빈 나무 벽이
+/// 드러나고 고정된 양옆 기둥과 틀이 어긋났다(실기기, 사용자: 심각). 그렇다고 아예 막으면 새로고침이 없다. 그래서:
+/// - 목록은 튕기지 않는다. 당김은 손가락의 이동으로만 잰다(ShelfPullProbe).
+/// - 책장은 손가락을 따라가지 않고 고무줄처럼 조금만 내려앉는다: f(x) = x·d·c / (d + c·x), c = 0.55(UIScrollView 의 고무줄
+///   상수로 알려진 값), d = 10pt 가 끝값. 문턱(64pt)에서 약 8pt — 눈에 띄되 벽이 드러나지 않는 정도.
+/// - 당긴 정도와 새로고침 중임은 위에서 내려오는 작은 원판이 보인다(안드로이드 SwipeRefreshLayout 처럼 내용 대신 표시가 움직인다).
+///   문턱은 그 기본값 64dp 와 같은 64pt, 넘는 순간 가벼운 진동(시스템 새로고침과 같다).
+/// - 놓으면 용수철로 돌아온다. 새로고침이 금방 끝나도 원판은 0.6초 돈다 — 그보다 짧으면 깜박임으로만 보여 됐는지 모른다.
+struct ShelfPull {
+    static let trigger: CGFloat = 64
+    static let maxStretch: CGFloat = 10
+
+    var stretch: CGFloat = 0
+    var changed: (CGFloat) -> Void = { _ in }
+    var released: (CGFloat) -> Void = { _ in }
+
+    static func stretch(_ x: CGFloat) -> CGFloat {
+        guard x > 0 else { return 0 }
+        let c: CGFloat = 0.55, d = maxStretch
+        return x * d * c / (d + c * x)
+    }
+}
+
+private struct ShelfPullKey: EnvironmentKey { static let defaultValue = ShelfPull() }
+extension EnvironmentValues {
+    var shelfPull: ShelfPull {
+        get { self[ShelfPullKey.self] }
+        set { self[ShelfPullKey.self] = newValue }
+    }
+}
+
+/// 책장 목록을 감싸 당겨서 새로고침을 단다. 안의 ShelfCrown 이 당김을 알려 온다.
+struct ShelfRefresh<Content: View>: View {
+    let action: () async -> Void
+    @ViewBuilder let content: Content
+    @State private var pull: CGFloat = 0
+    @State private var refreshing = false
+    private let haptic = UIImpactFeedbackGenerator(style: .light)
+
+    var body: some View {
+        content
+            .environment(\.shelfPull, ShelfPull(stretch: ShelfPull.stretch(pull), changed: changed, released: released))
+            .overlay(alignment: .top) {
+                ShelfRefreshDisc(progress: pull / ShelfPull.trigger, spinning: refreshing)
+                    .offset(y: ShelfMetrics.crown + discTravel - 44)
+                    .opacity(refreshing ? 1 : min(1, pull / 24))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    // 원판은 책장 위(도구 줄)로 넘어가지 않는다.
+                    .clipped()
+                    .allowsHitTesting(false)
+            }
+    }
+
+    /// 원판은 문턱까지 손가락과 같이, 넘으면 4분의 1만 — 문턱을 넘었음을 손이 느낀다.
+    private var discTravel: CGFloat {
+        if refreshing { return ShelfPull.trigger }
+        return pull <= ShelfPull.trigger ? pull : min(ShelfPull.trigger + (pull - ShelfPull.trigger) * 0.25, ShelfPull.trigger + 16)
+    }
+
+    private func changed(_ p: CGFloat) {
+        if !refreshing, pull < ShelfPull.trigger, p >= ShelfPull.trigger { haptic.impactOccurred() }
+        pull = p
+    }
+
+    private func released(_ p: CGFloat) {
+        if p >= ShelfPull.trigger, !refreshing {
+            withAnimation(.easeOut(duration: 0.2)) { refreshing = true }
+            Task {
+                let start = Date()
+                await action()
+                let rest = 0.6 - Date().timeIntervalSince(start)
+                if rest > 0 { try? await Task.sleep(for: .seconds(rest)) }
+                withAnimation(.easeOut(duration: 0.25)) { refreshing = false }
+            }
+        }
+        // 감쇠 0.6 — 한 번 살짝 출렁이고 선다(사용자: 인지할 수 있는 정도의 흔들림).
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.6)) { pull = 0 }
+    }
+}
+
+/// 당김 표시 원판: 당긴 만큼 호가 차오르고, 새로고침 중에는 돈다.
+private struct ShelfRefreshDisc: View {
+    let progress: CGFloat
+    let spinning: Bool
+
+    var body: some View {
+        TimelineView(.animation(paused: !spinning)) { t in
+            let turn = spinning ? t.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1) * 360 : progress * 200
+            ZStack {
+                Circle().fill(CpColor.surface).shadow(color: .black.opacity(0.28), radius: 3, y: 1)
+                Circle()
+                    .trim(from: 0, to: spinning ? 0.72 : min(progress, 1) * 0.8)
+                    .stroke(CpColor.accent, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                    .rotationEffect(.degrees(turn - 90))
+                    .padding(9)
+            }
+            .frame(width: 36, height: 36)
         }
         .accessibilityHidden(true)
     }
 }
 
-/// 책장 목록이 튕기지 않게 한다. 맨 위에서 당기면 목록 전체(맨 위 테두리 · 첫 판)가 끌려 내려가, 그 위로 빈 나무 벽이
-/// 드러나고 고정된 양옆 기둥과 틀이 어긋났다(실기기, 사용자: 심각). 테두리만 붙들어 두어도 첫 판이 내려와 벽이 벌어졌다 —
-/// 책장은 움직이지 않는 가구라 당겨지지 않는 것이 맞다. 그래서 책장 보기에는 당겨서 새로고침도 두지 않는다(안드로이드에도 없다).
-/// SwiftUI 에는 튕김만 끄는 수단이 없어(scrollBounceBehavior 는 내용이 화면보다 길면 듣지 않는다) 감싼 UIScrollView 를 찾아 끈다.
-struct NoScrollBounce: UIViewRepresentable {
-    func makeUIView(context: Context) -> UIView { Probe() }
-    func updateUIView(_ uiView: UIView, context: Context) {}
+/// 책장 목록의 UIScrollView 를 찾아 튕김을 끄고, 맨 위에서 아래로 끄는 손가락의 이동을 당김으로 알린다.
+/// SwiftUI 에는 튕김만 끄는 수단이 없다(scrollBounceBehavior 는 내용이 화면보다 길면 듣지 않는다 — 책장은 빈 칸으로 늘 길다).
+struct ShelfPullProbe: UIViewRepresentable {
+    let link: ShelfPull
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeUIView(context: Context) -> UIView {
+        let probe = Probe()
+        probe.coordinator = context.coordinator
+        return probe
+    }
+    func updateUIView(_ uiView: UIView, context: Context) { context.coordinator.link = link }
+
+    final class Coordinator: NSObject {
+        var link = ShelfPull()
+        weak var scroll: UIScrollView?
+        /// 맨 위에 닿았을 때의 손가락 위치. 굴리다가 맨 위에 닿아도 그때부터 당김을 센다(시스템과 같다).
+        private var base: CGFloat?
+        private var last: CGFloat = 0
+
+        func attach(_ s: UIScrollView) {
+            guard scroll !== s else { return }
+            scroll?.panGestureRecognizer.removeTarget(self, action: #selector(pan))
+            scroll = s
+            s.bounces = false
+            s.alwaysBounceVertical = false
+            s.panGestureRecognizer.addTarget(self, action: #selector(pan))
+        }
+
+        @objc private func pan(_ g: UIPanGestureRecognizer) {
+            guard let s = scroll else { return }
+            let atTop = s.contentOffset.y <= -s.adjustedContentInset.top + 0.5
+            let y = g.translation(in: s).y
+            switch g.state {
+            case .began:
+                base = nil
+            case .changed:
+                if !atTop { base = nil }
+                else if base == nil { base = y }
+                let p = base.map { max(0, y - $0) } ?? 0
+                if p != last { last = p; link.changed(p) }
+            default:
+                if last > 0 || base != nil { link.released(last) }
+                base = nil
+                last = 0
+            }
+        }
+    }
 
     private final class Probe: UIView {
+        weak var coordinator: Coordinator?
         override func didMoveToWindow() {
             super.didMoveToWindow()
             var view = superview
             while let v = view, !(v is UIScrollView) { view = v.superview }
-            guard let scroll = view as? UIScrollView else { return }
-            scroll.bounces = false
-            scroll.alwaysBounceVertical = false
+            if let scroll = view as? UIScrollView { coordinator?.attach(scroll) }
         }
     }
 }
