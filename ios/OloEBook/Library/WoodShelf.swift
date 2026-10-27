@@ -240,7 +240,7 @@ struct ShelfWall<Content: View>: View {
 }
 
 /// 책장 맨 위 테두리: 기둥과 같은 짙은 나무로 책장 틀을 닫는다. 목록 맨 앞에 한 번만.
-/// 당기는 동안에는 테두리가 그만큼 두꺼워진다(ShelfPull.stretch, 최대 10pt) — 테두리와 첫 판 사이가 벌어지지 않고 틀이 닫힌 채
+/// 당기는 동안에는 테두리가 그만큼 두꺼워진다(ShelfPull.stretch, 최대 5pt) — 테두리와 첫 판 사이가 벌어지지 않고 틀이 닫힌 채
 /// 책장 전체가 조금 내려앉는다.
 struct ShelfCrown: View {
     @Environment(\.colorScheme) private var scheme
@@ -262,13 +262,13 @@ struct ShelfCrown: View {
 /// 드러나고 고정된 양옆 기둥과 틀이 어긋났다(실기기, 사용자: 심각). 그렇다고 아예 막으면 새로고침이 없다. 그래서:
 /// - 목록은 튕기지 않는다. 당김은 손가락의 이동으로만 잰다(ShelfPullProbe).
 /// - 책장은 손가락을 따라가지 않고 고무줄처럼 조금만 내려앉는다: f(x) = x·d·c / (d + c·x), c = 0.55(UIScrollView 의 고무줄
-///   상수로 알려진 값), d = 10pt 가 끝값. 문턱(64pt)에서 약 8pt — 눈에 띄되 벽이 드러나지 않는 정도.
+///   상수로 알려진 값), d = 5pt 가 끝값(사용자 결정, 처음 10pt 는 과했다). 문턱(64pt)에서 약 4.4pt — 알아챌 만큼만.
 /// - 당긴 정도와 새로고침 중임은 위에서 내려오는 작은 원판이 보인다(안드로이드 SwipeRefreshLayout 처럼 내용 대신 표시가 움직인다).
 ///   문턱은 그 기본값 64dp 와 같은 64pt, 넘는 순간 가벼운 진동(시스템 새로고침과 같다).
 /// - 놓으면 용수철로 돌아온다. 새로고침이 금방 끝나도 원판은 0.6초 돈다 — 그보다 짧으면 깜박임으로만 보여 됐는지 모른다.
 struct ShelfPull {
     static let trigger: CGFloat = 64
-    static let maxStretch: CGFloat = 10
+    static let maxStretch: CGFloat = 5
 
     var stretch: CGFloat = 0
     var changed: (CGFloat) -> Void = { _ in }
