@@ -249,6 +249,13 @@ struct ShelfCrown: View {
                 .frame(height: ShelfMetrics.crown)
             Color.black.opacity(0.33).frame(height: 1)
         }
+        // 당겨서 새로고침 · 맨 위에서 튕길 때는 테두리를 화면 맨 위에 붙여 둔다. 목록의 첫 줄이라 함께 끌려 내려가, 그 위로 나무
+        // 벽이 드러나고 고정된 양옆 기둥과 틀이 어긋났다(실기기, 사용자: 심각). 평소 굴리기(위로)는 그대로 — 테두리도 목록과 함께
+        // 올라간다(안드로이드와 같다). 안드로이드에는 당겨서 새로고침이 없어 생기지 않는다.
+        .visualEffect { content, proxy in
+            content.offset(y: -max(0, proxy.frame(in: .scrollView).minY))
+        }
+        .zIndex(1)
         .accessibilityHidden(true)
     }
 }
